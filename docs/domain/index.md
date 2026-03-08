@@ -70,6 +70,7 @@ When creating or removing a domain doc, update the relevant table in this index.
 |----------|------|-------------|
 | Bash Entrypoint | `bash-entrypoint.md` | Entrypoint script behavior, binary location, fail-closed semantics, bypass, hook registration |
 | Bun Runtime | `bun-runtime.md` | Compile targets, startup performance, binary sizes, platform gotchas |
+| Config System | `config.md` | Config format, parsing, validation, merging, resolution rules |
 | Claude Code Hooks — Overview | `claude-code-hooks/overview.md` | Configuration schema, 4 handler types, hook locations, environment variables |
 | Claude Code Hooks — Events | `claude-code-hooks/events.md` | All 18 lifecycle events: matchers, input fields, decision control |
 | Claude Code Hooks — I/O Contract | `claude-code-hooks/io-contract.md` | Exit codes, JSON output, decision patterns, tool_input schemas |

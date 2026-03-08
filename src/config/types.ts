@@ -1,0 +1,56 @@
+export type ErrorMode = "block" | "continue"
+
+/**
+ * The validated, typed config returned by loadConfig().
+ *
+ * This is NOT the raw YAML shape. The raw YAML has a flat top-level where
+ * hook entries and event entries are mixed with reserved keys (version, config).
+ * After validation, they are separated into distinct typed maps.
+ */
+export interface ClooksConfig {
+  /** Semver version string from the config file. */
+  version: string
+
+  /** Global settings from the top-level `config:` key. */
+  global: GlobalConfig
+
+  /**
+   * Hook entries keyed by hook name. Each entry contains config overrides,
+   * a resolved file path, and per-hook options (timeout, onError, parallel).
+   */
+  hooks: Record<string, HookEntry>
+
+  /**
+   * Per-event configuration keyed by event name (e.g., "PreToolUse").
+   * Controls execution order, timeout, and error handling for all hooks
+   * registered to that event.
+   */
+  events: Record<string, EventEntry>
+}
+
+export interface GlobalConfig {
+  timeout: number
+  onError: ErrorMode
+}
+
+export interface HookEntry {
+  /** Resolved file path, relative to project root. */
+  resolvedPath: string
+  /** Config overrides from clooks.yml (shallow-merged with hook's meta.config at load time). */
+  config: Record<string, unknown>
+  /** Per-hook timeout in ms, if set. */
+  timeout?: number
+  /** Per-hook error handling override, if set. */
+  onError?: ErrorMode
+  /** If true, runs independently of the sequential pipeline. Default false. */
+  parallel: boolean
+}
+
+export interface EventEntry {
+  /** Explicit execution order for hooks registered to this event. */
+  order?: string[]
+  /** Per-event timeout in ms. */
+  timeout?: number
+  /** Per-event error handling override. */
+  onError?: ErrorMode
+}

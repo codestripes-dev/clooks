@@ -49,6 +49,10 @@ The engine normalizes Claude Code's snake_case JSON payload into camelCase conte
 
 After generic key normalization, the engine applies one domain-specific rename: `hookEventName` → `event`. Claude Code sends `hook_event_name` which normalizes to `hookEventName`, but the context types use `event` as the discriminant field. This rename happens in the engine, not in the normalize utility.
 
+### Config overrides and meta.config
+
+Hook `meta.config` defaults are shallow-merged with config overrides from `clooks.yml` at hook loading time (FEAT-0003). The config system (`src/config/`) parses and validates these overrides, storing them in `HookEntry.config`. The actual merge with `meta.config` defaults happens when the engine imports the hook file and reads its `meta` export. The `deepMerge` utility from `src/config/merge.ts` can be reused for this purpose.
+
 ### Two type layers
 
 The codebase has two distinct type layers:
