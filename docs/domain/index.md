@@ -90,3 +90,4 @@ When creating or removing a domain doc, update the relevant table in this index.
 
 | Document | Path | Description |
 |----------|------|-------------|
+| Tools | `tools.md` | Mise tool management, install vs use gotcha, shell activation |

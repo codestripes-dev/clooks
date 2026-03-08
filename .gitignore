@@ -4,6 +4,3 @@ tmp/*
 node_modules/
 dist/
 *.tsbuildinfo
-
-# Created by demo hook during test runs (not the user project config directory)
-.clooks/
