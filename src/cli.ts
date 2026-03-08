@@ -1,4 +1,5 @@
 import { VERSION } from './index'
+import { runEngine } from './engine.js'
 
 const args = process.argv.slice(2)
 
@@ -21,6 +22,6 @@ if (args.includes('--help') || args.includes('-h')) {
   process.exit(0)
 }
 
-// Future: read stdin JSON, load config, execute hooks
-console.error('clooks: not yet implemented')
-process.exit(1)
+// No CLI flags — run the hook execution engine.
+// Reads stdin JSON, matches against hooks, executes, and writes stdout.
+runEngine()

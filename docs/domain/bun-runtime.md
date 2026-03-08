@@ -8,7 +8,8 @@ Clooks uses Bun as its runtime — both for the compiled CLI binary and for exec
 
 ## Key Files
 
-- `src/cli.ts` — Build entrypoint for the compiled binary. This is the file passed to `bun build --compile`.
+- `src/cli.ts` — Build entrypoint for the compiled binary. This is the file passed to `bun build --compile`. Handles `--version` and `--help` flags, then delegates to the engine.
+- `src/engine.ts` — Hook execution engine. Reads stdin JSON, matches events against hooks, executes matching hooks, and writes the response to stdout. Uses fail-closed error handling (exit code 2 on any failure).
 - `src/index.ts` — Module root. Exports the `VERSION` constant.
 - `dist/clooks` — Compiled binary output (gitignored). Produced by `bun run build`.
 - `package.json` — Build script: `mkdir -p dist && bun build --compile --outfile dist/clooks src/cli.ts`.
