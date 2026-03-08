@@ -69,3 +69,7 @@ This project uses agentic-driven development with a clear separation between fea
 3. **Domain knowledge** lives in `docs/domain/`. Plans must consult and update domain docs as part of implementation. The ordering is strict: **plan → implement → update knowledge**.
 
 4. **Findings** are logged in real-time to `docs/findings/` whenever you hit snags: knowledge gaps, code quality issues, test gaps, stale docs, or tooling friction. Read `docs/findings/index.md` for format and severity levels. Remove findings once the underlying issue is resolved. **CRITICAL: Read `docs/findings/index.md` at the start of every session.**
+
+## Temporary Files
+
+Use `tmp/` in the repository root for any temporary scripts, spike code, or throwaway files. Always persist multi-line scripts to `tmp/` first rather than running them inline — this makes them easy to reuse, modify, and re-run. Use a descriptive subfolder (e.g., `tmp/test-hook-output/`) to keep things organized. The directory is gitignored.
