@@ -68,6 +68,9 @@ When creating or removing a domain doc, update the relevant table in this index.
 
 | Document | Path | Description |
 |----------|------|-------------|
+| Claude Code Hooks | `claude-code-hooks.md` | Native hook system reference: 18 events, 4 hook types, I/O contract, behaviors, gotchas |
+| Cross-Agent Hooks | `cross-agent-hooks.md` | Hook systems across Claude Code, Cursor, Windsurf, VS Code Copilot with event mapping |
+| Bun Runtime | `bun-runtime.md` | Compile targets, startup performance, binary sizes, platform gotchas |
 
 ## Patterns & Conventions
 
