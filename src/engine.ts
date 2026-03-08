@@ -13,7 +13,10 @@ import type { ClaudeCodeOutput, PreToolUseOutput } from "./types/claude-code.js"
 import { normalizeKeys } from "./normalize.js";
 import { hook } from "./hooks/log-bash-commands.js";
 
-// Event categories for result translation
+// Event categories for result translation.
+// Note: The complete set of all 18 event names lives in src/config/constants.ts
+// (CLAUDE_CODE_EVENTS), used for config key discrimination. These categorized
+// subsets are used for result translation. Both must stay in sync.
 const GUARD_EVENTS = new Set([
   "PreToolUse",
   "UserPromptSubmit",
