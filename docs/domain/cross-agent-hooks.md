@@ -32,7 +32,7 @@ These commonalities make a normalization layer feasible.
 
 ### Claude Code
 
-The most mature hook system. See [claude-code-hooks.md](./claude-code-hooks.md) for full details.
+The most mature hook system. See [claude-code-hooks/overview.md](./claude-code-hooks/overview.md) for full details.
 
 - **18 lifecycle events**
 - **4 hook types:** command, HTTP, prompt, agent
@@ -154,5 +154,5 @@ Clooks should expose these as agent-specific capabilities, not core contract fea
 
 ## Related
 
-- [claude-code-hooks.md](./claude-code-hooks.md) — Detailed Claude Code hook reference
+- [claude-code-hooks/overview.md](./claude-code-hooks/overview.md) — Detailed Claude Code hook reference
 - [PRODUCT_EXPLORATION.md](../../PRODUCT_EXPLORATION.md) — Clooks product design
