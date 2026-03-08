@@ -10,44 +10,148 @@
 // This module is imported by src/cli.ts (the compiled binary entry point).
 
 import type { ClaudeCodeOutput, PreToolUseOutput } from "./types/claude-code.js";
-import type { HookResult } from "./types/hook.js";
-import * as hookModule from "./hooks/log-bash-commands.js";
+import { normalizeKeys } from "./normalize.js";
+import { hook } from "./hooks/log-bash-commands.js";
+
+// Event categories for result translation
+const GUARD_EVENTS = new Set([
+  "PreToolUse",
+  "UserPromptSubmit",
+  "PermissionRequest",
+  "Stop",
+  "SubagentStop",
+  "ConfigChange",
+]);
+
+const OBSERVE_EVENTS = new Set([
+  "SessionStart",
+  "SessionEnd",
+  "InstructionsLoaded",
+  "PostToolUse",
+  "PostToolUseFailure",
+  "Notification",
+  "SubagentStart",
+  "WorktreeRemove",
+  "PreCompact",
+]);
+
+const CONTINUATION_EVENTS = new Set(["TeammateIdle", "TaskCompleted"]);
+
+// Events that support injectContext → additionalContext
+const INJECTABLE_EVENTS = new Set([
+  "PreToolUse",
+  "UserPromptSubmit",
+  "SessionStart",
+  "PostToolUse",
+  "PostToolUseFailure",
+  "Notification",
+  "SubagentStart",
+]);
 
 /**
- * Translates a HookResult into a ClaudeCodeOutput suitable for stdout.
+ * Translates a hook result into engine output (stdout string, exit code, stderr).
  *
- * This translation is intentionally hardcoded for PreToolUse in this MVP.
- * Other events use different output formats:
- * - UserPromptSubmit, PostToolUse, Stop, SubagentStop, ConfigChange:
- *   top-level { decision: "block", reason: "..." }
- * - TeammateIdle, TaskCompleted:
- *   { continue: false, stopReason: "..." }
- * - PreToolUse:
- *   { hookSpecificOutput: { permissionDecision, permissionDecisionReason, ... } }
- *
- * When hooks for other events are added, this function will need to accept
- * the event name and select the correct output format.
+ * The translation is event-aware: different event categories use different
+ * Claude Code output formats.
  *
  * Exported for unit testing.
  */
 export function translateResult(
-  result: HookResult
-): ClaudeCodeOutput {
-  const hookOutput: PreToolUseOutput = {
-    permissionDecision: result.decision,
-  };
-  if (result.reason) {
-    hookOutput.permissionDecisionReason = result.reason;
-  }
-  if (result.updatedInput) {
-    hookOutput.updatedInput = result.updatedInput;
-  }
-  if (result.additionalContext) {
-    hookOutput.additionalContext = result.additionalContext;
+  eventName: string,
+  result: Record<string, unknown>
+): { output?: string; exitCode: number; stderr?: string } {
+  const resultType = result.result as string;
+
+  // --- PreToolUse: uses hookSpecificOutput ---
+  if (eventName === "PreToolUse") {
+    if (resultType === "block") {
+      return {
+        exitCode: 2,
+        stderr: (result.reason as string) ?? "clooks: action blocked by hook",
+      };
+    }
+    if (resultType === "skip") {
+      return { exitCode: 0 };
+    }
+    if (resultType === "allow") {
+      const hookOutput: PreToolUseOutput = {
+        permissionDecision: "allow",
+      };
+      if (result.injectContext) {
+        hookOutput.additionalContext = result.injectContext as string;
+      }
+      const output: ClaudeCodeOutput = { hookSpecificOutput: hookOutput };
+      return { output: JSON.stringify(output), exitCode: 0 };
+    }
   }
 
+  // --- Other guard events: block → exit 2, allow/skip → exit 0 ---
+  if (GUARD_EVENTS.has(eventName)) {
+    if (resultType === "block") {
+      return {
+        exitCode: 2,
+        stderr: (result.reason as string) ?? "clooks: action blocked by hook",
+      };
+    }
+    if (resultType === "allow" || resultType === "skip") {
+      if (result.injectContext && INJECTABLE_EVENTS.has(eventName)) {
+        const output: ClaudeCodeOutput = {
+          additionalContext: result.injectContext as string,
+        };
+        return { output: JSON.stringify(output), exitCode: 0 };
+      }
+      return { exitCode: 0 };
+    }
+  }
+
+  // --- Observe events: only skip is valid → exit 0 ---
+  if (OBSERVE_EVENTS.has(eventName)) {
+    if (result.injectContext && INJECTABLE_EVENTS.has(eventName)) {
+      const output: ClaudeCodeOutput = {
+        additionalContext: result.injectContext as string,
+      };
+      return { output: JSON.stringify(output), exitCode: 0 };
+    }
+    return { exitCode: 0 };
+  }
+
+  // --- WorktreeCreate: success → stdout path, failure → exit 1 ---
+  if (eventName === "WorktreeCreate") {
+    if (resultType === "success") {
+      return { output: result.path as string, exitCode: 0 };
+    }
+    if (resultType === "failure") {
+      return {
+        exitCode: 1,
+        stderr: (result.reason as string) ?? "clooks: worktree creation failed",
+      };
+    }
+  }
+
+  // --- Continuation events: continue → exit 2 + stderr, stop → JSON, skip → exit 0 ---
+  if (CONTINUATION_EVENTS.has(eventName)) {
+    if (resultType === "continue") {
+      return {
+        exitCode: 2,
+        stderr: result.feedback as string,
+      };
+    }
+    if (resultType === "stop") {
+      const output: ClaudeCodeOutput = {
+        continue: false,
+        stopReason: result.reason as string,
+      };
+      return { output: JSON.stringify(output), exitCode: 0 };
+    }
+    if (resultType === "skip") {
+      return { exitCode: 0 };
+    }
+  }
+
+  // Unknown result — fail-closed
   return {
-    hookSpecificOutput: hookOutput,
+    exitCode: 2,
+    stderr: `clooks: hook returned unknown result type: ${String(resultType)}`,
   };
 }
 
@@ -92,48 +196,46 @@ export async function runEngine(): Promise<void> {
       process.exit(2);
     }
 
-    // --- Match event against hook ---
-    if (!hookModule.meta.events.includes(eventName)) {
-      // No hooks match this event. Exit cleanly — Claude Code proceeds normally.
+    // --- Discover handler on hook object ---
+    const handler = hook[eventName as keyof typeof hook];
+    if (typeof handler !== "function") {
+      // No handler for this event. Exit cleanly — Claude Code proceeds normally.
       process.exit(0);
     }
 
+    // --- Normalize payload: snake_case → camelCase ---
+    const normalized = normalizeKeys(payload);
+    // Domain-specific rename: hookEventName → event
+    normalized.event = normalized.hookEventName;
+    delete normalized.hookEventName;
+
     // --- Execute the hook ---
-    const result: HookResult | undefined = await hookModule.default(
-      payload as Parameters<typeof hookModule.default>[0]
-    );
+    const config = hook.meta.config ?? ({} as Record<string, unknown>);
+    const result = await (handler as Function)(normalized, config);
 
     // --- Translate result to Claude Code output ---
     if (result === undefined || result === null) {
-      // Hook had no opinion. Exit cleanly.
       process.exit(0);
     }
 
-    if (result.decision === "deny") {
-      // Block the action. Write reason to stderr, exit 2.
-      const reason = result.reason ?? "clooks: action denied by hook";
-      process.stderr.write(`${reason}\n`);
-      process.exit(2);
-    }
-
-    if (result.decision === "allow" || result.decision === "ask") {
-      const output = translateResult(result);
-      const json = JSON.stringify(output);
-      // Use process.stdout.write + process.exitCode for safe flushing.
-      // See docs/research/process-exit-stdout-flushing.md — process.exit()
-      // after process.stdout.write() can truncate at 64KB through pipes.
-      // Setting process.exitCode and letting the process exit naturally
-      // ensures stdout drains fully.
-      process.stdout.write(json + "\n");
-      process.exitCode = 0;
-      return;
-    }
-
-    // Unknown decision value — fail-closed
-    process.stderr.write(
-      `clooks: hook returned unknown decision: ${String(result.decision)}\n`
+    const translated = translateResult(
+      eventName,
+      result as Record<string, unknown>
     );
-    process.exit(2);
+
+    if (translated.stderr) {
+      process.stderr.write(`${translated.stderr}\n`);
+    }
+
+    if (translated.output) {
+      process.stdout.write(translated.output + "\n");
+    }
+
+    if (translated.exitCode !== 0) {
+      process.exit(translated.exitCode);
+    }
+
+    process.exitCode = 0;
   } catch (e: unknown) {
     const message =
       e instanceof Error ? e.message : String(e);
