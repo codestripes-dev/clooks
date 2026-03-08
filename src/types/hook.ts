@@ -1,56 +1,85 @@
-// The hook module contract. Every hook file must conform to this shape.
-// Reference: PRODUCT_EXPLORATION.md, section "The Hook File Contract"
+// The ClooksHook contract. A hook file exports a single typed object.
+// Reference: docs/plans/2026-03-08-hook-type-system-design.md
 
-import type { ClaudeCodeCommonInput } from "./claude-code.js";
+import type {
+  PreToolUseContext,
+  UserPromptSubmitContext,
+  PermissionRequestContext,
+  StopContext,
+  SubagentStopContext,
+  ConfigChangeContext,
+  SessionStartContext,
+  SessionEndContext,
+  InstructionsLoadedContext,
+  PostToolUseContext,
+  PostToolUseFailureContext,
+  NotificationContext,
+  SubagentStartContext,
+  WorktreeRemoveContext,
+  PreCompactContext,
+  WorktreeCreateContext,
+  TeammateIdleContext,
+  TaskCompletedContext,
+} from "./contexts.js"
 
-/**
- * Metadata exported by a hook file as a named export called "meta".
- * Declares the hook's identity and which events it handles.
- */
-export interface HookMeta {
-  /** Human-readable name for this hook. Must be unique within a project. */
-  name: string;
+import type {
+  PreToolUseResult,
+  UserPromptSubmitResult,
+  PermissionRequestResult,
+  StopEventResult,
+  SubagentStopResult,
+  ConfigChangeResult,
+  SessionStartResult,
+  SessionEndResult,
+  InstructionsLoadedResult,
+  PostToolUseResult,
+  PostToolUseFailureResult,
+  NotificationResult,
+  SubagentStartResult,
+  WorktreeRemoveResult,
+  PreCompactResult,
+  WorktreeCreateResult,
+  TeammateIdleResult,
+  TaskCompletedResult,
+} from "./results.js"
 
-  /** Which Claude Code events this hook wants to receive. */
-  events: string[];
+export type MaybeAsync<T> = T | Promise<T>
 
-  /** Optional human-readable description. */
-  description?: string;
+export interface HookMeta<C extends Record<string, unknown> = Record<string, unknown>> {
+  /** Human-readable name. Must be unique within a project. */
+  name: string
+  /** Optional description. */
+  description?: string
+  /** Config defaults. Must satisfy the Config interface. */
+  config?: C
 }
 
-/**
- * The result a hook handler returns to express its decision.
- * Returning undefined means "no opinion" -- the engine treats this as a pass-through.
- */
-export interface HookResult {
-  /** The hook's decision: allow the action, deny it, or ask the user. */
-  decision: "allow" | "deny" | "ask";
+export interface ClooksHook<C extends Record<string, unknown> = Record<string, unknown>> {
+  meta: HookMeta<C>
 
-  /** A human-readable reason for the decision. Shown to Claude (for deny) or the user (for allow/ask). */
-  reason?: string;
+  // Guard events
+  PreToolUse?: (ctx: PreToolUseContext, config: C) => MaybeAsync<PreToolUseResult>
+  UserPromptSubmit?: (ctx: UserPromptSubmitContext, config: C) => MaybeAsync<UserPromptSubmitResult>
+  PermissionRequest?: (ctx: PermissionRequestContext, config: C) => MaybeAsync<PermissionRequestResult>
+  Stop?: (ctx: StopContext, config: C) => MaybeAsync<StopEventResult>
+  SubagentStop?: (ctx: SubagentStopContext, config: C) => MaybeAsync<SubagentStopResult>
+  ConfigChange?: (ctx: ConfigChangeContext, config: C) => MaybeAsync<ConfigChangeResult>
 
-  /** Modified tool input. Only meaningful for PreToolUse. Replaces the original tool_input. */
-  updatedInput?: Record<string, unknown>;
+  // Observe events
+  SessionStart?: (ctx: SessionStartContext, config: C) => MaybeAsync<SessionStartResult>
+  SessionEnd?: (ctx: SessionEndContext, config: C) => MaybeAsync<SessionEndResult>
+  InstructionsLoaded?: (ctx: InstructionsLoadedContext, config: C) => MaybeAsync<InstructionsLoadedResult>
+  PostToolUse?: (ctx: PostToolUseContext, config: C) => MaybeAsync<PostToolUseResult>
+  PostToolUseFailure?: (ctx: PostToolUseFailureContext, config: C) => MaybeAsync<PostToolUseFailureResult>
+  Notification?: (ctx: NotificationContext, config: C) => MaybeAsync<NotificationResult>
+  SubagentStart?: (ctx: SubagentStartContext, config: C) => MaybeAsync<SubagentStartResult>
+  WorktreeRemove?: (ctx: WorktreeRemoveContext, config: C) => MaybeAsync<WorktreeRemoveResult>
+  PreCompact?: (ctx: PreCompactContext, config: C) => MaybeAsync<PreCompactResult>
 
-  /** Additional context injected into Claude's conversation. */
-  additionalContext?: string;
-}
+  // Implementation events
+  WorktreeCreate?: (ctx: WorktreeCreateContext, config: C) => MaybeAsync<WorktreeCreateResult>
 
-/**
- * The handler function signature. Receives the full Claude Code event payload
- * and returns a HookResult (or undefined for no opinion).
- * May be synchronous or asynchronous.
- */
-export type HookHandler = (
-  input: ClaudeCodeCommonInput & Record<string, unknown>
-) => HookResult | undefined | Promise<HookResult | undefined>;
-
-/**
- * The shape of a hook module. Every hook .ts file must have:
- * - A named export "meta" conforming to HookMeta
- * - A default export that is a HookHandler function
- */
-export interface HookModule {
-  meta: HookMeta;
-  default: HookHandler;
+  // Continuation events
+  TeammateIdle?: (ctx: TeammateIdleContext, config: C) => MaybeAsync<TeammateIdleResult>
+  TaskCompleted?: (ctx: TaskCompletedContext, config: C) => MaybeAsync<TaskCompletedResult>
 }
