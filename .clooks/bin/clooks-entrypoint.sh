@@ -19,9 +19,9 @@ MSG
   exit 2
 fi
 
-# Delegate to the binary. The && / || idiom captures the exit code
-# without triggering set -e on non-zero exits.
-"$CLOOKS_BIN" "$@" && binary_exit=0 || binary_exit=$?
+# Delegate to the binary. It reads hook_event_name from stdin JSON.
+# The && / || idiom captures the exit code without triggering set -e.
+"$CLOOKS_BIN" && binary_exit=0 || binary_exit=$?
 
 # Fail-closed exit code translation:
 #   0 → success (pass through)
