@@ -20,7 +20,7 @@ export class CancelError extends Error {
  * @clack/prompts does NOT check for TTY internally — prompts hang
  * on non-TTY stdin. We must guard against this.
  */
-function isNonInteractive(ctx: OutputContext): boolean {
+export function isNonInteractive(ctx: OutputContext): boolean {
   return ctx.json || !process.stdin.isTTY
 }
 
