@@ -52,8 +52,10 @@ export async function loadHook(
   hookName: HookName,
   entry: HookEntry,
   projectRoot: string,
+  homeRoot: string = projectRoot,
 ): Promise<LoadedHook> {
-  const absolutePath = resolve(projectRoot, entry.resolvedPath)
+  const basePath = entry.origin === "home" ? homeRoot : projectRoot
+  const absolutePath = resolve(basePath, entry.resolvedPath)
 
   let mod: Record<string, unknown>
   try {
@@ -113,6 +115,7 @@ export interface LoadAllHooksResult {
 export async function loadAllHooks(
   config: ClooksConfig,
   projectRoot: string,
+  homeRoot: string = projectRoot,
 ): Promise<LoadAllHooksResult> {
   // Object.entries() erases Record key types to string (TypeScript#35101).
   // Safe boundary cast: keys originate from validated config parsing.
@@ -120,7 +123,7 @@ export async function loadAllHooks(
   if (entries.length === 0) return { loaded: [], loadErrors: [] }
 
   const results = await Promise.allSettled(
-    entries.map(([name, entry]) => loadHook(name, entry, projectRoot)),
+    entries.map(([name, entry]) => loadHook(name, entry, projectRoot, homeRoot)),
   )
 
   const loaded: LoadedHook[] = []

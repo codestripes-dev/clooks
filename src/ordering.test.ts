@@ -180,6 +180,63 @@ describe("orderHooksForEvent", () => {
   })
 })
 
+describe("home-first default ordering", () => {
+  test("home hooks appear before project hooks in default ordering (all sequential)", () => {
+    // Home hooks come first in the matched array (insertion order from merge)
+    const matched = [
+      makeLoaded("home-hook-a"),
+      makeLoaded("home-hook-b"),
+      makeLoaded("project-hook-c"),
+      makeLoaded("project-hook-d"),
+    ]
+    const hookEntries = makeEntries({
+      "home-hook-a": { ...makeEntry(false), origin: "home" as const },
+      "home-hook-b": { ...makeEntry(false), origin: "home" as const },
+      "project-hook-c": makeEntry(false),
+      "project-hook-d": makeEntry(false),
+    })
+
+    const result = orderHooksForEvent(matched, undefined, hookEntries, "PreToolUse")
+
+    // With no order list and all sequential, declaration order is preserved
+    expect(names(result)).toEqual(["home-hook-a", "home-hook-b", "project-hook-c", "project-hook-d"])
+  })
+
+  test("home hooks appear before project hooks with mixed parallel/sequential", () => {
+    // Mixed origins and parallel flags — parallel hoisted, but within each group
+    // the original insertion order (home before project) is preserved
+    const matched = [
+      makeLoaded("home-par"),
+      makeLoaded("home-seq"),
+      makeLoaded("project-par"),
+      makeLoaded("project-seq"),
+    ]
+    const hookEntries = makeEntries({
+      "home-par": { ...makeEntry(true), origin: "home" as const },
+      "home-seq": { ...makeEntry(false), origin: "home" as const },
+      "project-par": makeEntry(true),
+      "project-seq": makeEntry(false),
+    })
+
+    const result = orderHooksForEvent(matched, undefined, hookEntries, "PreToolUse")
+
+    // Parallel first (home-par before project-par), then sequential (home-seq before project-seq)
+    expect(names(result)).toEqual(["home-par", "project-par", "home-seq", "project-seq"])
+  })
+
+  test("Record insertion order preserves home-first from merge", () => {
+    // Verify that Object.entries preserves insertion order for string keys
+    const hooks: Record<string, HookEntry> = {}
+    hooks["home-a"] = { ...makeEntry(false), origin: "home" as const }
+    hooks["home-b"] = { ...makeEntry(false), origin: "home" as const }
+    hooks["project-c"] = makeEntry(false)
+    hooks["project-d"] = makeEntry(false)
+
+    const keys = Object.keys(hooks)
+    expect(keys).toEqual(["home-a", "home-b", "project-c", "project-d"])
+  })
+})
+
 describe("partitionIntoGroups", () => {
   /** Create a minimal OrderedHook for partitioning tests. */
   function makeOrdered(name: string, parallel: boolean): OrderedHook {
