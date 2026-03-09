@@ -1,3 +1,5 @@
+import type { EventName } from "../types/branded.js"
+
 // The 18 Claude Code event names. These are reserved — they cannot be
 // used as hook names in clooks.yml because they have special meaning
 // as per-event configuration entries.
@@ -5,7 +7,7 @@
 // Note: The engine (src/engine.ts) defines categorized subsets of these
 // events (GUARD_EVENTS, OBSERVE_EVENTS, CONTINUATION_EVENTS) for result
 // translation. Both sets must stay in sync.
-export const CLAUDE_CODE_EVENTS: Set<string> = new Set([
+export const CLAUDE_CODE_EVENTS: Set<EventName> = new Set<EventName>([
   "PreToolUse",
   "PostToolUse",
   "UserPromptSubmit",
@@ -26,6 +28,11 @@ export const CLAUDE_CODE_EVENTS: Set<string> = new Set([
   "TaskCompleted",
 ])
 
+/** Type guard: narrows a runtime string to EventName. */
+export function isEventName(s: string): s is EventName {
+  return CLAUDE_CODE_EVENTS.has(s as EventName)
+}
+
 // Top-level keys that are not hook entries and not event entries.
 export const RESERVED_CONFIG_KEYS = new Set([
   "version",
@@ -34,7 +41,7 @@ export const RESERVED_CONFIG_KEYS = new Set([
 ])
 
 // Events that support injectContext → additionalContext
-export const INJECTABLE_EVENTS = new Set([
+export const INJECTABLE_EVENTS: Set<EventName> = new Set<EventName>([
   "PreToolUse",
   "UserPromptSubmit",
   "SessionStart",

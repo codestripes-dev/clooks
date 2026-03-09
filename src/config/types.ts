@@ -1,3 +1,5 @@
+import type { EventName } from "../types/branded.js"
+
 export type ErrorMode = "block" | "continue" | "trace"
 
 /**
@@ -24,7 +26,7 @@ export interface ClooksConfig {
    * Per-event configuration keyed by event name (e.g., "PreToolUse").
    * Controls execution order for hooks registered to that event.
    */
-  events: Record<string, EventEntry>
+  events: Partial<Record<EventName, EventEntry>>
 }
 
 export interface GlobalConfig {
@@ -50,7 +52,7 @@ export interface HookEntry {
   /** Per-hook override for the reminder message template. */
   maxFailuresMessage?: string
   /** Per-hook, per-event overrides. Currently only onError is supported. */
-  events?: Record<string, { onError?: ErrorMode }>
+  events?: Partial<Record<EventName, { onError?: ErrorMode }>>
 }
 
 export interface EventEntry {

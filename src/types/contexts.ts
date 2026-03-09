@@ -2,6 +2,7 @@
 // The `event` field is the discriminant literal for each context type.
 
 import type {
+  EventName,
   PermissionMode,
   SessionStartSource,
   SessionEndReason,
@@ -13,7 +14,7 @@ import type {
 } from "./branded.js"
 
 export interface BaseContext {
-  event: string
+  event: EventName
   sessionId: string
   cwd: string
   permissionMode: PermissionMode

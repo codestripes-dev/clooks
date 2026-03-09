@@ -1,5 +1,6 @@
 import { join } from "path"
 import { unlink } from "fs/promises"
+import type { EventName } from "./types/branded.js"
 
 export interface HookEventFailure {
   consecutiveFailures: number
@@ -8,7 +9,7 @@ export interface HookEventFailure {
 }
 
 // Top-level: hook name → event name → failure data
-export type FailureState = Record<string, Record<string, HookEventFailure>>
+export type FailureState = Record<string, Partial<Record<EventName, HookEventFailure>>>
 
 const FAILURES_PATH = ".clooks/.failures"
 
@@ -48,6 +49,9 @@ export async function readFailures(projectRoot: string): Promise<FailureState> {
     return {}
   }
 
+  // Deserialization boundary: cast from untyped JSON into branded types.
+  // Safe because the failure state file is written exclusively by the engine
+  // (via writeFailures()), so the data is known to conform.
   return parsed as FailureState
 }
 
@@ -72,7 +76,7 @@ export async function writeFailures(
 export function recordFailure(
   state: FailureState,
   hookName: string,
-  eventName: string,
+  eventName: EventName,
   error: string,
 ): FailureState {
   const existing = state[hookName]?.[eventName]
@@ -93,7 +97,7 @@ export function recordFailure(
 export function clearFailure(
   state: FailureState,
   hookName: string,
-  eventName: string,
+  eventName: EventName,
 ): FailureState {
   const hookEvents = state[hookName]
   if (!hookEvents || !(eventName in hookEvents)) {
@@ -116,7 +120,7 @@ export function clearFailure(
 export function getFailureCount(
   state: FailureState,
   hookName: string,
-  eventName: string,
+  eventName: EventName,
 ): number {
   return state[hookName]?.[eventName]?.consecutiveFailures ?? 0
 }

@@ -1,3 +1,13 @@
+// Closed union — the engine must know every event to translate results.
+// Unknown events are fail-closed errors, not forward-compatible pass-throughs.
+export type EventName =
+  | "PreToolUse" | "PostToolUse" | "UserPromptSubmit"
+  | "SessionStart" | "SessionEnd" | "Stop" | "SubagentStop"
+  | "SubagentStart" | "InstructionsLoaded" | "PostToolUseFailure"
+  | "Notification" | "PermissionRequest" | "ConfigChange"
+  | "WorktreeCreate" | "WorktreeRemove" | "PreCompact"
+  | "TeammateIdle" | "TaskCompleted"
+
 // Branded string types for enum-like fields.
 // Pattern: known values + (string & {}) for forward-compatibility.
 
