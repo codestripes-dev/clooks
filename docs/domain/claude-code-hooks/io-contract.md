@@ -14,6 +14,19 @@ Exit codes, JSON output format, decision control patterns, and tool_input schema
 
 **Critical for Clooks:** A crashing hook (exit 1, segfault, OOM kill) does NOT block. Only exit 2 blocks. This is the fundamental motivation for fail-closed.
 
+### Clooks Exit Code Strategy
+
+Clooks is a JSON-producing intermediary — it aggregates results from multiple hooks into structured JSON output. **Because Claude Code only processes JSON on exit 0, clooks must use exit 0 for all normal operation, including blocking decisions.** Exit 2 discards all JSON, so using it for routine blocking would throw away aggregated hook results, decision fields, and diagnostic information.
+
+| Scenario | Exit | Output |
+|----------|------|--------|
+| Hooks succeed | 0 | JSON with decisions/output |
+| Hook errors, blocking configured | 0 | JSON with event-appropriate blocking decision (`decision: "block"`, `permissionDecision: "deny"`, etc.) |
+| Hook errors, continue configured | 0 | JSON from remaining hooks, error silently logged |
+| Catastrophic engine failure (signal, OOM, uncaught exception in engine itself) | 2 | Stderr only — last-resort fail-closed when JSON cannot be produced |
+
+**Exit 2 is the fallback of last resort**, not the normal blocking path. Only global process handlers (`SIGTERM`, `uncaughtException`, `unhandledRejection`) should use it — situations where the engine cannot trust itself to produce valid JSON.
+
 ### Exit 2 Per-Event
 
 | Event | Exit 2 effect |
