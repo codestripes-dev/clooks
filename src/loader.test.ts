@@ -5,8 +5,8 @@ import { tmpdir } from "os"
 import { validateHookExport, loadHook, loadAllHooks } from "./loader.js"
 import type { HookLoadError } from "./loader.js"
 import type { HookEntry, ClooksConfig } from "./config/types.js"
-import type { HookName, Milliseconds } from "./types/branded.js"
-const hn = (s: string) => s as HookName
+import type { HookName } from "./types/branded.js"
+import { hn, ms } from "./test-utils.js"
 
 let tempDir: string
 
@@ -42,7 +42,7 @@ function makeConfig(
   return {
     version: "1.0.0",
     global: {
-      timeout: 10000 as Milliseconds,
+      timeout: ms(10000),
       onError: "block",
       maxFailures: 3,
       maxFailuresMessage: "test message",
@@ -210,6 +210,19 @@ describe("loadHook", () => {
     )
     const entry = makeHookEntry(hookFile)
     expect(loadHook(hn("npm-hook"), entry, dir)).rejects.toThrow("pre-bundling")
+  })
+
+  test("throws when meta.name does not match config key", async () => {
+    const dir = makeTempDir()
+    const hookFile = join(dir, "mismatch.ts")
+    writeFileSync(
+      hookFile,
+      `export const hook = { meta: { name: "actual-name" }, PreToolUse() { return { result: "skip" } } }`,
+    )
+    const entry = makeHookEntry(hookFile)
+    expect(loadHook(hn("config-key"), entry, dir)).rejects.toThrow(
+      'declares meta.name "actual-name" but is registered as "config-key"',
+    )
   })
 
   test("throws when hook file has invalid export", async () => {

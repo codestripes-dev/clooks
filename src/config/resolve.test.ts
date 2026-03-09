@@ -1,8 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { resolveHookPath } from "./resolve.js"
-import type { HookName } from "../types/branded.js"
-
-const hn = (s: string) => s as HookName
+import { hn } from "../test-utils.js"
 
 describe("resolveHookPath", () => {
   test("local hook (no slash)", () => {

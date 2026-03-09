@@ -1,15 +1,14 @@
 import { describe, expect, test } from "bun:test"
 import { validateConfig } from "./validate.js"
 import { DEFAULT_MAX_FAILURES, DEFAULT_MAX_FAILURES_MESSAGE } from "./constants.js"
-import type { HookName, Milliseconds } from "../types/branded.js"
-const hn = (s: string) => s as HookName
+import { hn, ms } from "../test-utils.js"
 
 describe("validateConfig", () => {
   test("valid minimal config", () => {
     const result = validateConfig({ version: "1.0.0" })
     expect(result.version).toBe("1.0.0")
     expect(result.global).toEqual({
-      timeout: 30000 as Milliseconds,
+      timeout: ms(30000),
       onError: "block",
       maxFailures: DEFAULT_MAX_FAILURES,
       maxFailuresMessage: DEFAULT_MAX_FAILURES_MESSAGE,
@@ -43,7 +42,7 @@ describe("validateConfig", () => {
 
     expect(result.version).toBe("1.0.0")
     expect(result.global).toEqual({
-      timeout: 15000 as Milliseconds,
+      timeout: ms(15000),
       onError: "continue",
       maxFailures: DEFAULT_MAX_FAILURES,
       maxFailuresMessage: DEFAULT_MAX_FAILURES_MESSAGE,
@@ -59,7 +58,7 @@ describe("validateConfig", () => {
       logDir: ".clooks/logs",
     })
     expect(result.hooks[hn("log-bash-commands")]!.parallel).toBe(true)
-    expect(result.hooks[hn("log-bash-commands")]!.timeout).toBe(5000 as Milliseconds)
+    expect(result.hooks[hn("log-bash-commands")]!.timeout).toBe(ms(5000))
     expect(result.hooks[hn("no-production-writes")]!.resolvedPath).toBe(
       ".clooks/hooks/no-production-writes.ts",
     )
@@ -125,7 +124,7 @@ describe("validateConfig", () => {
     const hook = result.hooks[hn("my-hook")]!
     expect(hook.resolvedPath).toBe("custom/path.ts")
     expect(hook.config).toEqual({ key: "val" })
-    expect(hook.timeout).toBe(5000 as Milliseconds)
+    expect(hook.timeout).toBe(ms(5000))
     expect(hook.onError).toBe("continue")
     expect(hook.parallel).toBe(true)
   })
@@ -147,7 +146,7 @@ describe("validateConfig", () => {
         version: "1.0.0",
         PreToolUse: { order: "not-an-array" },
       }),
-    ).toThrow("must be an array of strings")
+    ).toThrow("must be an array of non-empty strings")
   })
 
   test("empty hook entry is valid", () => {

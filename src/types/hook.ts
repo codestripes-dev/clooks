@@ -1,8 +1,6 @@
 // The ClooksHook contract. A hook file exports a single typed object.
 // Reference: docs/plans/2026-03-08-hook-type-system-design.md
 
-import type { HookName } from "./branded.js"
-
 import type {
   PreToolUseContext,
   UserPromptSubmitContext,
@@ -49,7 +47,7 @@ export type MaybeAsync<T> = T | Promise<T>
 
 export interface HookMeta<C extends Record<string, unknown> = Record<string, unknown>> {
   /** Human-readable name. Must be unique within a project. */
-  name: HookName
+  name: string
   /** Optional description. */
   description?: string
   /** Config defaults. Must satisfy the Config interface. */
