@@ -1,6 +1,6 @@
 import { join } from "path"
 import { unlink } from "fs/promises"
-import type { EventName } from "./types/branded.js"
+import type { EventName, HookName } from "./types/branded.js"
 
 export interface HookEventFailure {
   consecutiveFailures: number
@@ -9,7 +9,7 @@ export interface HookEventFailure {
 }
 
 // Top-level: hook name → event name → failure data
-export type FailureState = Record<string, Partial<Record<EventName, HookEventFailure>>>
+export type FailureState = Record<HookName, Partial<Record<EventName, HookEventFailure>>>
 
 const FAILURES_PATH = ".clooks/.failures"
 
@@ -75,7 +75,7 @@ export async function writeFailures(
 
 export function recordFailure(
   state: FailureState,
-  hookName: string,
+  hookName: HookName,
   eventName: EventName,
   error: string,
 ): FailureState {
@@ -96,7 +96,7 @@ export function recordFailure(
 
 export function clearFailure(
   state: FailureState,
-  hookName: string,
+  hookName: HookName,
   eventName: EventName,
 ): FailureState {
   const hookEvents = state[hookName]
@@ -119,7 +119,7 @@ export function clearFailure(
 
 export function getFailureCount(
   state: FailureState,
-  hookName: string,
+  hookName: HookName,
   eventName: EventName,
 ): number {
   return state[hookName]?.[eventName]?.consecutiveFailures ?? 0

@@ -1,5 +1,7 @@
+import type { HookName } from "../types/branded.js"
+
 export function resolveHookPath(
-  hookName: string,
+  hookName: HookName,
   entry: { path?: string },
 ): string {
   if (entry.path !== undefined) {

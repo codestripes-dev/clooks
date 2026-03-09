@@ -1,4 +1,4 @@
-import type { EventName } from "../types/branded.js"
+import type { EventName, HookName } from "../types/branded.js"
 
 export type ErrorMode = "block" | "continue" | "trace"
 
@@ -20,7 +20,7 @@ export interface ClooksConfig {
    * Hook entries keyed by hook name. Each entry contains config overrides,
    * a resolved file path, and per-hook options (timeout, onError, parallel).
    */
-  hooks: Record<string, HookEntry>
+  hooks: Record<HookName, HookEntry>
 
   /**
    * Per-event configuration keyed by event name (e.g., "PreToolUse").
@@ -57,5 +57,5 @@ export interface HookEntry {
 
 export interface EventEntry {
   /** Explicit execution order for hooks registered to this event. */
-  order?: string[]
+  order?: HookName[]
 }

@@ -5,6 +5,8 @@ import { tmpdir } from "os"
 import { validateHookExport, loadHook, loadAllHooks } from "./loader.js"
 import type { HookLoadError } from "./loader.js"
 import type { HookEntry, ClooksConfig } from "./config/types.js"
+import type { HookName } from "./types/branded.js"
+const hn = (s: string) => s as HookName
 
 let tempDir: string
 
@@ -33,6 +35,10 @@ function makeHookEntry(
 function makeConfig(
   hooks: Record<string, HookEntry>,
 ): ClooksConfig {
+  const typedHooks = {} as Record<HookName, HookEntry>
+  for (const [k, v] of Object.entries(hooks)) {
+    typedHooks[k as HookName] = v
+  }
   return {
     version: "1.0.0",
     global: {
@@ -41,7 +47,7 @@ function makeConfig(
       maxFailures: 3,
       maxFailuresMessage: "test message",
     },
-    hooks,
+    hooks: typedHooks,
     events: {},
   }
 }
@@ -111,7 +117,7 @@ describe("validateHookExport", () => {
   test("accepts a hook with meta only and no handlers", () => {
     const mod = { hook: { meta: { name: "meta-only" } } }
     const result = validateHookExport(mod, "test.ts")
-    expect(result.meta.name).toBe("meta-only")
+    expect(result.meta.name).toBe(hn("meta-only"))
   })
 })
 
@@ -129,9 +135,9 @@ describe("loadHook", () => {
       }`,
     )
     const entry = makeHookEntry(hookFile)
-    const result = await loadHook("my-hook", entry, dir)
-    expect(result.name).toBe("my-hook")
-    expect(result.hook.meta.name).toBe("my-hook")
+    const result = await loadHook(hn("my-hook"), entry, dir)
+    expect(result.name).toBe(hn("my-hook"))
+    expect(result.hook.meta.name).toBe(hn("my-hook"))
     expect(result.config).toEqual({ foo: "bar" })
   })
 
@@ -148,9 +154,9 @@ describe("loadHook", () => {
     )
     // Use relative path (as production config resolution produces)
     const entry = makeHookEntry("hooks/relative-hook.ts")
-    const result = await loadHook("relative-hook", entry, dir)
-    expect(result.name).toBe("relative-hook")
-    expect(result.hook.meta.name).toBe("relative-hook")
+    const result = await loadHook(hn("relative-hook"), entry, dir)
+    expect(result.name).toBe(hn("relative-hook"))
+    expect(result.hook.meta.name).toBe(hn("relative-hook"))
   })
 
   test("shallow-merges meta.config defaults with entry config overrides", async () => {
@@ -164,7 +170,7 @@ describe("loadHook", () => {
       }`,
     )
     const entry = makeHookEntry(hookFile, { overrideMe: "overridden" })
-    const result = await loadHook("merge-hook", entry, dir)
+    const result = await loadHook(hn("merge-hook"), entry, dir)
     expect(result.config).toEqual({
       keepMe: "default",
       overrideMe: "overridden",
@@ -182,14 +188,14 @@ describe("loadHook", () => {
       }`,
     )
     const entry = makeHookEntry(hookFile)
-    const result = await loadHook("no-config", entry, dir)
+    const result = await loadHook(hn("no-config"), entry, dir)
     expect(result.config).toEqual({})
   })
 
   test("throws when hook file does not exist", async () => {
     const dir = makeTempDir()
     const entry = makeHookEntry(join(dir, "nonexistent.ts"))
-    expect(loadHook("missing", entry, dir)).rejects.toThrow(
+    expect(loadHook(hn("missing"), entry, dir)).rejects.toThrow(
       'failed to import hook "missing"',
     )
   })
@@ -203,7 +209,7 @@ describe("loadHook", () => {
       `import { z } from "zod-nonexistent-package-xyz"\nexport const hook = { meta: { name: "npm-hook", config: { schema: z } } }`,
     )
     const entry = makeHookEntry(hookFile)
-    expect(loadHook("npm-hook", entry, dir)).rejects.toThrow("pre-bundling")
+    expect(loadHook(hn("npm-hook"), entry, dir)).rejects.toThrow("pre-bundling")
   })
 
   test("throws when hook file has invalid export", async () => {
@@ -211,7 +217,7 @@ describe("loadHook", () => {
     const hookFile = join(dir, "bad-hook.ts")
     writeFileSync(hookFile, `export const hook = "not-an-object"`)
     const entry = makeHookEntry(hookFile)
-    expect(loadHook("bad-hook", entry, dir)).rejects.toThrow(
+    expect(loadHook(hn("bad-hook"), entry, dir)).rejects.toThrow(
       'does not export a "hook" named export',
     )
   })
@@ -238,7 +244,7 @@ describe("loadAllHooks", () => {
     })
     const { loaded, loadErrors } = await loadAllHooks(config, dir)
     expect(loaded).toHaveLength(2)
-    expect(loaded.map((r) => r.name).sort()).toEqual(["hook-a", "hook-b"])
+    expect(loaded.map((r) => r.name).sort()).toEqual([hn("hook-a"), hn("hook-b")])
     expect(loadErrors).toEqual([])
   })
 
@@ -263,9 +269,9 @@ describe("loadAllHooks", () => {
     })
     const { loaded, loadErrors } = await loadAllHooks(config, dir)
     expect(loaded).toHaveLength(1)
-    expect(loaded[0]!.name).toBe("hook-a")
+    expect(loaded[0]!.name).toBe(hn("hook-a"))
     expect(loadErrors).toHaveLength(1)
-    expect(loadErrors[0]!.name).toBe("hook-b")
+    expect(loadErrors[0]!.name).toBe(hn("hook-b"))
     expect(loadErrors[0]!.error).toContain("failed to import")
   })
 })

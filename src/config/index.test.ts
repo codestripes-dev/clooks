@@ -4,6 +4,8 @@ import { join } from "path"
 import { tmpdir } from "os"
 import { loadConfig } from "./index.js"
 import { DEFAULT_MAX_FAILURES, DEFAULT_MAX_FAILURES_MESSAGE } from "./constants.js"
+import type { HookName } from "../types/branded.js"
+const hn = (s: string) => s as HookName
 
 let tempDir: string
 
@@ -52,18 +54,18 @@ PreToolUse:
       "log-bash-commands",
       "no-production-writes",
     ])
-    expect(config.hooks["log-bash-commands"]!.resolvedPath).toBe(
+    expect(config.hooks[hn("log-bash-commands")]!.resolvedPath).toBe(
       ".clooks/hooks/log-bash-commands.ts",
     )
-    expect(config.hooks["log-bash-commands"]!.config).toEqual({
+    expect(config.hooks[hn("log-bash-commands")]!.config).toEqual({
       logDir: ".clooks/logs",
     })
-    expect(config.hooks["no-production-writes"]!.resolvedPath).toBe(
+    expect(config.hooks[hn("no-production-writes")]!.resolvedPath).toBe(
       ".clooks/hooks/no-production-writes.ts",
     )
     expect(config.events["PreToolUse"]!.order).toEqual([
-      "no-production-writes",
-      "log-bash-commands",
+      hn("no-production-writes"),
+      hn("log-bash-commands"),
     ])
   })
 
@@ -90,7 +92,7 @@ lint-guard:
     )
 
     const config = await loadConfig(tempDir)
-    expect(config.hooks["lint-guard"]!.config).toEqual({
+    expect(config.hooks[hn("lint-guard")]!.config).toEqual({
       strict: false,
       blocked_tools: ["Bash"],
     })

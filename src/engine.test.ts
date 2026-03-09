@@ -6,8 +6,11 @@ import { translateResult, matchHooksForEvent, executeHooks, interpolateMessage, 
 import type { LoadedHook, HookLoadError } from "./loader.js";
 import type { ClooksHook } from "./types/hook.js";
 import type { ClooksConfig } from "./config/types.js";
+import type { HookName } from "./types/branded.js";
 import { DEFAULT_MAX_FAILURES_MESSAGE } from "./config/constants.js";
 import { readFailures } from "./failures.js";
+
+const hn = (s: string) => s as HookName;
 
 describe("translateResult", () => {
   // --- PreToolUse ---
@@ -228,11 +231,12 @@ function makeLoadedHook(
   name: string,
   handlers: Record<string, Function>,
 ): LoadedHook {
+  const hookName = hn(name);
   const hook = {
-    meta: { name },
+    meta: { name: hookName },
     ...handlers,
   } as unknown as ClooksHook;
-  return { name, hook, config: {} };
+  return { name: hookName, hook, config: {} };
 }
 
 describe("matchHooksForEvent", () => {
@@ -248,7 +252,7 @@ describe("matchHooksForEvent", () => {
     });
     const matched = matchHooksForEvent([hookA, hookB, hookC], "PreToolUse");
     expect(matched).toHaveLength(2);
-    expect(matched.map((h) => h.name)).toEqual(["a", "b"]);
+    expect(matched.map((h) => h.name)).toEqual([hn("a"), hn("b")]);
   });
 
   it("returns empty array when no hooks match", () => {
@@ -271,7 +275,7 @@ describe("interpolateMessage", () => {
   it("substitutes all four variables correctly", () => {
     const result = interpolateMessage(
       "Hook '{hook}' failed {count} times on {event}. Error: {error}",
-      { hook: "my-hook", event: "PreToolUse", count: 3, error: "boom" },
+      { hook: hn("my-hook"), event: "PreToolUse", count: 3, error: "boom" },
     );
     expect(result).toBe(
       "Hook 'my-hook' failed 3 times on PreToolUse. Error: boom",
@@ -280,7 +284,7 @@ describe("interpolateMessage", () => {
 
   it("handles $ characters in error messages", () => {
     const result = interpolateMessage("Error: {error}", {
-      hook: "h",
+      hook: hn("h"),
       event: "e",
       count: 1,
       error: "found $1 in path",
@@ -315,9 +319,9 @@ function makeTestConfig(
   globalMaxFailures = 3,
   globalOnError: import("./config/types.js").ErrorMode = "block",
 ): ClooksConfig {
-  const hooks: Record<string, import("./config/types.js").HookEntry> = {};
+  const hooks = {} as Record<HookName, import("./config/types.js").HookEntry>;
   for (const [name, overrides] of Object.entries(hookOverrides)) {
-    hooks[name] = {
+    hooks[hn(name)] = {
       resolvedPath: `.clooks/hooks/${name}.ts`,
       config: {},
       parallel: false,
@@ -354,7 +358,7 @@ describe("executeHooks", () => {
 
     // Failure state should be written
     const state = await readFailures(dir);
-    expect(state["fail-hook"]?.["PreToolUse"]?.consecutiveFailures).toBe(1);
+    expect(state[hn("fail-hook")]?.["PreToolUse"]?.consecutiveFailures).toBe(1);
   });
 
   it("hook reaches threshold → skipped (degraded, no block result)", async () => {
@@ -421,7 +425,7 @@ describe("executeHooks", () => {
 
     // Failure state should be cleared
     const state = await readFailures(dir);
-    expect(state["recover-hook"]).toBeUndefined();
+    expect(state[hn("recover-hook")]).toBeUndefined();
   });
 
   it("maxFailures: 0 → always fail-closed (block result), never degrades", async () => {
@@ -511,7 +515,7 @@ describe("executeHooks", () => {
   it("load error under threshold → fail-closed (block result)", async () => {
     const dir = makeTempDir();
     const loadErrors: HookLoadError[] = [
-      { name: "broken-hook", error: "Cannot find module '/path/to/broken-hook.ts'" },
+      { name: hn("broken-hook"), error: "Cannot find module '/path/to/broken-hook.ts'" },
     ];
     const config = makeTestConfig({ "broken-hook": {} }, 3);
 
@@ -520,13 +524,13 @@ describe("executeHooks", () => {
     expect(result.lastResult?.reason).toContain("broken-hook");
 
     const state = await readFailures(dir);
-    expect(state["broken-hook"]?.["PreToolUse"]?.consecutiveFailures).toBe(1);
+    expect(state[hn("broken-hook")]?.["PreToolUse"]?.consecutiveFailures).toBe(1);
   });
 
   it("load error reaches threshold → skipped with degraded message", async () => {
     const dir = makeTempDir();
     const loadErrors: HookLoadError[] = [
-      { name: "broken-hook", error: "Cannot find module '/path/to/broken-hook.ts'" },
+      { name: hn("broken-hook"), error: "Cannot find module '/path/to/broken-hook.ts'" },
     ];
     const config = makeTestConfig({ "broken-hook": {} }, 3);
 
@@ -548,7 +552,7 @@ describe("executeHooks", () => {
       PreToolUse: () => ({ result: "allow" }),
     });
     const loadErrors: HookLoadError[] = [
-      { name: "broken-hook", error: "Cannot find module" },
+      { name: hn("broken-hook"), error: "Cannot find module" },
     ];
     // maxFailures=1 so load error degrades immediately
     const config = makeTestConfig({ "good-hook": {}, "broken-hook": {} }, 1);
@@ -615,7 +619,7 @@ describe("executeHooks", () => {
 
     await executeHooks([hook], "PreToolUse", {}, config, dir);
     const state = await readFailures(dir);
-    expect(state["continue-hook"]).toBeUndefined();
+    expect(state[hn("continue-hook")]).toBeUndefined();
   });
 
   it("onError 'trace' skips recordFailure", async () => {
@@ -627,13 +631,13 @@ describe("executeHooks", () => {
 
     await executeHooks([hook], "PreToolUse", {}, config, dir);
     const state = await readFailures(dir);
-    expect(state["trace-hook"]).toBeUndefined();
+    expect(state[hn("trace-hook")]).toBeUndefined();
   });
 
   it("import failure always blocks regardless of hook onError", async () => {
     const dir = makeTempDir();
     const loadErrors: HookLoadError[] = [
-      { name: "broken-hook", error: "Cannot find module" },
+      { name: hn("broken-hook"), error: "Cannot find module" },
     ];
     const config = makeTestConfig({ "broken-hook": { onError: "continue" } });
 
@@ -665,17 +669,17 @@ describe("resolveOnError", () => {
         events: { PreToolUse: { onError: "trace" } },
       },
     });
-    expect(resolveOnError("scanner", "PreToolUse", config)).toBe("trace");
+    expect(resolveOnError(hn("scanner"), "PreToolUse", config)).toBe("trace");
   });
 
   it("hook-level overrides global", () => {
     const config = makeTestConfig({ scanner: { onError: "continue" } });
-    expect(resolveOnError("scanner", "PreToolUse", config)).toBe("continue");
+    expect(resolveOnError(hn("scanner"), "PreToolUse", config)).toBe("continue");
   });
 
   it("defaults to global when no hook overrides", () => {
     const config = makeTestConfig({}, 3, "continue");
-    expect(resolveOnError("unknown", "PreToolUse", config)).toBe("continue");
+    expect(resolveOnError(hn("unknown"), "PreToolUse", config)).toBe("continue");
   });
 
   it("full cascade: hook+event → hook → global", () => {
@@ -685,9 +689,9 @@ describe("resolveOnError", () => {
         events: { PreToolUse: { onError: "trace" } },
       },
     }, 3, "block");
-    expect(resolveOnError("scanner", "PreToolUse", config)).toBe("trace");
-    expect(resolveOnError("scanner", "PostToolUse", config)).toBe("continue");
-    expect(resolveOnError("unknown", "PreToolUse", config)).toBe("block");
+    expect(resolveOnError(hn("scanner"), "PreToolUse", config)).toBe("trace");
+    expect(resolveOnError(hn("scanner"), "PostToolUse", config)).toBe("continue");
+    expect(resolveOnError(hn("unknown"), "PreToolUse", config)).toBe("block");
   });
 });
 
