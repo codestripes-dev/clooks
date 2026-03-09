@@ -191,7 +191,7 @@ export function translateResult(
     if (resultType === "continue") {
       return {
         exitCode: 2,
-        stderr: result.feedback as string,
+        stderr: (result.feedback as string) ?? "",
       };
     }
     if (resultType === "stop") {
@@ -550,15 +550,13 @@ export async function runEngine(): Promise<void> {
     const startupWarnings: string[] = [];
     for (const loaded of hooks) {
       const hookEntry = config.hooks[loaded.name];
-      if (hookEntry?.onError === "trace") {
-        for (const key of Object.keys(loaded.hook as unknown as Record<string, unknown>)) {
-          if (key === "meta") continue;
-          if (!INJECTABLE_EVENTS.has(key)) {
-            startupWarnings.push(
-              `Hook "${loaded.name}" has onError: "trace" but handles ${key} ` +
-              `(does not support additionalContext). Trace will fall back to "continue" for ${key}.`
-            );
-          }
+      if (hookEntry?.onError === "trace" && !INJECTABLE_EVENTS.has(eventName)) {
+        const handlesEvent = typeof (loaded.hook as unknown as Record<string, unknown>)[eventName] === "function";
+        if (handlesEvent) {
+          startupWarnings.push(
+            `Hook "${loaded.name}" has onError: "trace" but ${eventName} ` +
+            `does not support additionalContext. Trace will fall back to "continue" for ${eventName}.`
+          );
         }
       }
     }
