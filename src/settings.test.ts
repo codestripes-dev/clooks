@@ -6,6 +6,7 @@ import {
   registerClooks,
   unregisterClooks,
   isClooksRegistered,
+  isClooksHook,
   CLOOKS_ENTRYPOINT_PATH,
 } from "./settings.js"
 
@@ -20,6 +21,10 @@ afterEach(() => {
     rmSync(tempDir, { recursive: true, force: true })
   }
 })
+
+function claudeDir(): string {
+  return join(tempDir, ".claude")
+}
 
 function settingsPath(): string {
   return join(tempDir, ".claude", "settings.json")
@@ -36,7 +41,7 @@ function readSettings(): Record<string, unknown> {
 
 describe("settings", () => {
   test("fresh registration into non-existent file creates file with 18 events", () => {
-    const result = registerClooks(tempDir)
+    const result = registerClooks(claudeDir(), CLOOKS_ENTRYPOINT_PATH)
 
     expect(result.added).toHaveLength(18)
     expect(result.skipped).toHaveLength(0)
@@ -65,7 +70,7 @@ describe("settings", () => {
       someOtherKey: "preserved",
     })
 
-    registerClooks(tempDir)
+    registerClooks(claudeDir(), CLOOKS_ENTRYPOINT_PATH)
     const settings = readSettings()
 
     expect(settings.permissions).toEqual({ allow: ["Bash(git:*)"], deny: [] })
@@ -86,7 +91,7 @@ describe("settings", () => {
       },
     })
 
-    registerClooks(tempDir)
+    registerClooks(claudeDir(), CLOOKS_ENTRYPOINT_PATH)
     const settings = readSettings()
     const hooks = settings.hooks as Record<string, unknown[]>
 
@@ -106,10 +111,10 @@ describe("settings", () => {
   })
 
   test("idempotent — second run adds 0, skips 18, file unchanged", () => {
-    registerClooks(tempDir)
+    registerClooks(claudeDir(), CLOOKS_ENTRYPOINT_PATH)
     const firstContent = readFileSync(settingsPath(), "utf-8")
 
-    const result = registerClooks(tempDir)
+    const result = registerClooks(claudeDir(), CLOOKS_ENTRYPOINT_PATH)
 
     expect(result.added).toHaveLength(0)
     expect(result.skipped).toHaveLength(18)
@@ -142,7 +147,7 @@ describe("settings", () => {
       permissions: { allow: [] },
     })
 
-    const result = unregisterClooks(tempDir)
+    const result = unregisterClooks(claudeDir())
 
     expect(result.removed).toHaveLength(2)
     expect(result.removed).toContain("PreToolUse")
@@ -165,8 +170,8 @@ describe("settings", () => {
 
   test("unregister cleans up empty event arrays and empty hooks object", () => {
     // All events only have Clooks hooks
-    registerClooks(tempDir)
-    const result = unregisterClooks(tempDir)
+    registerClooks(claudeDir(), CLOOKS_ENTRYPOINT_PATH)
+    const result = unregisterClooks(claudeDir())
 
     expect(result.removed).toHaveLength(18)
 
@@ -176,20 +181,20 @@ describe("settings", () => {
   })
 
   test("isClooksRegistered returns true after register, false after unregister", () => {
-    expect(isClooksRegistered(tempDir)).toBe(false)
+    expect(isClooksRegistered(claudeDir())).toBe(false)
 
-    registerClooks(tempDir)
-    expect(isClooksRegistered(tempDir)).toBe(true)
+    registerClooks(claudeDir(), CLOOKS_ENTRYPOINT_PATH)
+    expect(isClooksRegistered(claudeDir())).toBe(true)
 
-    unregisterClooks(tempDir)
-    expect(isClooksRegistered(tempDir)).toBe(false)
+    unregisterClooks(claudeDir())
+    expect(isClooksRegistered(claudeDir())).toBe(false)
   })
 
   test("empty file handled gracefully", () => {
     mkdirSync(join(tempDir, ".claude"), { recursive: true })
     writeFileSync(settingsPath(), "")
 
-    const result = registerClooks(tempDir)
+    const result = registerClooks(claudeDir(), CLOOKS_ENTRYPOINT_PATH)
 
     expect(result.added).toHaveLength(18)
     expect(result.created).toBe(false) // file existed, even if empty
@@ -200,85 +205,105 @@ describe("settings", () => {
     mkdirSync(join(tempDir, ".claude"), { recursive: true })
     writeFileSync(settingsPath(), "{ not valid json !!!")
 
-    expect(() => registerClooks(tempDir)).toThrow(
-      "`.claude/settings.json` contains invalid JSON. Fix or delete the file, then re-run `clooks init`.",
+    expect(() => registerClooks(claudeDir(), CLOOKS_ENTRYPOINT_PATH)).toThrow(
+      `\`${settingsPath()}\` contains invalid JSON. Fix or delete the file, then re-run \`clooks init\`.`,
     )
   })
 
-  test("creates .claude/ directory if missing", () => {
+  test("creates settings directory if missing", () => {
     // tempDir has no .claude/ subdirectory
     expect(existsSync(join(tempDir, ".claude"))).toBe(false)
 
-    registerClooks(tempDir)
+    registerClooks(claudeDir(), CLOOKS_ENTRYPOINT_PATH)
 
     expect(existsSync(join(tempDir, ".claude"))).toBe(true)
     expect(existsSync(settingsPath())).toBe(true)
   })
 
-  test("detects legacy entrypoint paths as Clooks registrations", () => {
-    writeSettings({
-      hooks: {
-        PreToolUse: [
-          {
-            hooks: [{ type: "command", command: ".clooks/bin/clooks-entrypoint.sh" }],
-          },
-        ],
-        PostToolUse: [
-          {
-            hooks: [{ type: "command", command: ".clooks/clooks-entrypoint.sh" }],
-          },
-        ],
-      },
-    })
-
-    // Both legacy paths should be detected as Clooks registrations
-    expect(isClooksRegistered(tempDir)).toBe(true)
-
-    // Register should NOT add new entries (they already exist, just with legacy paths)
-    const result = registerClooks(tempDir)
-    expect(result.added).toHaveLength(16) // 18 - 2 legacy = 16 new
-    expect(result.updated).toHaveLength(2) // 2 legacy migrated
-    expect(result.skipped).toHaveLength(0)
+  test("isClooksHook detects relative project entrypoint path", () => {
+    expect(isClooksHook({ command: ".clooks/bin/entrypoint.sh" })).toBe(true)
   })
 
-  test("migrates legacy command paths to canonical path when re-running register", () => {
-    writeSettings({
-      hooks: {
-        PreToolUse: [
-          {
-            hooks: [{ type: "command", command: ".clooks/bin/clooks-entrypoint.sh" }],
-          },
-        ],
-        PostToolUse: [
-          {
-            hooks: [{ type: "command", command: ".clooks/clooks-entrypoint.sh" }],
-          },
-        ],
-      },
-    })
+  test("isClooksHook detects absolute global entrypoint path", () => {
+    expect(isClooksHook({ command: "/home/joe/.clooks/bin/entrypoint.sh" })).toBe(true)
+  })
 
-    const result = registerClooks(tempDir)
+  test("isClooksHook rejects legacy paths that do not match the canonical pattern", () => {
+    // Legacy paths that the old loose check would have matched
+    expect(isClooksHook({ command: ".clooks/bin/clooks-entrypoint.sh" })).toBe(false)
+    expect(isClooksHook({ command: ".clooks/clooks-entrypoint.sh" })).toBe(false)
+  })
 
-    expect(result.updated).toHaveLength(2)
-    expect(result.updated).toContain("PreToolUse")
-    expect(result.updated).toContain("PostToolUse")
+  test("isClooksHook rejects non-hook objects", () => {
+    expect(isClooksHook(null)).toBe(false)
+    expect(isClooksHook({})).toBe(false)
+    expect(isClooksHook({ command: 42 })).toBe(false)
+    expect(isClooksHook({ command: "some-other-hook.sh" })).toBe(false)
+  })
+})
+
+describe("global settings", () => {
+  test("registerClooks with global settings path creates correct entries with absolute entrypoint", () => {
+    const globalSettingsDir = join(tempDir, ".claude")
+    const globalEntrypoint = join(tempDir, ".clooks/bin/entrypoint.sh")
+
+    const result = registerClooks(globalSettingsDir, globalEntrypoint)
+
+    expect(result.added).toHaveLength(18)
+    expect(result.created).toBe(true)
 
     const settings = readSettings()
     const hooks = settings.hooks as Record<string, unknown[]>
 
-    // Both should now use the canonical path
-    const preMG = hooks.PreToolUse[0] as Record<string, unknown>
-    const preHooks = preMG.hooks as Record<string, string>[]
-    expect(preHooks[0].command).toBe(CLOOKS_ENTRYPOINT_PATH)
+    // Every event should have the absolute entrypoint path
+    for (const matchers of Object.values(hooks)) {
+      const mg = matchers[0] as Record<string, unknown>
+      const hookEntries = mg.hooks as Record<string, string>[]
+      expect(hookEntries[0].command).toBe(globalEntrypoint)
+    }
+  })
 
-    const postMG = hooks.PostToolUse[0] as Record<string, unknown>
-    const postHooks = postMG.hooks as Record<string, string>[]
-    expect(postHooks[0].command).toBe(CLOOKS_ENTRYPOINT_PATH)
+  test("registerClooks called twice with same global path is idempotent (no duplicate entries)", () => {
+    const globalSettingsDir = join(tempDir, ".claude")
+    const globalEntrypoint = join(tempDir, ".clooks/bin/entrypoint.sh")
 
-    // Running again should skip everything
-    const result2 = registerClooks(tempDir)
-    expect(result2.added).toHaveLength(0)
-    expect(result2.updated).toHaveLength(0)
-    expect(result2.skipped).toHaveLength(18)
+    registerClooks(globalSettingsDir, globalEntrypoint)
+    const firstContent = readFileSync(settingsPath(), "utf-8")
+
+    const result = registerClooks(globalSettingsDir, globalEntrypoint)
+
+    expect(result.added).toHaveLength(0)
+    expect(result.skipped).toHaveLength(18)
+    expect(result.updated).toHaveLength(0)
+
+    // File should be byte-identical
+    const secondContent = readFileSync(settingsPath(), "utf-8")
+    expect(secondContent).toBe(firstContent)
+  })
+
+  test("unregisterClooks works with global settings dir", () => {
+    const globalSettingsDir = join(tempDir, ".claude")
+    const globalEntrypoint = join(tempDir, ".clooks/bin/entrypoint.sh")
+
+    registerClooks(globalSettingsDir, globalEntrypoint)
+    expect(isClooksRegistered(globalSettingsDir)).toBe(true)
+
+    const result = unregisterClooks(globalSettingsDir)
+    expect(result.removed).toHaveLength(18)
+    expect(isClooksRegistered(globalSettingsDir)).toBe(false)
+  })
+
+  test("isClooksRegistered detects both relative project and absolute global paths", () => {
+    // Register with relative project path
+    const projectSettingsDir = join(tempDir, "project", ".claude")
+    mkdirSync(projectSettingsDir, { recursive: true })
+    registerClooks(projectSettingsDir, CLOOKS_ENTRYPOINT_PATH)
+    expect(isClooksRegistered(projectSettingsDir)).toBe(true)
+
+    // Register with absolute global path
+    const globalSettingsDir = join(tempDir, "global", ".claude")
+    mkdirSync(globalSettingsDir, { recursive: true })
+    registerClooks(globalSettingsDir, "/home/joe/.clooks/bin/entrypoint.sh")
+    expect(isClooksRegistered(globalSettingsDir)).toBe(true)
   })
 })

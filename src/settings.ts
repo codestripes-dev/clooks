@@ -18,11 +18,11 @@ export interface UnregisterResult {
 }
 
 /**
- * Checks if a hook entry's command field contains both `.clooks/` and
- * `entrypoint.sh` as separate substrings. This catches legacy variants
- * like `.clooks/bin/clooks-entrypoint.sh` or `.clooks/clooks-entrypoint.sh`.
+ * Checks if a hook entry's command field ends with `.clooks/bin/entrypoint.sh`.
+ * This handles both relative project paths (`.clooks/bin/entrypoint.sh`) and
+ * absolute global paths (`/home/joe/.clooks/bin/entrypoint.sh`).
  */
-function isClooksHook(hook: unknown): boolean {
+export function isClooksHook(hook: unknown): boolean {
   if (
     typeof hook !== "object" ||
     hook === null ||
@@ -31,7 +31,7 @@ function isClooksHook(hook: unknown): boolean {
     return false
   }
   const cmd = (hook as Record<string, string>).command
-  return cmd.includes(".clooks/") && cmd.includes("entrypoint.sh")
+  return cmd.endsWith(".clooks/bin/entrypoint.sh")
 }
 
 /** Checks if a matcher group contains any Clooks hook. */
@@ -54,24 +54,26 @@ function readSettings(settingsPath: string): { settings: Record<string, unknown>
     return { settings: JSON.parse(text), fileExisted: true }
   } catch {
     throw new Error(
-      "`.claude/settings.json` contains invalid JSON. Fix or delete the file, then re-run `clooks init`.",
+      `\`${settingsPath}\` contains invalid JSON. Fix or delete the file, then re-run \`clooks init\`.`,
     )
   }
 }
 
-function makeClooksMatcherGroup(): Record<string, unknown> {
+function makeClooksMatcherGroup(entrypointCommand: string): Record<string, unknown> {
   return {
-    hooks: [{ type: "command", command: CLOOKS_ENTRYPOINT_PATH }],
+    hooks: [{ type: "command", command: entrypointCommand }],
   }
 }
 
 /**
- * Register Clooks in `.claude/settings.json` for all 18 Claude Code events.
- * Creates the `.claude/` directory and file if missing.
+ * Register Clooks in settings.json for all 18 Claude Code events.
+ * Creates the settings directory and file if missing.
+ *
+ * @param settingsDir - Directory containing settings.json (e.g., `join(projectRoot, ".claude")` or `join(homeRoot, ".claude")`)
+ * @param entrypointCommand - The command to register (e.g., `.clooks/bin/entrypoint.sh` for project, `/home/joe/.clooks/bin/entrypoint.sh` for global)
  */
-export function registerClooks(projectRoot: string): RegisterResult {
-  const claudeDir = join(projectRoot, ".claude")
-  const settingsPath = join(claudeDir, "settings.json")
+export function registerClooks(settingsDir: string, entrypointCommand: string): RegisterResult {
+  const settingsPath = join(settingsDir, "settings.json")
 
   const { settings, fileExisted } = readSettings(settingsPath)
 
@@ -92,7 +94,7 @@ export function registerClooks(projectRoot: string): RegisterResult {
 
     if (existingIdx === -1) {
       // No Clooks matcher group — append one
-      arr.push(makeClooksMatcherGroup())
+      arr.push(makeClooksMatcherGroup(entrypointCommand))
       added.push(event)
     } else {
       // Clooks matcher group exists — check if command needs migration
@@ -100,8 +102,8 @@ export function registerClooks(projectRoot: string): RegisterResult {
       const mgHooks = mg.hooks as Record<string, unknown>[]
       const clooksHook = mgHooks.find(isClooksHook) as Record<string, string> | undefined
 
-      if (clooksHook && clooksHook.command !== CLOOKS_ENTRYPOINT_PATH) {
-        clooksHook.command = CLOOKS_ENTRYPOINT_PATH
+      if (clooksHook && clooksHook.command !== entrypointCommand) {
+        clooksHook.command = entrypointCommand
         updated.push(event)
       } else {
         skipped.push(event)
@@ -111,7 +113,7 @@ export function registerClooks(projectRoot: string): RegisterResult {
 
   // Only write if something changed
   if (added.length > 0 || updated.length > 0) {
-    mkdirSync(claudeDir, { recursive: true })
+    mkdirSync(settingsDir, { recursive: true })
     writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n")
   }
 
@@ -124,11 +126,13 @@ export function registerClooks(projectRoot: string): RegisterResult {
 }
 
 /**
- * Unregister Clooks from `.claude/settings.json` by removing all Clooks
+ * Unregister Clooks from settings.json by removing all Clooks
  * matcher groups. Preserves non-Clooks hooks and other settings.
+ *
+ * @param settingsDir - Directory containing settings.json
  */
-export function unregisterClooks(projectRoot: string): UnregisterResult {
-  const settingsPath = join(projectRoot, ".claude", "settings.json")
+export function unregisterClooks(settingsDir: string): UnregisterResult {
+  const settingsPath = join(settingsDir, "settings.json")
 
   if (!existsSync(settingsPath)) {
     return { removed: [] }
@@ -169,9 +173,13 @@ export function unregisterClooks(projectRoot: string): UnregisterResult {
   return { removed }
 }
 
-/** Returns true if at least one event has a Clooks matcher group. */
-export function isClooksRegistered(projectRoot: string): boolean {
-  const settingsPath = join(projectRoot, ".claude", "settings.json")
+/**
+ * Returns true if at least one event has a Clooks matcher group.
+ *
+ * @param settingsDir - Directory containing settings.json
+ */
+export function isClooksRegistered(settingsDir: string): boolean {
+  const settingsPath = join(settingsDir, "settings.json")
 
   if (!existsSync(settingsPath)) return false
 
