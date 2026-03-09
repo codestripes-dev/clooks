@@ -25,6 +25,15 @@ function makeEntry(parallel: boolean): HookEntry {
   }
 }
 
+/** Build a Record<HookName, HookEntry> from plain string keys (avoids branded type issues in tests). */
+function makeEntries(entries: Record<string, HookEntry>): Record<HookName, HookEntry> {
+  const result = {} as Record<HookName, HookEntry>
+  for (const [name, entry] of Object.entries(entries)) {
+    result[hn(name)] = entry
+  }
+  return result
+}
+
 /** Extract hook names from an OrderedHook array for easy assertions. */
 function names(ordered: OrderedHook[]): string[] {
   return ordered.map((o) => o.loaded.name as string)
@@ -43,11 +52,11 @@ describe("orderHooksForEvent", () => {
 
   test("no order list, all sequential: returns hooks in declaration order", () => {
     const matched = [makeLoaded("hookA"), makeLoaded("hookB"), makeLoaded("hookC")]
-    const hookEntries: Record<HookName, HookEntry> = {
+    const hookEntries = makeEntries({
       hookA: makeEntry(false),
       hookB: makeEntry(false),
       hookC: makeEntry(false),
-    }
+    })
 
     const result = orderHooksForEvent(matched, undefined, hookEntries, "PreToolUse")
 
@@ -62,12 +71,12 @@ describe("orderHooksForEvent", () => {
       makeLoaded("seqC"),
       makeLoaded("parD"),
     ]
-    const hookEntries: Record<HookName, HookEntry> = {
+    const hookEntries = makeEntries({
       seqA: makeEntry(false),
       parB: makeEntry(true),
       seqC: makeEntry(false),
       parD: makeEntry(true),
-    }
+    })
 
     const result = orderHooksForEvent(matched, undefined, hookEntries, "PreToolUse")
 
@@ -81,11 +90,11 @@ describe("orderHooksForEvent", () => {
       makeLoaded("parB"),
       makeLoaded("seqC"),
     ]
-    const hookEntries: Record<HookName, HookEntry> = {
+    const hookEntries = makeEntries({
       seqA: makeEntry(false),
       parB: makeEntry(true),
       seqC: makeEntry(false),
-    }
+    })
     const eventEntry: EventEntry = { order: [] as any }
 
     const result = orderHooksForEvent(matched, eventEntry, hookEntries, "PreToolUse")
@@ -95,11 +104,11 @@ describe("orderHooksForEvent", () => {
 
   test("explicit order, all sequential: returns hooks in specified order", () => {
     const matched = [makeLoaded("hookA"), makeLoaded("hookB"), makeLoaded("hookC")]
-    const hookEntries: Record<HookName, HookEntry> = {
+    const hookEntries = makeEntries({
       hookA: makeEntry(false),
       hookB: makeEntry(false),
       hookC: makeEntry(false),
-    }
+    })
     const eventEntry: EventEntry = {
       order: [hn("hookC"), hn("hookA"), hn("hookB")],
     }
@@ -118,13 +127,13 @@ describe("orderHooksForEvent", () => {
       makeLoaded("parD"),
       makeLoaded("seqE"),
     ]
-    const hookEntries: Record<HookName, HookEntry> = {
+    const hookEntries = makeEntries({
       seqA: makeEntry(false),
       parB: makeEntry(true),
       seqC: makeEntry(false),
       parD: makeEntry(true),
       seqE: makeEntry(false),
-    }
+    })
     // Only order seqC and parB; seqA and seqE are unordered sequential, parD is unordered parallel
     const eventEntry: EventEntry = {
       order: [hn("seqC"), hn("parB")],
@@ -139,11 +148,11 @@ describe("orderHooksForEvent", () => {
 
   test("all hooks in order list: only ordered sequence, no unordered groups", () => {
     const matched = [makeLoaded("hookA"), makeLoaded("hookB"), makeLoaded("hookC")]
-    const hookEntries: Record<HookName, HookEntry> = {
+    const hookEntries = makeEntries({
       hookA: makeEntry(false),
       hookB: makeEntry(true),
       hookC: makeEntry(false),
-    }
+    })
     const eventEntry: EventEntry = {
       order: [hn("hookC"), hn("hookB"), hn("hookA")],
     }
@@ -156,10 +165,10 @@ describe("orderHooksForEvent", () => {
 
   test("order references hook not in matched set: throws", () => {
     const matched = [makeLoaded("hookA")]
-    const hookEntries: Record<HookName, HookEntry> = {
+    const hookEntries = makeEntries({
       hookA: makeEntry(false),
       hookB: makeEntry(false),
-    }
+    })
     const eventEntry: EventEntry = {
       order: [hn("hookA"), hn("hookB")],
     }

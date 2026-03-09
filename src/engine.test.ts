@@ -310,6 +310,7 @@ function makeTempDir(): string {
 
 function makeTestConfig(
   hookOverrides: Record<string, {
+    parallel?: boolean;
     maxFailures?: number;
     maxFailuresMessage?: string;
     onError?: import("./config/types.js").ErrorMode;

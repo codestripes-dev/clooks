@@ -8,7 +8,8 @@ Clooks uses Bun as its runtime — both for the compiled CLI binary and for exec
 
 ## Key Files
 
-- `src/cli.ts` — Build entrypoint for the compiled binary. This is the file passed to `bun build --compile`. Handles `--version` and `--help` flags, then delegates to the engine.
+- `src/cli.ts` — Build entrypoint for the compiled binary. This is the file passed to `bun build --compile`. Implements dual-mode dispatch: if a recognized subcommand is present in argv, delegates to the CLI router (`src/router.ts`) for interactive commands; if stdin is piped with no subcommand, delegates to the hook execution engine (`src/engine.ts`); if stdin is a TTY with no subcommand, shows help. See `docs/domain/cli-architecture.md` for the full dispatch logic.
+- `src/router.ts` — Commander.js program setup, global flags, subcommand registration. Loaded via dynamic import only in CLI mode.
 - `src/engine.ts` — Hook execution engine. Reads stdin JSON, loads hooks from config, matches events against handlers, executes matching hooks with circuit breaker logic, and writes the response to stdout. Uses fail-closed error handling (exit code 2 on any failure), with circuit breaker degradation for repeatedly failing hooks (see `docs/domain/config.md` § Circuit Breaker).
 - `src/index.ts` — Module root. Exports the `VERSION` constant.
 - `dist/clooks` — Compiled binary output (gitignored). Produced by `bun run build`.
