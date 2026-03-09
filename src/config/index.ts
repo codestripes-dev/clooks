@@ -1,7 +1,11 @@
 import { parseYamlFile } from "./parse.js"
 import { validateConfig } from "./validate.js"
-import { mergeConfigFiles } from "./merge.js"
+import { mergeConfigFiles, mergeThreeLayerConfig } from "./merge.js"
+import { resolveHookPath } from "./resolve.js"
 import { join } from "path"
+import { homedir } from "os"
+import type { HookName } from "../types/branded.js"
+import type { HookOrigin } from "./types.js"
 
 export type {
   ClooksConfig,
@@ -9,34 +13,94 @@ export type {
   EventEntry,
   GlobalConfig,
   ErrorMode,
+  HookOrigin,
 } from "./types.js"
 
+export interface LoadConfigOptions {
+  homeRoot?: string  // defaults to os.homedir()
+}
+
+export interface LoadConfigResult {
+  config: import("./types.js").ClooksConfig
+  shadows: HookName[]
+  hasProjectConfig: boolean
+}
+
 /**
- * Load, parse, validate, and merge the Clooks config.
+ * Try to parse a YAML file, returning undefined if the file does not exist.
+ * Throws on malformed YAML or non-object content.
+ */
+async function tryParseYaml(
+  filePath: string,
+): Promise<Record<string, unknown> | undefined> {
+  if (!(await Bun.file(filePath).exists())) {
+    return undefined
+  }
+  return parseYamlFile(filePath)
+}
+
+/**
+ * Load, parse, validate, and merge the Clooks config from up to three layers:
+ * - home: ~/.clooks/clooks.yml (global hooks)
+ * - project: .clooks/clooks.yml (project hooks)
+ * - local: .clooks/clooks.local.yml (local overrides)
  *
- * Reads .clooks/clooks.yml (required) and .clooks/clooks.local.yml (optional).
- * Returns a fully typed, validated ClooksConfig object.
- *
- * Throws on: missing config file, malformed YAML, invalid config shape.
+ * Returns null if neither home nor project config exists.
+ * Local config alone is meaningless without at least one of the other two.
  */
 export async function loadConfig(
   projectRoot: string,
-): Promise<import("./types.js").ClooksConfig> {
-  const configPath = join(projectRoot, ".clooks", "clooks.yml")
+  options?: LoadConfigOptions,
+): Promise<LoadConfigResult | null> {
+  const homeRoot = options?.homeRoot ?? homedir()
+  const homePath = join(homeRoot, ".clooks", "clooks.yml")
+  const projectPath = join(projectRoot, ".clooks", "clooks.yml")
   const localPath = join(projectRoot, ".clooks", "clooks.local.yml")
 
-  // Parse base config (required — throws if missing)
-  const base = await parseYamlFile(configPath)
+  // Parse each file (all optional)
+  const homeRaw = await tryParseYaml(homePath)
+  const projectRaw = await tryParseYaml(projectPath)
+  const localRaw = await tryParseYaml(localPath)
 
-  // Parse local overrides (optional — silently skip if missing)
-  let local: Record<string, unknown> | undefined
-  if (await Bun.file(localPath).exists()) {
-    local = await parseYamlFile(localPath)
+  // If neither home nor project exists, return null
+  if (homeRaw === undefined && projectRaw === undefined) {
+    return null
   }
 
-  // Merge base + local
-  const merged = mergeConfigFiles(base, local)
+  // Merge the three layers
+  const { merged, originMap, shadows } = mergeThreeLayerConfig(
+    homeRaw,
+    projectRaw,
+    localRaw,
+  )
 
-  // Validate and return
-  return validateConfig(merged)
+  // Validate the merged config
+  const config = validateConfig(merged)
+
+  // Annotate HookEntry.origin from the origin map
+  for (const [hookName, origin] of originMap) {
+    const entry = config.hooks[hookName as HookName]
+    if (entry) {
+      entry.origin = origin
+    }
+  }
+
+  // For home hooks, re-resolve paths with homeRoot base
+  for (const [hookName, entry] of Object.entries(config.hooks)) {
+    if (entry.origin === "home") {
+      // Re-resolve with homeRoot as base
+      // We need the raw hook entry to get the original path field
+      const rawHookEntry = merged[hookName]
+      const rawPath = rawHookEntry && typeof rawHookEntry === "object" && !Array.isArray(rawHookEntry)
+        ? (rawHookEntry as Record<string, unknown>).path as string | undefined
+        : undefined
+      entry.resolvedPath = resolveHookPath(hookName as HookName, { path: rawPath }, homeRoot)
+    }
+  }
+
+  return {
+    config,
+    shadows: shadows as HookName[],
+    hasProjectConfig: projectRaw !== undefined,
+  }
 }

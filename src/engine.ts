@@ -26,7 +26,7 @@ export interface EngineResult {
 import type { ClooksConfig, ErrorMode } from "./config/types.js";
 import { normalizeKeys } from "./normalize.js";
 import { loadConfig } from "./config/index.js";
-import { ConfigNotFoundError } from "./config/parse.js";
+import type { LoadConfigResult } from "./config/index.js";
 import { loadAllHooks } from "./loader.js";
 import type { LoadedHook, HookLoadError } from "./loader.js";
 import { INJECTABLE_EVENTS, isEventName } from "./config/constants.js";
@@ -846,16 +846,23 @@ export async function runEngine(): Promise<void> {
 
     // --- Load config (optional — no config = no hooks) ---
     let config: ClooksConfig;
+    let result: LoadConfigResult | null;
     try {
-      config = await loadConfig(projectRoot);
+      result = await loadConfig(projectRoot);
     } catch (e) {
-      if (e instanceof ConfigNotFoundError) {
-        process.exit(EXIT_OK);
-      }
       const message = e instanceof Error ? e.message : String(e);
       process.stderr.write(`clooks: ${message}\n`);
       process.exit(EXIT_STDERR);
     }
+
+    if (result === null) {
+      process.exit(EXIT_OK);
+    }
+
+    config = result!.config;
+    // Store for future use (M2 will use shadows and hasProjectConfig)
+    const _shadows = result!.shadows;
+    const _hasProjectConfig = result!.hasProjectConfig;
 
     // --- Load all hooks (fault-tolerant — load errors go through circuit breaker) ---
     const debug = process.env.CLOOKS_DEBUG === "true";

@@ -22,6 +22,7 @@ function makeEntry(parallel: boolean): HookEntry {
     resolvedPath: "test.ts",
     config: {},
     parallel,
+    origin: "project",
   }
 }
 

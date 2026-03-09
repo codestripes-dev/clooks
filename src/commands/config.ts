@@ -1,12 +1,11 @@
 import { Command } from 'commander'
 import { loadConfig as defaultLoadConfig } from '../config/index.js'
-import type { ClooksConfig } from '../config/types.js'
-import { ConfigNotFoundError } from '../config/parse.js'
+import type { LoadConfigResult, LoadConfigOptions } from '../config/index.js'
 import { getCtx } from '../tui/context.js'
 import { jsonSuccess, jsonError } from '../tui/json-envelope.js'
 import { printIntro, printSuccess, printInfo, printError, printOutro } from '../tui/output.js'
 
-type LoadConfigFn = (projectRoot: string) => Promise<ClooksConfig>
+type LoadConfigFn = (projectRoot: string, options?: LoadConfigOptions) => Promise<LoadConfigResult | null>
 
 export function createConfigCommand(loadConfig: LoadConfigFn = defaultLoadConfig): Command {
   return new Command('config')
@@ -16,7 +15,19 @@ export function createConfigCommand(loadConfig: LoadConfigFn = defaultLoadConfig
       const projectRoot = process.cwd()
 
       try {
-        const config = await loadConfig(projectRoot)
+        const result = await loadConfig(projectRoot)
+
+        if (result === null) {
+          if (ctx.json) {
+            process.stdout.write(jsonError('config', 'No clooks.yml found. Run `clooks init` to get started.') + '\n')
+          } else {
+            printError(ctx, 'No clooks.yml found. Run `clooks init` to get started.')
+          }
+          process.exit(1)
+          return  // unreachable in production, but needed when process.exit is mocked in tests
+        }
+
+        const config = result.config
         const hookCount = Object.keys(config.hooks).length
 
         if (ctx.json) {
@@ -38,14 +49,6 @@ export function createConfigCommand(loadConfig: LoadConfigFn = defaultLoadConfig
         printInfo(ctx, `maxFailures: ${config.global.maxFailures}`)
         printOutro(ctx, 'Done')
       } catch (e) {
-        if (e instanceof ConfigNotFoundError) {
-          if (ctx.json) {
-            process.stdout.write(jsonError('config', 'No clooks.yml found. Run `clooks init` to get started.') + '\n')
-            process.exit(1)
-          }
-          printError(ctx, 'No clooks.yml found. Run `clooks init` to get started.')
-          process.exit(1)
-        }
         const message = e instanceof Error ? e.message : String(e)
         if (ctx.json) {
           process.stdout.write(jsonError('config', message) + '\n')

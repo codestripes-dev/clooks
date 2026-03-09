@@ -325,6 +325,7 @@ function makeTestConfig(
       resolvedPath: `.clooks/hooks/${name}.ts`,
       config: {},
       parallel: false,
+      origin: "project",
       ...overrides,
     };
   }
