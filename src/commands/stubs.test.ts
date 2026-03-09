@@ -38,7 +38,7 @@ describe('stub commands', () => {
     stdoutSpy.mockRestore()
   })
 
-  for (const name of ['init', 'register', 'test']) {
+  for (const name of ['register', 'test']) {
     test(`"${name}" prints "not yet implemented" and exits 1`, async () => {
       const program = createTestProgram()
       await program.parseAsync([name], { from: 'user' }).catch(() => {})

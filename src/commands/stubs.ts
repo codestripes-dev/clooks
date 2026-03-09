@@ -21,7 +21,6 @@ function createStub(name: string, description: string): Command {
 }
 
 export function registerStubs(program: Command): void {
-  program.addCommand(createStub('init', 'Initialize clooks in this project'))
   program.addCommand(createStub('register', 'Register a local hook'))
   program.addCommand(createStub('test', 'Test hooks with synthetic events'))
 }

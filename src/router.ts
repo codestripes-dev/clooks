@@ -2,6 +2,7 @@ import { Command, CommanderError } from 'commander'
 import { VERSION } from './index.js'
 import { CancelError } from './tui/prompts.js'
 import { createConfigCommand } from './commands/config.js'
+import { createInitCommand } from './commands/init.js'
 import { registerStubs } from './commands/stubs.js'
 
 const program = new Command()
@@ -19,6 +20,7 @@ program
   .addHelpText('after', `\nRun clooks --version to print the version (v${VERSION}).`)
 
 program.addCommand(createConfigCommand())
+program.addCommand(createInitCommand())
 registerStubs(program)
 
 export { program }
