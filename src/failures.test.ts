@@ -2,12 +2,14 @@ import { describe, expect, test, afterEach, spyOn } from "bun:test"
 import { mkdtempSync, rmSync, mkdirSync } from "fs"
 import { join } from "path"
 import { tmpdir } from "os"
+import { createHash } from "crypto"
 import {
   readFailures,
   writeFailures,
   recordFailure,
   clearFailure,
   getFailureCount,
+  getFailurePath,
 } from "./failures.js"
 import { hn } from "./test-utils.js"
 
@@ -25,33 +27,67 @@ function makeTempDir(): string {
   return tempDir
 }
 
+/** Compute the project failure path (.clooks/.failures) for a temp dir. */
+function projectFailurePath(dir: string): string {
+  return join(dir, ".clooks/.failures")
+}
+
+describe("getFailurePath", () => {
+  test("returns project path when project config exists", () => {
+    const projectRoot = "/home/user/my-project"
+    const homeRoot = "/home/user"
+    const result = getFailurePath(projectRoot, homeRoot, true)
+    expect(result).toBe(join(projectRoot, ".clooks/.failures"))
+  })
+
+  test("returns home path with hash when home-only", () => {
+    const projectRoot = "/home/user/my-project"
+    const homeRoot = "/home/user"
+    const result = getFailurePath(projectRoot, homeRoot, false)
+    const expectedHash = createHash("sha256")
+      .update(projectRoot)
+      .digest("hex")
+      .slice(0, 12)
+    expect(result).toBe(join(homeRoot, ".clooks/failures", `${expectedHash}.json`))
+  })
+
+  test("different project roots produce different hashes", () => {
+    const homeRoot = "/home/user"
+    const path1 = getFailurePath("/home/user/project-a", homeRoot, false)
+    const path2 = getFailurePath("/home/user/project-b", homeRoot, false)
+    expect(path1).not.toBe(path2)
+  })
+})
+
 describe("readFailures", () => {
   test("returns {} when file does not exist", async () => {
     const dir = makeTempDir()
-    const result = await readFailures(dir)
+    const result = await readFailures(projectFailurePath(dir))
     expect(result).toEqual({})
   })
 
   test("returns {} and warns to stderr when file contains invalid JSON", async () => {
     const dir = makeTempDir()
-    await Bun.write(join(dir, ".clooks/.failures"), "not json{{{")
+    const fPath = projectFailurePath(dir)
+    await Bun.write(fPath, "not json{{{")
     const spy = spyOn(process.stderr, "write")
-    const result = await readFailures(dir)
+    const result = await readFailures(fPath)
     expect(result).toEqual({})
     expect(spy).toHaveBeenCalledWith(
-      "clooks: warning: .clooks/.failures is malformed, resetting failure state\n",
+      `clooks: warning: failure state at ${fPath} is malformed, resetting\n`,
     )
     spy.mockRestore()
   })
 
   test("returns {} and warns to stderr when file contains a non-object", async () => {
     const dir = makeTempDir()
-    await Bun.write(join(dir, ".clooks/.failures"), JSON.stringify([1, 2, 3]))
+    const fPath = projectFailurePath(dir)
+    await Bun.write(fPath, JSON.stringify([1, 2, 3]))
     const spy = spyOn(process.stderr, "write")
-    const result = await readFailures(dir)
+    const result = await readFailures(fPath)
     expect(result).toEqual({})
     expect(spy).toHaveBeenCalledWith(
-      "clooks: warning: .clooks/.failures is malformed, resetting failure state\n",
+      `clooks: warning: failure state at ${fPath} is malformed, resetting\n`,
     )
     spy.mockRestore()
   })
@@ -71,7 +107,26 @@ describe("readFailures", () => {
       join(dir, ".clooks/.failures"),
       JSON.stringify(state, null, 2),
     )
-    const result = await readFailures(dir)
+    const result = await readFailures(projectFailurePath(dir))
+    expect(result).toEqual(state)
+  })
+
+  test("reads from home-only failure path", async () => {
+    const dir = makeTempDir()
+    const failuresDir = join(dir, ".clooks/failures")
+    mkdirSync(failuresDir, { recursive: true })
+    const failurePath = join(failuresDir, "abc123.json")
+    const state = {
+      "my-hook": {
+        PreToolUse: {
+          consecutiveFailures: 1,
+          lastError: "error",
+          lastFailedAt: "2026-01-01T00:00:00.000Z",
+        },
+      },
+    }
+    await Bun.write(failurePath, JSON.stringify(state, null, 2))
+    const result = await readFailures(failurePath)
     expect(result).toEqual(state)
   })
 })
@@ -88,7 +143,7 @@ describe("writeFailures", () => {
         },
       },
     }
-    await writeFailures(dir, state)
+    await writeFailures(projectFailurePath(dir), state)
     const content = await Bun.file(join(dir, ".clooks/.failures")).text()
     expect(JSON.parse(content)).toEqual(state)
     // Verify it's formatted (has newlines)
@@ -102,8 +157,49 @@ describe("writeFailures", () => {
     await Bun.write(filePath, "{}")
     expect(await Bun.file(filePath).exists()).toBe(true)
     // Write empty state
-    await writeFailures(dir, {})
+    await writeFailures(filePath, {})
     expect(await Bun.file(filePath).exists()).toBe(false)
+  })
+
+  test("creates parent directory if needed (home-only path)", async () => {
+    const dir = makeTempDir()
+    const failurePath = join(dir, ".clooks/failures/abc123.json")
+    // The failures/ directory does not exist yet
+    const state = {
+      "my-hook": {
+        PreToolUse: {
+          consecutiveFailures: 1,
+          lastError: "error",
+          lastFailedAt: "2026-01-01T00:00:00.000Z",
+        },
+      },
+    }
+    await writeFailures(failurePath, state)
+    const content = await Bun.file(failurePath).text()
+    expect(JSON.parse(content)).toEqual(state)
+  })
+
+  test("works with both project and home failure paths", async () => {
+    const dir = makeTempDir()
+    const state = {
+      "test-hook": {
+        SessionStart: {
+          consecutiveFailures: 2,
+          lastError: "test error",
+          lastFailedAt: "2026-01-01T00:00:00.000Z",
+        },
+      },
+    }
+
+    // Project path
+    const projPath = projectFailurePath(dir)
+    await writeFailures(projPath, state)
+    expect(await readFailures(projPath)).toEqual(state)
+
+    // Home-only path
+    const homePath = join(dir, ".clooks/failures/hash123.json")
+    await writeFailures(homePath, state)
+    expect(await readFailures(homePath)).toEqual(state)
   })
 })
 

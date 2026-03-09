@@ -129,13 +129,29 @@ interface JsonEnvelope {
 
 `jsonSuccess(command, data)` and `jsonError(command, error)` in `src/tui/json-envelope.ts` produce the serialized string.
 
+## Command Reference
+
+### `clooks init` / `clooks init --global`
+
+Project setup command. Creates `.clooks/` directory, writes default `clooks.yml`, generates the bash entrypoint, and registers it in `.claude/settings.json`.
+
+With `--global`, operates on `~/.clooks/` instead: creates the home directory structure, writes a global `clooks.yml`, generates a global entrypoint, registers it in `~/.claude/settings.json`, and creates the `.global-entrypoint-active` flag file for entrypoint dedup.
+
+### `clooks config` / `clooks config --resolved`
+
+Shows the resolved clooks configuration. In default mode, displays hook count, timeout, onError, and maxFailures.
+
+With `--resolved`, outputs the fully merged config with **provenance annotations** — showing each value's source layer (home/project/local) and file path. This is useful for debugging three-layer config merge behavior. Supports `--json` for structured output.
+
+The resolved command loads all three config files independently (does not reuse `loadConfig()`) to track per-value provenance.
+
 ## Key Files
 
 - `src/cli.ts` — Dual-mode dispatch, signal handlers, version check.
 - `src/known-commands.ts` — `KNOWN_COMMANDS` set.
 - `src/router.ts` — Commander program, `runCLI()`, global flags.
-- `src/commands/config.ts` — `createConfigCommand()` — the first real command (proof of concept).
-- `src/commands/init.ts` — `createInitCommand()` — project setup command (`clooks init`).
+- `src/commands/config.ts` — `createConfigCommand()` — config display and `--resolved` provenance.
+- `src/commands/init.ts` — `createInitCommand()` — project and global setup (`clooks init`, `clooks init --global`).
 - `src/settings.ts` — Settings.json management utility (register/unregister Clooks in `.claude/settings.json`).
 - `src/commands/stubs.ts` — `registerStubs()` — placeholder commands for register, test.
 - `src/tui/context.ts` — `OutputContext` type and `getCtx(cmd)` helper.

@@ -31,7 +31,7 @@ import type { LoadConfigResult } from "./config/index.js";
 import { loadAllHooks } from "./loader.js";
 import type { LoadedHook, HookLoadError } from "./loader.js";
 import { INJECTABLE_EVENTS, isEventName } from "./config/constants.js";
-import { readFailures, writeFailures, recordFailure, clearFailure, getFailureCount } from "./failures.js";
+import { readFailures, writeFailures, recordFailure, clearFailure, getFailureCount, getFailurePath } from "./failures.js";
 import { orderHooksForEvent, partitionIntoGroups } from "./ordering.js";
 import type { OrderedHook, ExecutionGroup } from "./ordering.js";
 
@@ -365,7 +365,7 @@ export async function executeHooks(
   eventName: EventName,
   normalized: Record<string, unknown>,
   config: ClooksConfig,
-  projectRoot: string,
+  failurePath: string,
   loadErrors: HookLoadError[] = [],
 ): Promise<{
   lastResult?: EngineResult;
@@ -381,7 +381,7 @@ export async function executeHooks(
   const systemMessages: string[] = [];
   let lastResult: EngineResult | undefined;
 
-  let failureState = await readFailures(projectRoot);
+  let failureState = await readFailures(failurePath);
   let failuresDirty = false;
 
   // Process load errors through the circuit breaker.
@@ -394,7 +394,7 @@ export async function executeHooks(
 
     if (maxFailures === 0 || newCount < maxFailures) {
       // Under threshold or circuit breaker disabled — fail-closed
-      await writeFailures(projectRoot, failureState);
+      await writeFailures(failurePath, failureState);
       lastResult = { result: "block", reason: formatDiagnostic(loadError.name, eventName, new Error(loadError.error), "block") };
       return { lastResult, degradedMessages, debugMessages, traceMessages, systemMessages };
     }
@@ -468,7 +468,7 @@ export async function executeHooks(
 
           if (maxFailures === 0 || newCount < maxFailures) {
             // Under threshold — block. Write failures and stop pipeline.
-            await writeFailures(projectRoot, failureState);
+            await writeFailures(failurePath, failureState);
             failuresDirty = false;
             blockResult = { result: "block", reason: formatDiagnostic(loaded.name, eventName, e, "block") };
             pipelineBlocked = true;
@@ -792,7 +792,7 @@ export async function executeHooks(
 
     // Write failures once at end of batch
     if (failuresDirty) {
-      await writeFailures(projectRoot, failureState);
+      await writeFailures(failurePath, failureState);
       failuresDirty = false;
     }
   }
@@ -831,7 +831,7 @@ export async function executeHooks(
   }
 
   if (failuresDirty) {
-    await writeFailures(projectRoot, failureState);
+    await writeFailures(failurePath, failureState);
   }
 
   return { lastResult, degradedMessages, debugMessages, traceMessages, systemMessages };
@@ -875,6 +875,9 @@ export async function runEngine(): Promise<void> {
     config = result!.config;
     const shadows = result!.shadows;
     const hasProjectConfig = result!.hasProjectConfig;
+
+    // --- Compute failure path once ---
+    const failurePath = getFailurePath(projectRoot, homeRoot, hasProjectConfig);
 
     // --- Load all hooks (fault-tolerant — load errors go through circuit breaker) ---
     const debug = process.env.CLOOKS_DEBUG === "true";
@@ -973,7 +976,7 @@ export async function runEngine(): Promise<void> {
       eventName,
       normalized,
       config,
-      projectRoot,
+      failurePath,
       loadErrors,
     );
 

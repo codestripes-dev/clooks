@@ -58,7 +58,25 @@ This is an escape hatch for when the binary is broken and blocking all Claude Co
 
 ## Hook Registration
 
-The entrypoint is registered in the project-level `.claude/settings.json` (not user-level). This means hooks travel with the repository. All 18 events are registered with a single matcher group containing the Clooks entrypoint (no matchers, no timeout — Clooks handles event routing and timeouts internally).
+The entrypoint is registered in `.claude/settings.json` for all 18 events with a single matcher group containing the Clooks entrypoint (no matchers, no timeout — Clooks handles event routing and timeouts internally).
+
+Two registration scopes exist:
+
+- **Project-level** — `.claude/settings.json` in the project root. Hooks travel with the repository. Created by `clooks init`.
+- **Global-level** — `~/.claude/settings.json` in the user's home directory. Hooks apply to all projects. Created by `clooks init --global`. The entrypoint path is absolute (e.g., `~/.clooks/bin/entrypoint.sh`).
+
+## Global Entrypoint and Dedup
+
+When a global entrypoint is registered, it handles all hook processing including merged home + project hooks. If a project also has its own entrypoint, the project entrypoint checks for the flag file `~/.clooks/.global-entrypoint-active` and exits early (exit 0) to avoid double execution:
+
+```bash
+# Global entrypoint dedup check
+if [ -f "$HOME/.clooks/.global-entrypoint-active" ]; then
+  exit 0
+fi
+```
+
+The flag file is a simple empty file created by `clooks init --global`. Its presence signals that the global entrypoint is active and project entrypoints should defer to it.
 
 ## Gotchas
 

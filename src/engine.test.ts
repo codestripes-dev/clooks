@@ -9,7 +9,7 @@ import type { ClooksConfig } from "./config/types.js";
 import type { HookName } from "./types/branded.js";
 import { hn, ms } from "./test-utils.js";
 import { DEFAULT_MAX_FAILURES_MESSAGE } from "./config/constants.js";
-import { readFailures } from "./failures.js";
+import { readFailures, getFailurePath } from "./failures.js";
 
 describe("translateResult", () => {
   // --- PreToolUse ---
@@ -308,6 +308,11 @@ function makeTempDir(): string {
   return tempDir;
 }
 
+/** Compute the failure file path for a temp dir (project-local path). */
+function fp(dir: string): string {
+  return join(dir, ".clooks/.failures");
+}
+
 function makeTestConfig(
   hookOverrides: Record<string, {
     parallel?: boolean;
@@ -350,7 +355,7 @@ describe("executeHooks", () => {
     });
     const config = makeTestConfig({ "fail-hook": {} });
 
-    const result = await executeHooks([hook], "PreToolUse", {}, config, dir);
+    const result = await executeHooks([hook], "PreToolUse", {}, config, fp(dir));
     expect(result.lastResult?.result).toBe("block");
     expect(result.lastResult?.reason).toContain("fail-hook");
     expect(result.lastResult?.reason).toContain("boom");
@@ -358,7 +363,7 @@ describe("executeHooks", () => {
     expect(result.systemMessages).toEqual([]);
 
     // Failure state should be written
-    const state = await readFailures(dir);
+    const state = await readFailures(fp(dir));
     expect(state[hn("fail-hook")]?.["PreToolUse"]?.consecutiveFailures).toBe(1);
   });
 
@@ -371,12 +376,12 @@ describe("executeHooks", () => {
 
     // Fail twice (under threshold — produces block results)
     for (let i = 0; i < 2; i++) {
-      const r = await executeHooks([hook], "PreToolUse", {}, config, dir);
+      const r = await executeHooks([hook], "PreToolUse", {}, config, fp(dir));
       expect(r.lastResult?.result).toBe("block");
     }
 
     // Third failure should NOT block — hook is degraded
-    const result = await executeHooks([hook], "PreToolUse", {}, config, dir);
+    const result = await executeHooks([hook], "PreToolUse", {}, config, fp(dir));
     expect(result.lastResult).toBeUndefined();
     expect(result.degradedMessages).toHaveLength(1);
     expect(result.degradedMessages[0]).toContain("fail-hook");
@@ -391,12 +396,12 @@ describe("executeHooks", () => {
 
     // Fail 3 times to enter degraded state (first 2 produce block, 3rd degrades)
     for (let i = 0; i < 2; i++) {
-      await executeHooks([hook], "PreToolUse", {}, config, dir);
+      await executeHooks([hook], "PreToolUse", {}, config, fp(dir));
     }
-    await executeHooks([hook], "PreToolUse", {}, config, dir);
+    await executeHooks([hook], "PreToolUse", {}, config, fp(dir));
 
     // Fourth invocation — still degraded
-    const result = await executeHooks([hook], "PreToolUse", {}, config, dir);
+    const result = await executeHooks([hook], "PreToolUse", {}, config, fp(dir));
     expect(result.degradedMessages).toHaveLength(1);
     expect(result.degradedMessages[0]).toContain("still broken");
   });
@@ -414,18 +419,18 @@ describe("executeHooks", () => {
 
     // Fail 3 times (first 2 produce block, 3rd degrades)
     for (let i = 0; i < 2; i++) {
-      await executeHooks([hook], "PreToolUse", {}, config, dir);
+      await executeHooks([hook], "PreToolUse", {}, config, fp(dir));
     }
-    await executeHooks([hook], "PreToolUse", {}, config, dir);
+    await executeHooks([hook], "PreToolUse", {}, config, fp(dir));
 
     // Fix the hook
     shouldThrow = false;
-    const result = await executeHooks([hook], "PreToolUse", {}, config, dir);
+    const result = await executeHooks([hook], "PreToolUse", {}, config, fp(dir));
     expect(result.lastResult).toEqual({ result: "allow" });
     expect(result.degradedMessages).toHaveLength(0);
 
     // Failure state should be cleared
-    const state = await readFailures(dir);
+    const state = await readFailures(fp(dir));
     expect(state[hn("recover-hook")]).toBeUndefined();
   });
 
@@ -438,7 +443,7 @@ describe("executeHooks", () => {
 
     // Should always produce block result, even after many failures
     for (let i = 0; i < 5; i++) {
-      const result = await executeHooks([hook], "PreToolUse", {}, config, dir);
+      const result = await executeHooks([hook], "PreToolUse", {}, config, fp(dir));
       expect(result.lastResult?.result).toBe("block");
       expect(result.lastResult?.reason).toContain("boom");
     }
@@ -457,10 +462,10 @@ describe("executeHooks", () => {
 
     // Fail the bad hook 3 times (first 2 produce block after good-hook runs, 3rd degrades)
     for (let i = 0; i < 2; i++) {
-      await executeHooks([goodHook, badHook], "PreToolUse", {}, config, dir);
+      await executeHooks([goodHook, badHook], "PreToolUse", {}, config, fp(dir));
     }
 
-    const result = await executeHooks([goodHook, badHook], "PreToolUse", {}, config, dir);
+    const result = await executeHooks([goodHook, badHook], "PreToolUse", {}, config, fp(dir));
     // Good hook's result should be used
     expect(result.lastResult).toEqual({ result: "allow" });
     // Degraded message should be present
@@ -479,7 +484,7 @@ describe("executeHooks", () => {
     const config = makeTestConfig({ "bad-1": {}, "bad-2": {} }, 1);
 
     // With maxFailures=1, the first failure triggers degradation
-    const result = await executeHooks([badHook1, badHook2], "PreToolUse", {}, config, dir);
+    const result = await executeHooks([badHook1, badHook2], "PreToolUse", {}, config, fp(dir));
     expect(result.degradedMessages).toHaveLength(2);
     expect(result.degradedMessages[0]).toContain("bad-1");
     expect(result.degradedMessages[1]).toContain("bad-2");
@@ -494,7 +499,7 @@ describe("executeHooks", () => {
     const config = makeTestConfig({ "custom-hook": { maxFailures: 1 } }, 3);
 
     // First failure should trigger degradation (maxFailures=1)
-    const result = await executeHooks([hook], "PreToolUse", {}, config, dir);
+    const result = await executeHooks([hook], "PreToolUse", {}, config, fp(dir));
     expect(result.degradedMessages).toHaveLength(1);
   });
 
@@ -507,7 +512,7 @@ describe("executeHooks", () => {
     const config = makeTestConfig({ "fail-hook": {} }, 1);
 
     // executeHooks just collects messages — stderr handling is in runEngine
-    const result = await executeHooks([hook], "SessionEnd", {}, config, dir);
+    const result = await executeHooks([hook], "SessionEnd", {}, config, fp(dir));
     expect(result.degradedMessages).toHaveLength(1);
   });
 
@@ -520,11 +525,11 @@ describe("executeHooks", () => {
     ];
     const config = makeTestConfig({ "broken-hook": {} }, 3);
 
-    const result = await executeHooks([], "PreToolUse", {}, config, dir, loadErrors);
+    const result = await executeHooks([], "PreToolUse", {}, config, fp(dir), loadErrors);
     expect(result.lastResult?.result).toBe("block");
     expect(result.lastResult?.reason).toContain("broken-hook");
 
-    const state = await readFailures(dir);
+    const state = await readFailures(fp(dir));
     expect(state[hn("broken-hook")]?.["PreToolUse"]?.consecutiveFailures).toBe(1);
   });
 
@@ -537,12 +542,12 @@ describe("executeHooks", () => {
 
     // Fail twice (under threshold — produces block results)
     for (let i = 0; i < 2; i++) {
-      const r = await executeHooks([], "PreToolUse", {}, config, dir, loadErrors);
+      const r = await executeHooks([], "PreToolUse", {}, config, fp(dir), loadErrors);
       expect(r.lastResult?.result).toBe("block");
     }
 
     // Third failure — should skip (degraded), not block
-    const result = await executeHooks([], "PreToolUse", {}, config, dir, loadErrors);
+    const result = await executeHooks([], "PreToolUse", {}, config, fp(dir), loadErrors);
     expect(result.degradedMessages).toHaveLength(1);
     expect(result.degradedMessages[0]).toContain("broken-hook");
   });
@@ -558,7 +563,7 @@ describe("executeHooks", () => {
     // maxFailures=1 so load error degrades immediately
     const config = makeTestConfig({ "good-hook": {}, "broken-hook": {} }, 1);
 
-    const result = await executeHooks([goodHook], "PreToolUse", {}, config, dir, loadErrors);
+    const result = await executeHooks([goodHook], "PreToolUse", {}, config, fp(dir), loadErrors);
     expect(result.lastResult).toEqual({ result: "allow" });
     expect(result.degradedMessages).toHaveLength(1);
     expect(result.degradedMessages[0]).toContain("broken-hook");
@@ -573,7 +578,7 @@ describe("executeHooks", () => {
     });
     const config = makeTestConfig({ "notify-hook": { onError: "continue" } });
 
-    const result = await executeHooks([hook], "PreToolUse", {}, config, dir);
+    const result = await executeHooks([hook], "PreToolUse", {}, config, fp(dir));
     expect(result.lastResult).toBeUndefined();
     expect(result.systemMessages).toHaveLength(1);
     expect(result.systemMessages[0]).toContain("notify-hook");
@@ -588,7 +593,7 @@ describe("executeHooks", () => {
     });
     const config = makeTestConfig({ "trace-hook": { onError: "trace" } });
 
-    const result = await executeHooks([hook], "PreToolUse", {}, config, dir);
+    const result = await executeHooks([hook], "PreToolUse", {}, config, fp(dir));
     expect(result.lastResult).toBeUndefined();
     expect(result.traceMessages).toHaveLength(1);
     expect(result.traceMessages[0]).toContain("trace-hook");
@@ -606,7 +611,7 @@ describe("executeHooks", () => {
     });
     const config = makeTestConfig({ "block-hook": {}, "after-hook": {} });
 
-    const result = await executeHooks([hook1, hook2], "PreToolUse", {}, config, dir);
+    const result = await executeHooks([hook1, hook2], "PreToolUse", {}, config, fp(dir));
     expect(result.lastResult?.result).toBe("block");
     expect(result.lastResult?.reason).toContain("blocked");
   });
@@ -618,8 +623,8 @@ describe("executeHooks", () => {
     });
     const config = makeTestConfig({ "continue-hook": { onError: "continue" } });
 
-    await executeHooks([hook], "PreToolUse", {}, config, dir);
-    const state = await readFailures(dir);
+    await executeHooks([hook], "PreToolUse", {}, config, fp(dir));
+    const state = await readFailures(fp(dir));
     expect(state[hn("continue-hook")]).toBeUndefined();
   });
 
@@ -630,8 +635,8 @@ describe("executeHooks", () => {
     });
     const config = makeTestConfig({ "trace-hook": { onError: "trace" } });
 
-    await executeHooks([hook], "PreToolUse", {}, config, dir);
-    const state = await readFailures(dir);
+    await executeHooks([hook], "PreToolUse", {}, config, fp(dir));
+    const state = await readFailures(fp(dir));
     expect(state[hn("trace-hook")]).toBeUndefined();
   });
 
@@ -642,7 +647,7 @@ describe("executeHooks", () => {
     ];
     const config = makeTestConfig({ "broken-hook": { onError: "continue" } });
 
-    const result = await executeHooks([], "PreToolUse", {}, config, dir, loadErrors);
+    const result = await executeHooks([], "PreToolUse", {}, config, fp(dir), loadErrors);
     expect(result.lastResult?.result).toBe("block");
   });
 
@@ -653,7 +658,7 @@ describe("executeHooks", () => {
     });
     const config = makeTestConfig({ "trace-hook": { onError: "trace" } });
 
-    const result = await executeHooks([hook], "SessionEnd", {}, config, dir);
+    const result = await executeHooks([hook], "SessionEnd", {}, config, fp(dir));
     expect(result.traceMessages).toEqual([]);
     expect(result.systemMessages.length).toBeGreaterThanOrEqual(1);
     expect(result.systemMessages[0]).toContain("Falling back");
@@ -706,7 +711,7 @@ describe("trace and systemMessage integration", () => {
     });
     const config = makeTestConfig({ "trace-hook": { onError: "trace" } });
 
-    const result = await executeHooks([hook], "PreToolUse", {}, config, dir);
+    const result = await executeHooks([hook], "PreToolUse", {}, config, fp(dir));
     expect(result.traceMessages).toHaveLength(1);
 
     // Simulate runEngine trace injection
@@ -731,7 +736,7 @@ describe("trace and systemMessage integration", () => {
     });
     const config = makeTestConfig({ "trace-1": { onError: "trace" }, "trace-2": { onError: "trace" } });
 
-    const result = await executeHooks([hook1, hook2], "PreToolUse", {}, config, dir);
+    const result = await executeHooks([hook1, hook2], "PreToolUse", {}, config, fp(dir));
     expect(result.traceMessages).toHaveLength(2);
 
     // Simulate runEngine trace injection
@@ -803,7 +808,7 @@ describe("sequential pipeline: updatedInput", () => {
     const config = makeTestConfig({ hookA: {}, hookB: {} });
     const normalized = { event: "PreToolUse", toolInput: { file_path: "/original" } };
 
-    const result = await executeHooks([hookA, hookB], "PreToolUse", normalized, config, dir);
+    const result = await executeHooks([hookA, hookB], "PreToolUse", normalized, config, fp(dir));
     expect(result.lastResult?.result).toBe("allow");
 
     // Hook B should have received the modified toolInput from hook A
@@ -834,7 +839,7 @@ describe("sequential pipeline: updatedInput", () => {
     const config = makeTestConfig({ hookA: {}, hookB: {}, hookC: {} });
     const normalized = { event: "PreToolUse", toolInput: { file_path: "/original" } };
 
-    const result = await executeHooks([hookA, hookB, hookC], "PreToolUse", normalized, config, dir);
+    const result = await executeHooks([hookA, hookB, hookC], "PreToolUse", normalized, config, fp(dir));
     expect(result.lastResult?.result).toBe("allow");
 
     // Hook C receives B's updatedInput as toolInput (cumulative)
@@ -864,7 +869,7 @@ describe("sequential pipeline: updatedInput", () => {
     });
     const config = makeTestConfig({ hookA: {}, hookB: {}, hookC: {} });
 
-    const result = await executeHooks([hookA, hookB, hookC], "PreToolUse", {}, config, dir);
+    const result = await executeHooks([hookA, hookB, hookC], "PreToolUse", {}, config, fp(dir));
     expect(result.lastResult?.result).toBe("block");
     expect(result.lastResult?.reason).toBe("blocked by B");
     expect(hookCRan).toBe(false);
@@ -881,7 +886,7 @@ describe("sequential pipeline: updatedInput", () => {
     });
     const config = makeTestConfig({ hookA: {}, hookB: {} });
 
-    const result = await executeHooks([hookA, hookB], "PreToolUse", {}, config, dir);
+    const result = await executeHooks([hookA, hookB], "PreToolUse", {}, config, fp(dir));
     expect(result.lastResult?.result).toBe("allow");
     expect(result.lastResult?.injectContext).toBe("context from A\ncontext from B");
   });
@@ -899,7 +904,7 @@ describe("sequential pipeline: updatedInput", () => {
     // Make hookA parallel so they end up in different groups
     const config = makeTestConfig({ hookA: { parallel: true }, hookB: {} });
 
-    const result = await executeHooks([hookA, hookB], "PreToolUse", {}, config, dir);
+    const result = await executeHooks([hookA, hookB], "PreToolUse", {}, config, fp(dir));
     expect(result.lastResult?.result).toBe("block");
     // injectContext should include both A's and B's context
     expect(result.lastResult?.injectContext).toContain("context-from-A");
@@ -920,7 +925,7 @@ describe("timeout enforcement", () => {
     // Override global timeout to be very short
     config.global.timeout = ms(50);
 
-    const result = await executeHooks([hookSlow], "PreToolUse", {}, config, dir);
+    const result = await executeHooks([hookSlow], "PreToolUse", {}, config, fp(dir));
     expect(result.lastResult?.result).toBe("block");
     expect(result.lastResult?.reason).toContain("slow-hook");
     expect(result.lastResult?.reason).toContain("timed out");
@@ -961,7 +966,7 @@ describe("parallel batch", () => {
     const config = makeTestConfig({ hookA: { parallel: true }, hookB: { parallel: true } });
 
     const start = performance.now();
-    const result = await executeHooks([hookA, hookB], "PreToolUse", {}, config, dir);
+    const result = await executeHooks([hookA, hookB], "PreToolUse", {}, config, fp(dir));
     const elapsed = performance.now() - start;
 
     expect(result.lastResult?.result).toBe("allow");
@@ -982,7 +987,7 @@ describe("parallel batch", () => {
     });
     const config = makeTestConfig({ hookA: { parallel: true }, hookB: { parallel: true } });
 
-    const result = await executeHooks([hookA, hookB], "PreToolUse", {}, config, dir);
+    const result = await executeHooks([hookA, hookB], "PreToolUse", {}, config, fp(dir));
     expect(result.lastResult?.result).toBe("allow");
     expect(result.lastResult?.injectContext).toContain("context-A");
     expect(result.lastResult?.injectContext).toContain("context-B");
@@ -1001,7 +1006,7 @@ describe("parallel batch", () => {
     const config = makeTestConfig({ hookA: { parallel: true }, hookB: { parallel: true } });
 
     const start = performance.now();
-    const result = await executeHooks([hookA, hookB], "PreToolUse", {}, config, dir);
+    const result = await executeHooks([hookA, hookB], "PreToolUse", {}, config, fp(dir));
     const elapsed = performance.now() - start;
 
     expect(result.lastResult?.result).toBe("block");
@@ -1024,7 +1029,7 @@ describe("parallel batch", () => {
     });
 
     const start = performance.now();
-    const result = await executeHooks([hookA, hookB], "PreToolUse", {}, config, dir);
+    const result = await executeHooks([hookA, hookB], "PreToolUse", {}, config, fp(dir));
     const elapsed = performance.now() - start;
 
     expect(result.lastResult?.result).toBe("block");
@@ -1045,7 +1050,7 @@ describe("parallel batch", () => {
       hookB: { parallel: true },
     });
 
-    const result = await executeHooks([hookA, hookB], "PreToolUse", {}, config, dir);
+    const result = await executeHooks([hookA, hookB], "PreToolUse", {}, config, fp(dir));
     // Hook B's result should be used
     expect(result.lastResult?.result).toBe("allow");
     expect(result.lastResult?.injectContext).toContain("B-ok");
@@ -1061,13 +1066,13 @@ describe("parallel batch", () => {
     });
     const config = makeTestConfig({ hookA: { parallel: true } });
 
-    const result = await executeHooks([hookA], "PreToolUse", {}, config, dir);
+    const result = await executeHooks([hookA], "PreToolUse", {}, config, fp(dir));
     expect(result.lastResult?.result).toBe("block");
     expect(result.lastResult?.reason).toContain("contract violation");
     expect(result.lastResult?.reason).toContain("hookA");
 
     // Should count toward maxFailures
-    const state = await readFailures(dir);
+    const state = await readFailures(fp(dir));
     expect(state[hn("hookA")]?.["PreToolUse"]?.consecutiveFailures).toBe(1);
   });
 
@@ -1081,7 +1086,7 @@ describe("parallel batch", () => {
     });
     const config = makeTestConfig({ hookA: { parallel: true }, hookB: { parallel: true } });
 
-    const result = await executeHooks([hookA, hookB], "PreToolUse", {}, config, dir);
+    const result = await executeHooks([hookA, hookB], "PreToolUse", {}, config, fp(dir));
     // No non-skip result, no injectContext
     expect(result.lastResult).toBeUndefined();
     expect(result.degradedMessages).toEqual([]);
@@ -1101,10 +1106,10 @@ describe("parallel batch", () => {
       hookB: { parallel: true, onError: "block" },
     });
 
-    await executeHooks([hookA, hookB], "PreToolUse", {}, config, dir);
+    await executeHooks([hookA, hookB], "PreToolUse", {}, config, fp(dir));
 
     // Both failures should be recorded
-    const state = await readFailures(dir);
+    const state = await readFailures(fp(dir));
     expect(state[hn("hookA")]?.["PreToolUse"]?.consecutiveFailures).toBe(1);
     expect(state[hn("hookB")]?.["PreToolUse"]?.consecutiveFailures).toBe(1);
   });
@@ -1123,7 +1128,7 @@ describe("parallel batch", () => {
       hookB: { parallel: true },
     });
 
-    const result = await executeHooks([hookA, hookB], "PreToolUse", {}, config, dir);
+    const result = await executeHooks([hookA, hookB], "PreToolUse", {}, config, fp(dir));
     // Hook A is degraded — should NOT block
     expect(result.lastResult?.result).toBe("allow");
     expect(result.lastResult?.injectContext).toContain("B-ok");
@@ -1146,13 +1151,13 @@ describe("parallel batch", () => {
     });
 
     // First call: failure recorded
-    await executeHooks([hookA], "PreToolUse", {}, config, dir);
-    const state1 = await readFailures(dir);
+    await executeHooks([hookA], "PreToolUse", {}, config, fp(dir));
+    const state1 = await readFailures(fp(dir));
     expect(state1[hn("hookA")]?.["PreToolUse"]?.consecutiveFailures).toBe(1);
 
     // Second call: returns skip — should still clear failure state
-    await executeHooks([hookA], "PreToolUse", {}, config, dir);
-    const state2 = await readFailures(dir);
+    await executeHooks([hookA], "PreToolUse", {}, config, fp(dir));
+    const state2 = await readFailures(fp(dir));
     expect(state2[hn("hookA")]).toBeUndefined();
   });
 
@@ -1174,7 +1179,7 @@ describe("parallel batch", () => {
     });
     const config = makeTestConfig({ hookA: { parallel: true }, hookB: { parallel: true } });
 
-    const result = await executeHooks([hookA, hookB], "PreToolUse", {}, config, dir);
+    const result = await executeHooks([hookA, hookB], "PreToolUse", {}, config, fp(dir));
     expect(result.lastResult?.result).toBe("block");
     // Give hookB a moment to check the signal
     await Bun.sleep(30);
@@ -1191,7 +1196,7 @@ describe("parallel batch", () => {
     });
     const config = makeTestConfig({ hookA: { parallel: true }, hookB: { parallel: true } });
 
-    const result = await executeHooks([hookA, hookB], "PreToolUse", {}, config, dir);
+    const result = await executeHooks([hookA, hookB], "PreToolUse", {}, config, fp(dir));
 
     expect(result.lastResult?.result).toBe("block");
     expect(result.lastResult?.injectContext).toContain("from-allow");
@@ -1241,7 +1246,7 @@ describe("mixed pipeline", () => {
     };
 
     const normalized = { event: "PreToolUse", toolInput: { file_path: "/original" } };
-    const result = await executeHooks([hookA, hookB, hookC], "PreToolUse", normalized, config, dir);
+    const result = await executeHooks([hookA, hookB, hookC], "PreToolUse", normalized, config, fp(dir));
 
     expect(result.lastResult?.result).toBe("allow");
 
@@ -1288,7 +1293,7 @@ describe("mixed pipeline", () => {
       PreToolUse: { order: [hn("hookA"), hn("hookB"), hn("hookC")] },
     };
 
-    const result = await executeHooks([hookA, hookB, hookC], "PreToolUse", {}, config, dir);
+    const result = await executeHooks([hookA, hookB, hookC], "PreToolUse", {}, config, fp(dir));
     expect(result.lastResult?.result).toBe("block");
     expect(result.lastResult?.reason).toBe("parallel-block");
     expect(hookCRan).toBe(false);
@@ -1323,7 +1328,7 @@ describe("mixed pipeline", () => {
       PreToolUse: { order: [hn("hookA"), hn("hookB"), hn("hookC"), hn("hookD")] },
     };
 
-    const result = await executeHooks([hookA, hookB, hookC, hookD], "PreToolUse", {}, config, dir);
+    const result = await executeHooks([hookA, hookB, hookC, hookD], "PreToolUse", {}, config, fp(dir));
     expect(result.lastResult?.result).toBe("allow");
     expect(result.lastResult?.injectContext).toBe("seq-A\npar-B\npar-C\nseq-D");
   });
@@ -1367,7 +1372,7 @@ describe("integration: full pipeline", () => {
 
     const normalized = { event: "PreToolUse", toolInput: { command: "original-cmd" } };
     // Pass hooks in reverse declaration order — order list should override
-    const result = await executeHooks([formatter, scanner], "PreToolUse", normalized, config, dir);
+    const result = await executeHooks([formatter, scanner], "PreToolUse", normalized, config, fp(dir));
 
     expect(result.lastResult?.result).toBe("allow");
     // Formatter saw scanner's updatedInput
@@ -1422,7 +1427,7 @@ describe("integration: full pipeline", () => {
 
     const result = await executeHooks(
       [orderedA, orderedB, unorderedPar, unorderedSeq],
-      "PreToolUse", {}, config, dir,
+      "PreToolUse", {}, config, fp(dir),
     );
 
     expect(result.lastResult?.result).toBe("allow");
@@ -1447,7 +1452,7 @@ describe("integration: full pipeline", () => {
     const config = makeTestConfig({ mutator: { parallel: false } });
 
     const normalized = { event: "PreToolUse", toolInput: { filePath: "/old/path" } };
-    const result = await executeHooks([hook], "PreToolUse", normalized, config, dir);
+    const result = await executeHooks([hook], "PreToolUse", normalized, config, fp(dir));
 
     // Pipeline result has updatedInput
     expect(result.lastResult?.result).toBe("allow");
@@ -1488,7 +1493,7 @@ describe("integration: full pipeline", () => {
     const matched = matchHooksForEvent([hookA, hookB], "PreToolUse" as import("./types/branded.js").EventName);
 
     await expect(
-      executeHooks(matched, "PreToolUse", {}, config, dir),
+      executeHooks(matched, "PreToolUse", {}, config, fp(dir)),
     ).rejects.toThrow(/hook-a.*does not handle this event/);
   });
 });
@@ -1524,5 +1529,35 @@ describe("buildShadowWarnings", () => {
   it("returns empty array when shadows array is empty", () => {
     const warnings = buildShadowWarnings("SessionStart", []);
     expect(warnings).toEqual([]);
+  });
+});
+
+// --- Home-only failure path ---
+
+describe("executeHooks with home-only failure path", () => {
+  it("creates failure state at hash-based path under homeRoot", async () => {
+    const dir = makeTempDir();
+    const homeRoot = dir;
+    const projectRoot = join(dir, "some-project");
+    mkdirSync(projectRoot, { recursive: true });
+
+    const failurePath = getFailurePath(projectRoot, homeRoot, false);
+
+    const hook = makeLoadedHook("fail-hook", {
+      PreToolUse: () => { throw new Error("home-only boom"); },
+    });
+    const config = makeTestConfig({ "fail-hook": {} });
+
+    const result = await executeHooks([hook], "PreToolUse", {}, config, failurePath);
+    expect(result.lastResult?.result).toBe("block");
+
+    // Verify failure state was written to the hash-based path
+    const state = await readFailures(failurePath);
+    expect(state[hn("fail-hook")]?.["PreToolUse"]?.consecutiveFailures).toBe(1);
+    expect(state[hn("fail-hook")]?.["PreToolUse"]?.lastError).toContain("home-only boom");
+
+    // Verify the path is under homeRoot/.clooks/failures/
+    expect(failurePath).toContain(join(homeRoot, ".clooks/failures"));
+    expect(failurePath).toMatch(/\.json$/);
   });
 });
