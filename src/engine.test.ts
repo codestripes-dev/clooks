@@ -944,3 +944,368 @@ describe("translateResult updatedInput", () => {
     expect(parsed.hookSpecificOutput.updatedInput).toBeUndefined();
   });
 });
+
+// --- FEAT-0016 M4: Parallel batch execution ---
+
+describe("parallel batch", () => {
+  it("hooks run concurrently", async () => {
+    const dir = makeTempDir();
+    const hookA = makeLoadedHook("hookA", {
+      PreToolUse: async () => { await Bun.sleep(50); return { result: "allow", injectContext: "A" }; },
+    });
+    const hookB = makeLoadedHook("hookB", {
+      PreToolUse: async () => { await Bun.sleep(50); return { result: "allow", injectContext: "B" }; },
+    });
+    const config = makeTestConfig({ hookA: { parallel: true }, hookB: { parallel: true } });
+
+    const start = performance.now();
+    const result = await executeHooks([hookA, hookB], "PreToolUse", {}, config, dir);
+    const elapsed = performance.now() - start;
+
+    expect(result.lastResult?.result).toBe("allow");
+    // Both ran — injectContext has both values
+    expect(result.lastResult?.injectContext).toContain("A");
+    expect(result.lastResult?.injectContext).toContain("B");
+    // Concurrent: should be ~50ms, not ~100ms. Allow generous margin.
+    expect(elapsed).toBeLessThan(90);
+  });
+
+  it("injectContext from multiple hooks merged", async () => {
+    const dir = makeTempDir();
+    const hookA = makeLoadedHook("hookA", {
+      PreToolUse: () => ({ result: "allow", injectContext: "context-A" }),
+    });
+    const hookB = makeLoadedHook("hookB", {
+      PreToolUse: () => ({ result: "allow", injectContext: "context-B" }),
+    });
+    const config = makeTestConfig({ hookA: { parallel: true }, hookB: { parallel: true } });
+
+    const result = await executeHooks([hookA, hookB], "PreToolUse", {}, config, dir);
+    expect(result.lastResult?.result).toBe("allow");
+    expect(result.lastResult?.injectContext).toContain("context-A");
+    expect(result.lastResult?.injectContext).toContain("context-B");
+    // Newline-joined
+    expect(result.lastResult?.injectContext).toBe("context-A\ncontext-B");
+  });
+
+  it("block short-circuits", async () => {
+    const dir = makeTempDir();
+    const hookA = makeLoadedHook("hookA", {
+      PreToolUse: () => ({ result: "block", reason: "denied" }),
+    });
+    const hookB = makeLoadedHook("hookB", {
+      PreToolUse: async () => { await Bun.sleep(500); return { result: "allow" }; },
+    });
+    const config = makeTestConfig({ hookA: { parallel: true }, hookB: { parallel: true } });
+
+    const start = performance.now();
+    const result = await executeHooks([hookA, hookB], "PreToolUse", {}, config, dir);
+    const elapsed = performance.now() - start;
+
+    expect(result.lastResult?.result).toBe("block");
+    expect(result.lastResult?.reason).toBe("denied");
+    // Short-circuited: should be well under 500ms
+    expect(elapsed).toBeLessThan(200);
+  });
+
+  it("crash with onError block short-circuits", async () => {
+    const dir = makeTempDir();
+    const hookA = makeLoadedHook("hookA", {
+      PreToolUse: () => { throw new Error("crash"); },
+    });
+    const hookB = makeLoadedHook("hookB", {
+      PreToolUse: async () => { await Bun.sleep(500); return { result: "allow" }; },
+    });
+    const config = makeTestConfig({
+      hookA: { parallel: true, onError: "block" },
+      hookB: { parallel: true },
+    });
+
+    const start = performance.now();
+    const result = await executeHooks([hookA, hookB], "PreToolUse", {}, config, dir);
+    const elapsed = performance.now() - start;
+
+    expect(result.lastResult?.result).toBe("block");
+    expect(result.lastResult?.reason).toContain("crash");
+    expect(elapsed).toBeLessThan(200);
+  });
+
+  it("crash with onError continue waits for others", async () => {
+    const dir = makeTempDir();
+    const hookA = makeLoadedHook("hookA", {
+      PreToolUse: () => { throw new Error("non-fatal"); },
+    });
+    const hookB = makeLoadedHook("hookB", {
+      PreToolUse: async () => { await Bun.sleep(50); return { result: "allow", injectContext: "B-ok" }; },
+    });
+    const config = makeTestConfig({
+      hookA: { parallel: true, onError: "continue" },
+      hookB: { parallel: true },
+    });
+
+    const result = await executeHooks([hookA, hookB], "PreToolUse", {}, config, dir);
+    // Hook B's result should be used
+    expect(result.lastResult?.result).toBe("allow");
+    expect(result.lastResult?.injectContext).toContain("B-ok");
+    // Hook A's failure logged as systemMessage
+    expect(result.systemMessages.length).toBeGreaterThanOrEqual(1);
+    expect(result.systemMessages[0]).toContain("non-fatal");
+  });
+
+  it("updatedInput is contract violation", async () => {
+    const dir = makeTempDir();
+    const hookA = makeLoadedHook("hookA", {
+      PreToolUse: () => ({ result: "allow", updatedInput: { x: 1 } }),
+    });
+    const config = makeTestConfig({ hookA: { parallel: true } });
+
+    const result = await executeHooks([hookA], "PreToolUse", {}, config, dir);
+    expect(result.lastResult?.result).toBe("block");
+    expect(result.lastResult?.reason).toContain("contract violation");
+    expect(result.lastResult?.reason).toContain("hookA");
+
+    // Should count toward maxFailures
+    const state = await readFailures(dir);
+    expect(state[hn("hookA")]?.["PreToolUse"]?.consecutiveFailures).toBe(1);
+  });
+
+  it("all skip is passthrough", async () => {
+    const dir = makeTempDir();
+    const hookA = makeLoadedHook("hookA", {
+      PreToolUse: () => ({ result: "skip" }),
+    });
+    const hookB = makeLoadedHook("hookB", {
+      PreToolUse: () => ({ result: "skip" }),
+    });
+    const config = makeTestConfig({ hookA: { parallel: true }, hookB: { parallel: true } });
+
+    const result = await executeHooks([hookA, hookB], "PreToolUse", {}, config, dir);
+    // No non-skip result, no injectContext
+    expect(result.lastResult).toBeUndefined();
+    expect(result.degradedMessages).toEqual([]);
+    expect(result.traceMessages).toEqual([]);
+  });
+
+  it("circuit breaker updated after all settle", async () => {
+    const dir = makeTempDir();
+    const hookA = makeLoadedHook("hookA", {
+      PreToolUse: () => { throw new Error("err-A"); },
+    });
+    const hookB = makeLoadedHook("hookB", {
+      PreToolUse: () => { throw new Error("err-B"); },
+    });
+    const config = makeTestConfig({
+      hookA: { parallel: true, onError: "block" },
+      hookB: { parallel: true, onError: "block" },
+    });
+
+    await executeHooks([hookA, hookB], "PreToolUse", {}, config, dir);
+
+    // Both failures should be recorded
+    const state = await readFailures(dir);
+    expect(state[hn("hookA")]?.["PreToolUse"]?.consecutiveFailures).toBe(1);
+    expect(state[hn("hookB")]?.["PreToolUse"]?.consecutiveFailures).toBe(1);
+  });
+
+  it("degraded hook in parallel group does not block pipeline", async () => {
+    const dir = makeTempDir();
+    const hookA = makeLoadedHook("hookA", {
+      PreToolUse: () => { throw new Error("degraded-err"); },
+    });
+    const hookB = makeLoadedHook("hookB", {
+      PreToolUse: () => ({ result: "allow", injectContext: "B-ok" }),
+    });
+    // maxFailures=1 so first failure degrades immediately
+    const config = makeTestConfig({
+      hookA: { parallel: true, onError: "block", maxFailures: 1 },
+      hookB: { parallel: true },
+    });
+
+    const result = await executeHooks([hookA, hookB], "PreToolUse", {}, config, dir);
+    // Hook A is degraded — should NOT block
+    expect(result.lastResult?.result).toBe("allow");
+    expect(result.lastResult?.injectContext).toContain("B-ok");
+    expect(result.degradedMessages).toHaveLength(1);
+    expect(result.degradedMessages[0]).toContain("hookA");
+  });
+
+  it("skip result clears failure state in parallel (matching sequential runner)", async () => {
+    const dir = makeTempDir();
+    let callCount = 0;
+    const hookA = makeLoadedHook("hookA", {
+      PreToolUse: () => {
+        callCount++;
+        if (callCount <= 1) throw new Error("first-fail");
+        return { result: "skip" };
+      },
+    });
+    const config = makeTestConfig({
+      hookA: { parallel: true, onError: "block", maxFailures: 0 },
+    });
+
+    // First call: failure recorded
+    await executeHooks([hookA], "PreToolUse", {}, config, dir);
+    const state1 = await readFailures(dir);
+    expect(state1[hn("hookA")]?.["PreToolUse"]?.consecutiveFailures).toBe(1);
+
+    // Second call: returns skip — should still clear failure state
+    await executeHooks([hookA], "PreToolUse", {}, config, dir);
+    const state2 = await readFailures(dir);
+    expect(state2[hn("hookA")]).toBeUndefined();
+  });
+
+  it("AbortSignal fired on short-circuit", async () => {
+    const dir = makeTempDir();
+    let signalAborted = false;
+
+    const hookA = makeLoadedHook("hookA", {
+      PreToolUse: () => ({ result: "block", reason: "blocked" }),
+    });
+    const hookB = makeLoadedHook("hookB", {
+      PreToolUse: async (ctx: Record<string, unknown>) => {
+        const signal = ctx.signal as AbortSignal;
+        // Wait a tick to let hookA's result propagate and trigger abort
+        await Bun.sleep(20);
+        signalAborted = signal.aborted;
+        return { result: "allow" };
+      },
+    });
+    const config = makeTestConfig({ hookA: { parallel: true }, hookB: { parallel: true } });
+
+    const result = await executeHooks([hookA, hookB], "PreToolUse", {}, config, dir);
+    expect(result.lastResult?.result).toBe("block");
+    // Give hookB a moment to check the signal
+    await Bun.sleep(30);
+    expect(signalAborted).toBe(true);
+  });
+});
+
+// --- FEAT-0016 M4: Mixed pipeline tests ---
+
+describe("mixed pipeline", () => {
+  it("sequential then parallel then sequential", async () => {
+    const dir = makeTempDir();
+    let capturedParCtx: Record<string, unknown> | undefined;
+    let capturedSeqCCtx: Record<string, unknown> | undefined;
+
+    // Sequential group A — pipes updatedInput
+    const hookA = makeLoadedHook("hookA", {
+      PreToolUse: () => ({
+        result: "allow",
+        updatedInput: { file_path: "/modified-by-A" },
+        injectContext: "from-A",
+      }),
+    });
+    // Parallel group B — receives modified toolInput, returns allow with injectContext
+    const hookB = makeLoadedHook("hookB", {
+      PreToolUse: (ctx: Record<string, unknown>) => {
+        capturedParCtx = ctx;
+        return { result: "allow", injectContext: "from-B" };
+      },
+    });
+    // Sequential group C — receives merged state
+    const hookC = makeLoadedHook("hookC", {
+      PreToolUse: (ctx: Record<string, unknown>) => {
+        capturedSeqCCtx = ctx;
+        return { result: "allow", injectContext: "from-C" };
+      },
+    });
+
+    const config = makeTestConfig({
+      hookA: { parallel: false },
+      hookB: { parallel: true },
+      hookC: { parallel: false },
+    });
+    // Force order: A, B, C via event order
+    config.events = {
+      PreToolUse: { order: [hn("hookA"), hn("hookB"), hn("hookC")] },
+    };
+
+    const normalized = { event: "PreToolUse", toolInput: { file_path: "/original" } };
+    const result = await executeHooks([hookA, hookB, hookC], "PreToolUse", normalized, config, dir);
+
+    expect(result.lastResult?.result).toBe("allow");
+
+    // Parallel hook B received the modified toolInput from sequential hook A
+    expect(capturedParCtx?.toolInput).toEqual({ file_path: "/modified-by-A" });
+    expect(capturedParCtx?.originalToolInput).toEqual({ file_path: "/original" });
+    expect(capturedParCtx?.parallel).toBe(true);
+
+    // Sequential hook C also receives the modified toolInput (unchanged by parallel B)
+    expect(capturedSeqCCtx?.toolInput).toEqual({ file_path: "/modified-by-A" });
+    expect(capturedSeqCCtx?.originalToolInput).toEqual({ file_path: "/original" });
+    expect(capturedSeqCCtx?.parallel).toBe(false);
+
+    // All injectContext accumulated
+    expect(result.lastResult?.injectContext).toContain("from-A");
+    expect(result.lastResult?.injectContext).toContain("from-B");
+    expect(result.lastResult?.injectContext).toContain("from-C");
+  });
+
+  it("parallel block stops subsequent groups", async () => {
+    const dir = makeTempDir();
+    let hookCRan = false;
+
+    const hookA = makeLoadedHook("hookA", {
+      PreToolUse: () => ({ result: "block", reason: "parallel-block" }),
+    });
+    const hookB = makeLoadedHook("hookB", {
+      PreToolUse: () => ({ result: "allow" }),
+    });
+    const hookC = makeLoadedHook("hookC", {
+      PreToolUse: () => {
+        hookCRan = true;
+        return { result: "allow" };
+      },
+    });
+
+    const config = makeTestConfig({
+      hookA: { parallel: true },
+      hookB: { parallel: true },
+      hookC: { parallel: false },
+    });
+    // Force order: parallel [A, B] then sequential [C]
+    config.events = {
+      PreToolUse: { order: [hn("hookA"), hn("hookB"), hn("hookC")] },
+    };
+
+    const result = await executeHooks([hookA, hookB, hookC], "PreToolUse", {}, config, dir);
+    expect(result.lastResult?.result).toBe("block");
+    expect(result.lastResult?.reason).toBe("parallel-block");
+    expect(hookCRan).toBe(false);
+  });
+
+  it("injectContext accumulates across all groups", async () => {
+    const dir = makeTempDir();
+
+    // Sequential group
+    const hookA = makeLoadedHook("hookA", {
+      PreToolUse: () => ({ result: "allow", injectContext: "seq-A" }),
+    });
+    // Parallel group
+    const hookB = makeLoadedHook("hookB", {
+      PreToolUse: () => ({ result: "allow", injectContext: "par-B" }),
+    });
+    const hookC = makeLoadedHook("hookC", {
+      PreToolUse: () => ({ result: "allow", injectContext: "par-C" }),
+    });
+    // Sequential group
+    const hookD = makeLoadedHook("hookD", {
+      PreToolUse: () => ({ result: "allow", injectContext: "seq-D" }),
+    });
+
+    const config = makeTestConfig({
+      hookA: { parallel: false },
+      hookB: { parallel: true },
+      hookC: { parallel: true },
+      hookD: { parallel: false },
+    });
+    config.events = {
+      PreToolUse: { order: [hn("hookA"), hn("hookB"), hn("hookC"), hn("hookD")] },
+    };
+
+    const result = await executeHooks([hookA, hookB, hookC, hookD], "PreToolUse", {}, config, dir);
+    expect(result.lastResult?.result).toBe("allow");
+    expect(result.lastResult?.injectContext).toBe("seq-A\npar-B\npar-C\nseq-D");
+  });
+});

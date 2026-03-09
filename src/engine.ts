@@ -552,11 +552,257 @@ export async function executeHooks(
     }
   }
 
+  // --- Parallel group runner ---
+  async function executeParallelGroup(group: ExecutionGroup): Promise<void> {
+    const controller = new AbortController();
+
+    interface SettledHookResult {
+      status: "fulfilled" | "rejected"
+      value?: unknown
+      reason?: unknown
+      hookName: HookName
+    }
+
+    function shouldShortCircuit(settled: SettledHookResult): boolean {
+      if (settled.status === "fulfilled") {
+        const val = settled.value as EngineResult | undefined;
+        if (val?.result === "block") return true;
+        if (val?.updatedInput) return true; // contract violation
+      }
+      if (settled.status === "rejected") {
+        const onErrorMode = resolveOnError(settled.hookName, eventName, config);
+        if (onErrorMode === "block") {
+          const { maxFailures } = resolveMaxFailures(settled.hookName, config);
+          const currentCount = getFailureCount(failureState, settled.hookName, eventName);
+          const projectedCount = currentCount + 1;
+          // Only short-circuit if under threshold (same as sequential runner)
+          if (maxFailures === 0 || projectedCount < maxFailures) {
+            return true;
+          }
+          // At/above threshold — will degrade, don't short-circuit
+          return false;
+        }
+      }
+      return false;
+    }
+
+    // Build tasks — start all hooks concurrently
+    const hookTasks = group.hooks.map((hook) => {
+      const loaded = hook.loaded;
+      const handler = (loaded.hook as unknown as Record<string, unknown>)[
+        eventName
+      ] as Function;
+
+      // Build context: all parallel hooks see the same toolInput
+      const context: Record<string, unknown> = { ...normalized };
+      if (currentToolInput !== undefined) {
+        context.toolInput = currentToolInput;
+      }
+      if (originalToolInput !== undefined) {
+        context.originalToolInput = originalToolInput;
+      }
+      context.parallel = true;
+      context.signal = controller.signal;
+
+      const timeout = resolveTimeout(loaded.name, config);
+      const promise = runHookWithTimeout(handler, [context, loaded.config], timeout, loaded.name);
+
+      return { promise, hookName: loaded.name };
+    });
+
+    // Custom short-circuit batch runner
+    const { results, shortCircuited } = await new Promise<{
+      results: (SettledHookResult | undefined)[]
+      shortCircuited: boolean
+    }>((resolve) => {
+      if (hookTasks.length === 0) {
+        resolve({ results: [], shortCircuited: false });
+        return;
+      }
+
+      let resolved = false;
+      let settledCount = 0;
+      const results: (SettledHookResult | undefined)[] = new Array(hookTasks.length);
+
+      hookTasks.forEach((task, i) => {
+        task.promise
+          .then((value): SettledHookResult => ({ status: "fulfilled" as const, value, hookName: task.hookName }))
+          .catch((reason): SettledHookResult => ({ status: "rejected" as const, reason, hookName: task.hookName }))
+          .then((settled) => {
+            // Always store the settled result so the circuit breaker
+            // update loop can process hooks that settled before or
+            // concurrently with the short-circuit trigger.
+            results[i] = settled;
+            settledCount++;
+            if (resolved) return;
+
+            if (shouldShortCircuit(settled)) {
+              resolved = true;
+              controller.abort();
+              resolve({ results, shortCircuited: true });
+              return;
+            }
+
+            if (settledCount === hookTasks.length) {
+              resolved = true;
+              resolve({ results, shortCircuited: false });
+            }
+          });
+      });
+    });
+
+    // --- Merge results ---
+    const batchInjectContext: string[] = [];
+
+    for (let i = 0; i < results.length; i++) {
+      const settled = results[i];
+      if (!settled) continue; // unsettled (short-circuited before this hook finished)
+
+      if (settled.status === "fulfilled") {
+        const val = settled.value as EngineResult | undefined;
+        if (!val || val.result === "skip") continue;
+
+        // Contract violation: updatedInput in parallel mode
+        if (val.updatedInput) {
+          const violationMsg = `clooks: hook "${settled.hookName}" returned updatedInput in parallel mode — this is a contract violation. Parallel hooks cannot modify tool input.`;
+          systemMessages.push(violationMsg);
+          blockResult = { result: "block", reason: violationMsg };
+          pipelineBlocked = true;
+          // Record failure for contract violation — always, regardless of onError
+          const errorMessage = violationMsg;
+          failureState = recordFailure(failureState, settled.hookName, eventName, errorMessage);
+          failuresDirty = true;
+          const { maxFailures, maxFailuresMessage } = resolveMaxFailures(settled.hookName, config);
+          const newCount = getFailureCount(failureState, settled.hookName, eventName);
+          if (maxFailures !== 0 && newCount >= maxFailures) {
+            // Collect degraded message but STILL block (contract violations always block)
+            const msg = interpolateMessage(maxFailuresMessage, {
+              hook: settled.hookName,
+              event: eventName,
+              count: newCount,
+              error: errorMessage,
+            });
+            degradedMessages.push(msg);
+          }
+          continue;
+        }
+
+        if (val.result === "block") {
+          if (val.injectContext) {
+            accumulatedInjectContext.push(val.injectContext);
+          }
+          blockResult = val;
+          pipelineBlocked = true;
+          continue;
+        }
+
+        // Allow or other non-skip result
+        if (val.injectContext) {
+          batchInjectContext.push(val.injectContext);
+        }
+
+        if (debug && val.debugMessage) {
+          debugMessages.push(val.debugMessage);
+        }
+
+        lastNonSkipResult = val;
+      }
+
+      if (settled.status === "rejected") {
+        const onErrorMode = resolveOnError(settled.hookName, eventName, config);
+
+        // Runtime fallback: hook-level "trace" on a non-injectable event → "continue"
+        let effectiveMode = onErrorMode;
+        if (effectiveMode === "trace" && !INJECTABLE_EVENTS.has(eventName)) {
+          systemMessages.push(
+            `Hook "${settled.hookName}" has onError: "trace" but ${eventName} does not support additionalContext. Falling back to "continue".`
+          );
+          effectiveMode = "continue";
+        }
+
+        if (effectiveMode === "block") {
+          const { maxFailures } = resolveMaxFailures(settled.hookName, config);
+          const currentCount = getFailureCount(failureState, settled.hookName, eventName);
+          const projectedCount = currentCount + 1;
+          if (maxFailures === 0 || projectedCount < maxFailures) {
+            // Under threshold — block
+            const diagnostic = formatDiagnostic(settled.hookName, eventName, settled.reason, "block");
+            blockResult = { result: "block", reason: diagnostic };
+            pipelineBlocked = true;
+          }
+          // At/above threshold case handled in circuit breaker loop below
+        } else if (effectiveMode === "continue") {
+          systemMessages.push(formatDiagnostic(settled.hookName, eventName, settled.reason, "continue"));
+          if (debug) {
+            debugMessages.push(formatDiagnostic(settled.hookName, eventName, settled.reason, "continue"));
+          }
+        } else if (effectiveMode === "trace") {
+          traceMessages.push(formatTraceMessage(settled.hookName, settled.reason));
+        }
+      }
+    }
+
+    // Merge batch injectContext into pipeline accumulator
+    if (batchInjectContext.length > 0) {
+      accumulatedInjectContext.push(...batchInjectContext);
+    }
+
+    // --- Update circuit breaker state SEQUENTIALLY after all hooks settle ---
+    for (let i = 0; i < results.length; i++) {
+      const settled = results[i];
+      if (!settled) continue;
+
+      if (settled.status === "fulfilled") {
+        const val = settled.value as EngineResult | undefined;
+
+        // Contract violations already recorded above
+        if (val?.updatedInput) continue;
+
+        // Success — clear any failure state (any successful invocation, matching sequential runner)
+        if (getFailureCount(failureState, settled.hookName, eventName) > 0) {
+          failureState = clearFailure(failureState, settled.hookName, eventName);
+          failuresDirty = true;
+        }
+      }
+
+      if (settled.status === "rejected") {
+        const onErrorMode = resolveOnError(settled.hookName, eventName, config);
+        if (onErrorMode === "block") {
+          const errorMessage = settled.reason instanceof Error ? settled.reason.message : String(settled.reason);
+          failureState = recordFailure(failureState, settled.hookName, eventName, errorMessage);
+          failuresDirty = true;
+
+          // Check threshold for degraded mode
+          const { maxFailures, maxFailuresMessage } = resolveMaxFailures(settled.hookName, config);
+          const newCount = getFailureCount(failureState, settled.hookName, eventName);
+          if (maxFailures !== 0 && newCount >= maxFailures) {
+            const msg = interpolateMessage(maxFailuresMessage, {
+              hook: settled.hookName,
+              event: eventName,
+              count: newCount,
+              error: errorMessage,
+            });
+            degradedMessages.push(msg);
+          }
+        }
+        // onError: "continue" and "trace" do NOT call recordFailure
+      }
+    }
+
+    // Write failures once at end of batch
+    if (failuresDirty) {
+      await writeFailures(projectRoot, failureState);
+      failuresDirty = false;
+    }
+  }
+
   // --- Group dispatch loop ---
   for (const group of groups) {
-    // Both sequential and parallel groups use sequential runner in M3
-    // (parallel fallback — M4 adds true parallel execution)
-    await executeSequentialGroup(group);
+    if (group.type === "parallel") {
+      await executeParallelGroup(group);
+    } else {
+      await executeSequentialGroup(group);
+    }
     if (pipelineBlocked) break;
   }
 
