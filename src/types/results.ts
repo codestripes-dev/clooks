@@ -2,6 +2,9 @@
 // Each base result is intersected with DebugFields.
 // InjectableContext is intersected where Claude Code supports additionalContext.
 
+/** Union of all result discriminant values across all base result types. */
+export type ResultTag = "allow" | "block" | "skip" | "success" | "failure" | "continue" | "stop"
+
 /** Optional debug info, only visible in debug mode. */
 export interface DebugFields {
   debugMessage?: string
