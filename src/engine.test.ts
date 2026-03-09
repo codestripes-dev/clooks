@@ -2,7 +2,7 @@ import { describe, expect, it, afterEach, spyOn } from "bun:test";
 import { mkdtempSync, rmSync, mkdirSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
-import { translateResult, matchHooksForEvent, executeHooks, interpolateMessage, resolveOnError } from "./engine.js";
+import { translateResult, matchHooksForEvent, executeHooks, interpolateMessage, resolveOnError, buildShadowWarnings } from "./engine.js";
 import type { LoadedHook, HookLoadError } from "./loader.js";
 import type { ClooksHook } from "./types/hook.js";
 import type { ClooksConfig } from "./config/types.js";
@@ -1490,5 +1490,39 @@ describe("integration: full pipeline", () => {
     await expect(
       executeHooks(matched, "PreToolUse", {}, config, dir),
     ).rejects.toThrow(/hook-a.*does not handle this event/);
+  });
+});
+
+// --- Shadow warnings (M2) ---
+
+describe("buildShadowWarnings", () => {
+  it("produces correct warning messages for multiple shadows on SessionStart", () => {
+    const warnings = buildShadowWarnings("SessionStart", [hn("log-bash-commands"), hn("security-audit")]);
+
+    expect(warnings).toHaveLength(2);
+    expect(warnings[0]).toBe(
+      'clooks: project hook "log-bash-commands" is shadowing a global hook with the same name.'
+    );
+    expect(warnings[1]).toBe(
+      'clooks: project hook "security-audit" is shadowing a global hook with the same name.'
+    );
+  });
+
+  it("returns warnings that can be injected as systemMessage", () => {
+    const warnings = buildShadowWarnings("SessionStart", [hn("shared-hook")]);
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("shared-hook");
+    expect(warnings[0]).toContain("shadowing a global hook");
+  });
+
+  it("returns empty array on non-SessionStart events", () => {
+    const warnings = buildShadowWarnings("PreToolUse", [hn("shared-hook")]);
+    expect(warnings).toEqual([]);
+  });
+
+  it("returns empty array when shadows array is empty", () => {
+    const warnings = buildShadowWarnings("SessionStart", []);
+    expect(warnings).toEqual([]);
   });
 });

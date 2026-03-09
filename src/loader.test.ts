@@ -289,3 +289,133 @@ describe("loadAllHooks", () => {
     expect(loadErrors[0]!.error).toContain("failed to import")
   })
 })
+
+// --- Origin-aware loading (M2) ---
+
+describe("loadHook with home origin", () => {
+  test("loads a hook from home directory when origin is 'home' using relative path", async () => {
+    const homeDir = makeTempDir()
+    const projectDir = mkdtempSync(join(tmpdir(), "clooks-loader-project-"))
+    mkdirSync(join(homeDir, ".clooks", "hooks"), { recursive: true })
+    writeFileSync(
+      join(homeDir, ".clooks", "hooks", "security-audit.ts"),
+      `export const hook = {
+        meta: { name: "security-audit" },
+        PreToolUse() { return { result: "allow" } },
+      }`,
+    )
+    // Use RELATIVE resolvedPath — this is what resolveHookPath() actually produces
+    const entry: HookEntry = {
+      resolvedPath: ".clooks/hooks/security-audit.ts",
+      config: {},
+      parallel: false,
+      origin: "home",
+    }
+    const result = await loadHook(hn("security-audit"), entry, projectDir, homeDir)
+    expect(result.name).toBe(hn("security-audit"))
+    expect(result.hook.meta.name).toBe(hn("security-audit"))
+
+    rmSync(projectDir, { recursive: true, force: true })
+  })
+
+  test("wrong homeRoot causes home hook load to fail", async () => {
+    const homeDir = makeTempDir()
+    const projectDir = mkdtempSync(join(tmpdir(), "clooks-loader-project-"))
+    const wrongHome = mkdtempSync(join(tmpdir(), "clooks-loader-wrong-home-"))
+    mkdirSync(join(homeDir, ".clooks", "hooks"), { recursive: true })
+    writeFileSync(
+      join(homeDir, ".clooks", "hooks", "security-audit.ts"),
+      `export const hook = {
+        meta: { name: "security-audit" },
+        PreToolUse() { return { result: "allow" } },
+      }`,
+    )
+    // Relative path resolves against wrongHome, which has no such file
+    const entry: HookEntry = {
+      resolvedPath: ".clooks/hooks/security-audit.ts",
+      config: {},
+      parallel: false,
+      origin: "home",
+    }
+    await expect(loadHook(hn("security-audit"), entry, projectDir, wrongHome)).rejects.toThrow(
+      'failed to import hook "security-audit"',
+    )
+
+    rmSync(projectDir, { recursive: true, force: true })
+    rmSync(wrongHome, { recursive: true, force: true })
+  })
+
+  test("loads project hook from projectRoot when origin is 'project'", async () => {
+    const projectDir = makeTempDir()
+    const homeDir = mkdtempSync(join(tmpdir(), "clooks-loader-home-"))
+    mkdirSync(join(projectDir, ".clooks", "hooks"), { recursive: true })
+    writeFileSync(
+      join(projectDir, ".clooks", "hooks", "lint-guard.ts"),
+      `export const hook = {
+        meta: { name: "lint-guard" },
+        PreToolUse() { return { result: "allow" } },
+      }`,
+    )
+    const entry: HookEntry = {
+      resolvedPath: ".clooks/hooks/lint-guard.ts",
+      config: {},
+      parallel: false,
+      origin: "project",
+    }
+    const result = await loadHook(hn("lint-guard"), entry, projectDir, homeDir)
+    expect(result.name).toBe(hn("lint-guard"))
+    expect(result.hook.meta.name).toBe(hn("lint-guard"))
+
+    rmSync(homeDir, { recursive: true, force: true })
+  })
+})
+
+describe("loadAllHooks with mixed origins", () => {
+  test("loads both home and project hooks with correct base paths using relative paths", async () => {
+    const homeDir = makeTempDir()
+    const projectDir = mkdtempSync(join(tmpdir(), "clooks-loader-project-"))
+
+    // Create home hook
+    mkdirSync(join(homeDir, ".clooks", "hooks"), { recursive: true })
+    writeFileSync(
+      join(homeDir, ".clooks", "hooks", "security-audit.ts"),
+      `export const hook = {
+        meta: { name: "security-audit" },
+        PreToolUse() { return { result: "allow" } },
+      }`,
+    )
+
+    // Create project hook
+    mkdirSync(join(projectDir, ".clooks", "hooks"), { recursive: true })
+    writeFileSync(
+      join(projectDir, ".clooks", "hooks", "lint-guard.ts"),
+      `export const hook = {
+        meta: { name: "lint-guard" },
+        PreToolUse() { return { result: "skip" } },
+      }`,
+    )
+
+    // Both use RELATIVE resolvedPath — loadHook resolves against the correct base per origin
+    const config = makeConfig({
+      "security-audit": {
+        resolvedPath: ".clooks/hooks/security-audit.ts",
+        config: {},
+        parallel: false,
+        origin: "home" as const,
+      },
+      "lint-guard": {
+        resolvedPath: ".clooks/hooks/lint-guard.ts",
+        config: {},
+        parallel: false,
+        origin: "project" as const,
+      },
+    })
+
+    const { loaded, loadErrors } = await loadAllHooks(config, projectDir, homeDir)
+    expect(loaded).toHaveLength(2)
+    expect(loaded.map((r) => r.name).sort()).toEqual([hn("lint-guard"), hn("security-audit")])
+    expect(loadErrors).toEqual([])
+
+    rmSync(projectDir, { recursive: true, force: true })
+  })
+})

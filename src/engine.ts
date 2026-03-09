@@ -12,6 +12,7 @@
 import type { EventName, HookName } from "./types/branded.js";
 import type { ResultTag } from "./types/results.js";
 import type { ClaudeCodeOutput, PreToolUseOutput, HookSpecificOutputBase } from "./types/claude-code.js";
+import { homedir } from "os";
 
 /** Typed result object used within the engine after the hook return boundary. */
 export interface EngineResult {
@@ -837,18 +838,30 @@ export async function executeHooks(
 }
 
 /**
+ * Builds shadow warning messages for SessionStart events.
+ * Extracted for testability — used by runEngine() to inject systemMessage warnings.
+ */
+export function buildShadowWarnings(eventName: string, shadows: HookName[]): string[] {
+  if (eventName !== "SessionStart" || shadows.length === 0) return []
+  return shadows.map(name =>
+    `clooks: project hook "${name}" is shadowing a global hook with the same name.`
+  )
+}
+
+/**
  * Main engine entry point. Reads stdin, loads hooks from config, runs matching
  * hooks, and writes output. Called by src/cli.ts when no CLI flags are present.
  */
 export async function runEngine(): Promise<void> {
   try {
     const projectRoot = process.cwd();
+    const homeRoot = process.env.CLOOKS_HOME_ROOT ?? homedir();
 
     // --- Load config (optional — no config = no hooks) ---
     let config: ClooksConfig;
     let result: LoadConfigResult | null;
     try {
-      result = await loadConfig(projectRoot);
+      result = await loadConfig(projectRoot, { homeRoot });
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       process.stderr.write(`clooks: ${message}\n`);
@@ -860,14 +873,13 @@ export async function runEngine(): Promise<void> {
     }
 
     config = result!.config;
-    // Store for future use (M2 will use shadows and hasProjectConfig)
-    const _shadows = result!.shadows;
-    const _hasProjectConfig = result!.hasProjectConfig;
+    const shadows = result!.shadows;
+    const hasProjectConfig = result!.hasProjectConfig;
 
     // --- Load all hooks (fault-tolerant — load errors go through circuit breaker) ---
     const debug = process.env.CLOOKS_DEBUG === "true";
     const engineDebugLines: string[] = [];
-    const { loaded: hooks, loadErrors } = await loadAllHooks(config, projectRoot);
+    const { loaded: hooks, loadErrors } = await loadAllHooks(config, projectRoot, homeRoot);
 
     if (debug) {
       engineDebugLines.push(`loaded ${hooks.length} hook(s): ${hooks.map(h => h.name).join(", ") || "(none)"}`);
@@ -938,8 +950,10 @@ export async function runEngine(): Promise<void> {
     normalized.event = normalized.hookEventName;
     delete normalized.hookEventName;
 
+    // --- Shadow warnings (SessionStart only) ---
+    const startupWarnings: string[] = buildShadowWarnings(eventName, shadows);
+
     // --- Startup validation: warn about hook-level trace on non-injectable events ---
-    const startupWarnings: string[] = [];
     for (const loaded of hooks) {
       const hookEntry = config.hooks[loaded.name];
       if (hookEntry?.onError === "trace" && !INJECTABLE_EVENTS.has(eventName)) {

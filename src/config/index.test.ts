@@ -247,4 +247,78 @@ security-scanner: {}
 
     rmSync(fakeHome, { recursive: true, force: true })
   })
+
+  test("local override of home hook path does not affect resolvedPath resolution", async () => {
+    const fakeHome = mkdtempSync(join(tmpdir(), "clooks-home-test-"))
+    // Home hook with explicit path
+    writeConfig(
+      fakeHome,
+      "clooks.yml",
+      `
+version: "1.0.0"
+security-scanner:
+  path: custom/security-scanner.ts
+`,
+    )
+
+    // Local override changes the path field — but resolvedPath should still use the ORIGINAL home path
+    writeConfig(
+      tempDir,
+      "clooks.local.yml",
+      `
+security-scanner:
+  path: overridden/path.ts
+`,
+    )
+
+    const result = await loadConfig(tempDir, { homeRoot: fakeHome })
+    expect(result).not.toBeNull()
+    expect(result!.config.hooks[hn("security-scanner")]!.origin).toBe("home")
+    // resolvedPath should use the ORIGINAL home path resolved against homeRoot
+    expect(result!.config.hooks[hn("security-scanner")]!.resolvedPath).toBe(
+      join(fakeHome, "custom/security-scanner.ts"),
+    )
+
+    rmSync(fakeHome, { recursive: true, force: true })
+  })
+
+  test("home-first ordering preserved through full loadConfig pipeline", async () => {
+    const fakeHome = mkdtempSync(join(tmpdir(), "clooks-home-test-"))
+    writeConfig(
+      fakeHome,
+      "clooks.yml",
+      `
+version: "1.0.0"
+home-hook-a: {}
+home-hook-b: {}
+`,
+    )
+    writeConfig(
+      tempDir,
+      "clooks.yml",
+      `
+version: "1.0.0"
+project-hook-a: {}
+project-hook-b: {}
+`,
+    )
+
+    const result = await loadConfig(tempDir, { homeRoot: fakeHome })
+    expect(result).not.toBeNull()
+    // Object.entries should preserve insertion order: home hooks first, then project hooks
+    const hookNames = Object.keys(result!.config.hooks)
+    expect(hookNames).toEqual([
+      "home-hook-a",
+      "home-hook-b",
+      "project-hook-a",
+      "project-hook-b",
+    ])
+    // Verify origins
+    expect(result!.config.hooks[hn("home-hook-a")]!.origin).toBe("home")
+    expect(result!.config.hooks[hn("home-hook-b")]!.origin).toBe("home")
+    expect(result!.config.hooks[hn("project-hook-a")]!.origin).toBe("project")
+    expect(result!.config.hooks[hn("project-hook-b")]!.origin).toBe("project")
+
+    rmSync(fakeHome, { recursive: true, force: true })
+  })
 })
