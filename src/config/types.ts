@@ -22,8 +22,7 @@ export interface ClooksConfig {
 
   /**
    * Per-event configuration keyed by event name (e.g., "PreToolUse").
-   * Controls execution order, timeout, and error handling for all hooks
-   * registered to that event.
+   * Controls execution order for hooks registered to that event.
    */
   events: Record<string, EventEntry>
 }
