@@ -5,8 +5,10 @@ import { runEngine } from './engine.js'
 // These are the ONLY code paths that should produce exit 2 + stderr.
 // Everything else uses exit 0 + JSON.
 process.on("uncaughtException", (err) => {
+  const name = err?.constructor?.name ?? "Error";
+  const message = err?.message ?? String(err);
   process.stderr.write(
-    `clooks: uncaught exception: ${err.constructor.name}: ${err.message}\n`
+    `clooks: uncaught exception: ${name}: ${message}\n`
   );
   process.exit(2);
 });
