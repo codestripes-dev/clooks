@@ -135,7 +135,9 @@ interface JsonEnvelope {
 - `src/known-commands.ts` — `KNOWN_COMMANDS` set.
 - `src/router.ts` — Commander program, `runCLI()`, global flags.
 - `src/commands/config.ts` — `createConfigCommand()` — the first real command (proof of concept).
-- `src/commands/stubs.ts` — `registerStubs()` — placeholder commands for init, register, test.
+- `src/commands/init.ts` — `createInitCommand()` — project setup command (`clooks init`).
+- `src/settings.ts` — Settings.json management utility (register/unregister Clooks in `.claude/settings.json`).
+- `src/commands/stubs.ts` — `registerStubs()` — placeholder commands for register, test.
 - `src/tui/context.ts` — `OutputContext` type and `getCtx(cmd)` helper.
 - `src/tui/json-envelope.ts` — `JsonEnvelope` type, `jsonSuccess()`, `jsonError()`.
 - `src/tui/prompts.ts` — `CancelError`, `withCancel`, `promptText`, `promptSelect`, `promptConfirm`.
