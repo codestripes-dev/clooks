@@ -9,8 +9,7 @@ import {
   clearFailure,
   getFailureCount,
 } from "./failures.js"
-import type { HookName } from "./types/branded.js"
-const hn = (s: string) => s as HookName
+import { hn } from "./test-utils.js"
 
 let tempDir: string
 

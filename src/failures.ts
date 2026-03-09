@@ -108,12 +108,13 @@ export function clearFailure(
 
   if (Object.keys(remainingEvents).length === 0) {
     const { [hookName]: __, ...remainingHooks } = state
-    return remainingHooks
+    // Re-assert brand lost by computed destructuring spread
+    return remainingHooks as FailureState
   }
 
   return {
     ...state,
-    [hookName]: remainingEvents,
+    [hookName]: remainingEvents as Partial<Record<EventName, HookEventFailure>>,
   }
 }
 

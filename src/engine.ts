@@ -268,7 +268,7 @@ function resolveMaxFailures(
 
 export function interpolateMessage(
   template: string,
-  vars: { hook: HookName; event: string; count: number; error: string },
+  vars: { hook: HookName; event: EventName; count: number; error: string },
 ): string {
   return template
     .replace(/\{hook\}/g, () => vars.hook)
@@ -406,10 +406,11 @@ export async function executeHooks(
         const newCount = getFailureCount(failureState, loaded.name, eventName);
 
         if (maxFailures === 0 || newCount < maxFailures) {
-          // Under threshold — block
+          // Under threshold — block. Return immediately (deferred write would
+          // duplicate this if we just break, since failuresDirty is already true).
           await writeFailures(projectRoot, failureState);
           lastResult = { result: "block", reason: formatDiagnostic(loaded.name, eventName, e, "block") };
-          break;
+          return { lastResult, degradedMessages, debugMessages, traceMessages, systemMessages };
         }
 
         // At/above threshold — degraded

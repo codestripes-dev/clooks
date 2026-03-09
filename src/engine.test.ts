@@ -6,11 +6,10 @@ import { translateResult, matchHooksForEvent, executeHooks, interpolateMessage, 
 import type { LoadedHook, HookLoadError } from "./loader.js";
 import type { ClooksHook } from "./types/hook.js";
 import type { ClooksConfig } from "./config/types.js";
-import type { HookName, Milliseconds } from "./types/branded.js";
+import type { HookName } from "./types/branded.js";
+import { hn, ms } from "./test-utils.js";
 import { DEFAULT_MAX_FAILURES_MESSAGE } from "./config/constants.js";
 import { readFailures } from "./failures.js";
-
-const hn = (s: string) => s as HookName;
 
 describe("translateResult", () => {
   // --- PreToolUse ---
@@ -285,7 +284,7 @@ describe("interpolateMessage", () => {
   it("handles $ characters in error messages", () => {
     const result = interpolateMessage("Error: {error}", {
       hook: hn("h"),
-      event: "e",
+      event: "PreToolUse",
       count: 1,
       error: "found $1 in path",
     });
@@ -331,7 +330,7 @@ function makeTestConfig(
   return {
     version: "1.0.0",
     global: {
-      timeout: 30000 as Milliseconds,
+      timeout: ms(30000),
       onError: globalOnError,
       maxFailures: globalMaxFailures,
       maxFailuresMessage: DEFAULT_MAX_FAILURES_MESSAGE,

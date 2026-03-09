@@ -4,8 +4,7 @@ import { join } from "path"
 import { tmpdir } from "os"
 import { loadConfig } from "./index.js"
 import { DEFAULT_MAX_FAILURES, DEFAULT_MAX_FAILURES_MESSAGE } from "./constants.js"
-import type { HookName, Milliseconds } from "../types/branded.js"
-const hn = (s: string) => s as HookName
+import { hn, ms } from "../test-utils.js"
 
 let tempDir: string
 
@@ -45,7 +44,7 @@ PreToolUse:
     const config = await loadConfig(tempDir)
     expect(config.version).toBe("1.0.0")
     expect(config.global).toEqual({
-      timeout: 30000 as Milliseconds,
+      timeout: ms(30000),
       onError: "block",
       maxFailures: DEFAULT_MAX_FAILURES,
       maxFailuresMessage: DEFAULT_MAX_FAILURES_MESSAGE,

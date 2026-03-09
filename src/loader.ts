@@ -85,6 +85,14 @@ export async function loadHook(
 
   const hook = validateHookExport(mod, entry.resolvedPath)
 
+  // Verify the hook's self-declared name matches the config key
+  if (hook.meta.name !== hookName) {
+    throw new Error(
+      `clooks: hook at ${entry.resolvedPath} declares meta.name "${hook.meta.name}" ` +
+        `but is registered as "${hookName}" in clooks.yml`,
+    )
+  }
+
   // Shallow merge: meta.config defaults ← clooks.yml overrides
   const metaDefaults = hook.meta.config ?? {}
   const merged = { ...metaDefaults, ...entry.config }

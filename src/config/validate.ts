@@ -30,9 +30,9 @@ function validateErrorMode(value: unknown, label: string): ErrorMode {
   return value
 }
 
-function validatePositiveNumber(value: unknown, label: string): number {
+function validatePositiveNumber(value: unknown, label: string, field: string): number {
   if (typeof value !== "number" || value <= 0) {
-    throw new Error(`clooks: ${label} "timeout" must be a positive number`)
+    throw new Error(`clooks: ${label} "${field}" must be a positive number`)
   }
   return value
 }
@@ -62,7 +62,7 @@ export function validateConfig(raw: Record<string, unknown>): ClooksConfig {
     }
     const cfg = raw.config
     if (cfg.timeout !== undefined) {
-      global.timeout = validatePositiveNumber(cfg.timeout, "global config") as Milliseconds
+      global.timeout = validatePositiveNumber(cfg.timeout, "global config", "timeout") as Milliseconds
     }
     if (cfg.onError !== undefined) {
       global.onError = validateErrorMode(cfg.onError, "global config")
@@ -107,10 +107,10 @@ export function validateConfig(raw: Record<string, unknown>): ClooksConfig {
       if (value.order !== undefined) {
         if (
           !Array.isArray(value.order) ||
-          !value.order.every((v: unknown) => typeof v === "string")
+          !value.order.every((v: unknown) => typeof v === "string" && (v as string).length > 0)
         ) {
           throw new Error(
-            `clooks: event "${key}" has invalid "order": must be an array of strings`,
+            `clooks: event "${key}" has invalid "order": must be an array of non-empty strings`,
           )
         }
         entry.order = value.order as HookName[]
@@ -156,7 +156,7 @@ export function validateConfig(raw: Record<string, unknown>): ClooksConfig {
         path = value.path
       }
       if (value.timeout !== undefined) {
-        timeout = validatePositiveNumber(value.timeout, `hook "${key}"`) as Milliseconds
+        timeout = validatePositiveNumber(value.timeout, `hook "${key}"`, "timeout") as Milliseconds
       }
       if (value.onError !== undefined) {
         onError = validateErrorMode(value.onError, `hook "${key}"`)
