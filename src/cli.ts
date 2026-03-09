@@ -1,5 +1,13 @@
 import { VERSION } from './index'
 import { runEngine, EXIT_OK, EXIT_STDERR } from './engine.js'
+import { KNOWN_COMMANDS } from './known-commands.js'
+
+export { KNOWN_COMMANDS } from './known-commands.js'
+
+// --- Mode flag ---
+// Determines signal handler behavior. Engine mode (default) is fail-closed;
+// CLI mode exits cleanly on signals for interactive use.
+let currentMode: 'engine' | 'cli' = 'engine'
 
 // Global signal handlers — installed first, before any hook code runs.
 // These are the ONLY code paths that should produce exit 2 + stderr.
@@ -20,36 +28,51 @@ process.on("unhandledRejection", (reason: unknown) => {
 });
 
 process.on("SIGTERM", () => {
-  process.stderr.write("clooks: killed by SIGTERM\n");
-  process.exit(EXIT_STDERR);
+  if (currentMode === 'engine') {
+    process.stderr.write("clooks: killed by SIGTERM\n");
+    process.exit(EXIT_STDERR);
+  } else {
+    process.exit(0);
+  }
 });
 
 process.on("SIGINT", () => {
-  process.stderr.write("clooks: interrupted\n");
-  process.exit(EXIT_STDERR);
+  if (currentMode === 'engine') {
+    process.stderr.write("clooks: interrupted\n");
+    process.exit(EXIT_STDERR);
+  } else {
+    process.exit(0);
+  }
 });
 
 const args = process.argv.slice(2)
 
+// Version check first — before any dispatch logic.
 if (args.includes('--version') || args.includes('-v')) {
   console.log(`clooks ${VERSION}`)
   process.exit(EXIT_OK)
 }
 
-if (args.includes('--help') || args.includes('-h')) {
-  console.log(`clooks ${VERSION}`)
-  console.log('')
-  console.log('A hook runtime for AI coding agents.')
-  console.log('')
-  console.log('Usage:')
-  console.log('  clooks [options]')
-  console.log('')
-  console.log('Options:')
-  console.log('  -v, --version  Print version')
-  console.log('  -h, --help     Print this help')
-  process.exit(EXIT_OK)
-}
+// Find first positional arg (skips flags starting with -)
+const firstPositional = args.find(a => !a.startsWith('-'))
 
-// No CLI flags — run the hook execution engine.
-// Reads stdin JSON, matches against hooks, executes, and writes stdout.
-runEngine()
+if (firstPositional !== undefined && KNOWN_COMMANDS.has(firstPositional)) {
+  // CLI mode — recognized subcommand
+  currentMode = 'cli'
+  const { runCLI } = await import('./router.js')
+  await runCLI(args)
+} else if (args.length > 0) {
+  // Has args but no recognized subcommand — let Commander handle.
+  // Covers: --help, misspelled subcommands, unknown flags.
+  currentMode = 'cli'
+  const { runCLI } = await import('./router.js')
+  await runCLI(args)
+} else if (!process.stdin.isTTY) {
+  // No args, piped stdin — engine mode.
+  runEngine()
+} else {
+  // No args, TTY stdin — show help.
+  currentMode = 'cli'
+  const { runCLI } = await import('./router.js')
+  await runCLI(args)
+}
