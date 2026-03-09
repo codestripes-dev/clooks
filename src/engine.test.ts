@@ -2,7 +2,7 @@ import { describe, expect, it, afterEach, spyOn } from "bun:test";
 import { mkdtempSync, rmSync, mkdirSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
-import { translateResult, matchHooksForEvent, executeHooks, interpolateMessage } from "./engine.js";
+import { translateResult, matchHooksForEvent, executeHooks, interpolateMessage, resolveOnError } from "./engine.js";
 import type { LoadedHook, HookLoadError } from "./loader.js";
 import type { ClooksHook } from "./types/hook.js";
 import type { ClooksConfig } from "./config/types.js";
@@ -253,8 +253,14 @@ function makeTempDir(): string {
 }
 
 function makeTestConfig(
-  hookOverrides: Record<string, { maxFailures?: number; maxFailuresMessage?: string }> = {},
+  hookOverrides: Record<string, {
+    maxFailures?: number;
+    maxFailuresMessage?: string;
+    onError?: import("./config/types.js").ErrorMode;
+    events?: Record<string, { onError?: import("./config/types.js").ErrorMode }>;
+  }> = {},
   globalMaxFailures = 3,
+  globalOnError: import("./config/types.js").ErrorMode = "block",
 ): ClooksConfig {
   const hooks: Record<string, import("./config/types.js").HookEntry> = {};
   for (const [name, overrides] of Object.entries(hookOverrides)) {
@@ -269,7 +275,7 @@ function makeTestConfig(
     version: "1.0.0",
     global: {
       timeout: 30000,
-      onError: "block",
+      onError: globalOnError,
       maxFailures: globalMaxFailures,
       maxFailuresMessage: DEFAULT_MAX_FAILURES_MESSAGE,
     },
@@ -279,41 +285,39 @@ function makeTestConfig(
 }
 
 describe("executeHooks", () => {
-  it("hook fails under threshold → fail-closed (throws)", async () => {
+  it("hook fails under threshold → fail-closed (block result)", async () => {
     const dir = makeTempDir();
     const hook = makeLoadedHook("fail-hook", {
       PreToolUse: () => { throw new Error("boom"); },
     });
     const config = makeTestConfig({ "fail-hook": {} });
 
-    await expect(
-      executeHooks([hook], "PreToolUse", {}, config, dir),
-    ).rejects.toThrow('hook "fail-hook" threw during PreToolUse: boom');
+    const result = await executeHooks([hook], "PreToolUse", {}, config, dir);
+    expect(result.lastResult?.result).toBe("block");
+    expect(result.lastResult?.reason).toContain("fail-hook");
+    expect(result.lastResult?.reason).toContain("boom");
+    expect(result.traceMessages).toEqual([]);
+    expect(result.systemMessages).toEqual([]);
 
     // Failure state should be written
     const state = await readFailures(dir);
     expect(state["fail-hook"]?.["PreToolUse"]?.consecutiveFailures).toBe(1);
   });
 
-  it("hook reaches threshold → skipped (no throw, no result from that hook)", async () => {
+  it("hook reaches threshold → skipped (degraded, no block result)", async () => {
     const dir = makeTempDir();
-    let callCount = 0;
     const hook = makeLoadedHook("fail-hook", {
-      PreToolUse: () => {
-        callCount++;
-        throw new Error("boom");
-      },
+      PreToolUse: () => { throw new Error("boom"); },
     });
     const config = makeTestConfig({ "fail-hook": {} }, 3);
 
-    // Fail twice (under threshold)
+    // Fail twice (under threshold — produces block results)
     for (let i = 0; i < 2; i++) {
-      try {
-        await executeHooks([hook], "PreToolUse", {}, config, dir);
-      } catch { /* expected */ }
+      const r = await executeHooks([hook], "PreToolUse", {}, config, dir);
+      expect(r.lastResult?.result).toBe("block");
     }
 
-    // Third failure should NOT throw — hook is degraded
+    // Third failure should NOT block — hook is degraded
     const result = await executeHooks([hook], "PreToolUse", {}, config, dir);
     expect(result.lastResult).toBeUndefined();
     expect(result.degradedMessages).toHaveLength(1);
@@ -327,11 +331,9 @@ describe("executeHooks", () => {
     });
     const config = makeTestConfig({ "fail-hook": {} }, 3);
 
-    // Fail 3 times to enter degraded state
+    // Fail 3 times to enter degraded state (first 2 produce block, 3rd degrades)
     for (let i = 0; i < 2; i++) {
-      try {
-        await executeHooks([hook], "PreToolUse", {}, config, dir);
-      } catch { /* expected */ }
+      await executeHooks([hook], "PreToolUse", {}, config, dir);
     }
     await executeHooks([hook], "PreToolUse", {}, config, dir);
 
@@ -352,11 +354,9 @@ describe("executeHooks", () => {
     });
     const config = makeTestConfig({ "recover-hook": {} }, 3);
 
-    // Fail 3 times
+    // Fail 3 times (first 2 produce block, 3rd degrades)
     for (let i = 0; i < 2; i++) {
-      try {
-        await executeHooks([hook], "PreToolUse", {}, config, dir);
-      } catch { /* expected */ }
+      await executeHooks([hook], "PreToolUse", {}, config, dir);
     }
     await executeHooks([hook], "PreToolUse", {}, config, dir);
 
@@ -371,18 +371,18 @@ describe("executeHooks", () => {
     expect(state["recover-hook"]).toBeUndefined();
   });
 
-  it("maxFailures: 0 → always fail-closed, never degrades", async () => {
+  it("maxFailures: 0 → always fail-closed (block result), never degrades", async () => {
     const dir = makeTempDir();
     const hook = makeLoadedHook("strict-hook", {
       PreToolUse: () => { throw new Error("boom"); },
     });
     const config = makeTestConfig({ "strict-hook": { maxFailures: 0 } });
 
-    // Should always throw, even after many failures
+    // Should always produce block result, even after many failures
     for (let i = 0; i < 5; i++) {
-      await expect(
-        executeHooks([hook], "PreToolUse", {}, config, dir),
-      ).rejects.toThrow('hook "strict-hook" threw during PreToolUse: boom');
+      const result = await executeHooks([hook], "PreToolUse", {}, config, dir);
+      expect(result.lastResult?.result).toBe("block");
+      expect(result.lastResult?.reason).toContain("boom");
     }
   });
 
@@ -397,11 +397,9 @@ describe("executeHooks", () => {
     });
     const config = makeTestConfig({ "good-hook": {}, "bad-hook": {} }, 3);
 
-    // Fail the bad hook 3 times
+    // Fail the bad hook 3 times (first 2 produce block after good-hook runs, 3rd degrades)
     for (let i = 0; i < 2; i++) {
-      try {
-        await executeHooks([goodHook, badHook], "PreToolUse", {}, config, dir);
-      } catch { /* expected */ }
+      await executeHooks([goodHook, badHook], "PreToolUse", {}, config, dir);
     }
 
     const result = await executeHooks([goodHook, badHook], "PreToolUse", {}, config, dir);
@@ -457,16 +455,16 @@ describe("executeHooks", () => {
 
   // --- Load error circuit breaker ---
 
-  it("load error under threshold → fail-closed (throws)", async () => {
+  it("load error under threshold → fail-closed (block result)", async () => {
     const dir = makeTempDir();
     const loadErrors: HookLoadError[] = [
       { name: "broken-hook", error: "Cannot find module '/path/to/broken-hook.ts'" },
     ];
     const config = makeTestConfig({ "broken-hook": {} }, 3);
 
-    await expect(
-      executeHooks([], "PreToolUse", {}, config, dir, loadErrors),
-    ).rejects.toThrow("Cannot find module");
+    const result = await executeHooks([], "PreToolUse", {}, config, dir, loadErrors);
+    expect(result.lastResult?.result).toBe("block");
+    expect(result.lastResult?.reason).toContain("broken-hook");
 
     const state = await readFailures(dir);
     expect(state["broken-hook"]?.["PreToolUse"]?.consecutiveFailures).toBe(1);
@@ -479,14 +477,13 @@ describe("executeHooks", () => {
     ];
     const config = makeTestConfig({ "broken-hook": {} }, 3);
 
-    // Fail twice (under threshold)
+    // Fail twice (under threshold — produces block results)
     for (let i = 0; i < 2; i++) {
-      try {
-        await executeHooks([], "PreToolUse", {}, config, dir, loadErrors);
-      } catch { /* expected */ }
+      const r = await executeHooks([], "PreToolUse", {}, config, dir, loadErrors);
+      expect(r.lastResult?.result).toBe("block");
     }
 
-    // Third failure — should skip, not throw
+    // Third failure — should skip (degraded), not block
     const result = await executeHooks([], "PreToolUse", {}, config, dir, loadErrors);
     expect(result.degradedMessages).toHaveLength(1);
     expect(result.degradedMessages[0]).toContain("broken-hook");
@@ -507,5 +504,136 @@ describe("executeHooks", () => {
     expect(result.lastResult).toEqual({ result: "allow" });
     expect(result.degradedMessages).toHaveLength(1);
     expect(result.degradedMessages[0]).toContain("broken-hook");
+  });
+
+  // --- FEAT-0017: onError cascade tests ---
+
+  it("onError 'continue' — no block, systemMessage collected", async () => {
+    const dir = makeTempDir();
+    const hook = makeLoadedHook("notify-hook", {
+      PreToolUse: () => { throw new Error("notify failed"); },
+    });
+    const config = makeTestConfig({ "notify-hook": { onError: "continue" } });
+
+    const result = await executeHooks([hook], "PreToolUse", {}, config, dir);
+    expect(result.lastResult).toBeUndefined();
+    expect(result.systemMessages).toHaveLength(1);
+    expect(result.systemMessages[0]).toContain("notify-hook");
+    expect(result.systemMessages[0]).toContain("Continuing");
+    expect(result.traceMessages).toEqual([]);
+  });
+
+  it("onError 'trace' — no block, trace message collected", async () => {
+    const dir = makeTempDir();
+    const hook = makeLoadedHook("trace-hook", {
+      PreToolUse: () => { throw new Error("trace failed"); },
+    });
+    const config = makeTestConfig({ "trace-hook": { onError: "trace" } });
+
+    const result = await executeHooks([hook], "PreToolUse", {}, config, dir);
+    expect(result.lastResult).toBeUndefined();
+    expect(result.traceMessages).toHaveLength(1);
+    expect(result.traceMessages[0]).toContain("trace-hook");
+    expect(result.traceMessages[0]).toContain("onError: trace");
+    expect(result.systemMessages).toEqual([]);
+  });
+
+  it("onError 'block' — produces block result, stops pipeline", async () => {
+    const dir = makeTempDir();
+    const hook1 = makeLoadedHook("block-hook", {
+      PreToolUse: () => { throw new Error("blocked"); },
+    });
+    const hook2 = makeLoadedHook("after-hook", {
+      PreToolUse: () => ({ result: "allow" }),
+    });
+    const config = makeTestConfig({ "block-hook": {}, "after-hook": {} });
+
+    const result = await executeHooks([hook1, hook2], "PreToolUse", {}, config, dir);
+    expect(result.lastResult?.result).toBe("block");
+    expect(result.lastResult?.reason).toContain("blocked");
+  });
+
+  it("onError 'continue' skips recordFailure", async () => {
+    const dir = makeTempDir();
+    const hook = makeLoadedHook("continue-hook", {
+      PreToolUse: () => { throw new Error("err"); },
+    });
+    const config = makeTestConfig({ "continue-hook": { onError: "continue" } });
+
+    await executeHooks([hook], "PreToolUse", {}, config, dir);
+    const state = await readFailures(dir);
+    expect(state["continue-hook"]).toBeUndefined();
+  });
+
+  it("onError 'trace' skips recordFailure", async () => {
+    const dir = makeTempDir();
+    const hook = makeLoadedHook("trace-hook", {
+      PreToolUse: () => { throw new Error("err"); },
+    });
+    const config = makeTestConfig({ "trace-hook": { onError: "trace" } });
+
+    await executeHooks([hook], "PreToolUse", {}, config, dir);
+    const state = await readFailures(dir);
+    expect(state["trace-hook"]).toBeUndefined();
+  });
+
+  it("import failure always blocks regardless of hook onError", async () => {
+    const dir = makeTempDir();
+    const loadErrors: HookLoadError[] = [
+      { name: "broken-hook", error: "Cannot find module" },
+    ];
+    const config = makeTestConfig({ "broken-hook": { onError: "continue" } });
+
+    const result = await executeHooks([], "PreToolUse", {}, config, dir, loadErrors);
+    expect(result.lastResult?.result).toBe("block");
+  });
+
+  it("trace falls back to continue for non-injectable events", async () => {
+    const dir = makeTempDir();
+    const hook = makeLoadedHook("trace-hook", {
+      SessionEnd: () => { throw new Error("err"); },
+    });
+    const config = makeTestConfig({ "trace-hook": { onError: "trace" } });
+
+    const result = await executeHooks([hook], "SessionEnd", {}, config, dir);
+    expect(result.traceMessages).toEqual([]);
+    expect(result.systemMessages.length).toBeGreaterThanOrEqual(1);
+    expect(result.systemMessages[0]).toContain("Falling back");
+  });
+});
+
+// --- resolveOnError ---
+
+describe("resolveOnError", () => {
+  it("hook+event overrides hook-level", () => {
+    const config = makeTestConfig({
+      scanner: {
+        onError: "block",
+        events: { PreToolUse: { onError: "trace" } },
+      },
+    });
+    expect(resolveOnError("scanner", "PreToolUse", config)).toBe("trace");
+  });
+
+  it("hook-level overrides global", () => {
+    const config = makeTestConfig({ scanner: { onError: "continue" } });
+    expect(resolveOnError("scanner", "PreToolUse", config)).toBe("continue");
+  });
+
+  it("defaults to global when no hook overrides", () => {
+    const config = makeTestConfig({}, 3, "continue");
+    expect(resolveOnError("unknown", "PreToolUse", config)).toBe("continue");
+  });
+
+  it("full cascade: hook+event → hook → global", () => {
+    const config = makeTestConfig({
+      scanner: {
+        onError: "continue",
+        events: { PreToolUse: { onError: "trace" } },
+      },
+    }, 3, "block");
+    expect(resolveOnError("scanner", "PreToolUse", config)).toBe("trace");
+    expect(resolveOnError("scanner", "PostToolUse", config)).toBe("continue");
+    expect(resolveOnError("unknown", "PreToolUse", config)).toBe("block");
   });
 });
