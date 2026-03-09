@@ -33,6 +33,17 @@ export const RESERVED_CONFIG_KEYS = new Set([
   ...CLAUDE_CODE_EVENTS,
 ])
 
+// Events that support injectContext → additionalContext
+export const INJECTABLE_EVENTS = new Set([
+  "PreToolUse",
+  "UserPromptSubmit",
+  "SessionStart",
+  "PostToolUse",
+  "PostToolUseFailure",
+  "Notification",
+  "SubagentStart",
+])
+
 // Default values for global config
 import type { ErrorMode } from "./types.js"
 export const DEFAULT_TIMEOUT = 30_000

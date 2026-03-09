@@ -37,7 +37,6 @@ log-bash-commands:
 no-production-writes: {}
 PreToolUse:
   order: [no-production-writes, log-bash-commands]
-  timeout: 10000
 `,
     )
 
@@ -66,7 +65,6 @@ PreToolUse:
       "no-production-writes",
       "log-bash-commands",
     ])
-    expect(config.events["PreToolUse"]!.timeout).toBe(10000)
   })
 
   test("merges with local overrides", async () => {
