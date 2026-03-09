@@ -65,10 +65,14 @@ export function translateResult(
   // --- PreToolUse: uses hookSpecificOutput ---
   if (eventName === "PreToolUse") {
     if (resultType === "block") {
-      return {
-        exitCode: 2,
-        stderr: (result.reason as string) ?? "clooks: action blocked by hook",
+      const reason = (result.reason as string) ?? "clooks: action blocked by hook";
+      const hookOutput: PreToolUseOutput = {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason: reason,
       };
+      const output: ClaudeCodeOutput = { hookSpecificOutput: hookOutput };
+      return { output: JSON.stringify(output), exitCode: 0 };
     }
     if (resultType === "skip") {
       return { exitCode: 0 };
@@ -86,13 +90,30 @@ export function translateResult(
     }
   }
 
-  // --- Other guard events: block → exit 2, allow/skip → exit 0 ---
+  // --- PermissionRequest: uses hookSpecificOutput.decision ---
+  if (eventName === "PermissionRequest") {
+    if (resultType === "block") {
+      const hookOutput: HookSpecificOutputBase & { decision: { behavior: string } } = {
+        hookEventName: "PermissionRequest",
+        decision: { behavior: "deny" },
+      };
+      const output: ClaudeCodeOutput = { hookSpecificOutput: hookOutput as HookSpecificOutputBase };
+      return { output: JSON.stringify(output), exitCode: 0 };
+    }
+    if (resultType === "skip") {
+      return { exitCode: 0 };
+    }
+    if (resultType === "allow") {
+      return { exitCode: 0 };
+    }
+  }
+
+  // --- Other guard events: block → exit 0 + JSON, allow/skip → exit 0 ---
   if (GUARD_EVENTS.has(eventName)) {
     if (resultType === "block") {
-      return {
-        exitCode: 2,
-        stderr: (result.reason as string) ?? "clooks: action blocked by hook",
-      };
+      const reason = (result.reason as string) ?? "clooks: action blocked by hook";
+      const output: ClaudeCodeOutput = { decision: "block", reason };
+      return { output: JSON.stringify(output), exitCode: 0 };
     }
     if (resultType === "allow" || resultType === "skip") {
       if (result.injectContext && INJECTABLE_EVENTS.has(eventName)) {
@@ -107,8 +128,24 @@ export function translateResult(
     }
   }
 
-  // --- Observe events: only skip is valid → exit 0 ---
+  // --- Observe events ---
   if (OBSERVE_EVENTS.has(eventName)) {
+    // Handle block results from onError: "block" hook errors.
+    // Observe events can't actually block (action already completed),
+    // so surface the error via additionalContext or systemMessage instead.
+    if (resultType === "block") {
+      const reason = (result.reason as string) ?? "clooks: hook error on observe event";
+      if (INJECTABLE_EVENTS.has(eventName)) {
+        const hookOutput: HookSpecificOutputBase = {
+          hookEventName: eventName,
+          additionalContext: reason,
+        };
+        const output: ClaudeCodeOutput = { hookSpecificOutput: hookOutput };
+        return { output: JSON.stringify(output), exitCode: 0 };
+      }
+      const output: ClaudeCodeOutput = { systemMessage: reason };
+      return { output: JSON.stringify(output), exitCode: 0 };
+    }
     if (result.injectContext && INJECTABLE_EVENTS.has(eventName)) {
       const hookOutput: HookSpecificOutputBase = {
         hookEventName: eventName,
@@ -120,8 +157,14 @@ export function translateResult(
     return { exitCode: 0 };
   }
 
-  // --- WorktreeCreate: success → stdout path, failure → exit 1 ---
+  // --- WorktreeCreate: success → stdout path, failure → exit 1, block → exit 1 ---
   if (eventName === "WorktreeCreate") {
+    if (resultType === "block") {
+      return {
+        exitCode: 1,
+        stderr: (result.reason as string) ?? "clooks: hook error during worktree creation",
+      };
+    }
     if (resultType === "success") {
       return { output: result.path as string, exitCode: 0 };
     }
@@ -133,8 +176,18 @@ export function translateResult(
     }
   }
 
-  // --- Continuation events: continue → exit 2 + stderr, stop → JSON, skip → exit 0 ---
+  // --- Continuation events ---
   if (CONTINUATION_EVENTS.has(eventName)) {
+    // Handle block results from onError: "block" hook errors.
+    // Fail-closed for continuation events = stop the agent/teammate.
+    if (resultType === "block") {
+      const reason = (result.reason as string) ?? "clooks: hook error on continuation event";
+      const output: ClaudeCodeOutput = {
+        continue: false,
+        stopReason: reason,
+      };
+      return { output: JSON.stringify(output), exitCode: 0 };
+    }
     if (resultType === "continue") {
       return {
         exitCode: 2,
