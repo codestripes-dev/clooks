@@ -1,5 +1,7 @@
-import { join } from "path"
+import { join, dirname } from "path"
 import { unlink } from "fs/promises"
+import { mkdirSync } from "fs"
+import { createHash } from "crypto"
 import type { EventName, HookName } from "./types/branded.js"
 
 export interface HookEventFailure {
@@ -11,15 +13,36 @@ export interface HookEventFailure {
 // Top-level: hook name → event name → failure data
 export type FailureState = Record<HookName, Partial<Record<EventName, HookEventFailure>>>
 
-const FAILURES_PATH = ".clooks/.failures"
-
 function isPlainObject(val: unknown): val is Record<string, unknown> {
   return val !== null && typeof val === "object" && !Array.isArray(val)
 }
 
-export async function readFailures(projectRoot: string): Promise<FailureState> {
-  const filePath = join(projectRoot, FAILURES_PATH)
-  const file = Bun.file(filePath)
+/**
+ * Computes the failure state file path.
+ *
+ * - If a project config exists, failures are stored in the project's `.clooks/.failures`.
+ * - If home-only (no project config), failures are stored centrally in
+ *   `~/.clooks/failures/<hash>.json` where hash is a truncated SHA-256 of the project root.
+ *
+ * This is a pure path computation function — no side effects.
+ */
+export function getFailurePath(
+  projectRoot: string,
+  homeRoot: string,
+  hasProjectConfig: boolean,
+): string {
+  if (hasProjectConfig) {
+    return join(projectRoot, ".clooks/.failures")
+  }
+  const hash = createHash("sha256")
+    .update(projectRoot)
+    .digest("hex")
+    .slice(0, 12)
+  return join(homeRoot, ".clooks/failures", `${hash}.json`)
+}
+
+export async function readFailures(failurePath: string): Promise<FailureState> {
+  const file = Bun.file(failurePath)
 
   if (!(await file.exists())) {
     return {}
@@ -37,14 +60,14 @@ export async function readFailures(projectRoot: string): Promise<FailureState> {
     parsed = JSON.parse(text)
   } catch {
     process.stderr.write(
-      "clooks: warning: .clooks/.failures is malformed, resetting failure state\n",
+      `clooks: warning: failure state at ${failurePath} is malformed, resetting\n`,
     )
     return {}
   }
 
   if (!isPlainObject(parsed)) {
     process.stderr.write(
-      "clooks: warning: .clooks/.failures is malformed, resetting failure state\n",
+      `clooks: warning: failure state at ${failurePath} is malformed, resetting\n`,
     )
     return {}
   }
@@ -56,21 +79,23 @@ export async function readFailures(projectRoot: string): Promise<FailureState> {
 }
 
 export async function writeFailures(
-  projectRoot: string,
+  failurePath: string,
   state: FailureState,
 ): Promise<void> {
-  const filePath = join(projectRoot, FAILURES_PATH)
-
   if (Object.keys(state).length === 0) {
     try {
-      await unlink(filePath)
+      await unlink(failurePath)
     } catch (e: unknown) {
       if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e
     }
     return
   }
 
-  await Bun.write(filePath, JSON.stringify(state, null, 2) + "\n")
+  // Ensure parent directory exists (needed for home-only case where
+  // ~/.clooks/failures/ may not exist yet)
+  mkdirSync(dirname(failurePath), { recursive: true })
+
+  await Bun.write(failurePath, JSON.stringify(state, null, 2) + "\n")
 }
 
 export function recordFailure(

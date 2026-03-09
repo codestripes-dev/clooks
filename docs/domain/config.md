@@ -1,17 +1,18 @@
 # Config System
 
-Config file parsing, validation, merging, and hook path resolution. This module reads `clooks.yml`, validates it, optionally merges with `clooks.local.yml`, resolves hook names to file paths, and returns a typed `ClooksConfig` object.
+Config file parsing, validation, merging, and hook path resolution. This module reads up to three config layers (`~/.clooks/clooks.yml`, `.clooks/clooks.yml`, `.clooks/clooks.local.yml`), validates and merges them, resolves hook names to file paths, and returns a typed `ClooksConfig` object with origin annotations.
 
 ## Overview
 
-The config system is the bridge between the YAML files a user writes and the typed data the engine consumes. It handles four concerns:
+The config system is the bridge between the YAML files a user writes and the typed data the engine consumes. It handles five concerns:
 
 1. **Parsing** — Read YAML files and return raw JavaScript objects.
-2. **Merging** — Deep-merge the base config with optional local overrides.
+2. **Three-layer merging** — Merge home, project, and local configs with semantic rules per field type.
 3. **Validation** — Check types and structure, separate hooks from events.
 4. **Resolution** — Map hook names to file paths using convention rules.
+5. **Origin tracking** — Annotate each hook with which layer it came from (`"home"` or `"project"`).
 
-The public entry point is `loadConfig(projectRoot)`, which performs all four steps and returns a `ClooksConfig`.
+The public entry point is `loadConfig(projectRoot, options?)`, which performs all steps and returns a `LoadConfigResult` (or `null` if no config exists).
 
 ## Key Files
 
@@ -20,7 +21,7 @@ The public entry point is `loadConfig(projectRoot)`, which performs all four ste
 - `src/config/constants.ts` — `CLAUDE_CODE_EVENTS`, `RESERVED_CONFIG_KEYS`, defaults.
 - `src/config/parse.ts` — `parseYamlFile()` — reads and parses a single YAML file.
 - `src/config/validate.ts` — `validateConfig()` — validates raw object, returns `ClooksConfig`.
-- `src/config/merge.ts` — `deepMerge()`, `mergeConfigFiles()` — deep merge with array replacement.
+- `src/config/merge.ts` — `deepMerge()`, `mergeConfigFiles()`, `mergeThreeLayerConfig()` — merge logic including three-layer merge with origin tracking.
 - `src/config/resolve.ts` — `resolveHookPath()` — convention-based path resolution.
 - `src/loader.ts` — Consumer of `loadConfig()`. Dynamically imports hooks, validates exports, merges config.
 - `src/failures.ts` — Circuit breaker failure state: read/write `.clooks/.failures`, record/clear/query failures.
@@ -65,7 +66,7 @@ PreToolUse:
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `config` | object | `{}` | Config overrides (shallow-merged with hook's `meta.config` at load time) |
-| `path` | string | convention | Explicit file path relative to project root |
+| `path` | string | convention | Explicit file path relative to the origin root (project root for project hooks, `~/.clooks/` for home hooks) |
 | `timeout` | `Milliseconds` | — | Per-hook timeout in ms |
 | `onError` | `"block"` \| `"continue"` \| `"trace"` | — | Per-hook error handling |
 | `parallel` | boolean | `false` | Run independently of sequential pipeline |
@@ -94,41 +95,36 @@ Event-level `timeout` and `onError` have been removed. Use per-hook `timeout` an
 
 Hook names are resolved to file paths using these rules (in order):
 
-1. **Explicit path** — If `path` is set in the hook entry, use it as-is (relative to project root).
+1. **Explicit path** — If `path` is set in the hook entry, use it as-is (relative to the origin root: project root for project hooks, `~/.clooks/` for home hooks).
 2. **Remote hook** — If the name contains `/`, resolve to `.clooks/vendor/<name>/index.ts`.
 3. **Local hook** — Otherwise, resolve to `.clooks/hooks/<name>.ts`.
 
 Resolution does not check file existence. That is a loading concern handled by the engine.
 
-## Config Merging
+## Config Merging — Three-Layer Loading
 
-Two config files are supported:
+Three config files are supported, loaded in order:
 
-- `.clooks/clooks.yml` — Base config (committed to git).
-- `.clooks/clooks.local.yml` — Local overrides (gitignored).
+1. `~/.clooks/clooks.yml` — Home config (user-wide hooks and defaults).
+2. `.clooks/clooks.yml` — Project config (committed to git).
+3. `.clooks/clooks.local.yml` — Local overrides (gitignored).
 
-Files are deep-merged: plain objects merge recursively, everything else (scalars, arrays, null) replaces. This means a local override only needs to specify the keys being changed.
+Merge rules differ by field type (implemented in `mergeThreeLayerConfig()`):
 
-```yaml
-# clooks.yml
-lint-guard:
-  config:
-    strict: true
-    blocked_tools: [Bash]
+- **`version`** — Last-writer-wins (project overrides home, local overrides both).
+- **`config`** — Deep merge across all layers. Plain objects merge recursively; scalars and arrays replace.
+- **Hooks** — **Atomic replacement.** A project hook with the same name as a home hook replaces it entirely (this is a "shadow"). Local hooks can modify existing hooks but cannot introduce new ones.
+- **Events** — Home order + project order are concatenated (home hooks first). Local replaces the event entry entirely.
 
-# clooks.local.yml
-lint-guard:
-  config:
-    strict: false
+### Scoping Rules
 
-# Result after merge
-lint-guard:
-  config:
-    strict: false           # replaced
-    blocked_tools: [Bash]   # preserved (not specified in local)
-```
+Home event order lists can only reference hooks defined in the home config. Project event order lists can only reference hooks defined in the project config. Violations produce descriptive errors at config load time.
 
-**Note:** This file-level merge is distinct from the hook `meta.config` merge. The `meta.config` merge (hook defaults + config overrides) happens at hook loading time in `src/loader.ts` and is a shallow merge (spread operator, not `deepMerge`).
+### Origin Tracking
+
+Each `HookEntry` carries an `origin: HookOrigin` field (`"home" | "project"`) annotated during `loadConfig()`. Home hooks resolve their source paths relative to `~/.clooks/`; project hooks resolve relative to the project root.
+
+**Note:** The file-level merge is distinct from the hook `meta.config` merge. The `meta.config` merge (hook defaults + config overrides) happens at hook loading time in `src/loader.ts` and is a shallow merge (spread operator, not `deepMerge`).
 
 ## Cascade Rules
 

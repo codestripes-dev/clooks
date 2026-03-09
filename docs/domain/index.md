@@ -77,6 +77,7 @@ When creating or removing a domain doc, update the relevant table in this index.
 | Claude Code Hooks — I/O Contract | `claude-code-hooks/io-contract.md` | Exit codes, JSON output, decision patterns, tool_input schemas |
 | Claude Code Hooks — Behavior & Gotchas | `claude-code-hooks/behavior-and-gotchas.md` | Execution model, async, session snapshot, known issues |
 | Cross-Agent Hooks | `cross-agent-hooks.md` | Hook systems across Claude Code, Cursor, Windsurf, VS Code Copilot with event mapping |
+| Global Hooks | `global-hooks.md` | User-wide hooks architecture: directory structure, config scoping, merge semantics, failure state, shadow warnings |
 | Hook Type System | `hook-type-system.md` | ClooksHook contract, per-event context/result types, branded strings, file organization |
 
 ## Patterns & Conventions

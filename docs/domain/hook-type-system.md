@@ -89,6 +89,12 @@ The engine normalizes Claude Code's snake_case JSON payload into camelCase conte
 
 After generic key normalization, the engine applies one domain-specific rename: `hookEventName` → `event`. Claude Code sends `hook_event_name` which normalizes to `hookEventName`, but the context types use `event` as the discriminant field. This rename happens in the engine, not in the normalize utility.
 
+### HookOrigin and origin field
+
+`HookOrigin` (in `src/config/types.ts`) is a literal union `"home" | "project"` indicating which config layer a hook originated from. Every `HookEntry` carries an `origin: HookOrigin` field, annotated by `loadConfig()` after the three-layer merge.
+
+The origin determines path resolution: home hooks resolve source paths relative to `~/.clooks/`, project hooks relative to the project root. The engine uses origin for debugging and the `config --resolved` command uses it for provenance display.
+
 ### Config overrides and meta.config
 
 Hook `meta.config` defaults are shallow-merged with config overrides from `clooks.yml` in the loader (`src/loader.ts`). The `loadHook()` function reads `hook.meta.config`, spreads the config overrides from `HookEntry.config` on top (`{ ...metaDefaults, ...overrides }`), and returns the merged config in `LoadedHook.config`. This merged config is what gets passed to handlers at runtime — handlers never see the raw meta.config or raw overrides separately.
