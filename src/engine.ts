@@ -9,6 +9,7 @@
 //
 // This module is imported by src/cli.ts (the compiled binary entry point).
 
+import type { EventName } from "./types/branded.js";
 import type { ClaudeCodeOutput, PreToolUseOutput, HookSpecificOutputBase } from "./types/claude-code.js";
 import type { ClooksConfig, ErrorMode } from "./config/types.js";
 import { normalizeKeys } from "./normalize.js";
@@ -16,14 +17,14 @@ import { loadConfig } from "./config/index.js";
 import { ConfigNotFoundError } from "./config/parse.js";
 import { loadAllHooks } from "./loader.js";
 import type { LoadedHook, HookLoadError } from "./loader.js";
-import { INJECTABLE_EVENTS } from "./config/constants.js";
+import { INJECTABLE_EVENTS, isEventName } from "./config/constants.js";
 import { readFailures, writeFailures, recordFailure, clearFailure, getFailureCount } from "./failures.js";
 
 // Event categories for result translation.
 // Note: The complete set of all 18 event names lives in src/config/constants.ts
 // (CLAUDE_CODE_EVENTS), used for config key discrimination. These categorized
 // subsets are used for result translation. Both must stay in sync.
-const GUARD_EVENTS = new Set([
+const GUARD_EVENTS: Set<EventName> = new Set<EventName>([
   "PreToolUse",
   "UserPromptSubmit",
   "PermissionRequest",
@@ -32,7 +33,7 @@ const GUARD_EVENTS = new Set([
   "ConfigChange",
 ]);
 
-const OBSERVE_EVENTS = new Set([
+const OBSERVE_EVENTS: Set<EventName> = new Set<EventName>([
   "SessionStart",
   "SessionEnd",
   "InstructionsLoaded",
@@ -44,7 +45,7 @@ const OBSERVE_EVENTS = new Set([
   "PreCompact",
 ]);
 
-const CONTINUATION_EVENTS = new Set(["TeammateIdle", "TaskCompleted"]);
+const CONTINUATION_EVENTS: Set<EventName> = new Set<EventName>(["TeammateIdle", "TaskCompleted"]);
 
 // INJECTABLE_EVENTS imported from ./config/constants.js
 
@@ -57,7 +58,7 @@ const CONTINUATION_EVENTS = new Set(["TeammateIdle", "TaskCompleted"]);
  * Exported for unit testing.
  */
 export function translateResult(
-  eventName: string,
+  eventName: EventName,
   result: Record<string, unknown>
 ): { output?: string; exitCode: number; stderr?: string } {
   const resultType = result.result as string;
@@ -219,7 +220,7 @@ export function translateResult(
  */
 export function matchHooksForEvent(
   hooks: LoadedHook[],
-  eventName: string,
+  eventName: EventName,
 ): LoadedHook[] {
   return hooks.filter(
     (h) => typeof (h.hook as unknown as Record<string, unknown>)[eventName] === "function",
@@ -254,7 +255,7 @@ export function interpolateMessage(
  */
 export function resolveOnError(
   hookName: string,
-  eventName: string,
+  eventName: EventName,
   config: ClooksConfig,
 ): ErrorMode {
   const hookEntry = config.hooks[hookName];
@@ -269,7 +270,7 @@ export function resolveOnError(
 
 function formatDiagnostic(
   hookName: string,
-  eventName: string,
+  eventName: EventName,
   error: unknown,
   mode: ErrorMode,
 ): string {
@@ -302,7 +303,7 @@ function formatTraceMessage(
  */
 export async function executeHooks(
   matched: LoadedHook[],
-  eventName: string,
+  eventName: EventName,
   normalized: Record<string, unknown>,
   config: ClooksConfig,
   projectRoot: string,
@@ -516,14 +517,15 @@ export async function runEngine(): Promise<void> {
     }
 
     const payload = input as Record<string, unknown>;
-    const eventName = payload.hook_event_name;
+    const rawEventName = payload.hook_event_name;
 
-    if (typeof eventName !== "string" || eventName.length === 0) {
+    if (typeof rawEventName !== "string" || !isEventName(rawEventName)) {
       process.stderr.write(
-        "clooks: stdin payload missing or empty hook_event_name field\n",
+        "clooks: stdin payload missing or unrecognized hook_event_name field\n",
       );
       process.exit(2);
     }
+    const eventName: EventName = rawEventName;
 
     // --- Match hooks for this event ---
     const matched = matchHooksForEvent(hooks, eventName);

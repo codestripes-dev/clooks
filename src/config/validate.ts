@@ -1,3 +1,4 @@
+import type { EventName } from "../types/branded.js"
 import type {
   ClooksConfig,
   ErrorMode,
@@ -8,6 +9,7 @@ import type {
 import {
   CLAUDE_CODE_EVENTS,
   INJECTABLE_EVENTS,
+  isEventName,
   DEFAULT_TIMEOUT,
   DEFAULT_ON_ERROR,
   DEFAULT_MAX_FAILURES,
@@ -86,7 +88,7 @@ export function validateConfig(raw: Record<string, unknown>): ClooksConfig {
 
   // 3. Discriminate remaining keys
   const hooks: Record<string, HookEntry> = {}
-  const events: Record<string, EventEntry> = {}
+  const events: Partial<Record<EventName, EventEntry>> = {}
 
   for (const key of Object.keys(raw)) {
     if (key === "version" || key === "config") continue
@@ -98,7 +100,7 @@ export function validateConfig(raw: Record<string, unknown>): ClooksConfig {
       )
     }
 
-    if (CLAUDE_CODE_EVENTS.has(key)) {
+    if (isEventName(key)) {
       // Validate as event entry
       const entry: EventEntry = {}
 
@@ -184,7 +186,7 @@ export function validateConfig(raw: Record<string, unknown>): ClooksConfig {
         maxFailuresMessage = value.maxFailuresMessage
       }
 
-      let eventsMap: Record<string, { onError?: ErrorMode }> | undefined
+      let eventsMap: Partial<Record<EventName, { onError?: ErrorMode }>> | undefined
       if (value.events !== undefined) {
         if (!isPlainObject(value.events)) {
           throw new Error(
@@ -193,7 +195,7 @@ export function validateConfig(raw: Record<string, unknown>): ClooksConfig {
         }
         eventsMap = {}
         for (const eventKey of Object.keys(value.events)) {
-          if (!CLAUDE_CODE_EVENTS.has(eventKey)) {
+          if (!isEventName(eventKey)) {
             throw new Error(
               `clooks: hook "${key}" has unknown event "${eventKey}" in events sub-map`
             )
