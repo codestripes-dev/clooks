@@ -41,7 +41,9 @@ PreToolUse:
 `,
     )
 
-    const config = await loadConfig(tempDir)
+    const result = await loadConfig(tempDir)
+    expect(result).not.toBeNull()
+    const config = result!.config
     expect(config.version).toBe("1.0.0")
     expect(config.global).toEqual({
       timeout: ms(30000),
@@ -90,20 +92,159 @@ lint-guard:
 `,
     )
 
-    const config = await loadConfig(tempDir)
-    expect(config.hooks[hn("lint-guard")]!.config).toEqual({
+    const result = await loadConfig(tempDir)
+    expect(result).not.toBeNull()
+    // Local overrides replace atomically — so we get just { strict: false }
+    // because hook entries are ATOMIC across layers
+    expect(result!.config.hooks[hn("lint-guard")]!.config).toEqual({
       strict: false,
-      blocked_tools: ["Bash"],
     })
   })
 
-  test("throws when config file is missing", async () => {
-    expect(loadConfig(tempDir)).rejects.toThrow("config file not found")
+  test("returns null when no config files exist", async () => {
+    const result = await loadConfig(tempDir)
+    expect(result).toBeNull()
   })
 
   test("ignores missing local file", async () => {
     writeConfig(tempDir, "clooks.yml", `version: "1.0.0"\n`)
-    const config = await loadConfig(tempDir)
-    expect(config.version).toBe("1.0.0")
+    const result = await loadConfig(tempDir)
+    expect(result).not.toBeNull()
+    expect(result!.config.version).toBe("1.0.0")
+  })
+
+  test("all hooks from project config have origin 'project'", async () => {
+    writeConfig(
+      tempDir,
+      "clooks.yml",
+      `
+version: "1.0.0"
+my-hook: {}
+`,
+    )
+    const result = await loadConfig(tempDir)
+    expect(result).not.toBeNull()
+    expect(result!.config.hooks[hn("my-hook")]!.origin).toBe("project")
+  })
+
+  test("hasProjectConfig is true when project config exists", async () => {
+    writeConfig(tempDir, "clooks.yml", `version: "1.0.0"\n`)
+    const result = await loadConfig(tempDir)
+    expect(result).not.toBeNull()
+    expect(result!.hasProjectConfig).toBe(true)
+  })
+
+  test("shadows is empty when no overlapping hooks", async () => {
+    writeConfig(tempDir, "clooks.yml", `version: "1.0.0"\nmy-hook: {}\n`)
+    const result = await loadConfig(tempDir)
+    expect(result).not.toBeNull()
+    expect(result!.shadows).toEqual([])
+  })
+
+  // --- Three-layer loading tests ---
+
+  test("home config only loads hooks with origin 'home'", async () => {
+    // Create a fake home directory
+    const fakeHome = mkdtempSync(join(tmpdir(), "clooks-home-test-"))
+    writeConfig(
+      fakeHome,
+      "clooks.yml",
+      `
+version: "1.0.0"
+security-scanner: {}
+`,
+    )
+
+    // tempDir has no project config
+    const result = await loadConfig(tempDir, { homeRoot: fakeHome })
+    expect(result).not.toBeNull()
+    expect(result!.config.hooks[hn("security-scanner")]!.origin).toBe("home")
+    expect(result!.hasProjectConfig).toBe(false)
+    // Home hook path should be resolved relative to homeRoot
+    expect(result!.config.hooks[hn("security-scanner")]!.resolvedPath).toBe(
+      join(fakeHome, ".clooks/hooks/security-scanner.ts"),
+    )
+
+    rmSync(fakeHome, { recursive: true, force: true })
+  })
+
+  test("home + project with no overlap merges all hooks", async () => {
+    const fakeHome = mkdtempSync(join(tmpdir(), "clooks-home-test-"))
+    writeConfig(fakeHome, "clooks.yml", `version: "1.0.0"\nhome-hook: {}\n`)
+    writeConfig(tempDir, "clooks.yml", `version: "1.0.0"\nproject-hook: {}\n`)
+
+    const result = await loadConfig(tempDir, { homeRoot: fakeHome })
+    expect(result).not.toBeNull()
+    expect(result!.config.hooks[hn("home-hook")]!.origin).toBe("home")
+    expect(result!.config.hooks[hn("project-hook")]!.origin).toBe("project")
+    expect(result!.shadows).toEqual([])
+
+    rmSync(fakeHome, { recursive: true, force: true })
+  })
+
+  test("project hook shadows home hook", async () => {
+    const fakeHome = mkdtempSync(join(tmpdir(), "clooks-home-test-"))
+    writeConfig(
+      fakeHome,
+      "clooks.yml",
+      `
+version: "1.0.0"
+shared-hook:
+  config:
+    fromHome: true
+`,
+    )
+    writeConfig(
+      tempDir,
+      "clooks.yml",
+      `
+version: "1.0.0"
+shared-hook:
+  config:
+    fromProject: true
+`,
+    )
+
+    const result = await loadConfig(tempDir, { homeRoot: fakeHome })
+    expect(result).not.toBeNull()
+    expect(result!.config.hooks[hn("shared-hook")]!.origin).toBe("project")
+    expect(result!.config.hooks[hn("shared-hook")]!.config).toEqual({ fromProject: true })
+    expect(result!.shadows).toEqual([hn("shared-hook")])
+
+    rmSync(fakeHome, { recursive: true, force: true })
+  })
+
+  test("returns null when neither home nor project config exists", async () => {
+    const fakeHome = mkdtempSync(join(tmpdir(), "clooks-home-test-"))
+    const result = await loadConfig(tempDir, { homeRoot: fakeHome })
+    expect(result).toBeNull()
+    rmSync(fakeHome, { recursive: true, force: true })
+  })
+
+  test("returns null when only local config exists", async () => {
+    // Only create clooks.local.yml, not clooks.yml
+    writeConfig(tempDir, "clooks.local.yml", `version: "1.0.0"\nmy-hook: {}\n`)
+
+    // Use a nonexistent dir as home so no home config is found either
+    const nonexistentHome = join(tmpdir(), "clooks-nonexistent-home-" + Date.now())
+    const result = await loadConfig(tempDir, { homeRoot: nonexistentHome })
+    expect(result).toBeNull()
+  })
+
+  test("home config missing version → validation error", async () => {
+    const fakeHome = mkdtempSync(join(tmpdir(), "clooks-home-test-"))
+    writeConfig(
+      fakeHome,
+      "clooks.yml",
+      `
+security-scanner: {}
+`,
+    )
+
+    await expect(loadConfig(tempDir, { homeRoot: fakeHome })).rejects.toThrow(
+      'missing required "version"',
+    )
+
+    rmSync(fakeHome, { recursive: true, force: true })
   })
 })

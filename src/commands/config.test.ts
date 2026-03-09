@@ -1,8 +1,8 @@
 import { describe, test, expect, mock, spyOn, beforeEach, afterEach } from 'bun:test'
 import { Command } from 'commander'
 import { createConfigCommand } from './config.js'
-import { ConfigNotFoundError } from '../config/parse.js'
 import type { ClooksConfig } from '../config/types.js'
+import type { LoadConfigResult, LoadConfigOptions } from '../config/index.js'
 import type { HookName, Milliseconds } from '../types/branded.js'
 
 // Mock @clack/prompts to avoid TTY issues in tests
@@ -31,6 +31,7 @@ function makeConfig(overrides?: Partial<ClooksConfig>): ClooksConfig {
         resolvedPath: '.clooks/hooks/my-hook.ts',
         config: {},
         parallel: false,
+        origin: 'project',
       },
     },
     events: {},
@@ -38,7 +39,16 @@ function makeConfig(overrides?: Partial<ClooksConfig>): ClooksConfig {
   }
 }
 
-function createTestProgram(loadConfig: (root: string) => Promise<ClooksConfig>) {
+function makeResult(overrides?: Partial<LoadConfigResult>): LoadConfigResult {
+  return {
+    config: makeConfig(),
+    shadows: [],
+    hasProjectConfig: true,
+    ...overrides,
+  }
+}
+
+function createTestProgram(loadConfig: (root: string, options?: LoadConfigOptions) => Promise<LoadConfigResult | null>) {
   const program = new Command()
   program.exitOverride()
   program.option('--json', 'JSON output')
@@ -64,8 +74,8 @@ describe('config command', () => {
 
   test('valid config in human mode shows hook count and timeout', async () => {
     const { log, intro, outro } = await import('@clack/prompts')
-    const config = makeConfig()
-    const loadConfig = mock().mockResolvedValue(config)
+    const result = makeResult()
+    const loadConfig = mock().mockResolvedValue(result)
 
     const program = createTestProgram(loadConfig)
     await program.parseAsync(['config'], { from: 'user' })
@@ -81,8 +91,8 @@ describe('config command', () => {
   })
 
   test('valid config with --json outputs JSON envelope with ok:true', async () => {
-    const config = makeConfig()
-    const loadConfig = mock().mockResolvedValue(config)
+    const result = makeResult()
+    const loadConfig = mock().mockResolvedValue(result)
 
     const program = createTestProgram(loadConfig)
     await program.parseAsync(['--json', 'config'], { from: 'user' })
@@ -101,8 +111,8 @@ describe('config command', () => {
     expect(parsed.data.maxFailures).toBe(3)
   })
 
-  test('ConfigNotFoundError shows init suggestion', async () => {
-    const loadConfig = mock().mockRejectedValue(new ConfigNotFoundError('/path/to/clooks.yml'))
+  test('null result shows init suggestion', async () => {
+    const loadConfig = mock().mockResolvedValue(null)
 
     const program = createTestProgram(loadConfig)
     await program.parseAsync(['config'], { from: 'user' }).catch(() => {})
@@ -110,18 +120,18 @@ describe('config command', () => {
     expect(exitSpy).toHaveBeenCalledWith(1)
   })
 
-  test('ConfigNotFoundError with --json outputs JSON envelope with ok:false', async () => {
-    const loadConfig = mock().mockRejectedValue(new ConfigNotFoundError('/path/to/clooks.yml'))
+  test('null result with --json outputs JSON envelope with ok:false', async () => {
+    const loadConfig = mock().mockResolvedValue(null)
 
     const program = createTestProgram(loadConfig)
     await program.parseAsync(['--json', 'config'], { from: 'user' }).catch(() => {})
 
     expect(exitSpy).toHaveBeenCalledWith(1)
 
-    const output = stdoutSpy.mock.calls
-      .map((c: unknown[]) => String(c[0]))
-      .join('')
-    const parsed = JSON.parse(output.trim())
+    // The first stdout.write call contains the JSON error envelope.
+    // Subsequent calls may come from the catch block re-processing the mock exit error.
+    const firstOutput = String(stdoutSpy.mock.calls[0]?.[0] ?? '')
+    const parsed = JSON.parse(firstOutput.trim())
 
     expect(parsed.ok).toBe(false)
     expect(parsed.command).toBe('config')

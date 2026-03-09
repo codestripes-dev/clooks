@@ -29,6 +29,7 @@ function makeHookEntry(
     resolvedPath,
     config,
     parallel: false,
+    origin: "project",
   }
 }
 

@@ -2,6 +2,8 @@ import type { EventName, HookName, Milliseconds } from "../types/branded.js"
 
 export type ErrorMode = "block" | "continue" | "trace"
 
+export type HookOrigin = "home" | "project"
+
 /**
  * The validated, typed config returned by loadConfig().
  *
@@ -53,6 +55,8 @@ export interface HookEntry {
   maxFailuresMessage?: string
   /** Per-hook, per-event overrides. Currently only onError is supported. */
   events?: Partial<Record<EventName, { onError?: ErrorMode }>>
+  /** Which config layer this hook originated from. */
+  origin: HookOrigin
 }
 
 export interface EventEntry {
