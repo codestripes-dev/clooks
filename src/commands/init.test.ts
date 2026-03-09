@@ -29,8 +29,9 @@ mock.module('@clack/prompts', () => ({
 
 // Import after mocking
 import { createInitCommand } from './init.js'
-import { ENTRYPOINT_SCRIPT } from './init-entrypoint.js'
+import { ENTRYPOINT_SCRIPT, GLOBAL_ENTRYPOINT_SCRIPT } from './init-entrypoint.js'
 import { CLOOKS_ENTRYPOINT_PATH } from '../settings.js'
+import os from 'os'
 
 let tempDir: string
 let originalCwd: () => string
@@ -126,7 +127,7 @@ describe('clooks init', () => {
     }
   })
 
-  test('updates .gitignore with 3 entries', async () => {
+  test('updates .gitignore with 4 entries', async () => {
     const program = createTestProgram()
     await program.parseAsync(['init'], { from: 'user' })
 
@@ -272,6 +273,176 @@ describe('clooks init', () => {
   })
 })
 
+describe('clooks init --global', () => {
+  let originalHomedir: typeof os.homedir
+  let fakeHome: string
+
+  beforeEach(() => {
+    // Use a subdirectory of tempDir as the fake home
+    fakeHome = join(tempDir, 'fakehome')
+    mkdirSync(fakeHome, { recursive: true })
+    originalHomedir = os.homedir
+    os.homedir = () => fakeHome
+  })
+
+  afterEach(() => {
+    os.homedir = originalHomedir
+  })
+
+  test('creates expected directory structure', async () => {
+    const program = createTestProgram()
+    await program.parseAsync(['init', '--global'], { from: 'user' })
+
+    expect(existsSync(join(fakeHome, '.clooks'))).toBe(true)
+    expect(existsSync(join(fakeHome, '.clooks', 'hooks'))).toBe(true)
+    expect(existsSync(join(fakeHome, '.clooks', 'bin'))).toBe(true)
+    expect(existsSync(join(fakeHome, '.clooks', 'vendor'))).toBe(true)
+  })
+
+  test('creates .global-entrypoint-active flag file', async () => {
+    const program = createTestProgram()
+    await program.parseAsync(['init', '--global'], { from: 'user' })
+
+    const flagPath = join(fakeHome, '.clooks', '.global-entrypoint-active')
+    expect(existsSync(flagPath)).toBe(true)
+    // Flag file should be empty
+    const content = readFileSync(flagPath, 'utf-8')
+    expect(content).toBe('')
+  })
+
+  test('writes starter clooks.yml with correct content', async () => {
+    const program = createTestProgram()
+    await program.parseAsync(['init', '--global'], { from: 'user' })
+
+    const configPath = join(fakeHome, '.clooks', 'clooks.yml')
+    expect(existsSync(configPath)).toBe(true)
+
+    const content = readFileSync(configPath, 'utf-8')
+    expect(content).toBe('version: "1.0.0"\n\nconfig: {}\n')
+
+    const parsed = Bun.YAML.parse(content)
+    expect(parsed.version).toBe('1.0.0')
+    expect(parsed.config).toEqual({})
+  })
+
+  test('writes global entrypoint with correct content (no dedup check)', async () => {
+    const program = createTestProgram()
+    await program.parseAsync(['init', '--global'], { from: 'user' })
+
+    const entrypointPath = join(fakeHome, '.clooks', 'bin', 'entrypoint.sh')
+    expect(existsSync(entrypointPath)).toBe(true)
+
+    const content = readFileSync(entrypointPath, 'utf-8')
+    expect(content).toBe(GLOBAL_ENTRYPOINT_SCRIPT)
+
+    // Global entrypoint should NOT contain the dedup check
+    expect(content).not.toContain('.global-entrypoint-active')
+
+    // But should contain all other standard parts
+    expect(content).toContain('SKIP_CLOOKS')
+    expect(content).toContain('CLOOKS_BIN=')
+    expect(content).toContain('fail-closed')
+  })
+
+  test('global entrypoint has executable permissions', async () => {
+    const program = createTestProgram()
+    await program.parseAsync(['init', '--global'], { from: 'user' })
+
+    const entrypointPath = join(fakeHome, '.clooks', 'bin', 'entrypoint.sh')
+    const stat = statSync(entrypointPath)
+    const mode = stat.mode & 0o777
+    expect(mode & 0o111).toBeGreaterThan(0)
+  })
+
+  test('registers in settings.json with absolute entrypoint path', async () => {
+    const program = createTestProgram()
+    await program.parseAsync(['init', '--global'], { from: 'user' })
+
+    const settings = readSettings(fakeHome)
+    const hooks = settings.hooks as Record<string, unknown[]>
+    expect(Object.keys(hooks)).toHaveLength(18)
+
+    const expectedPath = join(fakeHome, '.clooks/bin/entrypoint.sh')
+    // Every event should have the absolute entrypoint path
+    for (const matchers of Object.values(hooks)) {
+      expect(matchers).toHaveLength(1)
+      const mg = matchers[0] as Record<string, unknown>
+      const hookEntries = mg.hooks as Record<string, string>[]
+      expect(hookEntries).toHaveLength(1)
+      expect(hookEntries[0].command).toBe(expectedPath)
+    }
+  })
+
+  test('does NOT create .gitignore (home directory is not a git repo)', async () => {
+    const program = createTestProgram()
+    await program.parseAsync(['init', '--global'], { from: 'user' })
+
+    expect(existsSync(join(fakeHome, '.gitignore'))).toBe(false)
+  })
+
+  test('idempotent — running twice does not duplicate entries', async () => {
+    // First run
+    const program1 = createTestProgram()
+    await program1.parseAsync(['init', '--global'], { from: 'user' })
+
+    const configAfterFirst = readFileSync(join(fakeHome, '.clooks', 'clooks.yml'), 'utf-8')
+    const settingsAfterFirst = readFileSync(join(fakeHome, '.claude', 'settings.json'), 'utf-8')
+
+    // Second run
+    const program2 = createTestProgram()
+    await program2.parseAsync(['init', '--global'], { from: 'user' })
+
+    const configAfterSecond = readFileSync(join(fakeHome, '.clooks', 'clooks.yml'), 'utf-8')
+    const settingsAfterSecond = readFileSync(join(fakeHome, '.claude', 'settings.json'), 'utf-8')
+
+    // Nothing should change
+    expect(configAfterSecond).toBe(configAfterFirst)
+    expect(settingsAfterSecond).toBe(settingsAfterFirst)
+  })
+
+  test('skips existing clooks.yml (does not overwrite user config)', async () => {
+    mkdirSync(join(fakeHome, '.clooks'), { recursive: true })
+    const customContent = 'version: "1.0.0"\n\nconfig:\n  myGlobalHook: true\n'
+    writeFileSync(join(fakeHome, '.clooks', 'clooks.yml'), customContent)
+
+    const program = createTestProgram()
+    await program.parseAsync(['init', '--global'], { from: 'user' })
+
+    const content = readFileSync(join(fakeHome, '.clooks', 'clooks.yml'), 'utf-8')
+    expect(content).toBe(customContent)
+  })
+
+  test('JSON mode produces correct envelope with global flag', async () => {
+    const program = createTestProgram()
+    await program.parseAsync(['--json', 'init', '--global'], { from: 'user' })
+
+    const output = stdoutSpy.mock.calls
+      .map((c: unknown[]) => String(c[0]))
+      .join('')
+    const parsed = JSON.parse(output.trim())
+
+    expect(parsed.ok).toBe(true)
+    expect(parsed.command).toBe('init')
+    expect(parsed.data.global).toBe(true)
+    expect(parsed.data.created).toBeInstanceOf(Array)
+    expect(parsed.data.created.length).toBeGreaterThan(0)
+  })
+
+  test('bypasses home directory guardrail (--global is explicit intent)', async () => {
+    // Set cwd to the fake home — without --global this would trigger the guardrail
+    process.cwd = () => fakeHome
+
+    const program = createTestProgram()
+    await program.parseAsync(['init', '--global'], { from: 'user' })
+
+    // Should complete successfully (no process.exit called)
+    expect(exitSpy).not.toHaveBeenCalled()
+
+    // Files should be created
+    expect(existsSync(join(fakeHome, '.clooks', 'clooks.yml'))).toBe(true)
+  })
+})
+
 describe('ENTRYPOINT_SCRIPT', () => {
   test('starts with shebang', () => {
     expect(ENTRYPOINT_SCRIPT.startsWith('#!/usr/bin/env bash')).toBe(true)
@@ -287,5 +458,93 @@ describe('ENTRYPOINT_SCRIPT', () => {
 
   test('contains fail-closed logic', () => {
     expect(ENTRYPOINT_SCRIPT).toContain('fail-closed')
+  })
+
+  test('project entrypoint includes dedup check for .global-entrypoint-active', () => {
+    expect(ENTRYPOINT_SCRIPT).toContain('.global-entrypoint-active')
+    expect(ENTRYPOINT_SCRIPT).toContain('if [ -f "$HOME/.clooks/.global-entrypoint-active" ]')
+  })
+
+  test('dedup check appears after SKIP_CLOOKS and before CLOOKS_BIN', () => {
+    const skipIdx = ENTRYPOINT_SCRIPT.indexOf('SKIP_CLOOKS')
+    const dedupIdx = ENTRYPOINT_SCRIPT.indexOf('.global-entrypoint-active')
+    const binIdx = ENTRYPOINT_SCRIPT.indexOf('CLOOKS_BIN=')
+
+    expect(skipIdx).toBeGreaterThan(-1)
+    expect(dedupIdx).toBeGreaterThan(-1)
+    expect(binIdx).toBeGreaterThan(-1)
+    expect(dedupIdx).toBeGreaterThan(skipIdx)
+    expect(dedupIdx).toBeLessThan(binIdx)
+  })
+})
+
+describe('GLOBAL_ENTRYPOINT_SCRIPT', () => {
+  test('starts with shebang', () => {
+    expect(GLOBAL_ENTRYPOINT_SCRIPT.startsWith('#!/usr/bin/env bash')).toBe(true)
+  })
+
+  test('does NOT contain dedup check', () => {
+    expect(GLOBAL_ENTRYPOINT_SCRIPT).not.toContain('.global-entrypoint-active')
+  })
+
+  test('contains all standard parts', () => {
+    expect(GLOBAL_ENTRYPOINT_SCRIPT).toContain('SKIP_CLOOKS')
+    expect(GLOBAL_ENTRYPOINT_SCRIPT).toContain('CLOOKS_BIN=')
+    expect(GLOBAL_ENTRYPOINT_SCRIPT).toContain('fail-closed')
+    expect(GLOBAL_ENTRYPOINT_SCRIPT).toContain('STDIN_DATA=$(cat)')
+  })
+})
+
+describe('entrypoint dedup behavior', () => {
+  let fakeHome: string
+  let originalHomedir: typeof os.homedir
+
+  beforeEach(() => {
+    fakeHome = join(tempDir, 'fakehome')
+    mkdirSync(fakeHome, { recursive: true })
+    originalHomedir = os.homedir
+    os.homedir = () => fakeHome
+  })
+
+  afterEach(() => {
+    os.homedir = originalHomedir
+  })
+
+  test('project entrypoint exits 0 when flag file exists (dedup works)', async () => {
+    // First, init the project so we have the entrypoint
+    const program = createTestProgram()
+    await program.parseAsync(['init'], { from: 'user' })
+
+    const entrypointPath = join(tempDir, '.clooks', 'bin', 'entrypoint.sh')
+
+    // Create the flag file
+    mkdirSync(join(fakeHome, '.clooks'), { recursive: true })
+    writeFileSync(join(fakeHome, '.clooks', '.global-entrypoint-active'), '')
+
+    // Run the entrypoint — it should exit 0 immediately due to dedup
+    const proc = Bun.spawnSync(['bash', entrypointPath], {
+      env: { ...process.env, HOME: fakeHome },
+      stdin: Buffer.from('{}'),
+    })
+    expect(proc.exitCode).toBe(0)
+  })
+
+  test('project entrypoint proceeds normally when flag file does not exist', async () => {
+    // Init the project
+    const program = createTestProgram()
+    await program.parseAsync(['init'], { from: 'user' })
+
+    const entrypointPath = join(tempDir, '.clooks', 'bin', 'entrypoint.sh')
+
+    // Do NOT create the flag file — entrypoint should proceed to binary check
+    // Since the binary doesn't exist, it should exit 2 (bootstrap detection)
+    const proc = Bun.spawnSync(['bash', entrypointPath], {
+      env: { ...process.env, HOME: fakeHome },
+      stdin: Buffer.from('{}'),
+    })
+    // Should exit 2 because the binary isn't installed
+    expect(proc.exitCode).toBe(2)
+    const stderr = proc.stderr.toString()
+    expect(stderr).toContain('Binary not found')
   })
 })

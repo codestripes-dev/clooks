@@ -1,14 +1,30 @@
-/** Bash entrypoint script content, embedded as a template for `clooks init`. */
 // Using string concatenation to avoid template literal escaping issues with
 // bash $() command substitutions and ${} variable expansions.
-export const ENTRYPOINT_SCRIPT =
+
+/** Shebang + strict mode, shared by both entrypoint variants. */
+const ENTRYPOINT_PREAMBLE =
   '#!/usr/bin/env bash\n' +
-  'set -euo pipefail\n' +
+  'set -euo pipefail\n'
+
+/** SKIP_CLOOKS bypass check, shared by both entrypoint variants. */
+const SKIP_CLOOKS_CHECK =
   '\n' +
   '# Bypass: allow disabling all Clooks processing via environment variable.\n' +
   'if [ "${SKIP_CLOOKS:-}" = "true" ]; then\n' +
   '  exit 0\n' +
-  'fi\n' +
+  'fi\n'
+
+/** Dedup check: project entrypoint yields to the global one when active. */
+const DEDUP_CHECK =
+  '\n' +
+  '# Global entrypoint dedup: if a global entrypoint is active, this project\n' +
+  '# entrypoint is a noop (the global one handles the merged pipeline).\n' +
+  'if [ -f "$HOME/.clooks/.global-entrypoint-active" ]; then\n' +
+  '  exit 0\n' +
+  'fi\n'
+
+/** Shared body: binary location, bootstrap detection, stdin capture, debug logging, delegation, fail-closed. */
+const ENTRYPOINT_BODY =
   '\n' +
   '# Locate the compiled Clooks binary.\n' +
   'CLOOKS_BIN="${CLOOKS_HOME:-$HOME/.clooks}/bin/clooks"\n' +
@@ -48,3 +64,15 @@ export const ENTRYPOINT_SCRIPT =
   '\n' +
   'echo "[clooks] Binary exited with unexpected code $binary_exit. Blocking action (fail-closed)." >&2\n' +
   'exit 2\n'
+
+/** Bash entrypoint script content for project init, embedded as a template for `clooks init`. */
+export const ENTRYPOINT_SCRIPT =
+  ENTRYPOINT_PREAMBLE + SKIP_CLOOKS_CHECK + DEDUP_CHECK + ENTRYPOINT_BODY
+
+/**
+ * Bash entrypoint script for global init (`clooks init --global`).
+ * Identical to the project entrypoint but WITHOUT the dedup check —
+ * it IS the global entrypoint and is the authoritative one.
+ */
+export const GLOBAL_ENTRYPOINT_SCRIPT =
+  ENTRYPOINT_PREAMBLE + SKIP_CLOOKS_CHECK + ENTRYPOINT_BODY
