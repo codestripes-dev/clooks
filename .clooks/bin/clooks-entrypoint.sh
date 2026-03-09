@@ -19,9 +19,20 @@ MSG
   exit 2
 fi
 
+# Capture stdin so we can log it and replay it to the binary.
+STDIN_DATA=$(cat)
+
+# Debug: log input to a file for replay/diagnosis.
+if [ "${CLOOKS_DEBUG:-}" = "true" ]; then
+  LOGDIR="${CLOOKS_LOGDIR:-/tmp/clooks-debug}"
+  mkdir -p "$LOGDIR"
+  TIMESTAMP=$(date +%s%N)
+  echo "$STDIN_DATA" > "$LOGDIR/$TIMESTAMP.json"
+fi
+
 # Delegate to the binary. It reads hook_event_name from stdin JSON.
 # The && / || idiom captures the exit code without triggering set -e.
-"$CLOOKS_BIN" && binary_exit=0 || binary_exit=$?
+echo "$STDIN_DATA" | "$CLOOKS_BIN" && binary_exit=0 || binary_exit=$?
 
 # Fail-closed exit code translation:
 #   0 → success (pass through)

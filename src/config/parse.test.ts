@@ -2,7 +2,7 @@ import { describe, expect, test, beforeEach, afterEach } from "bun:test"
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "fs"
 import { join } from "path"
 import { tmpdir } from "os"
-import { parseYamlFile } from "./parse.js"
+import { parseYamlFile, ConfigNotFoundError } from "./parse.js"
 
 let tempDir: string
 
@@ -33,6 +33,16 @@ describe("parseYamlFile", () => {
   test("throws on missing file", async () => {
     const filePath = join(tempDir, "nonexistent.yml")
     expect(parseYamlFile(filePath)).rejects.toThrow("config file not found")
+  })
+
+  test("throws ConfigNotFoundError (not generic Error) when file does not exist", async () => {
+    const filePath = join(tempDir, "nonexistent.yml")
+    try {
+      await parseYamlFile(filePath)
+      expect(true).toBe(false) // should not reach here
+    } catch (e) {
+      expect(e).toBeInstanceOf(ConfigNotFoundError)
+    }
   })
 
   test("throws on malformed YAML", async () => {

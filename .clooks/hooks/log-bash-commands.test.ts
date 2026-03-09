@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { hook } from "./log-bash-commands.js";
-import type { PreToolUseContext } from "../types/contexts.js";
+import type { PreToolUseContext } from "../../src/types/contexts.js";
 
 function makeCtx(
   overrides: Partial<PreToolUseContext> = {}

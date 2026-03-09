@@ -9,7 +9,7 @@ Clooks uses Bun as its runtime — both for the compiled CLI binary and for exec
 ## Key Files
 
 - `src/cli.ts` — Build entrypoint for the compiled binary. This is the file passed to `bun build --compile`. Handles `--version` and `--help` flags, then delegates to the engine.
-- `src/engine.ts` — Hook execution engine. Reads stdin JSON, matches events against hooks, executes matching hooks, and writes the response to stdout. Uses fail-closed error handling (exit code 2 on any failure).
+- `src/engine.ts` — Hook execution engine. Reads stdin JSON, loads hooks from config, matches events against handlers, executes matching hooks with circuit breaker logic, and writes the response to stdout. Uses fail-closed error handling (exit code 2 on any failure), with circuit breaker degradation for repeatedly failing hooks (see `docs/domain/config.md` § Circuit Breaker).
 - `src/index.ts` — Module root. Exports the `VERSION` constant.
 - `dist/clooks` — Compiled binary output (gitignored). Produced by `bun run build`.
 - `package.json` — Build script: `mkdir -p dist && bun build --compile --outfile dist/clooks src/cli.ts`.
@@ -155,6 +155,16 @@ Multiple reported issues:
 
 This is why Windows is deferred for v1.
 
+## Type Checking in Build
+
+`bun build --compile` does not run TypeScript type checking — it bundles and compiles without verifying types. This means undeclared variables, type mismatches, and other TypeScript errors compile successfully but crash at runtime.
+
+The project build script (`package.json` `build` command) runs `tsc --noEmit` before `bun build` to catch these errors:
+
+    "build": "tsc --noEmit && mkdir -p dist && bun build --compile --outfile dist/clooks src/cli.ts"
+
+This is a hard requirement. Never bypass `tsc --noEmit` in the build pipeline.
+
 ## Patterns
 
 ### Cross-Compilation in CI
@@ -193,20 +203,25 @@ The compiled Clooks binary dynamically imports user-authored `.ts` hook files at
 - Bundled hooks with deps are slower to import (~18ms total for a 190KB bundle vs ~9ms for a simple hook) due to parsing more code.
 
 **Export Validation:**
-- TypeScript type assertions (`as HookModule`) provide zero runtime validation — types are erased.
-- Runtime validation of `meta` shape and `default` export is required in the loader.
+- TypeScript type assertions (`as ClooksHook`) provide zero runtime validation — types are erased.
+- Runtime validation of the named `hook` export shape (`hook.meta.name` exists, non-`meta` properties are functions) is required in the loader (`src/loader.ts` → `validateHookExport()`).
 
 ### Config File Parsing
 
-Bun provides built-in parsers for TOML and JSONC — no external dependencies needed:
+Bun provides built-in parsers for YAML, TOML, and JSONC — no external dependencies needed:
 
 ```typescript
-// TOML — fastest built-in option
+// YAML — chosen for Clooks config (Bun.YAML.parse available since Bun v1.2.21)
+const config = Bun.YAML.parse(await Bun.file("clooks.yml").text())
+
+// TOML
 const config = Bun.TOML.parse(readFileSync("clooks.toml", "utf-8"))
 
 // JSONC — JSON with comments and trailing commas (since Bun v1.3.6)
 const config = Bun.JSONC.parse(readFileSync("clooks.jsonc", "utf-8"))
 ```
+
+**Clooks uses `Bun.YAML.parse`** — a native Zig parser built into the Bun runtime. Zero external dependencies, no caching needed.
 
 **Performance for a realistic 10-hook config (cold start, compiled binary):**
 
@@ -215,12 +230,11 @@ const config = Bun.JSONC.parse(readFileSync("clooks.jsonc", "utf-8"))
 | JSON.parse | 0.023ms | 14ms | Built-in |
 | Bun.TOML.parse | 0.068ms | 13ms | Built-in |
 | Bun.JSONC.parse | 0.076ms | 15ms | Built-in |
+| **Bun.YAML.parse** | **0.17ms** | **15ms** | **Built-in** |
 | js-yaml | 2.4ms | 18ms | 2 bundled modules |
 | yaml (npm) | 13ms | 30ms | 73 bundled modules |
 
-**YAML is viable with caching.** The `yaml` npm package (73 modules) adds ~23ms overhead per invocation when parsing every time. But by caching the parsed result as JSON and lazy-importing yaml only on cache miss, the hot path drops to **16ms** (3ms overhead from bundled modules). TOML and JSONC are 13-14ms without any caching. See `docs/research/config-file-parsing.md` for full cache strategy analysis.
-
-**TOML and JSONC add zero measurable parsing overhead** — all observed overhead is file I/O, not parsing. Both are built into Bun with no external dependencies to bundle.
+`Bun.YAML.parse` is ~15x faster than js-yaml for cold-start parse and eliminates the only production dependency. No caching strategy is needed — the native parser matches TOML/JSONC performance. See `docs/research/yaml-parser-comparison.md` for the full comparison.
 
 ### Hook Testing with Bun
 

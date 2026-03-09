@@ -22,6 +22,8 @@ The public entry point is `loadConfig(projectRoot)`, which performs all four ste
 - `src/config/validate.ts` — `validateConfig()` — validates raw object, returns `ClooksConfig`.
 - `src/config/merge.ts` — `deepMerge()`, `mergeConfigFiles()` — deep merge with array replacement.
 - `src/config/resolve.ts` — `resolveHookPath()` — convention-based path resolution.
+- `src/loader.ts` — Consumer of `loadConfig()`. Dynamically imports hooks, validates exports, merges config.
+- `src/failures.ts` — Circuit breaker failure state: read/write `.clooks/.failures`, record/clear/query failures.
 
 ## Config Format
 
@@ -64,6 +66,8 @@ PreToolUse:
 | `timeout` | number | — | Per-hook timeout in ms |
 | `onError` | `"block"` \| `"continue"` | — | Per-hook error handling |
 | `parallel` | boolean | `false` | Run independently of sequential pipeline |
+| `maxFailures` | number | — | Per-hook override for consecutive failure threshold |
+| `maxFailuresMessage` | string | — | Per-hook override for the reminder message template |
 
 ### Event Entry Fields
 
@@ -79,6 +83,8 @@ PreToolUse:
 |-------|------|---------|-------------|
 | `timeout` | number | 30000 | Default timeout for all hooks |
 | `onError` | `"block"` \| `"continue"` | `"block"` | Default error handling |
+| `maxFailures` | number | `3` | Consecutive failures before a hook+event pair is degraded. `0` = disabled (classic fail-closed). |
+| `maxFailuresMessage` | string | *(see below)* | Template for the reminder message when a degraded hook is skipped. Supports `{hook}`, `{event}`, `{count}`, `{error}` interpolation. |
 
 ## Hook Path Resolution
 
@@ -118,7 +124,7 @@ lint-guard:
     blocked_tools: [Bash]   # preserved (not specified in local)
 ```
 
-**Note:** This file-level merge is distinct from the hook `meta.config` merge. The `meta.config` merge (hook defaults + config overrides) happens at hook loading time and is a shallow merge. The `deepMerge` utility can be reused for that purpose.
+**Note:** This file-level merge is distinct from the hook `meta.config` merge. The `meta.config` merge (hook defaults + config overrides) happens at hook loading time in `src/loader.ts` and is a shallow merge (spread operator, not `deepMerge`).
 
 ## Cascade Rules
 
@@ -131,21 +137,52 @@ Timeout and onError resolve through a cascade: hook → event → global → def
 
 The same cascade applies to `onError`. The cascade is applied at runtime by the engine, not by the config module.
 
+**Implementation status:** The config system stores these fields and the engine will apply the cascade, but `timeout` and `onError` cascade are not yet implemented in the engine (tracked by FEAT-0004 and FEAT-0005). Currently the engine always fails closed on any hook error. The `maxFailures` cascade (below) is fully implemented.
+
+`maxFailures` and `maxFailuresMessage` follow a simpler two-level cascade: hook → global → default (no event level). This is because circuit breaker thresholds are about hook reliability, not event semantics. Setting `maxFailures: 0` disables the circuit breaker for that hook, preserving classic fail-closed behavior.
+
+## Circuit Breaker
+
+A hook+event pair that fails N consecutive times (default 3) enters "degraded mode." In degraded mode the hook is skipped instead of blocking, but it is still retried on every invocation inside a safe try/catch. If it succeeds, the failure counter resets and the hook resumes normal operation automatically.
+
+**State storage:** Failure state is persisted in `.clooks/.failures` (JSON, gitignored). The file is managed entirely by the engine. It is created on first failure, updated on subsequent failures, and deleted when all hooks are healthy.
+
+**File format:**
+
+```json
+{
+  "hook-name": {
+    "PreToolUse": {
+      "consecutiveFailures": 3,
+      "lastError": "Cannot find module '@clooks/utils'",
+      "lastFailedAt": "2026-03-09T10:15:00Z"
+    }
+  }
+}
+```
+
+**Reminder delivery:** When a degraded hook is skipped, a reminder message is injected into the agent's context via `injectContext` / `additionalContext` for injectable events (PreToolUse, UserPromptSubmit, SessionStart, PostToolUse, PostToolUseFailure, Notification, SubagentStart). For non-injectable events, the message is written to stderr.
+
+**Disabling:** Set `maxFailures: 0` on a hook entry to disable the circuit breaker for that hook. It will always fail-closed regardless of how many times it fails.
+
+**Load errors:** Hooks that fail to import (missing file, broken dependency) are also routed through the circuit breaker. `loadAllHooks` is fault-tolerant — it uses `Promise.allSettled` and returns load errors alongside successfully loaded hooks. The engine processes load errors through the same threshold logic as execution errors. Note: load error counters are currently tracked per hook+event (same as execution errors), which means a load failure must independently reach the threshold on each event type. See FEAT-0015 for a planned improvement to degrade load errors globally across all events.
+
 ## Performance
 
-Config parsing takes ~18ms per invocation using js-yaml (2 bundled modules in the compiled binary). No caching is implemented — caching is deferred as a future optimization. The research in `docs/research/config-file-parsing.md` documents a JSON cache strategy that can reduce this to ~14ms.
+Config parsing takes ~15ms per invocation using Bun's native YAML parser (`Bun.YAML.parse`), which is written in Zig and built into the Bun runtime. No external dependencies and no caching needed. The parser adds ~0.17ms of parse time (the remaining overhead is file I/O and binary startup). See `docs/research/yaml-parser-comparison.md` for benchmarks comparing this to js-yaml and other alternatives.
 
 ## Gotchas
 
 - **Event names are reserved** — All 18 Claude Code event names are classified as event entries, never hook entries. A key like `Stop` always goes to `events`, even if its value looks like a hook entry.
 - **`noUncheckedIndexedAccess`** — The project uses strict TypeScript. Accessing `config.hooks["name"]` returns `HookEntry | undefined`. Always check before use.
 - **Arrays replace, don't append** — In config merging, arrays in the override file completely replace arrays in the base file. There is no array concatenation.
-- **`meta.config` merge is not here** — The config module stores overrides in `HookEntry.config`. The merge with `meta.config` defaults from the hook's TypeScript file happens at hook loading time (FEAT-0003), not at config parsing time.
+- **`meta.config` merge is not here** — The config module stores overrides in `HookEntry.config`. The merge with `meta.config` defaults from the hook's TypeScript file happens at hook loading time in `src/loader.ts` (`loadHook()`), not at config parsing time.
 
 ## Related
 
 - `docs/domain/hook-type-system.md` — Hook contract and type system
-- `docs/planned/FEAT-0001-config-format.md` — Config format feature
-- `docs/planned/FEAT-0003-dynamic-hook-loading.md` — Dynamic hook loading (consumes config)
+- `docs/planned/done/FEAT-0001-config-file-parsing.md` — Config format feature
+- `docs/planned/done/FEAT-0003-dynamic-hook-loading.md` — Dynamic hook loading (consumes config)
 - `docs/research/config-file-parsing.md` — YAML parser research and benchmarks
+- `docs/research/yaml-parser-comparison.md` — Bun.YAML vs js-yaml comparison and benchmarks
 - `docs/research/layered-config-local-overrides.md` — Config merging research
