@@ -1,4 +1,4 @@
-import type { EventName } from "../types/branded.js"
+import type { EventName, HookName } from "../types/branded.js"
 import type {
   ClooksConfig,
   ErrorMode,
@@ -87,7 +87,7 @@ export function validateConfig(raw: Record<string, unknown>): ClooksConfig {
   }
 
   // 3. Discriminate remaining keys
-  const hooks: Record<string, HookEntry> = {}
+  const hooks: Record<HookName, HookEntry> = {} as Record<HookName, HookEntry>
   const events: Partial<Record<EventName, EventEntry>> = {}
 
   for (const key of Object.keys(raw)) {
@@ -113,7 +113,7 @@ export function validateConfig(raw: Record<string, unknown>): ClooksConfig {
             `clooks: event "${key}" has invalid "order": must be an array of strings`,
           )
         }
-        entry.order = value.order as string[]
+        entry.order = value.order as HookName[]
       }
       if (value.onError !== undefined) {
         throw new Error(
@@ -223,7 +223,9 @@ export function validateConfig(raw: Record<string, unknown>): ClooksConfig {
         }
       }
 
-      const resolvedPath = resolveHookPath(key, { path })
+      // Boundary cast: key is a hook name (not an event name or reserved key).
+      const hookName = key as HookName
+      const resolvedPath = resolveHookPath(hookName, { path })
 
       const entry: HookEntry = { resolvedPath, config, parallel }
       if (timeout !== undefined) entry.timeout = timeout
@@ -232,7 +234,7 @@ export function validateConfig(raw: Record<string, unknown>): ClooksConfig {
       if (maxFailuresMessage !== undefined) entry.maxFailuresMessage = maxFailuresMessage
       if (eventsMap && Object.keys(eventsMap).length > 0) entry.events = eventsMap
 
-      hooks[key] = entry
+      hooks[hookName] = entry
     }
   }
 

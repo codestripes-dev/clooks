@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test"
 import { validateConfig } from "./validate.js"
 import { DEFAULT_MAX_FAILURES, DEFAULT_MAX_FAILURES_MESSAGE } from "./constants.js"
+import type { HookName } from "../types/branded.js"
+const hn = (s: string) => s as HookName
 
 describe("validateConfig", () => {
   test("valid minimal config", () => {
@@ -53,25 +55,25 @@ describe("validateConfig", () => {
       "anthropic/secret-scanner",
       "company-policy",
     ])
-    expect(result.hooks["log-bash-commands"]!.config).toEqual({
+    expect(result.hooks[hn("log-bash-commands")]!.config).toEqual({
       logDir: ".clooks/logs",
     })
-    expect(result.hooks["log-bash-commands"]!.parallel).toBe(true)
-    expect(result.hooks["log-bash-commands"]!.timeout).toBe(5000)
-    expect(result.hooks["no-production-writes"]!.resolvedPath).toBe(
+    expect(result.hooks[hn("log-bash-commands")]!.parallel).toBe(true)
+    expect(result.hooks[hn("log-bash-commands")]!.timeout).toBe(5000)
+    expect(result.hooks[hn("no-production-writes")]!.resolvedPath).toBe(
       ".clooks/hooks/no-production-writes.ts",
     )
-    expect(result.hooks["anthropic/secret-scanner"]!.resolvedPath).toBe(
+    expect(result.hooks[hn("anthropic/secret-scanner")]!.resolvedPath).toBe(
       ".clooks/vendor/anthropic/secret-scanner/index.ts",
     )
-    expect(result.hooks["company-policy"]!.resolvedPath).toBe(
+    expect(result.hooks[hn("company-policy")]!.resolvedPath).toBe(
       "scripts/hooks/company-policy.ts",
     )
 
     expect(Object.keys(result.events)).toEqual(["PreToolUse"])
     expect(result.events["PreToolUse"]!.order).toEqual([
-      "anthropic/secret-scanner",
-      "no-production-writes",
+      hn("anthropic/secret-scanner"),
+      hn("no-production-writes"),
     ])
   })
 
@@ -120,7 +122,7 @@ describe("validateConfig", () => {
         parallel: true,
       },
     })
-    const hook = result.hooks["my-hook"]!
+    const hook = result.hooks[hn("my-hook")]!
     expect(hook.resolvedPath).toBe("custom/path.ts")
     expect(hook.config).toEqual({ key: "val" })
     expect(hook.timeout).toBe(5000)
@@ -134,9 +136,9 @@ describe("validateConfig", () => {
       PreToolUse: { order: ["a", "b"] },
     })
     expect(result.events["PreToolUse"]).toEqual({
-      order: ["a", "b"],
+      order: [hn("a"), hn("b")],
     })
-    expect(result.hooks["PreToolUse"]).toBeUndefined()
+    expect(result.hooks[hn("PreToolUse")]).toBeUndefined()
   })
 
   test("event entry with invalid order throws", () => {
@@ -150,7 +152,7 @@ describe("validateConfig", () => {
 
   test("empty hook entry is valid", () => {
     const result = validateConfig({ version: "1.0.0", "my-hook": {} })
-    const hook = result.hooks["my-hook"]!
+    const hook = result.hooks[hn("my-hook")]!
     expect(hook.config).toEqual({})
     expect(hook.resolvedPath).toBe(".clooks/hooks/my-hook.ts")
     expect(hook.timeout).toBeUndefined()
@@ -163,7 +165,7 @@ describe("validateConfig", () => {
       version: "1.0.0",
       "my-hook": {},
     })
-    expect(result.hooks["my-hook"]!.resolvedPath).toBe(
+    expect(result.hooks[hn("my-hook")]!.resolvedPath).toBe(
       ".clooks/hooks/my-hook.ts",
     )
   })
@@ -173,8 +175,8 @@ describe("validateConfig", () => {
       version: "1.0.0",
       SessionStart: { order: ["a"] },
     })
-    expect(result.events["SessionStart"]).toEqual({ order: ["a"] })
-    expect(result.hooks["SessionStart"]).toBeUndefined()
+    expect(result.events["SessionStart"]).toEqual({ order: [hn("a")] })
+    expect(result.hooks[hn("SessionStart")]).toBeUndefined()
 
     // Even with config-like fields, Stop is still an event
     const result2 = validateConfig({
@@ -182,7 +184,7 @@ describe("validateConfig", () => {
       Stop: { config: { key: "val" } },
     })
     expect(result2.events["Stop"]).toBeDefined()
-    expect(result2.hooks["Stop"]).toBeUndefined()
+    expect(result2.hooks[hn("Stop")]).toBeUndefined()
   })
 
   // --- maxFailures / maxFailuresMessage ---
@@ -242,7 +244,7 @@ describe("validateConfig", () => {
       version: "1.0.0",
       "my-hook": { maxFailures: 10 },
     })
-    expect(result.hooks["my-hook"]!.maxFailures).toBe(10)
+    expect(result.hooks[hn("my-hook")]!.maxFailures).toBe(10)
   })
 
   test("hook-level maxFailuresMessage parsed correctly", () => {
@@ -250,7 +252,7 @@ describe("validateConfig", () => {
       version: "1.0.0",
       "my-hook": { maxFailuresMessage: "hook message" },
     })
-    expect(result.hooks["my-hook"]!.maxFailuresMessage).toBe("hook message")
+    expect(result.hooks[hn("my-hook")]!.maxFailuresMessage).toBe("hook message")
   })
 
   test("hook-level maxFailures: 0 accepted (disables circuit breaker)", () => {
@@ -258,7 +260,7 @@ describe("validateConfig", () => {
       version: "1.0.0",
       "my-hook": { maxFailures: 0 },
     })
-    expect(result.hooks["my-hook"]!.maxFailures).toBe(0)
+    expect(result.hooks[hn("my-hook")]!.maxFailures).toBe(0)
   })
 
   // --- FEAT-0017: ErrorMode "trace", EventEntry rejections, hook events sub-map ---
@@ -268,7 +270,7 @@ describe("validateConfig", () => {
       version: "1.0.0",
       scanner: { onError: "trace" },
     })
-    expect(result.hooks["scanner"]!.onError).toBe("trace")
+    expect(result.hooks[hn("scanner")]!.onError).toBe("trace")
   })
 
   test('"trace" rejected at global level', () => {
@@ -304,7 +306,7 @@ describe("validateConfig", () => {
         },
       },
     })
-    expect(result.hooks["scanner"]!.events).toEqual({
+    expect(result.hooks[hn("scanner")]!.events).toEqual({
       PreToolUse: { onError: "trace" },
     })
   })
@@ -345,7 +347,7 @@ describe("validateConfig", () => {
         },
       },
     })
-    expect(result.hooks["scanner"]!.events!["PreToolUse"]).toEqual({ onError: "trace" })
-    expect(result.hooks["scanner"]!.events!["PostToolUse"]).toEqual({ onError: "trace" })
+    expect(result.hooks[hn("scanner")]!.events!["PreToolUse"]).toEqual({ onError: "trace" })
+    expect(result.hooks[hn("scanner")]!.events!["PostToolUse"]).toEqual({ onError: "trace" })
   })
 })

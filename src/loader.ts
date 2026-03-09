@@ -1,9 +1,10 @@
+import type { HookName } from "./types/branded.js"
 import type { ClooksHook } from "./types/hook.js"
 import type { HookEntry, ClooksConfig } from "./config/types.js"
 import { resolve } from "path"
 
 export interface LoadedHook {
-  name: string
+  name: HookName
   hook: ClooksHook
   config: Record<string, unknown>
 }
@@ -48,7 +49,7 @@ export function validateHookExport(
 }
 
 export async function loadHook(
-  hookName: string,
+  hookName: HookName,
   entry: HookEntry,
   projectRoot: string,
 ): Promise<LoadedHook> {
@@ -92,7 +93,7 @@ export async function loadHook(
 }
 
 export interface HookLoadError {
-  name: string
+  name: HookName
   error: string
 }
 
@@ -105,7 +106,9 @@ export async function loadAllHooks(
   config: ClooksConfig,
   projectRoot: string,
 ): Promise<LoadAllHooksResult> {
-  const entries = Object.entries(config.hooks)
+  // Object.entries() erases Record key types to string (TypeScript#35101).
+  // Safe boundary cast: keys originate from validated config parsing.
+  const entries = Object.entries(config.hooks) as [HookName, HookEntry][]
   if (entries.length === 0) return { loaded: [], loadErrors: [] }
 
   const results = await Promise.allSettled(

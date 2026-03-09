@@ -9,7 +9,7 @@
 //
 // This module is imported by src/cli.ts (the compiled binary entry point).
 
-import type { EventName } from "./types/branded.js";
+import type { EventName, HookName } from "./types/branded.js";
 import type { ResultTag } from "./types/results.js";
 import type { ClaudeCodeOutput, PreToolUseOutput, HookSpecificOutputBase } from "./types/claude-code.js";
 
@@ -256,7 +256,7 @@ export function matchHooksForEvent(
 }
 
 function resolveMaxFailures(
-  hookName: string,
+  hookName: HookName,
   config: ClooksConfig,
 ): { maxFailures: number; maxFailuresMessage: string } {
   const hookEntry = config.hooks[hookName];
@@ -268,7 +268,7 @@ function resolveMaxFailures(
 
 export function interpolateMessage(
   template: string,
-  vars: { hook: string; event: string; count: number; error: string },
+  vars: { hook: HookName; event: string; count: number; error: string },
 ): string {
   return template
     .replace(/\{hook\}/g, () => vars.hook)
@@ -282,7 +282,7 @@ export function interpolateMessage(
  * hook+event → hook → global → "block" (default).
  */
 export function resolveOnError(
-  hookName: string,
+  hookName: HookName,
   eventName: EventName,
   config: ClooksConfig,
 ): ErrorMode {
@@ -297,7 +297,7 @@ export function resolveOnError(
 }
 
 function formatDiagnostic(
-  hookName: string,
+  hookName: HookName,
   eventName: EventName,
   error: unknown,
   mode: ErrorMode,
@@ -313,7 +313,7 @@ function formatDiagnostic(
 }
 
 function formatTraceMessage(
-  hookName: string,
+  hookName: HookName,
   error: unknown,
 ): string {
   const errorType = error instanceof Error ? error.constructor.name : "Error";
