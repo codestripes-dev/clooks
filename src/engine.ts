@@ -422,7 +422,7 @@ export async function executeHooks(
 
   // --- Sequential group runner ---
   async function executeSequentialGroup(group: ExecutionGroup): Promise<void> {
-    // Per-group AbortController (never aborted in M3; scoped per-group for M4)
+    // Per-group AbortController — never aborted for sequential groups
     const sharedController = new AbortController();
     for (const hook of group.hooks) {
       const loaded = hook.loaded;

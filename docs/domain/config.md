@@ -132,11 +132,45 @@ lint-guard:
 
 ## Cascade Rules
 
-**Timeout** cascades: hook → global → default (30000ms). No event level.
+**Timeout** cascades: hook → global → default (30000ms). No event level. The resolution function `resolveTimeout(hookName, config)` in the engine checks `config.hooks[hookName]?.timeout` first, then falls back to `config.global.timeout` (which defaults to 30000ms / `DEFAULT_TIMEOUT`). Each hook invocation gets its own timeout via `runHookWithTimeout`, which races the handler promise against a `setTimeout` reject.
 
 **onError** cascades through three levels: hook+event → hook → global → `"block"` default. The `"trace"` mode is only valid at hook or hook+event level (rejected at global level). At hook+event level, `"trace"` is rejected at parse time for non-injectable events. At hook level, `"trace"` triggers a runtime fallback to `"continue"` for non-injectable events (with a startup warning).
 
 **maxFailures** and **maxFailuresMessage** cascade: hook → global → default. `maxFailures: 0` disables the circuit breaker. `maxFailures` does NOT increment for execution errors on hooks configured with `onError: "continue"` or `"trace"`. Import/load failures always count regardless of onError config.
+
+## Execution Group Model
+
+When the engine executes hooks for an event, it partitions them into **execution groups** — contiguous runs of hooks that share the same execution mode (parallel or sequential). The pipeline processes groups in order, and a block result from any group stops the entire pipeline.
+
+### Ordering
+
+Hook execution order is determined by `orderHooksForEvent()` in `src/ordering.ts`. There are two modes:
+
+1. **No order list** — Parallel hooks are hoisted to the front, sequential hooks follow. Declaration order is preserved within each group.
+2. **Order list exists** (`EventEntry.order`) — The ordered hooks go in the positions specified by the list. Unordered parallel hooks go at the beginning, unordered sequential hooks go at the end. Original matched order is preserved within unordered groups.
+
+### Order list validation
+
+The order list (`EventEntry.order`) is validated at two levels:
+
+- **Config-time** — Names in the order list must be defined hooks in the config (validated by `validateConfig()`).
+- **Runtime** — Names in the order list must appear in the matched hook set for the current event. If an order list references a hook that does not handle the event (i.e., it was filtered out by `matchHooksForEvent()`), `orderHooksForEvent()` throws with a descriptive error. This is a structural/config error — the engine cannot proceed with an invalid order list.
+
+### Partitioning
+
+After ordering, `partitionIntoGroups()` walks the ordered list and starts a new group whenever the `parallel` flag changes. The result is a sequence of `ExecutionGroup` objects, each with a `type` ("parallel" or "sequential") and a list of hooks.
+
+Example: given hooks `[par-A, par-B, seq-C, seq-D, par-E]`, the groups would be:
+1. `parallel: [par-A, par-B]`
+2. `sequential: [seq-C, seq-D]`
+3. `parallel: [par-E]`
+
+A diagnostic warning is emitted when a single parallel hook is sandwiched between sequential groups (functionally equivalent to sequential).
+
+### Group execution
+
+- **Sequential groups** — Hooks run one at a time. Each hook receives the current `toolInput` (possibly modified by a prior hook's `updatedInput`). A block result stops the group and the pipeline.
+- **Parallel groups** — All hooks in the group start concurrently. They all see the same `toolInput` snapshot. A short-circuit mechanism aborts remaining hooks when a block or contract violation (`updatedInput` in parallel mode) is detected. Results are merged after all hooks settle (or short-circuit).
 
 ## Circuit Breaker
 

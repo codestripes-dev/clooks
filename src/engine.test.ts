@@ -1178,6 +1178,23 @@ describe("parallel batch", () => {
     await Bun.sleep(30);
     expect(signalAborted).toBe(true);
   });
+
+  it("parallel batch: block result injectContext merged with other hooks", async () => {
+    const dir = makeTempDir();
+    const hookA = makeLoadedHook("hookA", {
+      PreToolUse: () => ({ result: "allow", injectContext: "from-allow" }),
+    });
+    const hookB = makeLoadedHook("hookB", {
+      PreToolUse: () => ({ result: "block", reason: "blocked", injectContext: "from-block" }),
+    });
+    const config = makeTestConfig({ hookA: { parallel: true }, hookB: { parallel: true } });
+
+    const result = await executeHooks([hookA, hookB], "PreToolUse", {}, config, dir);
+
+    expect(result.lastResult?.result).toBe("block");
+    expect(result.lastResult?.injectContext).toContain("from-allow");
+    expect(result.lastResult?.injectContext).toContain("from-block");
+  });
 });
 
 // --- FEAT-0016 M4: Mixed pipeline tests ---
@@ -1307,5 +1324,169 @@ describe("mixed pipeline", () => {
     const result = await executeHooks([hookA, hookB, hookC, hookD], "PreToolUse", {}, config, dir);
     expect(result.lastResult?.result).toBe("allow");
     expect(result.lastResult?.injectContext).toBe("seq-A\npar-B\npar-C\nseq-D");
+  });
+});
+
+// --- FEAT-0016 M5: Integration tests (full pipeline) ---
+
+describe("integration: full pipeline", () => {
+  it("full pipeline with ordering", async () => {
+    const dir = makeTempDir();
+
+    // Scanner is sequential, formatter is sequential.
+    // Scanner returns updatedInput that formatter observes.
+    // Declared in reverse order (formatter first, scanner second) to prove
+    // that the order list controls execution, not declaration order.
+    const formatter = makeLoadedHook("formatter", {
+      PreToolUse: (ctx: Record<string, unknown>) => {
+        // Formatter sees the toolInput modified by scanner
+        const toolInput = ctx.toolInput as Record<string, unknown>;
+        return {
+          result: "allow",
+          injectContext: `formatted:${toolInput.command}`,
+        };
+      },
+    });
+    const scanner = makeLoadedHook("scanner", {
+      PreToolUse: () => ({
+        result: "allow",
+        updatedInput: { command: "scanned-cmd" },
+        injectContext: "scanned",
+      }),
+    });
+
+    const config = makeTestConfig({
+      scanner: { parallel: false },
+      formatter: { parallel: false },
+    });
+    config.events = {
+      PreToolUse: { order: [hn("scanner"), hn("formatter")] },
+    };
+
+    const normalized = { event: "PreToolUse", toolInput: { command: "original-cmd" } };
+    // Pass hooks in reverse declaration order — order list should override
+    const result = await executeHooks([formatter, scanner], "PreToolUse", normalized, config, dir);
+
+    expect(result.lastResult?.result).toBe("allow");
+    // Formatter saw scanner's updatedInput
+    expect(result.lastResult?.injectContext).toBe("scanned\nformatted:scanned-cmd");
+    // updatedInput flows through to final result
+    expect(result.lastResult?.updatedInput).toEqual({ command: "scanned-cmd" });
+  });
+
+  it("full pipeline with unordered hooks", async () => {
+    const dir = makeTempDir();
+    const executionOrder: string[] = [];
+
+    // Ordered hooks (in order list)
+    const orderedA = makeLoadedHook("orderedA", {
+      PreToolUse: () => {
+        executionOrder.push("orderedA");
+        return { result: "allow", injectContext: "orderedA" };
+      },
+    });
+    const orderedB = makeLoadedHook("orderedB", {
+      PreToolUse: () => {
+        executionOrder.push("orderedB");
+        return { result: "allow", injectContext: "orderedB" };
+      },
+    });
+
+    // Unordered parallel hook — should run before ordered hooks
+    const unorderedPar = makeLoadedHook("unorderedPar", {
+      PreToolUse: () => {
+        executionOrder.push("unorderedPar");
+        return { result: "allow", injectContext: "unorderedPar" };
+      },
+    });
+
+    // Unordered sequential hook — should run after ordered hooks
+    const unorderedSeq = makeLoadedHook("unorderedSeq", {
+      PreToolUse: () => {
+        executionOrder.push("unorderedSeq");
+        return { result: "allow", injectContext: "unorderedSeq" };
+      },
+    });
+
+    const config = makeTestConfig({
+      orderedA: { parallel: false },
+      orderedB: { parallel: false },
+      unorderedPar: { parallel: true },
+      unorderedSeq: { parallel: false },
+    });
+    config.events = {
+      PreToolUse: { order: [hn("orderedA"), hn("orderedB")] },
+    };
+
+    const result = await executeHooks(
+      [orderedA, orderedB, unorderedPar, unorderedSeq],
+      "PreToolUse", {}, config, dir,
+    );
+
+    expect(result.lastResult?.result).toBe("allow");
+    // Unordered parallel runs first, then ordered, then unordered sequential
+    expect(executionOrder).toEqual(["unorderedPar", "orderedA", "orderedB", "unorderedSeq"]);
+    // All injectContext accumulated in execution order
+    expect(result.lastResult?.injectContext).toBe(
+      "unorderedPar\norderedA\norderedB\nunorderedSeq",
+    );
+  });
+
+  it("full pipeline: updatedInput flows through to translateResult", async () => {
+    const dir = makeTempDir();
+
+    const hook = makeLoadedHook("mutator", {
+      PreToolUse: () => ({
+        result: "allow",
+        updatedInput: { filePath: "/new/path" },
+      }),
+    });
+
+    const config = makeTestConfig({ mutator: { parallel: false } });
+
+    const normalized = { event: "PreToolUse", toolInput: { filePath: "/old/path" } };
+    const result = await executeHooks([hook], "PreToolUse", normalized, config, dir);
+
+    // Pipeline result has updatedInput
+    expect(result.lastResult?.result).toBe("allow");
+    expect(result.lastResult?.updatedInput).toEqual({ filePath: "/new/path" });
+
+    // Now translate and verify it appears in the PreToolUse JSON output
+    const translated = translateResult("PreToolUse", result.lastResult!);
+    expect(translated.exitCode).toBe(0);
+    const parsed = JSON.parse(translated.output!);
+    expect(parsed.hookSpecificOutput.hookEventName).toBe("PreToolUse");
+    expect(parsed.hookSpecificOutput.permissionDecision).toBe("allow");
+    expect(parsed.hookSpecificOutput.updatedInput).toEqual({ filePath: "/new/path" });
+  });
+
+  it("ordering error: order references hook that doesn't handle event", async () => {
+    const dir = makeTempDir();
+
+    // hook-a only handles PostToolUse, hook-b handles PreToolUse.
+    // Config orders PreToolUse as [hook-a], but hook-a won't match.
+    const hookA = makeLoadedHook("hook-a", {
+      PostToolUse: () => ({ result: "skip" }),
+    });
+    const hookB = makeLoadedHook("hook-b", {
+      PreToolUse: () => ({ result: "allow" }),
+    });
+
+    const config = makeTestConfig({
+      "hook-a": { parallel: false },
+      "hook-b": { parallel: false },
+    });
+    config.events = {
+      PreToolUse: { order: [hn("hook-a")] },
+    };
+
+    // Only hook-b matches PreToolUse; hook-a is excluded by matchHooksForEvent.
+    // executeHooks should throw because the order list references hook-a
+    // which isn't in the matched set.
+    const matched = matchHooksForEvent([hookA, hookB], "PreToolUse" as import("./types/branded.js").EventName);
+
+    await expect(
+      executeHooks(matched, "PreToolUse", {}, config, dir),
+    ).rejects.toThrow(/hook-a.*does not handle this event/);
   });
 });
