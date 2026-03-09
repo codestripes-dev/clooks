@@ -15,7 +15,7 @@ The type system is organized around the `ClooksHook<C>` interface — a single t
 ## Key Files
 
 - `src/types/index.ts` — Public API barrel. Re-exports everything from submodules.
-- `src/types/branded.ts` — 8 branded string types for enum-like fields.
+- `src/types/branded.ts` — `EventName` (closed literal union), `HookName` and `Milliseconds` (branded types), plus 8 forward-compatible union types for enum-like fields.
 - `src/types/results.ts` — 7 base result types + 18 per-event result types.
 - `src/types/contexts.ts` — `BaseContext` + 18 per-event context interfaces.
 - `src/types/hook.ts` — `MaybeAsync<T>`, `HookMeta<C>`, `ClooksHook<C>`.
@@ -35,13 +35,35 @@ Events fall into 4 categories, each with a distinct result pattern:
 | Implementation | success, failure | WorktreeCreate |
 | Continuation | continue, stop, skip | TeammateIdle, TaskCompleted |
 
+### ResultTag and ExitCode
+
+`ResultTag` (in `src/types/results.ts`) is a literal union of all result discriminant values: `"allow" | "block" | "skip" | "success" | "failure" | "continue" | "stop"`. It names the union that already exists implicitly across the base result types. The engine uses `ResultTag` in the `EngineResult` interface to type result objects flowing through the execution pipeline, eliminating `as string` casts on result discriminants.
+
+`ExitCode` (in `src/engine.ts`) is a literal union derived from three `as const` constants:
+- `EXIT_OK = 0` — Success. Stdout may contain JSON output.
+- `EXIT_HOOK_FAILURE = 1` — Hook-level failure (e.g., WorktreeCreate failure).
+- `EXIT_STDERR = 2` — Non-zero stderr channel. Used for both fail-closed errors and continuation event "continue" results (both deliver content via stderr). Named `EXIT_STDERR` rather than `EXIT_FAIL_CLOSED` because exit 2 describes the mechanism (stderr output), not a single semantic.
+
+The `ExitCode` type is `typeof EXIT_OK | typeof EXIT_HOOK_FAILURE | typeof EXIT_STDERR`, which resolves to `0 | 1 | 2`. All `process.exit()` calls in the engine and CLI use the named constants.
+
 ### InjectableContext
 
 `InjectableContext` (`injectContext?: string`) is intersected into per-event result types only where Claude Code's output contract supports `additionalContext`. Not all events support it.
 
-### Branded strings
+### Branded strings and typed identifiers
 
-Enum-like fields use `KnownValue | (string & {})`. This gives autocomplete for known values while remaining forward-compatible with new values Claude Code may add.
+The type system uses three distinct strategies for semantic types, depending on the domain:
+
+**Closed literal union — `EventName`:**
+`EventName` is a union of all 18 known Claude Code event name literals (e.g., `"PreToolUse" | "PostToolUse" | ...`). It does NOT include `(string & {})` — it is a closed set. The engine must know every event to translate results correctly. Unknown events are fail-closed errors, not forward-compatible pass-throughs. The type guard `isEventName()` (in `src/config/constants.ts`) narrows a runtime `string` to `EventName` at the stdin boundary.
+
+**Branded types — `HookName`, `Milliseconds`:**
+These use TypeScript's intersection branding pattern to prevent type confusion between semantically different primitives:
+- `HookName = string & { __brand: "HookName" }` — Distinguishes hook names from event names and other strings. Open set (user-defined names). Boundary casts in `validate.ts` and test helpers convert plain strings to `HookName`.
+- `Milliseconds = number & { __brand: "Milliseconds" }` — Distinguishes timeout values from plain numbers (failure counts, etc.). Used in `GlobalConfig.timeout`, `HookEntry.timeout`, and `DEFAULT_TIMEOUT`. Scoped to config/engine internals only — not exposed in hook-author-facing context types.
+
+**Forward-compatible unions — `PermissionMode`, `SessionStartSource`, etc.:**
+Enum-like context fields use `KnownValue | (string & {})`. This gives autocomplete for known values while remaining forward-compatible with new values Claude Code may add. These are used in hook-author-facing context types, where Claude Code may add new enum members in future versions.
 
 ### Normalization
 
