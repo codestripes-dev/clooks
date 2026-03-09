@@ -64,7 +64,7 @@ This project uses agentic-driven development with a clear separation between fea
 
 1. **Features** are high-level business requirements captured in `docs/planned/`. They describe *what* and *why*, not *how*. Read `docs/planned/FEATURES.md` for procedures on creating, refining, and completing features.
 
-2. **Plans** are detailed execution plans (ExecPlans) that break a feature into implementable work. They live in `docs/plans/<branch-name>/PLAN.md`. Read `docs/plans/PLANS.md` for requirements, skeleton, and procedures.
+2. **Plans** are detailed execution plans (ExecPlans) that break a feature into implementable work. They live in `docs/plans/PLAN-XXXX-<plan-name>.md`. When a plan needs supporting materials, an ATTENTION.md, or is split into multiple files, it must be promoted to a feature subfolder (e.g., `docs/plans/<feature-name>/PLAN-XXXX-<plan-name>.md`). Read `docs/plans/PLANS.md` for requirements, skeleton, and procedures.
 
 3. **Domain knowledge** lives in `docs/domain/`. Plans must consult and update domain docs as part of implementation. The ordering is strict: **plan → implement → update knowledge**.
 
