@@ -1,6 +1,32 @@
 import { VERSION } from './index'
 import { runEngine } from './engine.js'
 
+// Global signal handlers — installed first, before any hook code runs.
+// These are the ONLY code paths that should produce exit 2 + stderr.
+// Everything else uses exit 0 + JSON.
+process.on("uncaughtException", (err) => {
+  process.stderr.write(
+    `clooks: uncaught exception: ${err.constructor.name}: ${err.message}\n`
+  );
+  process.exit(2);
+});
+
+process.on("unhandledRejection", (reason: unknown) => {
+  const msg = reason instanceof Error ? reason.message : String(reason);
+  process.stderr.write(`clooks: unhandled rejection: ${msg}\n`);
+  process.exit(2);
+});
+
+process.on("SIGTERM", () => {
+  process.stderr.write("clooks: killed by SIGTERM\n");
+  process.exit(2);
+});
+
+process.on("SIGINT", () => {
+  process.stderr.write("clooks: interrupted\n");
+  process.exit(2);
+});
+
 const args = process.argv.slice(2)
 
 if (args.includes('--version') || args.includes('-v')) {
