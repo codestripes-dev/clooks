@@ -4,7 +4,7 @@ The bash entrypoint is the bridge between Claude Code's native hook system and t
 
 ## Overview
 
-The entrypoint lives at `.clooks/bin/clooks-entrypoint.sh` in the project root. It is registered in `.claude/settings.json` for all 18 Claude Code lifecycle events. No positional arguments are passed — the event name comes from the `hook_event_name` field in the stdin JSON payload.
+The entrypoint lives at `.clooks/bin/entrypoint.sh` in the project root. It is registered in `.claude/settings.json` for all 18 Claude Code lifecycle events. No positional arguments are passed — the event name comes from the `hook_event_name` field in the stdin JSON payload. The script is written by `clooks init` from an embedded template in `src/commands/init-entrypoint.ts`.
 
 The script performs six steps in order:
 
@@ -17,7 +17,8 @@ The script performs six steps in order:
 
 ## Key Files
 
-- `.clooks/bin/clooks-entrypoint.sh` — The bash entrypoint script.
+- `.clooks/bin/entrypoint.sh` — The bash entrypoint script (machine-generated, do not edit).
+- `src/commands/init-entrypoint.ts` — Canonical source of the script content (embedded template).
 - `.claude/settings.json` — Hook registration for all 18 events.
 - `tmp/stub-binary/` — Test stubs (main, crash, block, output). Gitignored.
 - `tmp/test-entrypoint/run-tests.sh` — Entrypoint test suite. Gitignored.
