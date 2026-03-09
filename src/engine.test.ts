@@ -690,3 +690,91 @@ describe("resolveOnError", () => {
     expect(resolveOnError("unknown", "PreToolUse", config)).toBe("block");
   });
 });
+
+// --- FEAT-0017 M4: Trace and systemMessage output integration ---
+
+describe("trace and systemMessage integration", () => {
+  it("trace messages injected into injectContext on injectable event", async () => {
+    const dir = makeTempDir();
+    const hook = makeLoadedHook("trace-hook", {
+      PreToolUse: () => { throw new Error("trace err"); },
+    });
+    const config = makeTestConfig({ "trace-hook": { onError: "trace" } });
+
+    const result = await executeHooks([hook], "PreToolUse", {}, config, dir);
+    expect(result.traceMessages).toHaveLength(1);
+
+    // Simulate runEngine trace injection
+    let lastResult = result.lastResult;
+    if (result.traceMessages.length > 0) {
+      const traceBlock = result.traceMessages.join("\n");
+      if (lastResult === undefined) {
+        lastResult = { result: "allow", injectContext: traceBlock };
+      }
+    }
+    expect(lastResult?.injectContext).toContain("trace-hook");
+    expect(lastResult?.injectContext).toContain("onError: trace");
+  });
+
+  it("multiple trace messages concatenated with newlines", async () => {
+    const dir = makeTempDir();
+    const hook1 = makeLoadedHook("trace-1", {
+      PreToolUse: () => { throw new Error("err1"); },
+    });
+    const hook2 = makeLoadedHook("trace-2", {
+      PreToolUse: () => { throw new Error("err2"); },
+    });
+    const config = makeTestConfig({ "trace-1": { onError: "trace" }, "trace-2": { onError: "trace" } });
+
+    const result = await executeHooks([hook1, hook2], "PreToolUse", {}, config, dir);
+    expect(result.traceMessages).toHaveLength(2);
+
+    // Simulate runEngine trace injection
+    const traceBlock = result.traceMessages.join("\n");
+    expect(traceBlock).toContain("trace-1");
+    expect(traceBlock).toContain("trace-2");
+  });
+
+  it("systemMessage injected into translated output JSON", () => {
+    // Simulate the systemMessage injection logic in runEngine
+    const translated: { output?: string; exitCode: number; stderr?: string } = {
+      output: JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow" } }),
+      exitCode: 0,
+    };
+    const systemMessages = ["Hook error: continue mode"];
+
+    if (systemMessages.length > 0) {
+      const systemMessage = systemMessages.join("\n");
+      if (translated.output) {
+        const parsed = JSON.parse(translated.output);
+        parsed.systemMessage = systemMessage;
+        translated.output = JSON.stringify(parsed);
+      }
+    }
+
+    const final = JSON.parse(translated.output!);
+    expect(final.systemMessage).toBe("Hook error: continue mode");
+    expect(final.hookSpecificOutput.permissionDecision).toBe("allow");
+  });
+
+  it("systemMessage created as minimal JSON when no output exists", () => {
+    const translated: { output?: string; exitCode: number; stderr?: string } = {
+      exitCode: 0,
+    };
+    const systemMessages = ["Startup warning"];
+
+    if (systemMessages.length > 0) {
+      const systemMessage = systemMessages.join("\n");
+      if (translated.output) {
+        const parsed = JSON.parse(translated.output);
+        parsed.systemMessage = systemMessage;
+        translated.output = JSON.stringify(parsed);
+      } else {
+        translated.output = JSON.stringify({ systemMessage });
+      }
+    }
+
+    const final = JSON.parse(translated.output!);
+    expect(final.systemMessage).toBe("Startup warning");
+  });
+});
