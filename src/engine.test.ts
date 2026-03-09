@@ -21,14 +21,17 @@ describe("translateResult", () => {
     expect(out.stderr).toBeUndefined();
   });
 
-  it("PreToolUse block → exit 2 + stderr", () => {
+  it("PreToolUse block → exit 0 + JSON with permissionDecision deny", () => {
     const out = translateResult("PreToolUse", {
       result: "block",
       reason: "dangerous command",
     });
-    expect(out.exitCode).toBe(2);
-    expect(out.stderr).toBe("dangerous command");
-    expect(out.output).toBeUndefined();
+    expect(out.exitCode).toBe(0);
+    const parsed = JSON.parse(out.output!);
+    expect(parsed.hookSpecificOutput.hookEventName).toBe("PreToolUse");
+    expect(parsed.hookSpecificOutput.permissionDecision).toBe("deny");
+    expect(parsed.hookSpecificOutput.permissionDecisionReason).toBe("dangerous command");
+    expect(out.stderr).toBeUndefined();
   });
 
   it("PreToolUse skip → exit 0, no output", () => {
@@ -55,13 +58,16 @@ describe("translateResult", () => {
 
   // --- Other guard events ---
 
-  it("UserPromptSubmit block → exit 2 + stderr", () => {
+  it("UserPromptSubmit block → exit 0 + JSON with decision block", () => {
     const out = translateResult("UserPromptSubmit", {
       result: "block",
       reason: "prompt blocked",
     });
-    expect(out.exitCode).toBe(2);
-    expect(out.stderr).toBe("prompt blocked");
+    expect(out.exitCode).toBe(0);
+    const parsed = JSON.parse(out.output!);
+    expect(parsed.decision).toBe("block");
+    expect(parsed.reason).toBe("prompt blocked");
+    expect(out.stderr).toBeUndefined();
   });
 
   it("UserPromptSubmit allow → exit 0", () => {
@@ -158,6 +164,53 @@ describe("translateResult", () => {
     const out = translateResult("TeammateIdle", { result: "skip" });
     expect(out.exitCode).toBe(0);
     expect(out.output).toBeUndefined();
+  });
+
+  // --- FEAT-0017: new translateResult tests ---
+
+  it("PermissionRequest block → exit 0 + JSON with hookSpecificOutput.decision.behavior deny", () => {
+    const out = translateResult("PermissionRequest", { result: "block", reason: "denied" });
+    expect(out.exitCode).toBe(0);
+    const parsed = JSON.parse(out.output!);
+    expect(parsed.hookSpecificOutput.hookEventName).toBe("PermissionRequest");
+    expect(parsed.hookSpecificOutput.decision.behavior).toBe("deny");
+  });
+
+  it("Stop block → exit 0 + JSON with decision block", () => {
+    const out = translateResult("Stop", { result: "block", reason: "stop blocked" });
+    expect(out.exitCode).toBe(0);
+    const parsed = JSON.parse(out.output!);
+    expect(parsed.decision).toBe("block");
+    expect(parsed.reason).toBe("stop blocked");
+  });
+
+  it("PostToolUse block → exit 0 + JSON with additionalContext (injectable observe)", () => {
+    const out = translateResult("PostToolUse", { result: "block", reason: "hook error" });
+    expect(out.exitCode).toBe(0);
+    const parsed = JSON.parse(out.output!);
+    expect(parsed.hookSpecificOutput.hookEventName).toBe("PostToolUse");
+    expect(parsed.hookSpecificOutput.additionalContext).toBe("hook error");
+  });
+
+  it("SessionEnd block → exit 0 + JSON with systemMessage (non-injectable observe)", () => {
+    const out = translateResult("SessionEnd", { result: "block", reason: "session error" });
+    expect(out.exitCode).toBe(0);
+    const parsed = JSON.parse(out.output!);
+    expect(parsed.systemMessage).toBe("session error");
+  });
+
+  it("TeammateIdle block → exit 0 + JSON with continue false (fail-closed stop)", () => {
+    const out = translateResult("TeammateIdle", { result: "block", reason: "hook crash" });
+    expect(out.exitCode).toBe(0);
+    const parsed = JSON.parse(out.output!);
+    expect(parsed.continue).toBe(false);
+    expect(parsed.stopReason).toBe("hook crash");
+  });
+
+  it("WorktreeCreate block → exit 1 + stderr", () => {
+    const out = translateResult("WorktreeCreate", { result: "block", reason: "worktree hook error" });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toBe("worktree hook error");
   });
 
   // --- Unknown result ---
