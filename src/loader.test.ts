@@ -5,7 +5,7 @@ import { tmpdir } from "os"
 import { validateHookExport, loadHook, loadAllHooks } from "./loader.js"
 import type { HookLoadError } from "./loader.js"
 import type { HookEntry, ClooksConfig } from "./config/types.js"
-import type { HookName } from "./types/branded.js"
+import type { HookName, Milliseconds } from "./types/branded.js"
 const hn = (s: string) => s as HookName
 
 let tempDir: string
@@ -42,7 +42,7 @@ function makeConfig(
   return {
     version: "1.0.0",
     global: {
-      timeout: 10000,
+      timeout: 10000 as Milliseconds,
       onError: "block",
       maxFailures: 3,
       maxFailuresMessage: "test message",

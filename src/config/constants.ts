@@ -1,4 +1,4 @@
-import type { EventName } from "../types/branded.js"
+import type { EventName, Milliseconds } from "../types/branded.js"
 
 // The 18 Claude Code event names. These are reserved — they cannot be
 // used as hook names in clooks.yml because they have special meaning
@@ -53,7 +53,7 @@ export const INJECTABLE_EVENTS: Set<EventName> = new Set<EventName>([
 
 // Default values for global config
 import type { ErrorMode } from "./types.js"
-export const DEFAULT_TIMEOUT = 30_000
+export const DEFAULT_TIMEOUT = 30_000 as Milliseconds
 export const DEFAULT_ON_ERROR: ErrorMode = "block"
 export const DEFAULT_MAX_FAILURES = 3
 export const DEFAULT_MAX_FAILURES_MESSAGE =
