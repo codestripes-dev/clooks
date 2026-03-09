@@ -58,7 +58,13 @@ export type StopResult = DebugFields & {
 // --- Per-event result types ---
 
 // Guard events — allow | block | skip
-export type PreToolUseResult        = (AllowResult | BlockResult | SkipResult) & InjectableContext
+export type PreToolUseResult =
+  | (AllowResult & InjectableContext & {
+      /** Modified tool input to pass to subsequent hooks and/or Claude Code. */
+      updatedInput?: Record<string, unknown>
+    })
+  | (BlockResult & InjectableContext)
+  | (SkipResult & InjectableContext)
 export type UserPromptSubmitResult  = (AllowResult | BlockResult | SkipResult) & InjectableContext
 export type PermissionRequestResult = AllowResult | BlockResult | SkipResult
 export type StopEventResult         = AllowResult | BlockResult | SkipResult

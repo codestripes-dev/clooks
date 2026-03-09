@@ -132,6 +132,8 @@ describe("validateConfig", () => {
   test("event entry recognized by name", () => {
     const result = validateConfig({
       version: "1.0.0",
+      a: {},
+      b: {},
       PreToolUse: { order: ["a", "b"] },
     })
     expect(result.events["PreToolUse"]).toEqual({
@@ -172,6 +174,7 @@ describe("validateConfig", () => {
   test("reserved event name goes to events, not hooks", () => {
     const result = validateConfig({
       version: "1.0.0",
+      a: {},
       SessionStart: { order: ["a"] },
     })
     expect(result.events["SessionStart"]).toEqual({ order: [hn("a")] })
@@ -334,6 +337,28 @@ describe("validateConfig", () => {
         },
       }),
     ).toThrow("does not support additionalContext")
+  })
+
+  // --- FEAT-0016: Config-time order validation ---
+
+  test("order entry referencing unknown hook throws at validation time", () => {
+    expect(() =>
+      validateConfig({
+        version: "1.0.0",
+        "my-hook": {},
+        PreToolUse: { order: ["my-hook", "nonexistent"] },
+      }),
+    ).toThrow('event "PreToolUse" order references unknown hook "nonexistent"')
+  })
+
+  test("order entries that are valid hook names validates successfully", () => {
+    const result = validateConfig({
+      version: "1.0.0",
+      "hook-a": {},
+      "hook-b": { parallel: true },
+      PreToolUse: { order: ["hook-a", "hook-b"] },
+    })
+    expect(result.events["PreToolUse"]!.order).toEqual([hn("hook-a"), hn("hook-b")])
   })
 
   test('hook events sub-map accepts "trace" for injectable events', () => {

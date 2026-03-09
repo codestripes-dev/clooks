@@ -238,5 +238,19 @@ export function validateConfig(raw: Record<string, unknown>): ClooksConfig {
     }
   }
 
+  // Second pass: cross-reference event order entries against hooks map.
+  // Both maps must be fully built before this check runs.
+  for (const [eventKey, eventEntry] of Object.entries(events)) {
+    if (eventEntry?.order) {
+      for (const hookName of eventEntry.order) {
+        if (!(hookName in hooks)) {
+          throw new Error(
+            `clooks: event "${eventKey}" order references unknown hook "${hookName}"`,
+          )
+        }
+      }
+    }
+  }
+
   return { version, global, hooks, events }
 }

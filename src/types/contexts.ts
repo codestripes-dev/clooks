@@ -21,6 +21,10 @@ export interface BaseContext {
   transcriptPath: string
   agentId?: string
   agentType?: string
+  /** True when this hook is running in a parallel batch. */
+  parallel: boolean
+  /** AbortSignal scoped to the current batch. Aborted when a parallel batch short-circuits. */
+  signal: AbortSignal
 }
 
 // --- Guard events ---
@@ -28,7 +32,10 @@ export interface BaseContext {
 export interface PreToolUseContext extends BaseContext {
   event: "PreToolUse"
   toolName: string
+  /** Current tool input — may differ from originalToolInput if a previous hook returned updatedInput. */
   toolInput: Record<string, unknown>
+  /** The original tool input from Claude Code, before any hook modifications. */
+  originalToolInput: Record<string, unknown>
   toolUseId: string
 }
 
