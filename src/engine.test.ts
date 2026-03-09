@@ -781,3 +781,166 @@ describe("trace and systemMessage integration", () => {
     expect(final.systemMessage).toBe("Startup warning");
   });
 });
+
+// --- FEAT-0016 M3: Sequential pipeline with updatedInput ---
+
+describe("sequential pipeline: updatedInput", () => {
+  it("updatedInput piped from hook A to hook B", async () => {
+    const dir = makeTempDir();
+    let capturedCtx: Record<string, unknown> | undefined;
+
+    const hookA = makeLoadedHook("hookA", {
+      PreToolUse: () => ({ result: "allow", updatedInput: { file_path: "/modified" } }),
+    });
+    const hookB = makeLoadedHook("hookB", {
+      PreToolUse: (ctx: Record<string, unknown>) => {
+        capturedCtx = ctx;
+        return { result: "allow" };
+      },
+    });
+    const config = makeTestConfig({ hookA: {}, hookB: {} });
+    const normalized = { event: "PreToolUse", toolInput: { file_path: "/original" } };
+
+    const result = await executeHooks([hookA, hookB], "PreToolUse", normalized, config, dir);
+    expect(result.lastResult?.result).toBe("allow");
+
+    // Hook B should have received the modified toolInput from hook A
+    expect(capturedCtx?.toolInput).toEqual({ file_path: "/modified" });
+    // Hook B should have received the original toolInput as originalToolInput
+    expect(capturedCtx?.originalToolInput).toEqual({ file_path: "/original" });
+
+    // Final result should have updatedInput since currentToolInput changed
+    expect(result.lastResult?.updatedInput).toEqual({ file_path: "/modified" });
+  });
+
+  it("originalToolInput stays frozen across chain", async () => {
+    const dir = makeTempDir();
+    let capturedCtxC: Record<string, unknown> | undefined;
+
+    const hookA = makeLoadedHook("hookA", {
+      PreToolUse: () => ({ result: "allow", updatedInput: { file_path: "/step1", extra: "a" } }),
+    });
+    const hookB = makeLoadedHook("hookB", {
+      PreToolUse: () => ({ result: "allow", updatedInput: { file_path: "/step2", extra: "b" } }),
+    });
+    const hookC = makeLoadedHook("hookC", {
+      PreToolUse: (ctx: Record<string, unknown>) => {
+        capturedCtxC = ctx;
+        return { result: "allow" };
+      },
+    });
+    const config = makeTestConfig({ hookA: {}, hookB: {}, hookC: {} });
+    const normalized = { event: "PreToolUse", toolInput: { file_path: "/original" } };
+
+    const result = await executeHooks([hookA, hookB, hookC], "PreToolUse", normalized, config, dir);
+    expect(result.lastResult?.result).toBe("allow");
+
+    // Hook C receives B's updatedInput as toolInput (cumulative)
+    expect(capturedCtxC?.toolInput).toEqual({ file_path: "/step2", extra: "b" });
+    // originalToolInput is always the original
+    expect(capturedCtxC?.originalToolInput).toEqual({ file_path: "/original" });
+
+    // Final result reflects last updatedInput
+    expect(result.lastResult?.updatedInput).toEqual({ file_path: "/step2", extra: "b" });
+  });
+
+  it("block in middle stops chain", async () => {
+    const dir = makeTempDir();
+    let hookCRan = false;
+
+    const hookA = makeLoadedHook("hookA", {
+      PreToolUse: () => ({ result: "allow" }),
+    });
+    const hookB = makeLoadedHook("hookB", {
+      PreToolUse: () => ({ result: "block", reason: "blocked by B" }),
+    });
+    const hookC = makeLoadedHook("hookC", {
+      PreToolUse: () => {
+        hookCRan = true;
+        return { result: "allow" };
+      },
+    });
+    const config = makeTestConfig({ hookA: {}, hookB: {}, hookC: {} });
+
+    const result = await executeHooks([hookA, hookB, hookC], "PreToolUse", {}, config, dir);
+    expect(result.lastResult?.result).toBe("block");
+    expect(result.lastResult?.reason).toBe("blocked by B");
+    expect(hookCRan).toBe(false);
+  });
+
+  it("injectContext accumulates across hooks", async () => {
+    const dir = makeTempDir();
+
+    const hookA = makeLoadedHook("hookA", {
+      PreToolUse: () => ({ result: "allow", injectContext: "context from A" }),
+    });
+    const hookB = makeLoadedHook("hookB", {
+      PreToolUse: () => ({ result: "allow", injectContext: "context from B" }),
+    });
+    const config = makeTestConfig({ hookA: {}, hookB: {} });
+
+    const result = await executeHooks([hookA, hookB], "PreToolUse", {}, config, dir);
+    expect(result.lastResult?.result).toBe("allow");
+    expect(result.lastResult?.injectContext).toBe("context from A\ncontext from B");
+  });
+
+  it("sequential pipeline: block in later group includes prior group injectContext", async () => {
+    const dir = makeTempDir();
+    // Hook A is parallel, returns allow with injectContext
+    const hookA = makeLoadedHook("hookA", {
+      PreToolUse: () => ({ result: "allow", injectContext: "context-from-A" }),
+    });
+    // Hook B is sequential, returns block with its own injectContext
+    const hookB = makeLoadedHook("hookB", {
+      PreToolUse: () => ({ result: "block", reason: "blocked", injectContext: "context-from-B" }),
+    });
+    // Make hookA parallel so they end up in different groups
+    const config = makeTestConfig({ hookA: { parallel: true }, hookB: {} });
+
+    const result = await executeHooks([hookA, hookB], "PreToolUse", {}, config, dir);
+    expect(result.lastResult?.result).toBe("block");
+    // injectContext should include both A's and B's context
+    expect(result.lastResult?.injectContext).toContain("context-from-A");
+    expect(result.lastResult?.injectContext).toContain("context-from-B");
+  });
+});
+
+describe("timeout enforcement", () => {
+  it("timeout fires and is treated as error", async () => {
+    const dir = makeTempDir();
+
+    const hookSlow = makeLoadedHook("slow-hook", {
+      PreToolUse: () => new Promise(() => {
+        // Never resolves
+      }),
+    });
+    const config = makeTestConfig({ "slow-hook": { } });
+    // Override global timeout to be very short
+    config.global.timeout = ms(50);
+
+    const result = await executeHooks([hookSlow], "PreToolUse", {}, config, dir);
+    expect(result.lastResult?.result).toBe("block");
+    expect(result.lastResult?.reason).toContain("slow-hook");
+    expect(result.lastResult?.reason).toContain("timed out");
+  });
+});
+
+describe("translateResult updatedInput", () => {
+  it("passes through updatedInput on PreToolUse allow", () => {
+    const out = translateResult("PreToolUse", {
+      result: "allow",
+      updatedInput: { x: 1 },
+    });
+    expect(out.exitCode).toBe(0);
+    const parsed = JSON.parse(out.output!);
+    expect(parsed.hookSpecificOutput.updatedInput).toEqual({ x: 1 });
+    expect(parsed.hookSpecificOutput.permissionDecision).toBe("allow");
+  });
+
+  it("does not include updatedInput when not present", () => {
+    const out = translateResult("PreToolUse", { result: "allow" });
+    expect(out.exitCode).toBe(0);
+    const parsed = JSON.parse(out.output!);
+    expect(parsed.hookSpecificOutput.updatedInput).toBeUndefined();
+  });
+});

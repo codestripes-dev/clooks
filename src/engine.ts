@@ -21,6 +21,7 @@ export interface EngineResult {
   feedback?: string
   injectContext?: string
   debugMessage?: string
+  updatedInput?: Record<string, unknown>
 }
 import type { ClooksConfig, ErrorMode } from "./config/types.js";
 import { normalizeKeys } from "./normalize.js";
@@ -30,6 +31,8 @@ import { loadAllHooks } from "./loader.js";
 import type { LoadedHook, HookLoadError } from "./loader.js";
 import { INJECTABLE_EVENTS, isEventName } from "./config/constants.js";
 import { readFailures, writeFailures, recordFailure, clearFailure, getFailureCount } from "./failures.js";
+import { orderHooksForEvent, partitionIntoGroups } from "./ordering.js";
+import type { OrderedHook, ExecutionGroup } from "./ordering.js";
 
 /** Exit 0: success. Stdout may contain JSON output. */
 export const EXIT_OK = 0 as const;
@@ -113,6 +116,9 @@ export function translateResult(
       };
       if (result.injectContext) {
         hookOutput.additionalContext = result.injectContext;
+      }
+      if (result.updatedInput) {
+        hookOutput.updatedInput = result.updatedInput as Record<string, unknown>;
       }
       const output: ClaudeCodeOutput = { hookSpecificOutput: hookOutput };
       return { output: JSON.stringify(output), exitCode: EXIT_OK };
@@ -323,6 +329,30 @@ function formatTraceMessage(
   return `Hook "${hookName}" errored: ${errorType}: ${firstLine}. Configured as onError: trace — action not affected.`;
 }
 
+async function runHookWithTimeout(
+  handler: Function,
+  args: [Record<string, unknown>, Record<string, unknown>],
+  timeoutMs: number,
+  hookName: string,
+): Promise<unknown> {
+  let timer: ReturnType<typeof setTimeout>
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`hook "${hookName}" timed out after ${timeoutMs}ms`)),
+      timeoutMs,
+    )
+  })
+  try {
+    return await Promise.race([handler(...args), timeout])
+  } finally {
+    clearTimeout(timer!)
+  }
+}
+
+function resolveTimeout(hookName: HookName, config: ClooksConfig): number {
+  return config.hooks[hookName]?.timeout ?? config.global.timeout
+}
+
 /**
  * Runs matched hooks with circuit breaker logic.
  * Also processes load errors through the circuit breaker — a hook that
@@ -378,102 +408,179 @@ export async function executeHooks(
     degradedMessages.push(msg);
   }
 
-  for (const loaded of matched) {
-    const handler = (loaded.hook as unknown as Record<string, unknown>)[
-      eventName
-    ] as Function;
-    const { maxFailures, maxFailuresMessage } = resolveMaxFailures(loaded.name, config);
+  // --- Pipeline state ---
+  const originalToolInput = normalized.toolInput as Record<string, unknown> | undefined;
+  let currentToolInput = originalToolInput;
+  const accumulatedInjectContext: string[] = [];
+  let pipelineBlocked = false;
+  let blockResult: EngineResult | undefined;
+  let lastNonSkipResult: EngineResult | undefined;
 
-    let result: unknown;
-    try {
-      result = await handler(normalized, loaded.config);
-    } catch (e) {
-      const errorMessage = e instanceof Error ? e.message : String(e);
-      const onErrorMode = resolveOnError(loaded.name, eventName, config);
+  // --- Order and partition ---
+  const orderedHooks = orderHooksForEvent(matched, config.events[eventName], config.hooks, eventName);
+  const groups = partitionIntoGroups(orderedHooks, eventName);
 
-      // Runtime fallback: hook-level "trace" on a non-injectable event → "continue"
-      let effectiveMode = onErrorMode;
-      if (effectiveMode === "trace" && !INJECTABLE_EVENTS.has(eventName)) {
-        systemMessages.push(
-          `Hook "${loaded.name}" has onError: "trace" but ${eventName} does not support additionalContext. Falling back to "continue".`
-        );
-        effectiveMode = "continue";
+  // --- Sequential group runner ---
+  async function executeSequentialGroup(group: ExecutionGroup): Promise<void> {
+    // Per-group AbortController (never aborted in M3; scoped per-group for M4)
+    const sharedController = new AbortController();
+    for (const hook of group.hooks) {
+      const loaded = hook.loaded;
+      const handler = (loaded.hook as unknown as Record<string, unknown>)[
+        eventName
+      ] as Function;
+      const { maxFailures, maxFailuresMessage } = resolveMaxFailures(loaded.name, config);
+
+      // Build context: clone normalized, set pipeline fields
+      const context: Record<string, unknown> = { ...normalized };
+      if (currentToolInput !== undefined) {
+        context.toolInput = currentToolInput;
+      }
+      if (originalToolInput !== undefined) {
+        context.originalToolInput = originalToolInput;
+      }
+      context.parallel = false;
+      context.signal = sharedController.signal;
+
+      const timeout = resolveTimeout(loaded.name, config);
+
+      let result: unknown;
+      try {
+        result = await runHookWithTimeout(handler, [context, loaded.config], timeout, loaded.name);
+      } catch (e) {
+        const errorMessage = e instanceof Error ? e.message : String(e);
+        const onErrorMode = resolveOnError(loaded.name, eventName, config);
+
+        // Runtime fallback: hook-level "trace" on a non-injectable event → "continue"
+        let effectiveMode = onErrorMode;
+        if (effectiveMode === "trace" && !INJECTABLE_EVENTS.has(eventName)) {
+          systemMessages.push(
+            `Hook "${loaded.name}" has onError: "trace" but ${eventName} does not support additionalContext. Falling back to "continue".`
+          );
+          effectiveMode = "continue";
+        }
+
+        if (effectiveMode === "block") {
+          failureState = recordFailure(failureState, loaded.name, eventName, errorMessage);
+          failuresDirty = true;
+          const newCount = getFailureCount(failureState, loaded.name, eventName);
+
+          if (maxFailures === 0 || newCount < maxFailures) {
+            // Under threshold — block. Write failures and stop pipeline.
+            await writeFailures(projectRoot, failureState);
+            failuresDirty = false;
+            blockResult = { result: "block", reason: formatDiagnostic(loaded.name, eventName, e, "block") };
+            pipelineBlocked = true;
+            return;
+          }
+
+          // At/above threshold — degraded
+          const msg = interpolateMessage(maxFailuresMessage, {
+            hook: loaded.name,
+            event: eventName,
+            count: newCount,
+            error: errorMessage,
+          });
+          degradedMessages.push(msg);
+          continue;
+        }
+
+        if (effectiveMode === "continue") {
+          systemMessages.push(formatDiagnostic(loaded.name, eventName, e, "continue"));
+          if (debug) {
+            debugMessages.push(formatDiagnostic(loaded.name, eventName, e, "continue"));
+          }
+          continue;
+        }
+
+        if (effectiveMode === "trace") {
+          traceMessages.push(formatTraceMessage(loaded.name, e));
+          continue;
+        }
+
+        continue;
       }
 
-      if (effectiveMode === "block") {
-        failureState = recordFailure(failureState, loaded.name, eventName, errorMessage);
+      // Success — clear any failure state for this hook+event
+      if (getFailureCount(failureState, loaded.name, eventName) > 0) {
+        failureState = clearFailure(failureState, loaded.name, eventName);
         failuresDirty = true;
-        const newCount = getFailureCount(failureState, loaded.name, eventName);
-
-        if (maxFailures === 0 || newCount < maxFailures) {
-          // Under threshold — block. Return immediately (deferred write would
-          // duplicate this if we just break, since failuresDirty is already true).
-          await writeFailures(projectRoot, failureState);
-          lastResult = { result: "block", reason: formatDiagnostic(loaded.name, eventName, e, "block") };
-          return { lastResult, degradedMessages, debugMessages, traceMessages, systemMessages };
-        }
-
-        // At/above threshold — degraded
-        const msg = interpolateMessage(maxFailuresMessage, {
-          hook: loaded.name,
-          event: eventName,
-          count: newCount,
-          error: errorMessage,
-        });
-        degradedMessages.push(msg);
-        continue;
       }
 
-      if (effectiveMode === "continue") {
-        systemMessages.push(formatDiagnostic(loaded.name, eventName, e, "continue"));
+      if (result === undefined || result === null) {
         if (debug) {
-          debugMessages.push(formatDiagnostic(loaded.name, eventName, e, "continue"));
+          debugMessages.push(`hook="${loaded.name}" event="${eventName}" returned: null/undefined`);
         }
         continue;
       }
 
-      if (effectiveMode === "trace") {
-        traceMessages.push(formatTraceMessage(loaded.name, e));
+      // Single cast at the boundary where dynamically-imported hook code returns.
+      const resultObj = result as EngineResult;
+
+      if (debug) {
+        debugMessages.push(`hook="${loaded.name}" event="${eventName}" returned: ${JSON.stringify(resultObj)}`);
+      }
+
+      // Collect debug messages from every hook result
+      if (debug && resultObj.debugMessage) {
+        debugMessages.push(resultObj.debugMessage);
+      }
+
+      // Block bails out immediately — stop the group and signal pipeline
+      if (resultObj.result === "block") {
+        if (resultObj.injectContext) {
+          accumulatedInjectContext.push(resultObj.injectContext);
+        }
+        blockResult = resultObj;
+        pipelineBlocked = true;
+        return;
+      }
+
+      // Skip does not affect pipeline state
+      if (resultObj.result === "skip") {
         continue;
       }
-    }
 
-    // Success — clear any failure state for this hook+event
-    if (getFailureCount(failureState, loaded.name, eventName) > 0) {
-      failureState = clearFailure(failureState, loaded.name, eventName);
-      failuresDirty = true;
-    }
-
-    if (result === undefined || result === null) {
-      if (debug) {
-        debugMessages.push(`hook="${loaded.name}" event="${eventName}" returned: null/undefined`);
+      // Allow or other non-skip result: update pipeline state
+      if (resultObj.updatedInput) {
+        currentToolInput = resultObj.updatedInput;
       }
-      continue;
+      if (resultObj.injectContext) {
+        accumulatedInjectContext.push(resultObj.injectContext);
+      }
+      lastNonSkipResult = resultObj;
     }
+  }
 
-    // Single cast at the boundary where dynamically-imported hook code returns.
-    // From here forward, everything is typed as EngineResult.
-    const resultObj = result as EngineResult;
+  // --- Group dispatch loop ---
+  for (const group of groups) {
+    // Both sequential and parallel groups use sequential runner in M3
+    // (parallel fallback — M4 adds true parallel execution)
+    await executeSequentialGroup(group);
+    if (pipelineBlocked) break;
+  }
 
-    if (debug) {
-      debugMessages.push(`hook="${loaded.name}" event="${eventName}" returned: ${JSON.stringify(resultObj)}`);
+  // --- Build final result ---
+  if (pipelineBlocked && blockResult) {
+    // For injectable events, merge accumulated injectContext from prior groups into block result
+    if (INJECTABLE_EVENTS.has(eventName) && accumulatedInjectContext.length > 0) {
+      // Block result's own injectContext was already added to accumulator; replace with full accumulation
+      const accumulated = accumulatedInjectContext.join("\n");
+      blockResult = { ...blockResult, injectContext: accumulated };
     }
-
-    // Collect debug messages from every hook result
-    if (debug && resultObj.debugMessage) {
-      debugMessages.push(resultObj.debugMessage);
+    lastResult = blockResult;
+  } else if (lastNonSkipResult) {
+    lastResult = { ...lastNonSkipResult };
+    if (accumulatedInjectContext.length > 0) {
+      lastResult.injectContext = accumulatedInjectContext.join("\n");
     }
-
-    // Block bails out immediately
-    if (resultObj.result === "block") {
-      lastResult = resultObj;
-      break;
+    // If any hook returned updatedInput (reference comparison)
+    if (currentToolInput !== originalToolInput) {
+      lastResult.updatedInput = currentToolInput;
     }
-
-    // Non-skip results are kept
-    if (resultObj.result !== "skip") {
-      lastResult = resultObj;
-    }
+  } else if (accumulatedInjectContext.length > 0) {
+    // All hooks skipped but accumulated injectContext exists (e.g., from trace errors)
+    lastResult = { result: "allow", injectContext: accumulatedInjectContext.join("\n") };
   }
 
   if (failuresDirty) {
