@@ -7,6 +7,7 @@ import type {
 } from "./types.js"
 import {
   CLAUDE_CODE_EVENTS,
+  INJECTABLE_EVENTS,
   DEFAULT_TIMEOUT,
   DEFAULT_ON_ERROR,
   DEFAULT_MAX_FAILURES,
@@ -19,9 +20,9 @@ function isPlainObject(val: unknown): val is Record<string, unknown> {
 }
 
 function validateErrorMode(value: unknown, label: string): ErrorMode {
-  if (value !== "block" && value !== "continue") {
+  if (value !== "block" && value !== "continue" && value !== "trace") {
     throw new Error(
-      `clooks: ${label} "onError" must be "block" or "continue", got "${String(value)}"`,
+      `clooks: ${label} "onError" must be "block", "continue", or "trace", got "${String(value)}"`,
     )
   }
   return value
@@ -63,6 +64,11 @@ export function validateConfig(raw: Record<string, unknown>): ClooksConfig {
     }
     if (cfg.onError !== undefined) {
       global.onError = validateErrorMode(cfg.onError, "global config")
+      if (global.onError === "trace") {
+        throw new Error(
+          'clooks: global config "onError" cannot be "trace" — trace is only allowed at hook or hook+event level'
+        )
+      }
     }
     if (cfg.maxFailures !== undefined) {
       if (typeof cfg.maxFailures !== "number" || cfg.maxFailures < 0 || !Number.isInteger(cfg.maxFailures)) {
@@ -107,11 +113,17 @@ export function validateConfig(raw: Record<string, unknown>): ClooksConfig {
         }
         entry.order = value.order as string[]
       }
-      if (value.timeout !== undefined) {
-        entry.timeout = validatePositiveNumber(value.timeout, `event "${key}"`)
-      }
       if (value.onError !== undefined) {
-        entry.onError = validateErrorMode(value.onError, `event "${key}"`)
+        throw new Error(
+          `clooks: event "${key}" has "onError" — event-level onError has been removed. ` +
+          `Use per-hook event overrides instead: hooks.<name>.events.${key}.onError`
+        )
+      }
+      if (value.timeout !== undefined) {
+        throw new Error(
+          `clooks: event "${key}" has "timeout" — event-level timeout has been removed. ` +
+          `Use per-hook timeout instead: hooks.<name>.timeout`
+        )
       }
 
       events[key] = entry
@@ -172,6 +184,43 @@ export function validateConfig(raw: Record<string, unknown>): ClooksConfig {
         maxFailuresMessage = value.maxFailuresMessage
       }
 
+      let eventsMap: Record<string, { onError?: ErrorMode }> | undefined
+      if (value.events !== undefined) {
+        if (!isPlainObject(value.events)) {
+          throw new Error(
+            `clooks: hook "${key}" has invalid "events": must be an object`
+          )
+        }
+        eventsMap = {}
+        for (const eventKey of Object.keys(value.events)) {
+          if (!CLAUDE_CODE_EVENTS.has(eventKey)) {
+            throw new Error(
+              `clooks: hook "${key}" has unknown event "${eventKey}" in events sub-map`
+            )
+          }
+          const eventOverride = (value.events as Record<string, unknown>)[eventKey]
+          if (!isPlainObject(eventOverride)) {
+            throw new Error(
+              `clooks: hook "${key}" events.${eventKey} must be an object`
+            )
+          }
+          const overrideEntry: { onError?: ErrorMode } = {}
+          if ((eventOverride as Record<string, unknown>).onError !== undefined) {
+            overrideEntry.onError = validateErrorMode(
+              (eventOverride as Record<string, unknown>).onError,
+              `hook "${key}" events.${eventKey}`
+            )
+            if (overrideEntry.onError === "trace" && !INJECTABLE_EVENTS.has(eventKey)) {
+              throw new Error(
+                `clooks: hook "${key}" events.${eventKey} onError cannot be "trace" — ` +
+                `${eventKey} does not support additionalContext`
+              )
+            }
+          }
+          eventsMap[eventKey] = overrideEntry
+        }
+      }
+
       const resolvedPath = resolveHookPath(key, { path })
 
       const entry: HookEntry = { resolvedPath, config, parallel }
@@ -179,6 +228,7 @@ export function validateConfig(raw: Record<string, unknown>): ClooksConfig {
       if (onError !== undefined) entry.onError = onError
       if (maxFailures !== undefined) entry.maxFailures = maxFailures
       if (maxFailuresMessage !== undefined) entry.maxFailuresMessage = maxFailuresMessage
+      if (eventsMap && Object.keys(eventsMap).length > 0) entry.events = eventsMap
 
       hooks[key] = entry
     }

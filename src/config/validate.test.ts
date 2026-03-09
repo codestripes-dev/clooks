@@ -36,9 +36,7 @@ describe("validateConfig", () => {
       },
       PreToolUse: {
         order: ["anthropic/secret-scanner", "no-production-writes"],
-        timeout: 10000,
       },
-      PostToolUse: { onError: "continue" },
     })
 
     expect(result.version).toBe("1.0.0")
@@ -70,12 +68,11 @@ describe("validateConfig", () => {
       "scripts/hooks/company-policy.ts",
     )
 
-    expect(Object.keys(result.events)).toEqual(["PreToolUse", "PostToolUse"])
+    expect(Object.keys(result.events)).toEqual(["PreToolUse"])
     expect(result.events["PreToolUse"]!.order).toEqual([
       "anthropic/secret-scanner",
       "no-production-writes",
     ])
-    expect(result.events["PostToolUse"]!.onError).toBe("continue")
   })
 
   test("missing version throws", () => {
@@ -97,7 +94,7 @@ describe("validateConfig", () => {
   test("invalid global onError throws", () => {
     expect(() =>
       validateConfig({ version: "1.0.0", config: { onError: "ignore" } }),
-    ).toThrow('must be "block" or "continue"')
+    ).toThrow('must be "block", "continue", or "trace"')
   })
 
   test("invalid hook timeout throws", () => {
@@ -109,7 +106,7 @@ describe("validateConfig", () => {
   test("invalid hook onError throws", () => {
     expect(() =>
       validateConfig({ version: "1.0.0", "my-hook": { onError: 42 } }),
-    ).toThrow('must be "block" or "continue"')
+    ).toThrow('must be "block", "continue", or "trace"')
   })
 
   test("hook entry with all valid fields", () => {
@@ -134,11 +131,10 @@ describe("validateConfig", () => {
   test("event entry recognized by name", () => {
     const result = validateConfig({
       version: "1.0.0",
-      PreToolUse: { order: ["a", "b"], timeout: 10000 },
+      PreToolUse: { order: ["a", "b"] },
     })
     expect(result.events["PreToolUse"]).toEqual({
       order: ["a", "b"],
-      timeout: 10000,
     })
     expect(result.hooks["PreToolUse"]).toBeUndefined()
   })
@@ -175,9 +171,9 @@ describe("validateConfig", () => {
   test("reserved event name goes to events, not hooks", () => {
     const result = validateConfig({
       version: "1.0.0",
-      SessionStart: { timeout: 5000 },
+      SessionStart: { order: ["a"] },
     })
-    expect(result.events["SessionStart"]).toEqual({ timeout: 5000 })
+    expect(result.events["SessionStart"]).toEqual({ order: ["a"] })
     expect(result.hooks["SessionStart"]).toBeUndefined()
 
     // Even with config-like fields, Stop is still an event
@@ -263,5 +259,93 @@ describe("validateConfig", () => {
       "my-hook": { maxFailures: 0 },
     })
     expect(result.hooks["my-hook"]!.maxFailures).toBe(0)
+  })
+
+  // --- FEAT-0017: ErrorMode "trace", EventEntry rejections, hook events sub-map ---
+
+  test('ErrorMode accepts "trace" at hook level', () => {
+    const result = validateConfig({
+      version: "1.0.0",
+      scanner: { onError: "trace" },
+    })
+    expect(result.hooks["scanner"]!.onError).toBe("trace")
+  })
+
+  test('"trace" rejected at global level', () => {
+    expect(() =>
+      validateConfig({ version: "1.0.0", config: { onError: "trace" } }),
+    ).toThrow('cannot be "trace"')
+  })
+
+  test("EventEntry.onError rejected with hard error", () => {
+    expect(() =>
+      validateConfig({
+        version: "1.0.0",
+        PreToolUse: { onError: "block" },
+      }),
+    ).toThrow("event-level onError has been removed")
+  })
+
+  test("EventEntry.timeout rejected with hard error", () => {
+    expect(() =>
+      validateConfig({
+        version: "1.0.0",
+        PreToolUse: { timeout: 5000 },
+      }),
+    ).toThrow("event-level timeout has been removed")
+  })
+
+  test("hook events sub-map validates correctly", () => {
+    const result = validateConfig({
+      version: "1.0.0",
+      scanner: {
+        events: {
+          PreToolUse: { onError: "trace" },
+        },
+      },
+    })
+    expect(result.hooks["scanner"]!.events).toEqual({
+      PreToolUse: { onError: "trace" },
+    })
+  })
+
+  test("hook events sub-map rejects unknown event names", () => {
+    expect(() =>
+      validateConfig({
+        version: "1.0.0",
+        scanner: {
+          events: {
+            FakeEvent: { onError: "block" },
+          },
+        },
+      }),
+    ).toThrow('unknown event "FakeEvent"')
+  })
+
+  test('hook events sub-map rejects "trace" for non-injectable events', () => {
+    expect(() =>
+      validateConfig({
+        version: "1.0.0",
+        scanner: {
+          events: {
+            SessionEnd: { onError: "trace" },
+          },
+        },
+      }),
+    ).toThrow("does not support additionalContext")
+  })
+
+  test('hook events sub-map accepts "trace" for injectable events', () => {
+    const result = validateConfig({
+      version: "1.0.0",
+      scanner: {
+        events: {
+          PreToolUse: { onError: "trace" },
+          PostToolUse: { onError: "trace" },
+        },
+      },
+    })
+    expect(result.hooks["scanner"]!.events!["PreToolUse"]).toEqual({ onError: "trace" })
+    expect(result.hooks["scanner"]!.events!["PostToolUse"]).toEqual({ onError: "trace" })
   })
 })

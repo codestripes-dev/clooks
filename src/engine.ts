@@ -16,6 +16,7 @@ import { loadConfig } from "./config/index.js";
 import { ConfigNotFoundError } from "./config/parse.js";
 import { loadAllHooks } from "./loader.js";
 import type { LoadedHook, HookLoadError } from "./loader.js";
+import { INJECTABLE_EVENTS } from "./config/constants.js";
 import { readFailures, writeFailures, recordFailure, clearFailure, getFailureCount } from "./failures.js";
 
 // Event categories for result translation.
@@ -45,16 +46,7 @@ const OBSERVE_EVENTS = new Set([
 
 const CONTINUATION_EVENTS = new Set(["TeammateIdle", "TaskCompleted"]);
 
-// Events that support injectContext → additionalContext
-const INJECTABLE_EVENTS = new Set([
-  "PreToolUse",
-  "UserPromptSubmit",
-  "SessionStart",
-  "PostToolUse",
-  "PostToolUseFailure",
-  "Notification",
-  "SubagentStart",
-]);
+// INJECTABLE_EVENTS imported from ./config/constants.js
 
 /**
  * Translates a hook result into engine output (stdout string, exit code, stderr).

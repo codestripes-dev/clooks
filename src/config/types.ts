@@ -1,4 +1,4 @@
-export type ErrorMode = "block" | "continue"
+export type ErrorMode = "block" | "continue" | "trace"
 
 /**
  * The validated, typed config returned by loadConfig().
@@ -50,13 +50,11 @@ export interface HookEntry {
   maxFailures?: number
   /** Per-hook override for the reminder message template. */
   maxFailuresMessage?: string
+  /** Per-hook, per-event overrides. Currently only onError is supported. */
+  events?: Record<string, { onError?: ErrorMode }>
 }
 
 export interface EventEntry {
   /** Explicit execution order for hooks registered to this event. */
   order?: string[]
-  /** Per-event timeout in ms. */
-  timeout?: number
-  /** Per-event error handling override. */
-  onError?: ErrorMode
 }
