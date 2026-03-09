@@ -46,6 +46,24 @@ Events fall into 4 categories, each with a distinct result pattern:
 
 The `ExitCode` type is `typeof EXIT_OK | typeof EXIT_HOOK_FAILURE | typeof EXIT_STDERR`, which resolves to `0 | 1 | 2`. All `process.exit()` calls in the engine and CLI use the named constants.
 
+### BaseContext fields for parallel execution
+
+`BaseContext` includes two fields added for the parallel execution pipeline:
+
+- `parallel: boolean` — True when the hook is running in a parallel batch, false for sequential execution. Hook authors can use this to guard against operations that are unsafe in parallel mode (e.g., mutating shared state).
+- `signal: AbortSignal` — Scoped to the current execution group. In parallel groups, this signal is aborted when a short-circuit condition is detected (block result, contract violation). In sequential groups, the signal is scoped per-group but never aborted in the current implementation. Hooks can check `signal.aborted` or listen for the `abort` event to clean up early.
+
+### PreToolUse pipeline fields
+
+`PreToolUseContext` includes two fields for the tool input pipeline:
+
+- `toolInput: Record<string, unknown>` — The current tool input, which may differ from the original if a previous sequential hook returned `updatedInput`.
+- `originalToolInput: Record<string, unknown>` — The original tool input from Claude Code, before any hook modifications. Always reflects the unmodified input, even after multiple hooks have modified `toolInput`.
+
+`PreToolUseResult` (the `AllowResult` variant only) includes:
+
+- `updatedInput?: Record<string, unknown>` — Modified tool input to pass to subsequent hooks and/or Claude Code. Only sequential hooks may return this field. **Contract rule: parallel hooks must not return `updatedInput`.** If a parallel hook returns `updatedInput`, the engine treats it as a contract violation — it blocks the pipeline and records a failure through the circuit breaker, regardless of the hook's `onError` configuration.
+
 ### InjectableContext
 
 `InjectableContext` (`injectContext?: string`) is intersected into per-event result types only where Claude Code's output contract supports `additionalContext`. Not all events support it.
