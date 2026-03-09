@@ -51,10 +51,13 @@ anthropic/secret-scanner:
   config:
     strict: true
   timeout: 5000
+  onError: trace
+  events:
+    PreToolUse:
+      onError: block
 
 PreToolUse:
   order: [anthropic/secret-scanner, no-production-writes]
-  timeout: 10000
 ```
 
 ### Hook Entry Fields
@@ -64,25 +67,26 @@ PreToolUse:
 | `config` | object | `{}` | Config overrides (shallow-merged with hook's `meta.config` at load time) |
 | `path` | string | convention | Explicit file path relative to project root |
 | `timeout` | number | — | Per-hook timeout in ms |
-| `onError` | `"block"` \| `"continue"` | — | Per-hook error handling |
+| `onError` | `"block"` \| `"continue"` \| `"trace"` | — | Per-hook error handling |
 | `parallel` | boolean | `false` | Run independently of sequential pipeline |
 | `maxFailures` | number | — | Per-hook override for consecutive failure threshold |
 | `maxFailuresMessage` | string | — | Per-hook override for the reminder message template |
+| `events` | object | — | Per-hook, per-event overrides. Keys are event names, values are objects with `onError`. |
 
 ### Event Entry Fields
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `order` | string[] | Explicit execution order for hooks on this event |
-| `timeout` | number | Per-event timeout in ms |
-| `onError` | `"block"` \| `"continue"` | Per-event error handling |
+
+Event-level `timeout` and `onError` have been removed. Use per-hook `timeout` and per-hook event overrides (`hooks.<name>.events.<event>.onError`) instead.
 
 ### Global Config
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `timeout` | number | 30000 | Default timeout for all hooks |
-| `onError` | `"block"` \| `"continue"` | `"block"` | Default error handling |
+| `onError` | `"block"` \| `"continue"` | `"block"` | Default error handling. `"trace"` is not allowed at the global level. |
 | `maxFailures` | number | `3` | Consecutive failures before a hook+event pair is degraded. `0` = disabled (classic fail-closed). |
 | `maxFailuresMessage` | string | *(see below)* | Template for the reminder message when a degraded hook is skipped. Supports `{hook}`, `{event}`, `{count}`, `{error}` interpolation. |
 
@@ -128,18 +132,11 @@ lint-guard:
 
 ## Cascade Rules
 
-Timeout and onError resolve through a cascade: hook → event → global → default.
+**Timeout** cascades: hook → global → default (30000ms). No event level.
 
-- If a hook entry specifies `timeout`, use it.
-- Otherwise, if the event entry specifies `timeout`, use it.
-- Otherwise, use the global `config.timeout`.
-- If no global timeout, use the default (30000ms).
+**onError** cascades through three levels: hook+event → hook → global → `"block"` default. The `"trace"` mode is only valid at hook or hook+event level (rejected at global level). At hook+event level, `"trace"` is rejected at parse time for non-injectable events. At hook level, `"trace"` triggers a runtime fallback to `"continue"` for non-injectable events (with a startup warning).
 
-The same cascade applies to `onError`. The cascade is applied at runtime by the engine, not by the config module.
-
-**Implementation status:** The config system stores these fields and the engine will apply the cascade, but `timeout` and `onError` cascade are not yet implemented in the engine (tracked by FEAT-0004 and FEAT-0005). Currently the engine always fails closed on any hook error. The `maxFailures` cascade (below) is fully implemented.
-
-`maxFailures` and `maxFailuresMessage` follow a simpler two-level cascade: hook → global → default (no event level). This is because circuit breaker thresholds are about hook reliability, not event semantics. Setting `maxFailures: 0` disables the circuit breaker for that hook, preserving classic fail-closed behavior.
+**maxFailures** and **maxFailuresMessage** cascade: hook → global → default. `maxFailures: 0` disables the circuit breaker. `maxFailures` does NOT increment for execution errors on hooks configured with `onError: "continue"` or `"trace"`. Import/load failures always count regardless of onError config.
 
 ## Circuit Breaker
 
