@@ -16,7 +16,7 @@ The public entry point is `loadConfig(projectRoot)`, which performs all four ste
 ## Key Files
 
 - `src/config/index.ts` — Public API: `loadConfig()` and type re-exports.
-- `src/config/types.ts` — `ClooksConfig`, `HookEntry`, `EventEntry`, `GlobalConfig`, `ErrorMode`.
+- `src/config/types.ts` — `ClooksConfig`, `HookEntry`, `EventEntry`, `GlobalConfig`, `ErrorMode`. Uses branded types from `src/types/branded.ts`: `HookName` for hook record keys, `EventName` for event record keys, `Milliseconds` for timeout fields.
 - `src/config/constants.ts` — `CLAUDE_CODE_EVENTS`, `RESERVED_CONFIG_KEYS`, defaults.
 - `src/config/parse.ts` — `parseYamlFile()` — reads and parses a single YAML file.
 - `src/config/validate.ts` — `validateConfig()` — validates raw object, returns `ClooksConfig`.
@@ -66,18 +66,18 @@ PreToolUse:
 |-------|------|---------|-------------|
 | `config` | object | `{}` | Config overrides (shallow-merged with hook's `meta.config` at load time) |
 | `path` | string | convention | Explicit file path relative to project root |
-| `timeout` | number | — | Per-hook timeout in ms |
+| `timeout` | `Milliseconds` | — | Per-hook timeout in ms |
 | `onError` | `"block"` \| `"continue"` \| `"trace"` | — | Per-hook error handling |
 | `parallel` | boolean | `false` | Run independently of sequential pipeline |
 | `maxFailures` | number | — | Per-hook override for consecutive failure threshold |
 | `maxFailuresMessage` | string | — | Per-hook override for the reminder message template |
-| `events` | object | — | Per-hook, per-event overrides. Keys are event names, values are objects with `onError`. |
+| `events` | `Partial<Record<EventName, { onError?: ErrorMode }>>` | — | Per-hook, per-event overrides. Keys are event names, values are objects with `onError`. |
 
 ### Event Entry Fields
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `order` | string[] | Explicit execution order for hooks on this event |
+| `order` | `HookName[]` | Explicit execution order for hooks on this event |
 
 Event-level `timeout` and `onError` have been removed. Use per-hook `timeout` and per-hook event overrides (`hooks.<name>.events.<event>.onError`) instead.
 
@@ -85,7 +85,7 @@ Event-level `timeout` and `onError` have been removed. Use per-hook `timeout` an
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `timeout` | number | 30000 | Default timeout for all hooks |
+| `timeout` | `Milliseconds` | 30000 | Default timeout for all hooks |
 | `onError` | `"block"` \| `"continue"` | `"block"` | Default error handling. `"trace"` is not allowed at the global level. |
 | `maxFailures` | number | `3` | Consecutive failures before a hook+event pair is degraded. `0` = disabled (classic fail-closed). |
 | `maxFailuresMessage` | string | *(see below)* | Template for the reminder message when a degraded hook is skipped. Supports `{hook}`, `{event}`, `{count}`, `{error}` interpolation. |
@@ -142,7 +142,7 @@ lint-guard:
 
 A hook+event pair that fails N consecutive times (default 3) enters "degraded mode." In degraded mode the hook is skipped instead of blocking, but it is still retried on every invocation inside a safe try/catch. If it succeeds, the failure counter resets and the hook resumes normal operation automatically.
 
-**State storage:** Failure state is persisted in `.clooks/.failures` (JSON, gitignored). The file is managed entirely by the engine. It is created on first failure, updated on subsequent failures, and deleted when all hooks are healthy.
+**State storage:** Failure state is persisted in `.clooks/.failures` (JSON, gitignored). The file is managed entirely by the engine. It is created on first failure, updated on subsequent failures, and deleted when all hooks are healthy. The in-memory type is `FailureState = Record<HookName, Partial<Record<EventName, HookEventFailure>>>` — both dimensions are branded, preventing key confusion between hook names and event names.
 
 **File format:**
 
