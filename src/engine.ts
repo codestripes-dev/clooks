@@ -10,7 +10,7 @@
 // This module is imported by src/cli.ts (the compiled binary entry point).
 
 import type { ClaudeCodeOutput, PreToolUseOutput, HookSpecificOutputBase } from "./types/claude-code.js";
-import type { ClooksConfig } from "./config/types.js";
+import type { ClooksConfig, ErrorMode } from "./config/types.js";
 import { normalizeKeys } from "./normalize.js";
 import { loadConfig } from "./config/index.js";
 import { ConfigNotFoundError } from "./config/parse.js";
@@ -196,6 +196,52 @@ export function interpolateMessage(
 }
 
 /**
+ * Resolves the effective onError mode for a hook+event pair via cascade:
+ * hook+event → hook → global → "block" (default).
+ */
+export function resolveOnError(
+  hookName: string,
+  eventName: string,
+  config: ClooksConfig,
+): ErrorMode {
+  const hookEntry = config.hooks[hookName];
+  const hookEventOverride = hookEntry?.events?.[eventName]?.onError;
+  if (hookEventOverride !== undefined) return hookEventOverride;
+
+  const hookLevel = hookEntry?.onError;
+  if (hookLevel !== undefined) return hookLevel;
+
+  return config.global.onError;
+}
+
+function formatDiagnostic(
+  hookName: string,
+  eventName: string,
+  error: unknown,
+  mode: ErrorMode,
+): string {
+  const errorType = error instanceof Error ? error.constructor.name : "Error";
+  const firstLine = error instanceof Error
+    ? error.message.split("\n")[0] ?? error.message
+    : String(error).split("\n")[0] ?? String(error);
+  const action = mode === "block"
+    ? "Action blocked"
+    : "Continuing";
+  return `[clooks] Hook "${hookName}" failed on ${eventName} (${errorType}: ${firstLine}). ${action} (onError: ${mode}).`;
+}
+
+function formatTraceMessage(
+  hookName: string,
+  error: unknown,
+): string {
+  const errorType = error instanceof Error ? error.constructor.name : "Error";
+  const firstLine = error instanceof Error
+    ? error.message.split("\n")[0] ?? error.message
+    : String(error).split("\n")[0] ?? String(error);
+  return `Hook "${hookName}" errored: ${errorType}: ${firstLine}. Configured as onError: trace — action not affected.`;
+}
+
+/**
  * Runs matched hooks with circuit breaker logic.
  * Also processes load errors through the circuit breaker — a hook that
  * fails to import is treated as a failure for the current event.
@@ -212,16 +258,21 @@ export async function executeHooks(
   lastResult?: Record<string, unknown>;
   degradedMessages: string[];
   debugMessages: string[];
+  traceMessages: string[];
+  systemMessages: string[];
 }> {
   const debug = process.env.CLOOKS_DEBUG === "true";
   const debugMessages: string[] = [];
   const degradedMessages: string[] = [];
+  const traceMessages: string[] = [];
+  const systemMessages: string[] = [];
   let lastResult: Record<string, unknown> | undefined;
 
   let failureState = await readFailures(projectRoot);
   let failuresDirty = false;
 
-  // Process load errors through the circuit breaker
+  // Process load errors through the circuit breaker.
+  // Import failures always block regardless of onError config.
   for (const loadError of loadErrors) {
     const { maxFailures, maxFailuresMessage } = resolveMaxFailures(loadError.name, config);
     failureState = recordFailure(failureState, loadError.name, eventName, loadError.error);
@@ -231,7 +282,8 @@ export async function executeHooks(
     if (maxFailures === 0 || newCount < maxFailures) {
       // Under threshold or circuit breaker disabled — fail-closed
       await writeFailures(projectRoot, failureState);
-      throw new Error(loadError.error);
+      lastResult = { result: "block", reason: formatDiagnostic(loadError.name, eventName, new Error(loadError.error), "block") };
+      return { lastResult, degradedMessages, debugMessages, traceMessages, systemMessages };
     }
 
     // Threshold reached or already degraded — skip
@@ -255,25 +307,52 @@ export async function executeHooks(
       result = await handler(normalized, loaded.config);
     } catch (e) {
       const errorMessage = e instanceof Error ? e.message : String(e);
-      failureState = recordFailure(failureState, loaded.name, eventName, errorMessage);
-      failuresDirty = true;
-      const newCount = getFailureCount(failureState, loaded.name, eventName);
+      const onErrorMode = resolveOnError(loaded.name, eventName, config);
 
-      if (maxFailures === 0 || newCount < maxFailures) {
-        // Under threshold or circuit breaker disabled — fail-closed
-        await writeFailures(projectRoot, failureState);
-        throw new Error(`hook "${loaded.name}" threw during ${eventName}: ${errorMessage}`);
+      // Runtime fallback: hook-level "trace" on a non-injectable event → "continue"
+      let effectiveMode = onErrorMode;
+      if (effectiveMode === "trace" && !INJECTABLE_EVENTS.has(eventName)) {
+        systemMessages.push(
+          `Hook "${loaded.name}" has onError: "trace" but ${eventName} does not support additionalContext. Falling back to "continue".`
+        );
+        effectiveMode = "continue";
       }
 
-      // Threshold reached or already degraded — skip this hook
-      const msg = interpolateMessage(maxFailuresMessage, {
-        hook: loaded.name,
-        event: eventName,
-        count: newCount,
-        error: errorMessage,
-      });
-      degradedMessages.push(msg);
-      continue;
+      if (effectiveMode === "block") {
+        failureState = recordFailure(failureState, loaded.name, eventName, errorMessage);
+        failuresDirty = true;
+        const newCount = getFailureCount(failureState, loaded.name, eventName);
+
+        if (maxFailures === 0 || newCount < maxFailures) {
+          // Under threshold — block
+          await writeFailures(projectRoot, failureState);
+          lastResult = { result: "block", reason: formatDiagnostic(loaded.name, eventName, e, "block") };
+          break;
+        }
+
+        // At/above threshold — degraded
+        const msg = interpolateMessage(maxFailuresMessage, {
+          hook: loaded.name,
+          event: eventName,
+          count: newCount,
+          error: errorMessage,
+        });
+        degradedMessages.push(msg);
+        continue;
+      }
+
+      if (effectiveMode === "continue") {
+        systemMessages.push(formatDiagnostic(loaded.name, eventName, e, "continue"));
+        if (debug) {
+          debugMessages.push(formatDiagnostic(loaded.name, eventName, e, "continue"));
+        }
+        continue;
+      }
+
+      if (effectiveMode === "trace") {
+        traceMessages.push(formatTraceMessage(loaded.name, e));
+        continue;
+      }
     }
 
     // Success — clear any failure state for this hook+event
@@ -317,7 +396,7 @@ export async function executeHooks(
     await writeFailures(projectRoot, failureState);
   }
 
-  return { lastResult, degradedMessages, debugMessages };
+  return { lastResult, degradedMessages, debugMessages, traceMessages, systemMessages };
 }
 
 /**
@@ -414,8 +493,25 @@ export async function runEngine(): Promise<void> {
     normalized.event = normalized.hookEventName;
     delete normalized.hookEventName;
 
+    // --- Startup validation: warn about hook-level trace on non-injectable events ---
+    const startupWarnings: string[] = [];
+    for (const loaded of hooks) {
+      const hookEntry = config.hooks[loaded.name];
+      if (hookEntry?.onError === "trace") {
+        for (const key of Object.keys(loaded.hook as unknown as Record<string, unknown>)) {
+          if (key === "meta") continue;
+          if (!INJECTABLE_EVENTS.has(key)) {
+            startupWarnings.push(
+              `Hook "${loaded.name}" has onError: "trace" but handles ${key} ` +
+              `(does not support additionalContext). Trace will fall back to "continue" for ${key}.`
+            );
+          }
+        }
+      }
+    }
+
     // --- Execute hooks with circuit breaker ---
-    let { lastResult, degradedMessages, debugMessages } = await executeHooks(
+    let { lastResult, degradedMessages, debugMessages, traceMessages, systemMessages } = await executeHooks(
       matched,
       eventName,
       normalized,
