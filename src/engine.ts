@@ -10,7 +10,18 @@
 // This module is imported by src/cli.ts (the compiled binary entry point).
 
 import type { EventName } from "./types/branded.js";
+import type { ResultTag } from "./types/results.js";
 import type { ClaudeCodeOutput, PreToolUseOutput, HookSpecificOutputBase } from "./types/claude-code.js";
+
+/** Typed result object used within the engine after the hook return boundary. */
+export interface EngineResult {
+  result: ResultTag
+  reason?: string
+  path?: string
+  feedback?: string
+  injectContext?: string
+  debugMessage?: string
+}
 import type { ClooksConfig, ErrorMode } from "./config/types.js";
 import { normalizeKeys } from "./normalize.js";
 import { loadConfig } from "./config/index.js";
@@ -59,14 +70,14 @@ const CONTINUATION_EVENTS: Set<EventName> = new Set<EventName>(["TeammateIdle", 
  */
 export function translateResult(
   eventName: EventName,
-  result: Record<string, unknown>
+  result: EngineResult,
 ): { output?: string; exitCode: number; stderr?: string } {
-  const resultType = result.result as string;
+  const resultType = result.result;
 
   // --- PreToolUse: uses hookSpecificOutput ---
   if (eventName === "PreToolUse") {
     if (resultType === "block") {
-      const reason = (result.reason as string) ?? "clooks: action blocked by hook";
+      const reason = result.reason ?? "clooks: action blocked by hook";
       const hookOutput: PreToolUseOutput = {
         hookEventName: "PreToolUse",
         permissionDecision: "deny",
@@ -84,7 +95,7 @@ export function translateResult(
         permissionDecision: "allow",
       };
       if (result.injectContext) {
-        hookOutput.additionalContext = result.injectContext as string;
+        hookOutput.additionalContext = result.injectContext;
       }
       const output: ClaudeCodeOutput = { hookSpecificOutput: hookOutput };
       return { output: JSON.stringify(output), exitCode: 0 };
@@ -112,7 +123,7 @@ export function translateResult(
   // --- Other guard events: block → exit 0 + JSON, allow/skip → exit 0 ---
   if (GUARD_EVENTS.has(eventName)) {
     if (resultType === "block") {
-      const reason = (result.reason as string) ?? "clooks: action blocked by hook";
+      const reason = result.reason ?? "clooks: action blocked by hook";
       const output: ClaudeCodeOutput = { decision: "block", reason };
       return { output: JSON.stringify(output), exitCode: 0 };
     }
@@ -120,7 +131,7 @@ export function translateResult(
       if (result.injectContext && INJECTABLE_EVENTS.has(eventName)) {
         const hookOutput: HookSpecificOutputBase = {
           hookEventName: eventName,
-          additionalContext: result.injectContext as string,
+          additionalContext: result.injectContext,
         };
         const output: ClaudeCodeOutput = { hookSpecificOutput: hookOutput };
         return { output: JSON.stringify(output), exitCode: 0 };
@@ -135,7 +146,7 @@ export function translateResult(
     // Observe events can't actually block (action already completed),
     // so surface the error via additionalContext or systemMessage instead.
     if (resultType === "block") {
-      const reason = (result.reason as string) ?? "clooks: hook error on observe event";
+      const reason = result.reason ?? "clooks: hook error on observe event";
       if (INJECTABLE_EVENTS.has(eventName)) {
         const hookOutput: HookSpecificOutputBase = {
           hookEventName: eventName,
@@ -150,7 +161,7 @@ export function translateResult(
     if (result.injectContext && INJECTABLE_EVENTS.has(eventName)) {
       const hookOutput: HookSpecificOutputBase = {
         hookEventName: eventName,
-        additionalContext: result.injectContext as string,
+        additionalContext: result.injectContext,
       };
       const output: ClaudeCodeOutput = { hookSpecificOutput: hookOutput };
       return { output: JSON.stringify(output), exitCode: 0 };
@@ -163,16 +174,16 @@ export function translateResult(
     if (resultType === "block") {
       return {
         exitCode: 1,
-        stderr: (result.reason as string) ?? "clooks: hook error during worktree creation",
+        stderr: result.reason ?? "clooks: hook error during worktree creation",
       };
     }
     if (resultType === "success") {
-      return { output: result.path as string, exitCode: 0 };
+      return { output: result.path, exitCode: 0 };
     }
     if (resultType === "failure") {
       return {
         exitCode: 1,
-        stderr: (result.reason as string) ?? "clooks: worktree creation failed",
+        stderr: result.reason ?? "clooks: worktree creation failed",
       };
     }
   }
@@ -182,7 +193,7 @@ export function translateResult(
     // Handle block results from onError: "block" hook errors.
     // Fail-closed for continuation events = stop the agent/teammate.
     if (resultType === "block") {
-      const reason = (result.reason as string) ?? "clooks: hook error on continuation event";
+      const reason = result.reason ?? "clooks: hook error on continuation event";
       const output: ClaudeCodeOutput = {
         continue: false,
         stopReason: reason,
@@ -192,13 +203,13 @@ export function translateResult(
     if (resultType === "continue") {
       return {
         exitCode: 2,
-        stderr: (result.feedback as string) ?? "",
+        stderr: result.feedback ?? "",
       };
     }
     if (resultType === "stop") {
       const output: ClaudeCodeOutput = {
         continue: false,
-        stopReason: result.reason as string,
+        stopReason: result.reason,
       };
       return { output: JSON.stringify(output), exitCode: 0 };
     }
@@ -309,7 +320,7 @@ export async function executeHooks(
   projectRoot: string,
   loadErrors: HookLoadError[] = [],
 ): Promise<{
-  lastResult?: Record<string, unknown>;
+  lastResult?: EngineResult;
   degradedMessages: string[];
   debugMessages: string[];
   traceMessages: string[];
@@ -320,7 +331,7 @@ export async function executeHooks(
   const degradedMessages: string[] = [];
   const traceMessages: string[] = [];
   const systemMessages: string[] = [];
-  let lastResult: Record<string, unknown> | undefined;
+  let lastResult: EngineResult | undefined;
 
   let failureState = await readFailures(projectRoot);
   let failuresDirty = false;
@@ -422,26 +433,27 @@ export async function executeHooks(
       continue;
     }
 
-    const resultObj = result as Record<string, unknown>;
-    const resultType = resultObj.result as string;
+    // Single cast at the boundary where dynamically-imported hook code returns.
+    // From here forward, everything is typed as EngineResult.
+    const resultObj = result as EngineResult;
 
     if (debug) {
       debugMessages.push(`hook="${loaded.name}" event="${eventName}" returned: ${JSON.stringify(resultObj)}`);
     }
 
     // Collect debug messages from every hook result
-    if (debug && typeof resultObj.debugMessage === "string") {
+    if (debug && resultObj.debugMessage) {
       debugMessages.push(resultObj.debugMessage);
     }
 
     // Block bails out immediately
-    if (resultType === "block") {
+    if (resultObj.result === "block") {
       lastResult = resultObj;
       break;
     }
 
     // Non-skip results are kept
-    if (resultType !== "skip") {
+    if (resultObj.result !== "skip") {
       lastResult = resultObj;
     }
   }
