@@ -32,15 +32,6 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": ".claude/hooks/no-compound-commands.sh"
-          }
-        ]
-      },
-      {
         "hooks": [
           {
             "type": "command",

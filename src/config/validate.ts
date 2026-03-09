@@ -9,6 +9,8 @@ import {
   CLAUDE_CODE_EVENTS,
   DEFAULT_TIMEOUT,
   DEFAULT_ON_ERROR,
+  DEFAULT_MAX_FAILURES,
+  DEFAULT_MAX_FAILURES_MESSAGE,
 } from "./constants.js"
 import { resolveHookPath } from "./resolve.js"
 
@@ -48,6 +50,8 @@ export function validateConfig(raw: Record<string, unknown>): ClooksConfig {
   let global: GlobalConfig = {
     timeout: DEFAULT_TIMEOUT,
     onError: DEFAULT_ON_ERROR,
+    maxFailures: DEFAULT_MAX_FAILURES,
+    maxFailuresMessage: DEFAULT_MAX_FAILURES_MESSAGE,
   }
   if (raw.config !== undefined) {
     if (!isPlainObject(raw.config)) {
@@ -59,6 +63,18 @@ export function validateConfig(raw: Record<string, unknown>): ClooksConfig {
     }
     if (cfg.onError !== undefined) {
       global.onError = validateErrorMode(cfg.onError, "global config")
+    }
+    if (cfg.maxFailures !== undefined) {
+      if (typeof cfg.maxFailures !== "number" || cfg.maxFailures < 0 || !Number.isInteger(cfg.maxFailures)) {
+        throw new Error(`clooks: global config "maxFailures" must be a non-negative integer`)
+      }
+      global.maxFailures = cfg.maxFailures
+    }
+    if (cfg.maxFailuresMessage !== undefined) {
+      if (typeof cfg.maxFailuresMessage !== "string") {
+        throw new Error(`clooks: global config "maxFailuresMessage" must be a string`)
+      }
+      global.maxFailuresMessage = cfg.maxFailuresMessage
     }
   }
 
@@ -106,6 +122,8 @@ export function validateConfig(raw: Record<string, unknown>): ClooksConfig {
       let timeout: number | undefined
       let onError: ErrorMode | undefined
       let parallel = false
+      let maxFailures: number | undefined
+      let maxFailuresMessage: string | undefined
 
       if (value.config !== undefined) {
         if (!isPlainObject(value.config)) {
@@ -137,12 +155,30 @@ export function validateConfig(raw: Record<string, unknown>): ClooksConfig {
         }
         parallel = value.parallel
       }
+      if (value.maxFailures !== undefined) {
+        if (typeof value.maxFailures !== "number" || value.maxFailures < 0 || !Number.isInteger(value.maxFailures)) {
+          throw new Error(
+            `clooks: hook "${key}" has invalid "maxFailures": must be a non-negative integer`,
+          )
+        }
+        maxFailures = value.maxFailures
+      }
+      if (value.maxFailuresMessage !== undefined) {
+        if (typeof value.maxFailuresMessage !== "string") {
+          throw new Error(
+            `clooks: hook "${key}" has invalid "maxFailuresMessage": must be a string`,
+          )
+        }
+        maxFailuresMessage = value.maxFailuresMessage
+      }
 
       const resolvedPath = resolveHookPath(key, { path })
 
       const entry: HookEntry = { resolvedPath, config, parallel }
       if (timeout !== undefined) entry.timeout = timeout
       if (onError !== undefined) entry.onError = onError
+      if (maxFailures !== undefined) entry.maxFailures = maxFailures
+      if (maxFailuresMessage !== undefined) entry.maxFailuresMessage = maxFailuresMessage
 
       hooks[key] = entry
     }

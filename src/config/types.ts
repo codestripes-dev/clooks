@@ -31,6 +31,8 @@ export interface ClooksConfig {
 export interface GlobalConfig {
   timeout: number
   onError: ErrorMode
+  maxFailures: number
+  maxFailuresMessage: string
 }
 
 export interface HookEntry {
@@ -44,6 +46,10 @@ export interface HookEntry {
   onError?: ErrorMode
   /** If true, runs independently of the sequential pipeline. Default false. */
   parallel: boolean
+  /** Per-hook override for consecutive failure threshold. */
+  maxFailures?: number
+  /** Per-hook override for the reminder message template. */
+  maxFailuresMessage?: string
 }
 
 export interface EventEntry {

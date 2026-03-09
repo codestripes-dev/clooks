@@ -50,8 +50,8 @@ Must choose one approach per hook: exit codes alone, OR exit 0 with JSON. Claude
 |--------|---------|------------|
 | UserPromptSubmit, PostToolUse, PostToolUseFailure, Stop, SubagentStop, ConfigChange | Top-level `decision` | `decision: "block"`, `reason` |
 | TeammateIdle, TaskCompleted | Exit code or `continue` | Exit 2 blocks with stderr. `{"continue": false, "stopReason": "..."}` stops entirely |
-| PreToolUse | `hookSpecificOutput` | `permissionDecision`, `permissionDecisionReason`, `updatedInput`, `additionalContext` |
-| PermissionRequest | `hookSpecificOutput` | `decision.behavior`, `decision.updatedInput`, `decision.updatedPermissions`, `decision.message`, `decision.interrupt` |
+| PreToolUse | `hookSpecificOutput` | `hookEventName` (required), `permissionDecision`, `permissionDecisionReason`, `updatedInput`, `additionalContext` |
+| PermissionRequest | `hookSpecificOutput` | `hookEventName` (required), `decision.behavior`, `decision.updatedInput`, `decision.updatedPermissions`, `decision.message`, `decision.interrupt` |
 | WorktreeCreate | stdout path | Print absolute path. Non-zero exit fails |
 | WorktreeRemove, Notification, SessionEnd, PreCompact, InstructionsLoaded | None | Side effects only |
 

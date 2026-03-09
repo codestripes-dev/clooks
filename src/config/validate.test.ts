@@ -1,11 +1,17 @@
 import { describe, expect, test } from "bun:test"
 import { validateConfig } from "./validate.js"
+import { DEFAULT_MAX_FAILURES, DEFAULT_MAX_FAILURES_MESSAGE } from "./constants.js"
 
 describe("validateConfig", () => {
   test("valid minimal config", () => {
     const result = validateConfig({ version: "1.0.0" })
     expect(result.version).toBe("1.0.0")
-    expect(result.global).toEqual({ timeout: 30000, onError: "block" })
+    expect(result.global).toEqual({
+      timeout: 30000,
+      onError: "block",
+      maxFailures: DEFAULT_MAX_FAILURES,
+      maxFailuresMessage: DEFAULT_MAX_FAILURES_MESSAGE,
+    })
     expect(result.hooks).toEqual({})
     expect(result.events).toEqual({})
   })
@@ -36,7 +42,12 @@ describe("validateConfig", () => {
     })
 
     expect(result.version).toBe("1.0.0")
-    expect(result.global).toEqual({ timeout: 15000, onError: "continue" })
+    expect(result.global).toEqual({
+      timeout: 15000,
+      onError: "continue",
+      maxFailures: DEFAULT_MAX_FAILURES,
+      maxFailuresMessage: DEFAULT_MAX_FAILURES_MESSAGE,
+    })
 
     expect(Object.keys(result.hooks)).toEqual([
       "log-bash-commands",
@@ -176,5 +187,81 @@ describe("validateConfig", () => {
     })
     expect(result2.events["Stop"]).toBeDefined()
     expect(result2.hooks["Stop"]).toBeUndefined()
+  })
+
+  // --- maxFailures / maxFailuresMessage ---
+
+  test("global maxFailures parsed correctly", () => {
+    const result = validateConfig({
+      version: "1.0.0",
+      config: { maxFailures: 5 },
+    })
+    expect(result.global.maxFailures).toBe(5)
+  })
+
+  test("global maxFailuresMessage parsed correctly", () => {
+    const result = validateConfig({
+      version: "1.0.0",
+      config: { maxFailuresMessage: "custom message" },
+    })
+    expect(result.global.maxFailuresMessage).toBe("custom message")
+  })
+
+  test("global maxFailures defaults to 3 when not specified", () => {
+    const result = validateConfig({ version: "1.0.0" })
+    expect(result.global.maxFailures).toBe(3)
+  })
+
+  test("global maxFailuresMessage defaults to the default message when not specified", () => {
+    const result = validateConfig({ version: "1.0.0" })
+    expect(result.global.maxFailuresMessage).toBe(DEFAULT_MAX_FAILURES_MESSAGE)
+  })
+
+  test("global maxFailures rejects negative numbers", () => {
+    expect(() =>
+      validateConfig({ version: "1.0.0", config: { maxFailures: -1 } }),
+    ).toThrow("must be a non-negative integer")
+  })
+
+  test("global maxFailures rejects floats", () => {
+    expect(() =>
+      validateConfig({ version: "1.0.0", config: { maxFailures: 2.5 } }),
+    ).toThrow("must be a non-negative integer")
+  })
+
+  test("global maxFailures rejects non-numbers", () => {
+    expect(() =>
+      validateConfig({ version: "1.0.0", config: { maxFailures: "three" } }),
+    ).toThrow("must be a non-negative integer")
+  })
+
+  test("global maxFailuresMessage rejects non-strings", () => {
+    expect(() =>
+      validateConfig({ version: "1.0.0", config: { maxFailuresMessage: 42 } }),
+    ).toThrow("must be a string")
+  })
+
+  test("hook-level maxFailures parsed correctly", () => {
+    const result = validateConfig({
+      version: "1.0.0",
+      "my-hook": { maxFailures: 10 },
+    })
+    expect(result.hooks["my-hook"]!.maxFailures).toBe(10)
+  })
+
+  test("hook-level maxFailuresMessage parsed correctly", () => {
+    const result = validateConfig({
+      version: "1.0.0",
+      "my-hook": { maxFailuresMessage: "hook message" },
+    })
+    expect(result.hooks["my-hook"]!.maxFailuresMessage).toBe("hook message")
+  })
+
+  test("hook-level maxFailures: 0 accepted (disables circuit breaker)", () => {
+    const result = validateConfig({
+      version: "1.0.0",
+      "my-hook": { maxFailures: 0 },
+    })
+    expect(result.hooks["my-hook"]!.maxFailures).toBe(0)
   })
 })

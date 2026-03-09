@@ -81,14 +81,23 @@ export type ClaudeCodeInput =
 // --- Output types (what Clooks writes to stdout) ---
 
 /**
+ * Base fields required by all hookSpecificOutput objects.
+ * Claude Code requires hookEventName to identify the event.
+ */
+export interface HookSpecificOutputBase {
+  hookEventName: string;
+  additionalContext?: string;
+}
+
+/**
  * The hookSpecificOutput field for PreToolUse responses.
  * This is the primary way to control whether a tool call proceeds.
  */
-export interface PreToolUseOutput {
+export interface PreToolUseOutput extends HookSpecificOutputBase {
+  hookEventName: "PreToolUse";
   permissionDecision?: "allow" | "deny" | "ask";
   permissionDecisionReason?: string;
   updatedInput?: Record<string, unknown>;
-  additionalContext?: string;
 }
 
 /**
@@ -96,7 +105,7 @@ export interface PreToolUseOutput {
  * Claude Code parses this to determine the hook's decision.
  */
 export interface ClaudeCodeOutput {
-  hookSpecificOutput?: PreToolUseOutput;
+  hookSpecificOutput?: HookSpecificOutputBase;
   decision?: "block";
   reason?: string;
   additionalContext?: string;

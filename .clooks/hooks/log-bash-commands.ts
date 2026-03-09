@@ -6,7 +6,7 @@
 
 import { appendFileSync, mkdirSync, existsSync } from "fs";
 import { join } from "path";
-import type { ClooksHook } from "../types/hook.js";
+import type { ClooksHook } from "../../src/types/hook.js";
 
 type Config = {
   logDir: string;
@@ -53,6 +53,9 @@ export const hook: ClooksHook<Config> = {
       // Logging failure should not block the command.
     }
 
-    return { result: "allow" };
+    return {
+      result: "allow",
+      debugMessage: `log-bash-commands: logged "${command}"`,
+    };
   },
 };

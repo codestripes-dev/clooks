@@ -37,3 +37,8 @@ export const RESERVED_CONFIG_KEYS = new Set([
 import type { ErrorMode } from "./types.js"
 export const DEFAULT_TIMEOUT = 30_000
 export const DEFAULT_ON_ERROR: ErrorMode = "block"
+export const DEFAULT_MAX_FAILURES = 3
+export const DEFAULT_MAX_FAILURES_MESSAGE =
+  "Hook '{hook}' has failed {count} consecutive times on {event} and will be skipped. " +
+  "Last error: {error}. Fix the issue or comment out the hook in clooks.yml. " +
+  "If this is unrelated to your current work, ask the User for guidance."
