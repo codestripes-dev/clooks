@@ -573,6 +573,20 @@ export async function runEngine(): Promise<void> {
       loadErrors,
     );
 
+    // --- Handle trace messages (from onError: "trace" hooks) ---
+    // Injected first so additionalContext order is: trace → degraded → debug
+    if (traceMessages.length > 0 && INJECTABLE_EVENTS.has(eventName)) {
+      const traceBlock = traceMessages.join("\n");
+      if (lastResult === undefined) {
+        lastResult = { result: "allow", injectContext: traceBlock };
+      } else {
+        const existing = typeof lastResult.injectContext === "string"
+          ? lastResult.injectContext + "\n"
+          : "";
+        lastResult.injectContext = existing + traceBlock;
+      }
+    }
+
     // --- Handle degraded hook messages ---
     if (degradedMessages.length > 0) {
       if (INJECTABLE_EVENTS.has(eventName)) {
@@ -615,10 +629,29 @@ export async function runEngine(): Promise<void> {
 
     // --- Translate and output ---
     if (lastResult === undefined) {
+      // Even with no hook results, we may have system messages to deliver
+      const allSystemMessages = [...startupWarnings, ...systemMessages];
+      if (allSystemMessages.length > 0) {
+        const output: ClaudeCodeOutput = { systemMessage: allSystemMessages.join("\n") };
+        process.stdout.write(JSON.stringify(output) + "\n");
+      }
       process.exit(0);
     }
 
     const translated = translateResult(eventName, lastResult);
+
+    // --- Inject systemMessage into translated output ---
+    const allSystemMessages = [...startupWarnings, ...systemMessages];
+    if (allSystemMessages.length > 0) {
+      const systemMessage = allSystemMessages.join("\n");
+      if (translated.output) {
+        const parsed = JSON.parse(translated.output) as ClaudeCodeOutput;
+        parsed.systemMessage = systemMessage;
+        translated.output = JSON.stringify(parsed);
+      } else {
+        translated.output = JSON.stringify({ systemMessage } as ClaudeCodeOutput);
+      }
+    }
 
     if (translated.stderr) {
       process.stderr.write(`${translated.stderr}\n`);
