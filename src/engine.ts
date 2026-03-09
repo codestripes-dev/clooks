@@ -31,6 +31,23 @@ import type { LoadedHook, HookLoadError } from "./loader.js";
 import { INJECTABLE_EVENTS, isEventName } from "./config/constants.js";
 import { readFailures, writeFailures, recordFailure, clearFailure, getFailureCount } from "./failures.js";
 
+/** Exit 0: success. Stdout may contain JSON output. */
+export const EXIT_OK = 0 as const;
+/** Exit 1: hook-level failure (e.g., WorktreeCreate failure). */
+export const EXIT_HOOK_FAILURE = 1 as const;
+/**
+ * Exit 2: non-zero stderr channel.
+ * Used for two distinct purposes in Claude Code's hook contract:
+ *   - Fail-closed errors (bad config, unknown event, fatal exception)
+ *   - Continuation event "continue" results (feedback delivered via stderr)
+ * Both use exit 2 because Claude Code treats any non-zero exit as "hook
+ * produced stderr output to process." The semantic difference is in the
+ * context (continuation event vs. error), not the exit code itself.
+ */
+export const EXIT_STDERR = 2 as const;
+
+export type ExitCode = typeof EXIT_OK | typeof EXIT_HOOK_FAILURE | typeof EXIT_STDERR;
+
 // Event categories for result translation.
 // Note: The complete set of all 18 event names lives in src/config/constants.ts
 // (CLAUDE_CODE_EVENTS), used for config key discrimination. These categorized
@@ -71,7 +88,7 @@ const CONTINUATION_EVENTS: Set<EventName> = new Set<EventName>(["TeammateIdle", 
 export function translateResult(
   eventName: EventName,
   result: EngineResult,
-): { output?: string; exitCode: number; stderr?: string } {
+): { output?: string; exitCode: ExitCode; stderr?: string } {
   const resultType = result.result;
 
   // --- PreToolUse: uses hookSpecificOutput ---
@@ -84,10 +101,10 @@ export function translateResult(
         permissionDecisionReason: reason,
       };
       const output: ClaudeCodeOutput = { hookSpecificOutput: hookOutput };
-      return { output: JSON.stringify(output), exitCode: 0 };
+      return { output: JSON.stringify(output), exitCode: EXIT_OK };
     }
     if (resultType === "skip") {
-      return { exitCode: 0 };
+      return { exitCode: EXIT_OK };
     }
     if (resultType === "allow") {
       const hookOutput: PreToolUseOutput = {
@@ -98,7 +115,7 @@ export function translateResult(
         hookOutput.additionalContext = result.injectContext;
       }
       const output: ClaudeCodeOutput = { hookSpecificOutput: hookOutput };
-      return { output: JSON.stringify(output), exitCode: 0 };
+      return { output: JSON.stringify(output), exitCode: EXIT_OK };
     }
   }
 
@@ -110,13 +127,13 @@ export function translateResult(
         decision: { behavior: "deny" },
       };
       const output: ClaudeCodeOutput = { hookSpecificOutput: hookOutput as HookSpecificOutputBase };
-      return { output: JSON.stringify(output), exitCode: 0 };
+      return { output: JSON.stringify(output), exitCode: EXIT_OK };
     }
     if (resultType === "skip") {
-      return { exitCode: 0 };
+      return { exitCode: EXIT_OK };
     }
     if (resultType === "allow") {
-      return { exitCode: 0 };
+      return { exitCode: EXIT_OK };
     }
   }
 
@@ -125,7 +142,7 @@ export function translateResult(
     if (resultType === "block") {
       const reason = result.reason ?? "clooks: action blocked by hook";
       const output: ClaudeCodeOutput = { decision: "block", reason };
-      return { output: JSON.stringify(output), exitCode: 0 };
+      return { output: JSON.stringify(output), exitCode: EXIT_OK };
     }
     if (resultType === "allow" || resultType === "skip") {
       if (result.injectContext && INJECTABLE_EVENTS.has(eventName)) {
@@ -134,9 +151,9 @@ export function translateResult(
           additionalContext: result.injectContext,
         };
         const output: ClaudeCodeOutput = { hookSpecificOutput: hookOutput };
-        return { output: JSON.stringify(output), exitCode: 0 };
+        return { output: JSON.stringify(output), exitCode: EXIT_OK };
       }
-      return { exitCode: 0 };
+      return { exitCode: EXIT_OK };
     }
   }
 
@@ -153,10 +170,10 @@ export function translateResult(
           additionalContext: reason,
         };
         const output: ClaudeCodeOutput = { hookSpecificOutput: hookOutput };
-        return { output: JSON.stringify(output), exitCode: 0 };
+        return { output: JSON.stringify(output), exitCode: EXIT_OK };
       }
       const output: ClaudeCodeOutput = { systemMessage: reason };
-      return { output: JSON.stringify(output), exitCode: 0 };
+      return { output: JSON.stringify(output), exitCode: EXIT_OK };
     }
     if (result.injectContext && INJECTABLE_EVENTS.has(eventName)) {
       const hookOutput: HookSpecificOutputBase = {
@@ -164,25 +181,25 @@ export function translateResult(
         additionalContext: result.injectContext,
       };
       const output: ClaudeCodeOutput = { hookSpecificOutput: hookOutput };
-      return { output: JSON.stringify(output), exitCode: 0 };
+      return { output: JSON.stringify(output), exitCode: EXIT_OK };
     }
-    return { exitCode: 0 };
+    return { exitCode: EXIT_OK };
   }
 
   // --- WorktreeCreate: success → stdout path, failure → exit 1, block → exit 1 ---
   if (eventName === "WorktreeCreate") {
     if (resultType === "block") {
       return {
-        exitCode: 1,
+        exitCode: EXIT_HOOK_FAILURE,
         stderr: result.reason ?? "clooks: hook error during worktree creation",
       };
     }
     if (resultType === "success") {
-      return { output: result.path, exitCode: 0 };
+      return { output: result.path, exitCode: EXIT_OK };
     }
     if (resultType === "failure") {
       return {
-        exitCode: 1,
+        exitCode: EXIT_HOOK_FAILURE,
         stderr: result.reason ?? "clooks: worktree creation failed",
       };
     }
@@ -198,11 +215,11 @@ export function translateResult(
         continue: false,
         stopReason: reason,
       };
-      return { output: JSON.stringify(output), exitCode: 0 };
+      return { output: JSON.stringify(output), exitCode: EXIT_OK };
     }
     if (resultType === "continue") {
       return {
-        exitCode: 2,
+        exitCode: EXIT_STDERR,
         stderr: result.feedback ?? "",
       };
     }
@@ -211,16 +228,16 @@ export function translateResult(
         continue: false,
         stopReason: result.reason,
       };
-      return { output: JSON.stringify(output), exitCode: 0 };
+      return { output: JSON.stringify(output), exitCode: EXIT_OK };
     }
     if (resultType === "skip") {
-      return { exitCode: 0 };
+      return { exitCode: EXIT_OK };
     }
   }
 
   // Unknown result — fail-closed
   return {
-    exitCode: 2,
+    exitCode: EXIT_STDERR,
     stderr: `clooks: hook returned unknown result type: ${String(resultType)}`,
   };
 }
@@ -479,11 +496,11 @@ export async function runEngine(): Promise<void> {
       config = await loadConfig(projectRoot);
     } catch (e) {
       if (e instanceof ConfigNotFoundError) {
-        process.exit(0);
+        process.exit(EXIT_OK);
       }
       const message = e instanceof Error ? e.message : String(e);
       process.stderr.write(`clooks: ${message}\n`);
-      process.exit(2);
+      process.exit(EXIT_STDERR);
     }
 
     // --- Load all hooks (fault-tolerant — load errors go through circuit breaker) ---
@@ -504,7 +521,7 @@ export async function runEngine(): Promise<void> {
           process.stderr.write(`[clooks:debug] ${line}\n`);
         }
       }
-      process.exit(0);
+      process.exit(EXIT_OK);
     }
 
     // --- Read and parse stdin ---
@@ -516,7 +533,7 @@ export async function runEngine(): Promise<void> {
       process.stderr.write(
         `clooks: failed to parse stdin JSON: ${message}\n`,
       );
-      process.exit(2);
+      process.exit(EXIT_STDERR);
     }
 
     if (
@@ -525,7 +542,7 @@ export async function runEngine(): Promise<void> {
       Array.isArray(input)
     ) {
       process.stderr.write("clooks: stdin payload is not a JSON object\n");
-      process.exit(2);
+      process.exit(EXIT_STDERR);
     }
 
     const payload = input as Record<string, unknown>;
@@ -535,7 +552,7 @@ export async function runEngine(): Promise<void> {
       process.stderr.write(
         "clooks: stdin payload missing or unrecognized hook_event_name field\n",
       );
-      process.exit(2);
+      process.exit(EXIT_STDERR);
     }
     const eventName: EventName = rawEventName;
 
@@ -552,7 +569,7 @@ export async function runEngine(): Promise<void> {
           process.stderr.write(`[clooks:debug] ${line}\n`);
         }
       }
-      process.exit(0);
+      process.exit(EXIT_OK);
     }
 
     // --- Normalize payload ---
@@ -647,7 +664,7 @@ export async function runEngine(): Promise<void> {
         const output: ClaudeCodeOutput = { systemMessage: allSystemMessages.join("\n") };
         process.stdout.write(JSON.stringify(output) + "\n");
       }
-      process.exit(0);
+      process.exit(EXIT_OK);
     }
 
     const translated = translateResult(eventName, lastResult);
@@ -673,14 +690,14 @@ export async function runEngine(): Promise<void> {
       process.stdout.write(translated.output + "\n");
     }
 
-    if (translated.exitCode !== 0) {
+    if (translated.exitCode !== EXIT_OK) {
       process.exit(translated.exitCode);
     }
 
-    process.exitCode = 0;
+    process.exitCode = EXIT_OK;
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : String(e);
     process.stderr.write(`clooks: fatal error: ${message}\n`);
-    process.exit(2);
+    process.exit(EXIT_STDERR);
   }
 }

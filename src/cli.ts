@@ -1,5 +1,5 @@
 import { VERSION } from './index'
-import { runEngine } from './engine.js'
+import { runEngine, EXIT_OK, EXIT_STDERR } from './engine.js'
 
 // Global signal handlers — installed first, before any hook code runs.
 // These are the ONLY code paths that should produce exit 2 + stderr.
@@ -10,30 +10,30 @@ process.on("uncaughtException", (err) => {
   process.stderr.write(
     `clooks: uncaught exception: ${name}: ${message}\n`
   );
-  process.exit(2);
+  process.exit(EXIT_STDERR);
 });
 
 process.on("unhandledRejection", (reason: unknown) => {
   const msg = reason instanceof Error ? reason.message : String(reason);
   process.stderr.write(`clooks: unhandled rejection: ${msg}\n`);
-  process.exit(2);
+  process.exit(EXIT_STDERR);
 });
 
 process.on("SIGTERM", () => {
   process.stderr.write("clooks: killed by SIGTERM\n");
-  process.exit(2);
+  process.exit(EXIT_STDERR);
 });
 
 process.on("SIGINT", () => {
   process.stderr.write("clooks: interrupted\n");
-  process.exit(2);
+  process.exit(EXIT_STDERR);
 });
 
 const args = process.argv.slice(2)
 
 if (args.includes('--version') || args.includes('-v')) {
   console.log(`clooks ${VERSION}`)
-  process.exit(0)
+  process.exit(EXIT_OK)
 }
 
 if (args.includes('--help') || args.includes('-h')) {
@@ -47,7 +47,7 @@ if (args.includes('--help') || args.includes('-h')) {
   console.log('Options:')
   console.log('  -v, --version  Print version')
   console.log('  -h, --help     Print this help')
-  process.exit(0)
+  process.exit(EXIT_OK)
 }
 
 // No CLI flags — run the hook execution engine.
