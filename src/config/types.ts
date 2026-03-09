@@ -1,4 +1,4 @@
-import type { EventName, HookName } from "../types/branded.js"
+import type { EventName, HookName, Milliseconds } from "../types/branded.js"
 
 export type ErrorMode = "block" | "continue" | "trace"
 
@@ -30,7 +30,7 @@ export interface ClooksConfig {
 }
 
 export interface GlobalConfig {
-  timeout: number
+  timeout: Milliseconds
   onError: ErrorMode
   maxFailures: number
   maxFailuresMessage: string
@@ -42,7 +42,7 @@ export interface HookEntry {
   /** Config overrides from clooks.yml (shallow-merged with hook's meta.config at load time). */
   config: Record<string, unknown>
   /** Per-hook timeout in ms, if set. */
-  timeout?: number
+  timeout?: Milliseconds
   /** Per-hook error handling override, if set. */
   onError?: ErrorMode
   /** If true, runs independently of the sequential pipeline. Default false. */

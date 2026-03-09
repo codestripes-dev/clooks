@@ -1,4 +1,4 @@
-import type { EventName, HookName } from "../types/branded.js"
+import type { EventName, HookName, Milliseconds } from "../types/branded.js"
 import type {
   ClooksConfig,
   ErrorMode,
@@ -62,7 +62,7 @@ export function validateConfig(raw: Record<string, unknown>): ClooksConfig {
     }
     const cfg = raw.config
     if (cfg.timeout !== undefined) {
-      global.timeout = validatePositiveNumber(cfg.timeout, "global config")
+      global.timeout = validatePositiveNumber(cfg.timeout, "global config") as Milliseconds
     }
     if (cfg.onError !== undefined) {
       global.onError = validateErrorMode(cfg.onError, "global config")
@@ -133,7 +133,7 @@ export function validateConfig(raw: Record<string, unknown>): ClooksConfig {
       // Validate as hook entry
       let config: Record<string, unknown> = {}
       let path: string | undefined
-      let timeout: number | undefined
+      let timeout: Milliseconds | undefined
       let onError: ErrorMode | undefined
       let parallel = false
       let maxFailures: number | undefined
@@ -156,7 +156,7 @@ export function validateConfig(raw: Record<string, unknown>): ClooksConfig {
         path = value.path
       }
       if (value.timeout !== undefined) {
-        timeout = validatePositiveNumber(value.timeout, `hook "${key}"`)
+        timeout = validatePositiveNumber(value.timeout, `hook "${key}"`) as Milliseconds
       }
       if (value.onError !== undefined) {
         onError = validateErrorMode(value.onError, `hook "${key}"`)

@@ -6,7 +6,7 @@ import { translateResult, matchHooksForEvent, executeHooks, interpolateMessage, 
 import type { LoadedHook, HookLoadError } from "./loader.js";
 import type { ClooksHook } from "./types/hook.js";
 import type { ClooksConfig } from "./config/types.js";
-import type { HookName } from "./types/branded.js";
+import type { HookName, Milliseconds } from "./types/branded.js";
 import { DEFAULT_MAX_FAILURES_MESSAGE } from "./config/constants.js";
 import { readFailures } from "./failures.js";
 
@@ -331,7 +331,7 @@ function makeTestConfig(
   return {
     version: "1.0.0",
     global: {
-      timeout: 30000,
+      timeout: 30000 as Milliseconds,
       onError: globalOnError,
       maxFailures: globalMaxFailures,
       maxFailuresMessage: DEFAULT_MAX_FAILURES_MESSAGE,

@@ -11,6 +11,9 @@ export type EventName =
 /** Branded type for hook names — distinguishes hook names from event names and other strings. */
 export type HookName = string & { __brand: "HookName" }
 
+/** Branded type for timeout values — distinguishes milliseconds from plain numbers (failure counts, etc.). */
+export type Milliseconds = number & { __brand: "Milliseconds" }
+
 // Branded string types for enum-like fields.
 // Pattern: known values + (string & {}) for forward-compatibility.
 
