@@ -645,10 +645,10 @@ describe('entrypoint dedup behavior', () => {
 
     const entrypointPath = join(tempDir, '.clooks', 'bin', 'entrypoint.sh')
 
-    // Do NOT create the flag file — entrypoint should proceed to binary check
-    // Since the binary doesn't exist, it should exit 2 (bootstrap detection)
+    // Do NOT create the flag file — entrypoint should proceed to binary check.
+    // Use a restricted PATH so `command -v clooks` won't find a real binary.
     const proc = Bun.spawnSync(['bash', entrypointPath], {
-      env: { ...process.env, HOME: fakeHome },
+      env: { HOME: fakeHome, PATH: '/usr/local/bin:/usr/bin:/bin' },
       stdin: Buffer.from('{}'),
     })
     // Should exit 2 because the binary isn't installed

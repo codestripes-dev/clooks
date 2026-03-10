@@ -26,11 +26,11 @@ const DEDUP_CHECK =
 /** Shared body: binary location, bootstrap detection, stdin capture, debug logging, delegation, fail-closed. */
 const ENTRYPOINT_BODY =
   '\n' +
-  '# Locate the compiled Clooks binary.\n' +
-  'CLOOKS_BIN="${CLOOKS_HOME:-$HOME/.clooks}/bin/clooks"\n' +
+  '# Locate the Clooks binary on PATH.\n' +
+  'CLOOKS_BIN=$(command -v clooks 2>/dev/null) || true\n' +
   '\n' +
-  '# Bootstrap detection: block if binary missing (fail-closed).\n' +
-  'if [ ! -x "$CLOOKS_BIN" ]; then\n' +
+  '# Bootstrap detection: block if binary not found (fail-closed).\n' +
+  'if [ -z "$CLOOKS_BIN" ]; then\n' +
   "  cat >&2 <<'MSG'\n" +
   '[clooks] Binary not found. This project uses Clooks but it is not installed.\n' +
   'Install: curl -fsSL https://clooks.cc/install | bash\n' +

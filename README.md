@@ -22,7 +22,7 @@ Native hooks are raw and limited — bash scripts in JSON config, no error handl
 # Build from source (requires Bun)
 git clone <repo> && cd clooks
 bun install && bun run build
-# Copy dist/clooks to ~/.clooks/bin/clooks
+# Copy dist/clooks somewhere on your PATH (e.g., ~/.local/bin/)
 
 # Initialize in your project
 clooks init
@@ -529,7 +529,6 @@ Global and project configs merge at load time:
 | `SKIP_CLOOKS=true` | Bypass all hook processing entirely |
 | `CLOOKS_DEBUG=true` | Enable debug logging (stderr + agent context) |
 | `CLOOKS_TIMEOUT=10` | Override entrypoint timeout in seconds (default: 5) |
-| `CLOOKS_HOME=/path` | Override home directory for binary lookup |
 | `CLOOKS_HOME_ROOT=/path` | Override home directory for config resolution |
 | `CLOOKS_LOGDIR=/path` | Directory for debug JSON logs (default: `/tmp/clooks-debug`) |
 

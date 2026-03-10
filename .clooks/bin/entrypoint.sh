@@ -12,11 +12,11 @@ if [ -f "$HOME/.clooks/.global-entrypoint-active" ]; then
   exit 0
 fi
 
-# Locate the compiled Clooks binary.
-CLOOKS_BIN="${CLOOKS_HOME:-$HOME/.clooks}/bin/clooks"
+# Locate the Clooks binary on PATH.
+CLOOKS_BIN=$(command -v clooks 2>/dev/null) || true
 
-# Bootstrap detection: block if binary missing (fail-closed).
-if [ ! -x "$CLOOKS_BIN" ]; then
+# Bootstrap detection: block if binary not found (fail-closed).
+if [ -z "$CLOOKS_BIN" ]; then
   cat >&2 <<'MSG'
 [clooks] Binary not found. This project uses Clooks but it is not installed.
 Install: curl -fsSL https://clooks.cc/install | bash
