@@ -43,6 +43,8 @@ import type {
   TaskCompletedResult,
 } from "./results.js"
 
+import type { BeforeHookEvent, AfterHookEvent } from "./lifecycle.js"
+
 export type MaybeAsync<T> = T | Promise<T>
 
 export interface HookMeta<C extends Record<string, unknown> = Record<string, unknown>> {
@@ -56,6 +58,11 @@ export interface HookMeta<C extends Record<string, unknown> = Record<string, unk
 
 export interface ClooksHook<C extends Record<string, unknown> = Record<string, unknown>> {
   meta: HookMeta<C>
+
+  /** Runs before the matched event handler. Call event.respond() to block. */
+  beforeHook?: (event: BeforeHookEvent, config: C) => MaybeAsync<void>
+  /** Runs after the matched event handler completes normally. Call event.respond() to override. */
+  afterHook?: (event: AfterHookEvent, config: C) => MaybeAsync<void>
 
   // Guard events
   PreToolUse?: (ctx: PreToolUseContext, config: C) => MaybeAsync<PreToolUseResult>
