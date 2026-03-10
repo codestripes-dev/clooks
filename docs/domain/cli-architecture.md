@@ -145,6 +145,18 @@ With `--resolved`, outputs the fully merged config with **provenance annotations
 
 The resolved command loads all three config files independently (does not reuse `loadConfig()`) to track per-value provenance.
 
+### `clooks types` / `clooks types --global`
+
+Extracts the embedded `.d.ts` type declarations to `.clooks/hooks/types.d.ts`. The file provides `ClooksHook`, all 18 event context types, all result types, and config generics — giving hook authors full IntelliSense without npm or package.json.
+
+Always overwrites unconditionally (no version check). With `--global`, writes to `~/.clooks/hooks/types.d.ts` instead. Supports `--json` for structured output.
+
+### `clooks new-hook`
+
+Interactive scaffolding command. Prompts for a hook name (kebab-case validated) and scope (project/global), then generates a ready-to-edit `.ts` hook file with the correct `import type { ClooksHook } from './types'` and a typed `ClooksHook<Config>` export.
+
+Refuses to overwrite an existing file (safe by default). Does NOT auto-register the hook in `clooks.yml` — users must add it manually. Supports `--name` and `--json` flags for non-interactive use.
+
 ## Key Files
 
 - `src/cli.ts` — Dual-mode dispatch, signal handlers, version check.
@@ -153,6 +165,8 @@ The resolved command loads all three config files independently (does not reuse 
 - `src/commands/config.ts` — `createConfigCommand()` — config display and `--resolved` provenance.
 - `src/commands/init.ts` — `createInitCommand()` — project and global setup (`clooks init`, `clooks init --global`).
 - `src/settings.ts` — Settings.json management utility (register/unregister Clooks in `.claude/settings.json`).
+- `src/commands/types.ts` — `createTypesCommand()` — extracts embedded .d.ts type declarations (`clooks types`, `clooks types --global`).
+- `src/commands/new-hook.ts` — `createNewHookCommand()` — interactive hook scaffolding (`clooks new-hook`).
 - `src/commands/stubs.ts` — `registerStubs()` — placeholder commands for register, test.
 - `src/tui/context.ts` — `OutputContext` type and `getCtx(cmd)` helper.
 - `src/tui/json-envelope.ts` — `JsonEnvelope` type, `jsonSuccess()`, `jsonError()`.

@@ -115,6 +115,32 @@ The engine uses `normalizeKeys()` to bridge these layers on input. Output transl
 
 Claude Code requires a `hookEventName` field set to the event name string inside every `hookSpecificOutput` object in the JSON output. This is a Claude Code requirement, not optional — without it, Claude Code treats the output as invalid and shows "hook error". The engine's `translateResult()` function sets this field automatically. The field is defined in `src/types/claude-code.ts` on output types like `PreToolUseOutput`.
 
+## .d.ts Type Declarations
+
+Hook authors get full TypeScript type support via a generated `types.d.ts` file placed in the hooks directory (`.clooks/hooks/types.d.ts` for project scope, `~/.clooks/hooks/types.d.ts` for global scope). This file contains the complete public type surface — `ClooksHook`, all 18 event contexts, all result types, config generics, and branded string unions.
+
+### Build pipeline
+
+The build pipeline produces a single `.d.ts` file and embeds it in the compiled binary:
+
+1. **Generate** — `scripts/generate-types.ts` runs `dts-bundle-generator` with `--no-check` and `--export-referenced-types=false` against `src/types/index.ts`. Output goes to `src/generated/clooks-types.d.ts` (gitignored).
+2. **Embed** — The binary imports the generated file as a string constant via Bun text import: `import EMBEDDED_TYPES_DTS from '../generated/clooks-types.d.ts' with { type: 'text' }`. TypeScript is satisfied by an ambient module declaration in `src/text-imports.d.ts`. This works in both `bun run` (interpreted) and `bun build --compile` (compiled binary).
+3. **Extract** — `clooks types` and `clooks init` write the embedded string to disk as `types.d.ts` with a version header comment.
+
+### Source of truth vs. generated artifact
+
+`src/types/index.ts` is the source of truth for the public type surface. It re-exports exactly 57 types from the submodules in `src/types/`. The generated `.clooks/hooks/types.d.ts` is a build artifact derived entirely from this barrel — hook authors should never edit it. Running `clooks types` regenerates it from the binary's embedded copy.
+
+### Hook author import
+
+Hook files import types from the co-located declarations file:
+
+```typescript
+import type { ClooksHook } from './types'
+```
+
+This replaces the previous repo-internal import (`../../src/types/hook.js`) and works in any project directory after `clooks init` or `clooks types`.
+
 ## Gotchas
 
 - **`claude-code.ts` is separate** — Don't import engine types in hook code or vice versa. They serve different layers.
