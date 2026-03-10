@@ -8,7 +8,7 @@ import { VERSION } from "../src/index.js"
 
 const ROOT = resolve(dirname(import.meta.dir))
 const OUT_DIR = resolve(ROOT, "src/generated")
-const OUT_FILE = resolve(OUT_DIR, "clooks-types.d.ts")
+const OUT_FILE = resolve(OUT_DIR, "clooks-types.d.ts.txt")
 const ENTRY = resolve(ROOT, "src/types/index.ts")
 const TSCONFIG = resolve(ROOT, "tsconfig.json")
 
