@@ -30,7 +30,7 @@ export function isClooksHook(hook: unknown): boolean {
   ) {
     return false
   }
-  const cmd = (hook as Record<string, string>).command
+  const cmd = (hook as Record<string, string>).command!
   return cmd.endsWith(".clooks/bin/entrypoint.sh")
 }
 
