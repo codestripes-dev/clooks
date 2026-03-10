@@ -4,6 +4,14 @@ import { mkdirSync } from "fs"
 import { createHash } from "crypto"
 import type { EventName, HookName } from "./types/branded.js"
 
+/**
+ * Synthetic event key for load/import errors.
+ * Load errors are event-independent — a hook that fails to import should
+ * accumulate failures in a single counter regardless of which event triggered
+ * the invocation. This avoids the N-events × threshold multiplication problem.
+ */
+export const LOAD_ERROR_EVENT = "__load__" as EventName
+
 export interface HookEventFailure {
   consecutiveFailures: number
   lastError: string

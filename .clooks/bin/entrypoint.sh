@@ -6,6 +6,12 @@ if [ "${SKIP_CLOOKS:-}" = "true" ]; then
   exit 0
 fi
 
+# Global entrypoint dedup: if a global entrypoint is active, this project
+# entrypoint is a noop (the global one handles the merged pipeline).
+if [ -f "$HOME/.clooks/.global-entrypoint-active" ]; then
+  exit 0
+fi
+
 # Locate the compiled Clooks binary.
 CLOOKS_BIN="${CLOOKS_HOME:-$HOME/.clooks}/bin/clooks"
 
