@@ -34,6 +34,8 @@ import { INJECTABLE_EVENTS, isEventName } from "./config/constants.js";
 import { readFailures, writeFailures, recordFailure, clearFailure, getFailureCount, getFailurePath, LOAD_ERROR_EVENT } from "./failures.js";
 import { orderHooksForEvent, partitionIntoGroups } from "./ordering.js";
 import type { OrderedHook, ExecutionGroup } from "./ordering.js";
+import { runHookLifecycle, LifecycleMetaCache } from "./lifecycle.js";
+import type { LifecycleResult } from "./lifecycle.js";
 
 /** Exit 0: success. Stdout may contain JSON output. */
 export const EXIT_OK = 0 as const;
@@ -330,26 +332,6 @@ function formatTraceMessage(
   return `Hook "${hookName}" errored: ${errorType}: ${firstLine}. Configured as onError: trace — action not affected.`;
 }
 
-async function runHookWithTimeout(
-  handler: Function,
-  args: [Record<string, unknown>, Record<string, unknown>],
-  timeoutMs: number,
-  hookName: string,
-): Promise<unknown> {
-  let timer: ReturnType<typeof setTimeout>
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(
-      () => reject(new Error(`hook "${hookName}" timed out after ${timeoutMs}ms`)),
-      timeoutMs,
-    )
-  })
-  try {
-    return await Promise.race([handler(...args), timeout])
-  } finally {
-    clearTimeout(timer!)
-  }
-}
-
 function resolveTimeout(hookName: HookName, config: ClooksConfig): number {
   return config.hooks[hookName]?.timeout ?? config.global.timeout
 }
@@ -383,6 +365,7 @@ export async function executeHooks(
 
   let failureState = await readFailures(failurePath);
   let failuresDirty = false;
+  const lifecycleMetaCache = new LifecycleMetaCache();
 
   // Process load errors through the circuit breaker.
   // Import failures always block regardless of onError config.
@@ -438,9 +421,6 @@ export async function executeHooks(
     const sharedController = new AbortController();
     for (const hook of group.hooks) {
       const loaded = hook.loaded;
-      const handler = (loaded.hook as unknown as Record<string, unknown>)[
-        eventName
-      ] as Function;
       const { maxFailures, maxFailuresMessage } = resolveMaxFailures(loaded.name, config);
 
       // Build context: clone normalized, set pipeline fields
@@ -456,9 +436,9 @@ export async function executeHooks(
 
       const timeout = resolveTimeout(loaded.name, config);
 
-      let result: unknown;
+      let lifecycleResult: LifecycleResult;
       try {
-        result = await runHookWithTimeout(handler, [context, loaded.config], timeout, loaded.name);
+        lifecycleResult = await runHookLifecycle(loaded, eventName, context, timeout, lifecycleMetaCache);
       } catch (e) {
         const errorMessage = e instanceof Error ? e.message : String(e);
         const onErrorMode = resolveOnError(loaded.name, eventName, config);
@@ -519,6 +499,15 @@ export async function executeHooks(
         failuresDirty = true;
       }
 
+      // Debug logging for lifecycle phases
+      if (debug && lifecycleResult.blockedByBefore) {
+        debugMessages.push(`hook="${loaded.name}" beforeHook: blocked`);
+      }
+      if (debug && lifecycleResult.overriddenByAfter) {
+        debugMessages.push(`hook="${loaded.name}" afterHook: overridden result`);
+      }
+
+      const result = lifecycleResult.result;
       if (result === undefined || result === null) {
         if (debug) {
           debugMessages.push(`hook="${loaded.name}" event="${eventName}" returned: null/undefined`);
@@ -577,7 +566,8 @@ export async function executeHooks(
 
     function shouldShortCircuit(settled: SettledHookResult): boolean {
       if (settled.status === "fulfilled") {
-        const val = settled.value as EngineResult | undefined;
+        const lr = settled.value as LifecycleResult;
+        const val = lr.result as EngineResult | undefined;
         if (val?.result === "block") return true;
         if (val?.updatedInput) return true; // contract violation
       }
@@ -601,9 +591,6 @@ export async function executeHooks(
     // Build tasks — start all hooks concurrently
     const hookTasks = group.hooks.map((hook) => {
       const loaded = hook.loaded;
-      const handler = (loaded.hook as unknown as Record<string, unknown>)[
-        eventName
-      ] as Function;
 
       // Build context: all parallel hooks see the same toolInput
       const context: Record<string, unknown> = { ...normalized };
@@ -617,7 +604,7 @@ export async function executeHooks(
       context.signal = controller.signal;
 
       const timeout = resolveTimeout(loaded.name, config);
-      const promise = runHookWithTimeout(handler, [context, loaded.config], timeout, loaded.name);
+      const promise = runHookLifecycle(loaded, eventName, context, timeout, lifecycleMetaCache);
 
       return { promise, hookName: loaded.name };
     });
@@ -671,7 +658,17 @@ export async function executeHooks(
       if (!settled) continue; // unsettled (short-circuited before this hook finished)
 
       if (settled.status === "fulfilled") {
-        const val = settled.value as EngineResult | undefined;
+        const lr = settled.value as LifecycleResult;
+        const val = lr.result as EngineResult | undefined;
+
+        // Add lifecycle debug logging
+        if (debug && lr.blockedByBefore) {
+          debugMessages.push(`hook="${settled.hookName}" beforeHook: blocked (parallel)`);
+        }
+        if (debug && lr.overriddenByAfter) {
+          debugMessages.push(`hook="${settled.hookName}" afterHook: overridden result (parallel)`);
+        }
+
         if (!val || val.result === "skip") continue;
 
         // Contract violation: updatedInput in parallel mode
@@ -765,7 +762,8 @@ export async function executeHooks(
       if (!settled) continue;
 
       if (settled.status === "fulfilled") {
-        const val = settled.value as EngineResult | undefined;
+        const lr = settled.value as LifecycleResult;
+        const val = lr.result as EngineResult | undefined;
 
         // Contract violations already recorded above
         if (val?.updatedInput) continue;
