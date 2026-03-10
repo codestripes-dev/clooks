@@ -525,4 +525,186 @@ describe("lifecycle integration", () => {
     expect(receivedEvent.meta).toBeDefined()
     expect(typeof receivedEvent.respond).toBe("function")
   })
+
+  // --- Edge-case tests (M4 Step 2) ---
+
+  test("respond(undefined) in afterHook is rejected with error", async () => {
+    const hook = makeLoadedHook("undefined-respond", {
+      PreToolUse() {
+        return { result: "allow" }
+      },
+      afterHook(event: any) {
+        // respond(undefined) should throw — it is rejected by createRespondCallback
+        event.respond(undefined as any)
+      },
+    })
+
+    const dir = makeTempDir()
+    const config = makeTestConfig({ "undefined-respond": {} })
+    const { lastResult } = await executeHooks(
+      [hook], "PreToolUse",
+      { event: "PreToolUse", toolName: "Bash", toolInput: {} },
+      config, fp(dir),
+    )
+
+    // Should error (onError: block)
+    expect(lastResult?.result).toBe("block")
+    expect(lastResult?.reason).toContain("non-null result")
+  })
+
+  test("beforeHook defined, afterHook not — handler result used", async () => {
+    const hook = makeLoadedHook("before-only", {
+      beforeHook() {
+        // No-op — does not call respond
+      },
+      PreToolUse() {
+        return { result: "allow" }
+      },
+    })
+
+    const dir = makeTempDir()
+    const config = makeTestConfig({ "before-only": {} })
+    const { lastResult } = await executeHooks(
+      [hook], "PreToolUse",
+      { event: "PreToolUse", toolName: "Bash", toolInput: {} },
+      config, fp(dir),
+    )
+
+    expect(lastResult?.result).toBe("allow")
+  })
+
+  test("afterHook defined, beforeHook not — can override result", async () => {
+    const hook = makeLoadedHook("after-only", {
+      PreToolUse() {
+        return { result: "block", reason: "original" }
+      },
+      afterHook(event: any) {
+        if (event.type === "PreToolUse") {
+          event.respond({ result: "allow" })
+        }
+      },
+    })
+
+    const dir = makeTempDir()
+    const config = makeTestConfig({ "after-only": {} })
+    const { lastResult } = await executeHooks(
+      [hook], "PreToolUse",
+      { event: "PreToolUse", toolName: "Bash", toolInput: {} },
+      config, fp(dir),
+    )
+
+    expect(lastResult?.result).toBe("allow")
+  })
+
+  test("both lifecycle methods defined, neither calls respond — handler result passes through", async () => {
+    const hook = makeLoadedHook("noop-lifecycle", {
+      beforeHook() { /* no-op */ },
+      PreToolUse() {
+        return { result: "allow", injectContext: "from handler" }
+      },
+      afterHook() { /* no-op */ },
+    })
+
+    const dir = makeTempDir()
+    const config = makeTestConfig({ "noop-lifecycle": {} })
+    const { lastResult } = await executeHooks(
+      [hook], "PreToolUse",
+      { event: "PreToolUse", toolName: "Bash", toolInput: {} },
+      config, fp(dir),
+    )
+
+    expect(lastResult?.result).toBe("allow")
+    expect(lastResult?.injectContext).toContain("from handler")
+  })
+
+  test("lifecycle on observe event — afterHook override still treated as skip by engine", async () => {
+    let afterHookCalled = false
+
+    const hook = makeLoadedHook("observe-lifecycle", {
+      SessionStart() {
+        return { result: "skip" }
+      },
+      afterHook(event: any) {
+        afterHookCalled = true
+        if (event.type === "SessionStart") {
+          // Override with skip+injectContext — but the engine treats skip
+          // results as no-ops (they don't set lastNonSkipResult), so the
+          // injectContext is lost. This is correct behavior: observe events
+          // can only skip, and skip does not affect pipeline state.
+          event.respond({ result: "skip", injectContext: "added by afterHook" })
+        }
+      },
+    })
+
+    const dir = makeTempDir()
+    const config = makeTestConfig({ "observe-lifecycle": {} })
+    const { lastResult } = await executeHooks(
+      [hook], "SessionStart",
+      { event: "SessionStart", source: "startup" },
+      config, fp(dir),
+    )
+
+    // afterHook ran but its override is a skip — engine treats it as no-op
+    expect(afterHookCalled).toBe(true)
+    expect(lastResult).toBeUndefined()
+  })
+
+  test("sequential pipeline: hook A returns updatedInput, hook B beforeHook sees updated context", async () => {
+    let hookBInputToolName: string | undefined
+
+    const hookA = makeLoadedHook("updater", {
+      PreToolUse() {
+        return { result: "allow", updatedInput: { command: "echo updated" } }
+      },
+    })
+
+    const hookB = makeLoadedHook("inspector", {
+      beforeHook(event: any) {
+        if (event.type === "PreToolUse") {
+          hookBInputToolName = (event.input as any).toolInput?.command
+        }
+      },
+      PreToolUse() {
+        return { result: "allow" }
+      },
+    })
+
+    const dir = makeTempDir()
+    const config = makeTestConfig({ "updater": {}, "inspector": {} })
+    await executeHooks(
+      [hookA, hookB], "PreToolUse",
+      { event: "PreToolUse", toolName: "Bash", toolInput: { command: "echo original" } },
+      config, fp(dir),
+    )
+
+    // hookB's beforeHook should see the updated toolInput from hookA
+    expect(hookBInputToolName).toBe("echo updated")
+  })
+
+  // --- Performance regression test (M4 Step 3) ---
+
+  test("hooks without lifecycle methods have negligible overhead", async () => {
+    const hook = makeLoadedHook("plain-perf", {
+      PreToolUse() {
+        return { result: "allow" }
+      },
+    })
+
+    const dir = makeTempDir()
+    const config = makeTestConfig({ "plain-perf": {} })
+
+    const start = performance.now()
+    for (let i = 0; i < 100; i++) {
+      await executeHooks(
+        [hook], "PreToolUse",
+        { event: "PreToolUse", toolName: "Bash", toolInput: {} },
+        config, fp(dir),
+      )
+    }
+    const elapsed = performance.now() - start
+    const perCall = elapsed / 100
+
+    // Should be well under 5ms per call on any reasonable machine
+    expect(perCall).toBeLessThan(5)
+  })
 })
