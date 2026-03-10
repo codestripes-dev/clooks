@@ -128,15 +128,23 @@ Each `HookEntry` carries an `origin: HookOrigin` field (`"home" | "project"`) an
 
 ## Cascade Rules
 
-**Timeout** cascades: hook → global → default (30000ms). No event level. The resolution function `resolveTimeout(hookName, config)` in the engine checks `config.hooks[hookName]?.timeout` first, then falls back to `config.global.timeout` (which defaults to 30000ms / `DEFAULT_TIMEOUT`). Each hook invocation gets its own timeout via `runHookWithTimeout`, which races the handler promise against a `setTimeout` reject.
+**Timeout** cascades: hook → global → default (30000ms). No event level. The resolution function `resolveTimeout(hookName, config)` in the engine checks `config.hooks[hookName]?.timeout` first, then falls back to `config.global.timeout` (which defaults to 30000ms / `DEFAULT_TIMEOUT`). Each hook invocation gets its own timeout via `runHookLifecycle`, which races the entire lifecycle (beforeHook + handler + afterHook) against a single `setTimeout` reject. A `beforeHook` that consumes most of the timeout budget leaves less time for the handler and `afterHook`.
 
-**onError** cascades through three levels: hook+event → hook → global → `"block"` default. The `"trace"` mode is only valid at hook or hook+event level (rejected at global level). At hook+event level, `"trace"` is rejected at parse time for non-injectable events. At hook level, `"trace"` triggers a runtime fallback to `"continue"` for non-injectable events (with a startup warning).
+**onError** cascades through three levels: hook+event → hook → global → `"block"` default. The `"trace"` mode is only valid at hook or hook+event level (rejected at global level). At hook+event level, `"trace"` is rejected at parse time for non-injectable events. At hook level, `"trace"` triggers a runtime fallback to `"continue"` for non-injectable events (with a startup warning). Errors in lifecycle methods (`beforeHook` and `afterHook`) use the same onError cascade as the event handler — the engine does not distinguish which phase threw.
 
 **maxFailures** and **maxFailuresMessage** cascade: hook → global → default. `maxFailures: 0` disables the circuit breaker. `maxFailures` does NOT increment for execution errors on hooks configured with `onError: "continue"` or `"trace"`. Import/load failures always count regardless of onError config.
 
 ## Execution Group Model
 
 When the engine executes hooks for an event, it partitions them into **execution groups** — contiguous runs of hooks that share the same execution mode (parallel or sequential). The pipeline processes groups in order, and a block result from any group stops the entire pipeline.
+
+### Lifecycle Methods
+
+When a hook defines `beforeHook` and/or `afterHook`, the lifecycle is an atomic unit within the hook's execution. In sequential groups, the lifecycle (beforeHook → handler → afterHook) runs as part of the sequential flow. In parallel groups, the lifecycle is atomic within the hook's promise chain — each hook's lifecycle runs independently of other hooks in the batch.
+
+The `LoadedHook` interface carries two fields used by the lifecycle system:
+- `hookPath: string` — Absolute path to the hook's `.ts` file. Populated by `loadHook()`.
+- `configPath: string` — Absolute path to the `clooks.yml` that registered the hook. Derived from the hook's origin (home or project).
 
 ### Ordering
 
@@ -170,7 +178,7 @@ A diagnostic warning is emitted when a single parallel hook is sandwiched betwee
 
 ## Circuit Breaker
 
-A hook+event pair that fails N consecutive times (default 3) enters "degraded mode." In degraded mode the hook is skipped instead of blocking, but it is still retried on every invocation inside a safe try/catch. If it succeeds, the failure counter resets and the hook resumes normal operation automatically.
+A hook+event pair that fails N consecutive times (default 3) enters "degraded mode." In degraded mode the hook is skipped instead of blocking, but it is still retried on every invocation inside a safe try/catch. Lifecycle method failures (`beforeHook` and `afterHook` throws) share the hook's `(hookName, eventName)` failure counter — they are not tracked separately from handler failures. If it succeeds, the failure counter resets and the hook resumes normal operation automatically.
 
 **State storage:** Failure state is persisted in `.clooks/.failures` (JSON, gitignored). The file is managed entirely by the engine. It is created on first failure, updated on subsequent failures, and deleted when all hooks are healthy. The in-memory type is `FailureState = Record<HookName, Partial<Record<EventName, HookEventFailure>>>` — both dimensions are branded, preventing key confusion between hook names and event names.
 

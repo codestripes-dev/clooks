@@ -19,6 +19,7 @@ The type system is organized around the `ClooksHook<C>` interface — a single t
 - `src/types/results.ts` — 7 base result types + 18 per-event result types.
 - `src/types/contexts.ts` — `BaseContext` + 18 per-event context interfaces.
 - `src/types/hook.ts` — `MaybeAsync<T>`, `HookMeta<C>`, `ClooksHook<C>`.
+- `src/types/lifecycle.ts` — `EventContextMap`, `EventResultMap`, `HookEventMeta`, `BeforeHookEvent`, `AfterHookEvent`.
 - `src/types/claude-code.ts` — Raw Claude Code types (snake_case). Used by the engine for stdin parsing and stdout serialization. Not part of the hook-author-facing API.
 - `src/normalize.ts` — Recursive snake_case → camelCase key normalization. Used by the engine to convert Claude Code payloads into hook-author-facing context objects.
 
@@ -101,7 +102,7 @@ Hook `meta.config` defaults are shallow-merged with config overrides from `clook
 
 ### Runtime validation
 
-TypeScript types are erased when hook files are dynamically imported. The loader (`src/loader.ts`) performs runtime validation of every hook export via `validateHookExport()`. It checks: `hook` named export exists and is an object, `hook.meta` exists with a `name` string, and all non-`meta` properties are functions. Invalid hooks cause fail-closed behavior (the engine exits with code 2 and a diagnostic message on stderr).
+TypeScript types are erased when hook files are dynamically imported. The loader (`src/loader.ts`) performs runtime validation of every hook export via `validateHookExport()`. It checks: `hook` named export exists and is an object, `hook.meta` exists with a `name` string, all property keys are in the allowed set (`meta`, `beforeHook`, `afterHook`, plus 18 event names), and all non-`meta` properties are functions. Invalid hooks cause fail-closed behavior (the engine exits with code 2 and a diagnostic message on stderr).
 
 ### Two type layers
 
@@ -114,6 +115,63 @@ The engine uses `normalizeKeys()` to bridge these layers on input. Output transl
 ### `hookEventName` in `hookSpecificOutput`
 
 Claude Code requires a `hookEventName` field set to the event name string inside every `hookSpecificOutput` object in the JSON output. This is a Claude Code requirement, not optional — without it, Claude Code treats the output as invalid and shows "hook error". The engine's `translateResult()` function sets this field automatically. The field is defined in `src/types/claude-code.ts` on output types like `PreToolUseOutput`.
+
+## Lifecycle Types
+
+Hook authors can define optional `beforeHook` and `afterHook` methods on their `ClooksHook` objects. These lifecycle methods run before and after the matched event handler, enabling cross-cutting concerns like environment gating, timing, and result inspection/override.
+
+### Type definitions
+
+All lifecycle types live in `src/types/lifecycle.ts` and are re-exported from `src/types/index.ts`.
+
+**`EventContextMap` and `EventResultMap`** — Mapped types that associate each `EventName` with its context and result type. Used internally to generate the discriminated union types. Also independently useful for generic hook utilities that need to map over all events.
+
+**`HookEventMeta`** — Environment metadata carried by lifecycle events:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `gitRoot` | `string \| null` | Repo root via `git rev-parse --show-toplevel` |
+| `gitBranch` | `string \| null` | Current branch (null if detached HEAD) |
+| `platform` | `"darwin" \| "linux"` | OS platform |
+| `hookName` | `string` | This hook's name (same as `meta.name`) |
+| `hookPath` | `string` | Absolute path to the hook's `.ts` file |
+| `timestamp` | `string` | ISO 8601 timestamp of engine invocation start |
+| `clooksVersion` | `string` | Runtime version string |
+| `configPath` | `string` | Path to the `clooks.yml` that registered this hook |
+
+**`BeforeHookEvent`** — Discriminated union for `beforeHook`. Narrows `event.input` by `event.type`. The `respond()` callback uniformly accepts `BlockResult` — `beforeHook` can only block, not return event-specific results.
+
+```typescript
+// After narrowing on event.type:
+if (event.type === "PreToolUse") {
+  event.input.toolName  // ✅ narrowed to PreToolUseContext
+  event.respond({ result: "block", reason: "gated" })  // ✅ BlockResult
+}
+```
+
+**`AfterHookEvent`** — Discriminated union for `afterHook`. Both `handlerResult` and `respond()` narrow together with `type`. The `respond()` callback pattern provides compile-time type safety that return-based overrides cannot achieve (TypeScript does not narrow return types based on discriminant checks).
+
+```typescript
+if (event.type === "PreToolUse") {
+  event.handlerResult  // narrowed to PreToolUseResult
+  event.respond({ result: "allow" })  // ✅ accepts PreToolUseResult
+}
+```
+
+### ClooksHook extension
+
+`ClooksHook<C>` has two optional methods:
+
+```typescript
+beforeHook?: (event: BeforeHookEvent, config: C) => MaybeAsync<void>
+afterHook?: (event: AfterHookEvent, config: C) => MaybeAsync<void>
+```
+
+Both communicate results through the `respond()` callback, not through return values. If `respond()` is not called, the lifecycle phase is a no-op.
+
+### Runtime validation
+
+`validateHookExport()` in `src/loader.ts` enumerates allowed property keys on hook objects: `meta`, `beforeHook`, `afterHook`, plus all 18 event names. Unknown keys (e.g., typos like `beforHook`) produce a descriptive error listing the allowed names.
 
 ## .d.ts Type Declarations
 
