@@ -4,6 +4,7 @@ import { CancelError } from './tui/prompts.js'
 import { createConfigCommand } from './commands/config.js'
 import { createInitCommand } from './commands/init.js'
 import { createTypesCommand } from './commands/types.js'
+import { createNewHookCommand } from './commands/new-hook.js'
 import { registerStubs } from './commands/stubs.js'
 
 const program = new Command()
@@ -23,6 +24,7 @@ program
 program.addCommand(createConfigCommand())
 program.addCommand(createInitCommand())
 program.addCommand(createTypesCommand())
+program.addCommand(createNewHookCommand())
 registerStubs(program)
 
 export { program }
