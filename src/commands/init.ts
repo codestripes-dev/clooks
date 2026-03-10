@@ -8,6 +8,7 @@ import { printIntro, printSuccess, printInfo, printWarning, printError, printOut
 import { promptConfirm, isNonInteractive } from '../tui/prompts.js'
 import { registerClooks, CLOOKS_ENTRYPOINT_PATH } from '../settings.js'
 import { ENTRYPOINT_SCRIPT, GLOBAL_ENTRYPOINT_SCRIPT } from './init-entrypoint.js'
+import EMBEDDED_TYPES_DTS from '../generated/clooks-types.d.ts' with { type: 'text' }
 const STARTER_CONFIG = 'version: "1.0.0"\n\nconfig: {}\n'
 
 const GITIGNORE_LINES = [
@@ -60,6 +61,23 @@ async function initGlobal(cmd: Command): Promise<void> {
     const dirs = ['.clooks', '.clooks/hooks', '.clooks/bin', '.clooks/vendor']
     for (const dir of dirs) {
       mkdirSync(join(homeRoot, dir), { recursive: true })
+    }
+
+    // -- Write types.d.ts (always) --
+    const typesPath = join(homeRoot, '.clooks', 'hooks', 'types.d.ts')
+    const typesExisted = existsSync(typesPath)
+    let typesChanged = !typesExisted
+    if (typesExisted) {
+      const existing = readFileSync(typesPath, 'utf-8')
+      typesChanged = existing !== EMBEDDED_TYPES_DTS
+    }
+    writeFileSync(typesPath, EMBEDDED_TYPES_DTS)
+    if (!typesExisted) {
+      created.push('~/.clooks/hooks/types.d.ts')
+    } else if (typesChanged) {
+      updated.push('~/.clooks/hooks/types.d.ts')
+    } else {
+      skipped.push('~/.clooks/hooks/types.d.ts')
     }
 
     // -- Step 2: Write clooks.yml (only if missing) --
@@ -206,6 +224,23 @@ async function initProject(cmd: Command): Promise<void> {
       mkdirSync(join(projectRoot, dir), { recursive: true })
     }
 
+    // -- Write types.d.ts (always) --
+    const typesPath = join(projectRoot, '.clooks', 'hooks', 'types.d.ts')
+    const typesExisted = existsSync(typesPath)
+    let typesChanged = !typesExisted
+    if (typesExisted) {
+      const existing = readFileSync(typesPath, 'utf-8')
+      typesChanged = existing !== EMBEDDED_TYPES_DTS
+    }
+    writeFileSync(typesPath, EMBEDDED_TYPES_DTS)
+    if (!typesExisted) {
+      created.push('.clooks/hooks/types.d.ts')
+    } else if (typesChanged) {
+      updated.push('.clooks/hooks/types.d.ts')
+    } else {
+      skipped.push('.clooks/hooks/types.d.ts')
+    }
+
     // -- Step 2: Write clooks.yml (only if missing) --
     const configPath = join(projectRoot, '.clooks', 'clooks.yml')
     if (existsSync(configPath)) {
@@ -284,7 +319,7 @@ async function initProject(cmd: Command): Promise<void> {
     if (created.length === 0 && updated.length === 0) {
       // Fully idempotent re-run
       printSuccess(ctx, 'Already initialized \u2014 nothing to do.')
-      printInfo(ctx, 'Tip: run `clooks register` to add a hook.')
+      printInfo(ctx, 'Tip: run `clooks new-hook` to scaffold a hook.')
     } else {
       for (const item of created) {
         printSuccess(ctx, `Created ${item}`)
@@ -292,7 +327,7 @@ async function initProject(cmd: Command): Promise<void> {
       for (const item of updated) {
         printSuccess(ctx, `Updated ${item}`)
       }
-      printInfo(ctx, 'Next: write a hook and run `clooks register`.')
+      printInfo(ctx, 'Next: run `clooks new-hook` to scaffold a hook, then register it in clooks.yml.')
       printWarning(ctx, 'Restart Claude Code for hooks to take effect.')
     }
 

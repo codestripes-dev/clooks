@@ -213,6 +213,8 @@ describe('clooks init', () => {
     expect(parsed.data.updated).toBeInstanceOf(Array)
     // On first run, should have created items
     expect(parsed.data.created.length).toBeGreaterThan(0)
+    // types.d.ts should be in created on fresh init
+    expect(parsed.data.created).toContain('.clooks/hooks/types.d.ts')
   })
 
   test('handles malformed settings.json with clear error', async () => {
@@ -270,6 +272,67 @@ describe('clooks init', () => {
 
     // Files should be created
     expect(existsSync(join(tempDir, '.clooks', 'clooks.yml'))).toBe(true)
+  })
+
+  test('writes types.d.ts with correct content', async () => {
+    const program = createTestProgram()
+    await program.parseAsync(['init'], { from: 'user' })
+
+    const typesPath = join(tempDir, '.clooks', 'hooks', 'types.d.ts')
+    expect(existsSync(typesPath)).toBe(true)
+
+    const content = readFileSync(typesPath, 'utf-8')
+    expect(content).toContain('ClooksHook')
+  })
+
+  test('types.d.ts has version header', async () => {
+    const program = createTestProgram()
+    await program.parseAsync(['init'], { from: 'user' })
+
+    const typesPath = join(tempDir, '.clooks', 'hooks', 'types.d.ts')
+    const content = readFileSync(typesPath, 'utf-8')
+    const firstLine = content.split('\n')[0]
+    expect(firstLine!.startsWith('// Clooks v')).toBe(true)
+  })
+
+  test('types.d.ts updated on content change', async () => {
+    // Pre-create types.d.ts with dummy content
+    mkdirSync(join(tempDir, '.clooks', 'hooks'), { recursive: true })
+    writeFileSync(join(tempDir, '.clooks', 'hooks', 'types.d.ts'), '// dummy old content\n')
+
+    const program = createTestProgram()
+    await program.parseAsync(['--json', 'init'], { from: 'user' })
+
+    // Verify real content was written
+    const typesPath = join(tempDir, '.clooks', 'hooks', 'types.d.ts')
+    const content = readFileSync(typesPath, 'utf-8')
+    expect(content).toContain('ClooksHook')
+
+    // Verify JSON output reports it as updated
+    const output = stdoutSpy.mock.calls
+      .map((c: unknown[]) => String(c[0]))
+      .join('')
+    const parsed = JSON.parse(output.trim())
+    expect(parsed.data.updated).toContain('.clooks/hooks/types.d.ts')
+  })
+
+  test('types.d.ts skipped on idempotent re-run', async () => {
+    // First run
+    const program1 = createTestProgram()
+    await program1.parseAsync(['init'], { from: 'user' })
+
+    // Reset stdout spy for second run
+    stdoutSpy.mockClear()
+
+    // Second run in JSON mode
+    const program2 = createTestProgram()
+    await program2.parseAsync(['--json', 'init'], { from: 'user' })
+
+    const output = stdoutSpy.mock.calls
+      .map((c: unknown[]) => String(c[0]))
+      .join('')
+    const parsed = JSON.parse(output.trim())
+    expect(parsed.data.skipped).toContain('.clooks/hooks/types.d.ts')
   })
 })
 
@@ -426,6 +489,8 @@ describe('clooks init --global', () => {
     expect(parsed.data.global).toBe(true)
     expect(parsed.data.created).toBeInstanceOf(Array)
     expect(parsed.data.created.length).toBeGreaterThan(0)
+    // types.d.ts should be in created on fresh global init
+    expect(parsed.data.created).toContain('~/.clooks/hooks/types.d.ts')
   })
 
   test('bypasses home directory guardrail (--global is explicit intent)', async () => {
