@@ -1,0 +1,166 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://clooks.cc/schemas/clooks.schema.json",
+  "title": "clooks.yml",
+  "description": "Configuration file for Clooks — a hook runtime for AI coding agents.",
+  "type": "object",
+  "required": ["version"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "Semver version string for the config file format.",
+      "examples": ["1.0.0"]
+    },
+    "config": {
+      "$ref": "#/$defs/globalConfig"
+    },
+    "PreToolUse": { "$ref": "#/$defs/eventEntry" },
+    "PostToolUse": { "$ref": "#/$defs/eventEntry" },
+    "UserPromptSubmit": { "$ref": "#/$defs/eventEntry" },
+    "SessionStart": { "$ref": "#/$defs/eventEntry" },
+    "SessionEnd": { "$ref": "#/$defs/eventEntry" },
+    "Stop": { "$ref": "#/$defs/eventEntry" },
+    "SubagentStop": { "$ref": "#/$defs/eventEntry" },
+    "SubagentStart": { "$ref": "#/$defs/eventEntry" },
+    "InstructionsLoaded": { "$ref": "#/$defs/eventEntry" },
+    "PostToolUseFailure": { "$ref": "#/$defs/eventEntry" },
+    "Notification": { "$ref": "#/$defs/eventEntry" },
+    "PermissionRequest": { "$ref": "#/$defs/eventEntry" },
+    "ConfigChange": { "$ref": "#/$defs/eventEntry" },
+    "WorktreeCreate": { "$ref": "#/$defs/eventEntry" },
+    "WorktreeRemove": { "$ref": "#/$defs/eventEntry" },
+    "PreCompact": { "$ref": "#/$defs/eventEntry" },
+    "TeammateIdle": { "$ref": "#/$defs/eventEntry" },
+    "TaskCompleted": { "$ref": "#/$defs/eventEntry" }
+  },
+  "additionalProperties": {
+    "$ref": "#/$defs/hookEntry"
+  },
+  "$defs": {
+    "errorMode": {
+      "type": "string",
+      "enum": ["block", "continue", "trace"],
+      "description": "Error handling mode. 'block' stops execution (default). 'continue' logs and continues. 'trace' injects context (only allowed at hook/event level, not global)."
+    },
+    "errorModeGlobal": {
+      "type": "string",
+      "enum": ["block", "continue"],
+      "description": "Global error handling mode. 'trace' is not allowed at the global level."
+    },
+    "globalConfig": {
+      "type": "object",
+      "description": "Global settings applied to all hooks unless overridden.",
+      "properties": {
+        "timeout": {
+          "type": "number",
+          "description": "Default timeout for all hooks in milliseconds.",
+          "default": 30000,
+          "exclusiveMinimum": 0
+        },
+        "onError": {
+          "$ref": "#/$defs/errorModeGlobal",
+          "default": "block"
+        },
+        "maxFailures": {
+          "type": "integer",
+          "description": "Consecutive failures before a hook+event pair is degraded. Use 0 to disable the circuit breaker.",
+          "default": 3,
+          "minimum": 0
+        },
+        "maxFailuresMessage": {
+          "type": "string",
+          "description": "Template for the degradation reminder message. Supports {hook}, {event}, {count}, {error} interpolation."
+        }
+      },
+      "additionalProperties": false
+    },
+    "eventEntry": {
+      "type": "object",
+      "description": "Per-event configuration. Controls execution order for hooks registered to this event.",
+      "properties": {
+        "order": {
+          "type": "array",
+          "description": "Explicit execution order for hooks on this event. All entries must reference defined hooks.",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "hookEventOverride": {
+      "type": "object",
+      "description": "Per-event override for a specific hook.",
+      "properties": {
+        "onError": {
+          "$ref": "#/$defs/errorMode"
+        }
+      },
+      "additionalProperties": false
+    },
+    "hookEntry": {
+      "type": "object",
+      "description": "A hook entry. Any top-level key that is not 'version', 'config', or a Claude Code event name is treated as a hook.",
+      "properties": {
+        "config": {
+          "type": "object",
+          "description": "Hook-specific config overrides, shallow-merged with the hook's meta.config defaults at load time.",
+          "additionalProperties": true
+        },
+        "path": {
+          "type": "string",
+          "description": "Explicit file path relative to project root. Convention: .clooks/hooks/<name>.ts for local hooks, .clooks/vendor/<owner>/<name>/index.ts for marketplace hooks."
+        },
+        "timeout": {
+          "type": "number",
+          "description": "Per-hook timeout override in milliseconds.",
+          "exclusiveMinimum": 0
+        },
+        "onError": {
+          "$ref": "#/$defs/errorMode"
+        },
+        "parallel": {
+          "type": "boolean",
+          "description": "If true, runs independently of the sequential pipeline.",
+          "default": false
+        },
+        "maxFailures": {
+          "type": "integer",
+          "description": "Per-hook consecutive failure threshold override.",
+          "minimum": 0
+        },
+        "maxFailuresMessage": {
+          "type": "string",
+          "description": "Per-hook reminder message template override. Supports {hook}, {event}, {count}, {error} interpolation."
+        },
+        "events": {
+          "type": "object",
+          "description": "Per-hook, per-event overrides. Keys must be valid Claude Code event names.",
+          "properties": {
+            "PreToolUse": { "$ref": "#/$defs/hookEventOverride" },
+            "PostToolUse": { "$ref": "#/$defs/hookEventOverride" },
+            "UserPromptSubmit": { "$ref": "#/$defs/hookEventOverride" },
+            "SessionStart": { "$ref": "#/$defs/hookEventOverride" },
+            "SessionEnd": { "$ref": "#/$defs/hookEventOverride" },
+            "Stop": { "$ref": "#/$defs/hookEventOverride" },
+            "SubagentStop": { "$ref": "#/$defs/hookEventOverride" },
+            "SubagentStart": { "$ref": "#/$defs/hookEventOverride" },
+            "InstructionsLoaded": { "$ref": "#/$defs/hookEventOverride" },
+            "PostToolUseFailure": { "$ref": "#/$defs/hookEventOverride" },
+            "Notification": { "$ref": "#/$defs/hookEventOverride" },
+            "PermissionRequest": { "$ref": "#/$defs/hookEventOverride" },
+            "ConfigChange": { "$ref": "#/$defs/hookEventOverride" },
+            "WorktreeCreate": { "$ref": "#/$defs/hookEventOverride" },
+            "WorktreeRemove": { "$ref": "#/$defs/hookEventOverride" },
+            "PreCompact": { "$ref": "#/$defs/hookEventOverride" },
+            "TeammateIdle": { "$ref": "#/$defs/hookEventOverride" },
+            "TaskCompleted": { "$ref": "#/$defs/hookEventOverride" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

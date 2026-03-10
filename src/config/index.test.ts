@@ -284,6 +284,33 @@ security-scanner:
     rmSync(fakeHome, { recursive: true, force: true })
   })
 
+  test("no false shadows when projectRoot equals homeRoot (cwd is ~)", async () => {
+    // When the user runs clooks from their home directory, project and home
+    // resolve to the same .clooks/clooks.yml. The project layer should be
+    // skipped entirely to avoid every hook shadowing itself.
+    const fakeHome = mkdtempSync(join(tmpdir(), "clooks-home-test-"))
+    writeConfig(
+      fakeHome,
+      "clooks.yml",
+      `
+version: "1.0.0"
+my-hook-a: {}
+my-hook-b: {}
+`,
+    )
+
+    // projectRoot === homeRoot — same directory
+    const result = await loadConfig(fakeHome, { homeRoot: fakeHome })
+    expect(result).not.toBeNull()
+    expect(result!.shadows).toEqual([])
+    expect(result!.hasProjectConfig).toBe(false)
+    // All hooks should be origin "home"
+    expect(result!.config.hooks[hn("my-hook-a")]!.origin).toBe("home")
+    expect(result!.config.hooks[hn("my-hook-b")]!.origin).toBe("home")
+
+    rmSync(fakeHome, { recursive: true, force: true })
+  })
+
   test("home-first ordering preserved through full loadConfig pipeline", async () => {
     const fakeHome = mkdtempSync(join(tmpdir(), "clooks-home-test-"))
     writeConfig(

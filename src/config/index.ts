@@ -57,9 +57,13 @@ export async function loadConfig(
   const projectPath = join(projectRoot, ".clooks", "clooks.yml")
   const localPath = join(projectRoot, ".clooks", "clooks.local.yml")
 
+  // When cwd is the home directory, home and project resolve to the same file.
+  // Treat it as home-only to avoid false shadow warnings.
+  const isSameConfig = homePath === projectPath
+
   // Parse each file (all optional)
   const homeRaw = await tryParseYaml(homePath)
-  const projectRaw = await tryParseYaml(projectPath)
+  const projectRaw = isSameConfig ? undefined : await tryParseYaml(projectPath)
   const localRaw = await tryParseYaml(localPath)
 
   // If neither home nor project exists, return null

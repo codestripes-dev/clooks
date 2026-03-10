@@ -89,8 +89,8 @@ describe('clooks init', () => {
     const parsed = Bun.YAML.parse(content) as Record<string, unknown>
     expect(parsed.version).toBe('1.0.0')
     expect(parsed.config).toEqual({})
-    // Also verify exact content
-    expect(content).toBe('version: "1.0.0"\n\nconfig: {}\n')
+    // Should include yaml-language-server schema directive
+    expect(content).toContain('# yaml-language-server: $schema=./clooks.schema.json')
   })
 
   test('writes entrypoint script with executable permissions', async () => {
@@ -316,6 +316,50 @@ describe('clooks init', () => {
     expect(parsed.data.updated).toContain('.clooks/hooks/types.d.ts')
   })
 
+  test('writes clooks.schema.json with valid JSON Schema', async () => {
+    const program = createTestProgram()
+    await program.parseAsync(['init'], { from: 'user' })
+
+    const schemaPath = join(tempDir, '.clooks', 'clooks.schema.json')
+    expect(existsSync(schemaPath)).toBe(true)
+
+    const content = readFileSync(schemaPath, 'utf-8')
+    const parsed = JSON.parse(content)
+    expect(parsed.$schema).toContain('json-schema.org')
+    expect(parsed.title).toBe('clooks.yml')
+    expect(parsed.required).toContain('version')
+  })
+
+  test('clooks.schema.json updated on content change', async () => {
+    mkdirSync(join(tempDir, '.clooks'), { recursive: true })
+    writeFileSync(join(tempDir, '.clooks', 'clooks.schema.json'), '{}')
+
+    const program = createTestProgram()
+    await program.parseAsync(['--json', 'init'], { from: 'user' })
+
+    const output = stdoutSpy.mock.calls
+      .map((c: unknown[]) => String(c[0]))
+      .join('')
+    const parsed = JSON.parse(output.trim())
+    expect(parsed.data.updated).toContain('.clooks/clooks.schema.json')
+  })
+
+  test('clooks.schema.json skipped on idempotent re-run', async () => {
+    const program1 = createTestProgram()
+    await program1.parseAsync(['init'], { from: 'user' })
+
+    stdoutSpy.mockClear()
+
+    const program2 = createTestProgram()
+    await program2.parseAsync(['--json', 'init'], { from: 'user' })
+
+    const output = stdoutSpy.mock.calls
+      .map((c: unknown[]) => String(c[0]))
+      .join('')
+    const parsed = JSON.parse(output.trim())
+    expect(parsed.data.skipped).toContain('.clooks/clooks.schema.json')
+  })
+
   test('types.d.ts skipped on idempotent re-run', async () => {
     // First run
     const program1 = createTestProgram()
@@ -381,7 +425,7 @@ describe('clooks init --global', () => {
     expect(existsSync(configPath)).toBe(true)
 
     const content = readFileSync(configPath, 'utf-8')
-    expect(content).toBe('version: "1.0.0"\n\nconfig: {}\n')
+    expect(content).toContain('# yaml-language-server: $schema=./clooks.schema.json')
 
     const parsed = Bun.YAML.parse(content) as Record<string, unknown>
     expect(parsed.version).toBe('1.0.0')

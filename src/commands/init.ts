@@ -9,7 +9,9 @@ import { promptConfirm, isNonInteractive } from '../tui/prompts.js'
 import { registerClooks, CLOOKS_ENTRYPOINT_PATH } from '../settings.js'
 import { ENTRYPOINT_SCRIPT, GLOBAL_ENTRYPOINT_SCRIPT } from './init-entrypoint.js'
 import EMBEDDED_TYPES_DTS from '../generated/clooks-types.d.ts.txt' with { type: 'text' }
-const STARTER_CONFIG = 'version: "1.0.0"\n\nconfig: {}\n'
+import _EMBEDDED_SCHEMA from '../../schemas/clooks.schema.json' with { type: 'text' }
+const EMBEDDED_SCHEMA = _EMBEDDED_SCHEMA as unknown as string
+const STARTER_CONFIG = '# yaml-language-server: $schema=./clooks.schema.json\nversion: "1.0.0"\n\nconfig: {}\n'
 
 const GITIGNORE_LINES = [
   '# Clooks',
@@ -78,6 +80,23 @@ async function initGlobal(cmd: Command): Promise<void> {
       updated.push('~/.clooks/hooks/types.d.ts')
     } else {
       skipped.push('~/.clooks/hooks/types.d.ts')
+    }
+
+    // -- Write clooks.schema.json (always) --
+    const schemaPath = join(homeRoot, '.clooks', 'clooks.schema.json')
+    const schemaExisted = existsSync(schemaPath)
+    let schemaChanged = !schemaExisted
+    if (schemaExisted) {
+      const existing = readFileSync(schemaPath, 'utf-8')
+      schemaChanged = existing !== EMBEDDED_SCHEMA
+    }
+    writeFileSync(schemaPath, EMBEDDED_SCHEMA)
+    if (!schemaExisted) {
+      created.push('~/.clooks/clooks.schema.json')
+    } else if (schemaChanged) {
+      updated.push('~/.clooks/clooks.schema.json')
+    } else {
+      skipped.push('~/.clooks/clooks.schema.json')
     }
 
     // -- Step 2: Write clooks.yml (only if missing) --
@@ -239,6 +258,23 @@ async function initProject(cmd: Command): Promise<void> {
       updated.push('.clooks/hooks/types.d.ts')
     } else {
       skipped.push('.clooks/hooks/types.d.ts')
+    }
+
+    // -- Write clooks.schema.json (always) --
+    const schemaPath = join(projectRoot, '.clooks', 'clooks.schema.json')
+    const schemaExisted = existsSync(schemaPath)
+    let schemaChanged = !schemaExisted
+    if (schemaExisted) {
+      const existing = readFileSync(schemaPath, 'utf-8')
+      schemaChanged = existing !== EMBEDDED_SCHEMA
+    }
+    writeFileSync(schemaPath, EMBEDDED_SCHEMA)
+    if (!schemaExisted) {
+      created.push('.clooks/clooks.schema.json')
+    } else if (schemaChanged) {
+      updated.push('.clooks/clooks.schema.json')
+    } else {
+      skipped.push('.clooks/clooks.schema.json')
     }
 
     // -- Step 2: Write clooks.yml (only if missing) --
