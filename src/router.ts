@@ -3,6 +3,7 @@ import { VERSION } from './index.js'
 import { CancelError } from './tui/prompts.js'
 import { createConfigCommand } from './commands/config.js'
 import { createInitCommand } from './commands/init.js'
+import { createTypesCommand } from './commands/types.js'
 import { registerStubs } from './commands/stubs.js'
 
 const program = new Command()
@@ -21,6 +22,7 @@ program
 
 program.addCommand(createConfigCommand())
 program.addCommand(createInitCommand())
+program.addCommand(createTypesCommand())
 registerStubs(program)
 
 export { program }
