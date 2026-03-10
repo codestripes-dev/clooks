@@ -2,13 +2,13 @@ import { describe, test, expect } from "bun:test"
 import { existsSync } from "node:fs"
 import { resolve } from "node:path"
 
-const GENERATED_PATH = resolve(import.meta.dir, "../src/generated/clooks-types.d.ts")
+const GENERATED_PATH = resolve(import.meta.dir, "../src/generated/clooks-types.d.ts.txt")
 
 const skip = !existsSync(GENERATED_PATH)
 
 describe.skipIf(skip)("generate-types", () => {
   async function loadTypes(): Promise<string> {
-    const mod = await import("../src/generated/clooks-types.d.ts" as string, { with: { type: "text" } })
+    const mod = await import("../src/generated/clooks-types.d.ts.txt" as string, { with: { type: "text" } })
     return mod.default
   }
 
@@ -72,5 +72,5 @@ describe.skipIf(skip)("generate-types", () => {
 })
 
 if (skip) {
-  test.skip("generate-types (skipped: run build first to generate src/generated/clooks-types.d.ts)", () => {})
+  test.skip("generate-types (skipped: run build first to generate src/generated/clooks-types.d.ts.txt)", () => {})
 }

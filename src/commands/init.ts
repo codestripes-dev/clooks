@@ -8,7 +8,7 @@ import { printIntro, printSuccess, printInfo, printWarning, printError, printOut
 import { promptConfirm, isNonInteractive } from '../tui/prompts.js'
 import { registerClooks, CLOOKS_ENTRYPOINT_PATH } from '../settings.js'
 import { ENTRYPOINT_SCRIPT, GLOBAL_ENTRYPOINT_SCRIPT } from './init-entrypoint.js'
-import EMBEDDED_TYPES_DTS from '../generated/clooks-types.d.ts' with { type: 'text' }
+import EMBEDDED_TYPES_DTS from '../generated/clooks-types.d.ts.txt' with { type: 'text' }
 const STARTER_CONFIG = 'version: "1.0.0"\n\nconfig: {}\n'
 
 const GITIGNORE_LINES = [

@@ -1,4 +1,4 @@
-declare module '*.d.ts' {
+declare module '*.d.ts.txt' {
   const content: string
   export default content
 }

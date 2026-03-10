@@ -5,7 +5,7 @@ import os from 'os'
 import { getCtx } from '../tui/context.js'
 import { jsonSuccess, jsonError } from '../tui/json-envelope.js'
 import { printIntro, printSuccess, printInfo, printWarning, printError, printOutro } from '../tui/output.js'
-import EMBEDDED_TYPES_DTS from '../generated/clooks-types.d.ts' with { type: 'text' }
+import EMBEDDED_TYPES_DTS from '../generated/clooks-types.d.ts.txt' with { type: 'text' }
 
 export function createTypesCommand(): Command {
   return new Command('types')

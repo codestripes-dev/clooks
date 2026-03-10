@@ -53,7 +53,7 @@ export async function promptText(
     message: opts.message,
     placeholder: opts.placeholder,
     defaultValue: opts.defaultValue,
-    validate: opts.validate,
+    validate: opts.validate as ((value: string | undefined) => string | Error | undefined) | undefined,
   })
   return withCancel(result)
 }
