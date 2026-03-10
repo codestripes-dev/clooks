@@ -1,5 +1,5 @@
 import { Command, CommanderError } from 'commander'
-import { VERSION } from './index.js'
+import { VERSION } from './version.js'
 import { CancelError } from './tui/prompts.js'
 import { createConfigCommand } from './commands/config.js'
 import { createInitCommand } from './commands/init.js'

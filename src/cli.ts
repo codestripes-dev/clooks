@@ -1,4 +1,4 @@
-import { VERSION } from './index'
+import { VERSION } from './version'
 import { runEngine, EXIT_OK, EXIT_STDERR } from './engine.js'
 import { KNOWN_COMMANDS } from './known-commands.js'
 
