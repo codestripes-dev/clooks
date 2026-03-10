@@ -246,6 +246,12 @@ import { test, expect } from "bun:test"
 
 This aligns with Clooks' first-class testing requirement (D9).
 
+### E2E Testing Compiled Binaries
+
+The compiled binary is tested end-to-end by invoking it as a subprocess via `Bun.spawnSync`. The sandbox helper (`test/e2e/helpers/sandbox.ts`) creates isolated temp directories, symlinks the compiled binary, and pipes JSON events on stdin. This pattern validates the full pipeline: binary startup → config loading → hook execution → JSON output.
+
+Tests run exclusively in Docker (`test/Dockerfile`) using a non-root user for filesystem permission testing. See `docs/domain/testing.md` for the full testing architecture.
+
 ## Related
 
 - [PRODUCT_EXPLORATION.md](../../PRODUCT_EXPLORATION.md) — Architecture decisions (D1: Bun as runtime)
