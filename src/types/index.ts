@@ -69,3 +69,11 @@ export type {
   HookMeta,
   ClooksHook,
 } from "./hook.js"
+
+export type {
+  EventContextMap,
+  EventResultMap,
+  HookEventMeta,
+  BeforeHookEvent,
+  AfterHookEvent,
+} from "./lifecycle.js"
