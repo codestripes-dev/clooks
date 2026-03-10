@@ -43,7 +43,7 @@ function withCancel<T>(result: T | symbol): T {
 
 export async function promptText(
   ctx: OutputContext,
-  opts: { message: string; placeholder?: string; defaultValue?: string; required?: boolean },
+  opts: { message: string; placeholder?: string; defaultValue?: string; required?: boolean; validate?: (value: string) => string | void },
 ): Promise<string> {
   if (isNonInteractive(ctx)) {
     if (opts.defaultValue !== undefined) return opts.defaultValue
@@ -53,6 +53,7 @@ export async function promptText(
     message: opts.message,
     placeholder: opts.placeholder,
     defaultValue: opts.defaultValue,
+    validate: opts.validate,
   })
   return withCancel(result)
 }
