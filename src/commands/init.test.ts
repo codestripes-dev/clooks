@@ -86,7 +86,7 @@ describe('clooks init', () => {
 
     const content = readFileSync(join(tempDir, '.clooks', 'clooks.yml'), 'utf-8')
     // Parse with Bun's built-in YAML parser to verify structure, not just string
-    const parsed = Bun.YAML.parse(content)
+    const parsed = Bun.YAML.parse(content) as Record<string, unknown>
     expect(parsed.version).toBe('1.0.0')
     expect(parsed.config).toEqual({})
     // Also verify exact content
@@ -123,7 +123,7 @@ describe('clooks init', () => {
       const mg = matchers[0] as Record<string, unknown>
       const hookEntries = mg.hooks as Record<string, string>[]
       expect(hookEntries).toHaveLength(1)
-      expect(hookEntries[0].command).toBe(CLOOKS_ENTRYPOINT_PATH)
+      expect(hookEntries[0]!.command).toBe(CLOOKS_ENTRYPOINT_PATH)
     }
   })
 
@@ -320,7 +320,7 @@ describe('clooks init --global', () => {
     const content = readFileSync(configPath, 'utf-8')
     expect(content).toBe('version: "1.0.0"\n\nconfig: {}\n')
 
-    const parsed = Bun.YAML.parse(content)
+    const parsed = Bun.YAML.parse(content) as Record<string, unknown>
     expect(parsed.version).toBe('1.0.0')
     expect(parsed.config).toEqual({})
   })
@@ -369,7 +369,7 @@ describe('clooks init --global', () => {
       const mg = matchers[0] as Record<string, unknown>
       const hookEntries = mg.hooks as Record<string, string>[]
       expect(hookEntries).toHaveLength(1)
-      expect(hookEntries[0].command).toBe(expectedPath)
+      expect(hookEntries[0]!.command).toBe(expectedPath)
     }
   })
 

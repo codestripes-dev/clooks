@@ -58,8 +58,8 @@ describe("settings", () => {
       const mg = matchers[0] as Record<string, unknown>
       const hookEntries = mg.hooks as Record<string, string>[]
       expect(hookEntries).toHaveLength(1)
-      expect(hookEntries[0].type).toBe("command")
-      expect(hookEntries[0].command).toBe(CLOOKS_ENTRYPOINT_PATH)
+      expect(hookEntries[0]!.type).toBe("command")
+      expect(hookEntries[0]!.command).toBe(CLOOKS_ENTRYPOINT_PATH)
     }
   })
 
@@ -99,15 +99,15 @@ describe("settings", () => {
     expect(hooks.PreToolUse).toHaveLength(2)
 
     // First should be the existing one, untouched
-    const existing = hooks.PreToolUse[0] as Record<string, unknown>
+    const existing = hooks.PreToolUse![0] as Record<string, unknown>
     expect(existing.matcher).toBe("Bash")
     const existingHooks = existing.hooks as Record<string, string>[]
-    expect(existingHooks[0].command).toBe("existing-hook.sh")
+    expect(existingHooks[0]!.command).toBe("existing-hook.sh")
 
     // Second should be Clooks
-    const clooks = hooks.PreToolUse[1] as Record<string, unknown>
+    const clooks = hooks.PreToolUse![1] as Record<string, unknown>
     const clooksHooks = clooks.hooks as Record<string, string>[]
-    expect(clooksHooks[0].command).toBe(CLOOKS_ENTRYPOINT_PATH)
+    expect(clooksHooks[0]!.command).toBe(CLOOKS_ENTRYPOINT_PATH)
   })
 
   test("idempotent — second run adds 0, skips 18, file unchanged", () => {
@@ -158,7 +158,7 @@ describe("settings", () => {
 
     // PreToolUse should still have the existing hook
     expect(hooks.PreToolUse).toHaveLength(1)
-    const remaining = hooks.PreToolUse[0] as Record<string, unknown>
+    const remaining = hooks.PreToolUse![0] as Record<string, unknown>
     expect(remaining.matcher).toBe("Bash")
 
     // SessionStart should be removed (was empty after filtering)
@@ -259,7 +259,7 @@ describe("global settings", () => {
     for (const matchers of Object.values(hooks)) {
       const mg = matchers[0] as Record<string, unknown>
       const hookEntries = mg.hooks as Record<string, string>[]
-      expect(hookEntries[0].command).toBe(globalEntrypoint)
+      expect(hookEntries[0]!.command).toBe(globalEntrypoint)
     }
   })
 
