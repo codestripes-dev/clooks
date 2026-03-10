@@ -13,6 +13,8 @@ function makeLoaded(name: string): LoadedHook {
     name: hn(name),
     hook: { meta: { name, events: [] } } as unknown as ClooksHook,
     config: {},
+    hookPath: `/test/hooks/${name}.ts`,
+    configPath: "/test/.clooks/clooks.yml",
   }
 }
 

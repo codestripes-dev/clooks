@@ -4,7 +4,7 @@
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { dirname, resolve } from "node:path"
-import { VERSION } from "../src/index.js"
+import { VERSION } from "../src/version.js"
 
 const ROOT = resolve(dirname(import.meta.dir))
 const OUT_DIR = resolve(ROOT, "src/generated")

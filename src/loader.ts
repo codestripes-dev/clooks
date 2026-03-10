@@ -1,12 +1,17 @@
 import type { HookName } from "./types/branded.js"
 import type { ClooksHook } from "./types/hook.js"
 import type { HookEntry, ClooksConfig } from "./config/types.js"
+import { CLAUDE_CODE_EVENTS } from "./config/constants.js"
 import { resolve } from "path"
 
 export interface LoadedHook {
   name: HookName
   hook: ClooksHook
   config: Record<string, unknown>
+  /** Absolute path to the hook's .ts file. */
+  hookPath: string
+  /** Absolute path to the clooks.yml that registered this hook. */
+  configPath: string
 }
 
 export function validateHookExport(
@@ -35,9 +40,21 @@ export function validateHookExport(
     )
   }
 
-  // Validate that any event-named properties are functions
+  const ALLOWED_HOOK_KEYS = new Set<string>([
+    "meta",
+    "beforeHook",
+    "afterHook",
+    ...CLAUDE_CODE_EVENTS,
+  ])
+
   for (const key of Object.keys(hookObj)) {
     if (key === "meta") continue
+    if (!ALLOWED_HOOK_KEYS.has(key)) {
+      throw new Error(
+        `clooks: ${hookPath} hook has unknown property "${key}". ` +
+        `Allowed: meta, beforeHook, afterHook, and event names (PreToolUse, PostToolUse, ...).`
+      )
+    }
     if (typeof hookObj[key] !== "function") {
       throw new Error(
         `clooks: ${hookPath} hook.${key} is not a function`,
@@ -99,7 +116,10 @@ export async function loadHook(
   const metaDefaults = hook.meta.config ?? {}
   const merged = { ...metaDefaults, ...entry.config }
 
-  return { name: hookName, hook, config: merged }
+  const configDir = entry.origin === "home" ? homeRoot : projectRoot
+  const configPath = resolve(configDir, ".clooks", "clooks.yml")
+
+  return { name: hookName, hook, config: merged, hookPath: absolutePath, configPath }
 }
 
 export interface HookLoadError {

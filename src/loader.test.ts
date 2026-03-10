@@ -120,6 +120,40 @@ describe("validateHookExport", () => {
     const result = validateHookExport(mod, "test.ts")
     expect(result.meta.name).toBe(hn("meta-only"))
   })
+
+  test("rejects unknown property with helpful error", () => {
+    expect(() =>
+      validateHookExport(
+        { hook: { meta: { name: "x" }, beforHook: () => {} } },
+        "test.ts",
+      ),
+    ).toThrow(/unknown property "beforHook"/)
+  })
+
+  test("accepts beforeHook as a function", () => {
+    const result = validateHookExport(
+      { hook: { meta: { name: "x" }, beforeHook: () => {} } },
+      "test.ts",
+    )
+    expect(result.meta.name).toBe("x")
+  })
+
+  test("accepts afterHook as a function", () => {
+    const result = validateHookExport(
+      { hook: { meta: { name: "x" }, afterHook: () => {} } },
+      "test.ts",
+    )
+    expect(result.meta.name).toBe("x")
+  })
+
+  test("rejects beforeHook as non-function", () => {
+    expect(() =>
+      validateHookExport(
+        { hook: { meta: { name: "x" }, beforeHook: "not-a-fn" } },
+        "test.ts",
+      ),
+    ).toThrow("not a function")
+  })
 })
 
 // --- loadHook ---
@@ -140,6 +174,8 @@ describe("loadHook", () => {
     expect(result.name).toBe(hn("my-hook"))
     expect(result.hook.meta.name).toBe(hn("my-hook"))
     expect(result.config).toEqual({ foo: "bar" })
+    expect(result.hookPath).toBe(hookFile)
+    expect(result.configPath).toBe(join(dir, ".clooks", "clooks.yml"))
   })
 
   test("resolves relative resolvedPath against projectRoot", async () => {
@@ -158,6 +194,8 @@ describe("loadHook", () => {
     const result = await loadHook(hn("relative-hook"), entry, dir)
     expect(result.name).toBe(hn("relative-hook"))
     expect(result.hook.meta.name).toBe(hn("relative-hook"))
+    expect(result.hookPath).toBe(hookFile)
+    expect(result.configPath).toBe(join(dir, ".clooks", "clooks.yml"))
   })
 
   test("shallow-merges meta.config defaults with entry config overrides", async () => {
@@ -314,6 +352,8 @@ describe("loadHook with home origin", () => {
     const result = await loadHook(hn("security-audit"), entry, projectDir, homeDir)
     expect(result.name).toBe(hn("security-audit"))
     expect(result.hook.meta.name).toBe(hn("security-audit"))
+    expect(result.hookPath).toBe(join(homeDir, ".clooks", "hooks", "security-audit.ts"))
+    expect(result.configPath).toBe(join(homeDir, ".clooks", "clooks.yml"))
 
     rmSync(projectDir, { recursive: true, force: true })
   })
@@ -365,6 +405,8 @@ describe("loadHook with home origin", () => {
     const result = await loadHook(hn("lint-guard"), entry, projectDir, homeDir)
     expect(result.name).toBe(hn("lint-guard"))
     expect(result.hook.meta.name).toBe(hn("lint-guard"))
+    expect(result.hookPath).toBe(join(projectDir, ".clooks", "hooks", "lint-guard.ts"))
+    expect(result.configPath).toBe(join(projectDir, ".clooks", "clooks.yml"))
 
     rmSync(homeDir, { recursive: true, force: true })
   })

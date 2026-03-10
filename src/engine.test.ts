@@ -235,7 +235,7 @@ function makeLoadedHook(
     meta: { name: hookName },
     ...handlers,
   } as unknown as ClooksHook;
-  return { name: hookName, hook, config: {} };
+  return { name: hookName, hook, config: {}, hookPath: `/test/hooks/${name}.ts`, configPath: "/test/.clooks/clooks.yml" };
 }
 
 describe("matchHooksForEvent", () => {
