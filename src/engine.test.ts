@@ -9,7 +9,7 @@ import type { ClooksConfig } from "./config/types.js";
 import type { HookName } from "./types/branded.js";
 import { hn, ms } from "./test-utils.js";
 import { DEFAULT_MAX_FAILURES_MESSAGE } from "./config/constants.js";
-import { readFailures, getFailurePath } from "./failures.js";
+import { readFailures, getFailurePath, LOAD_ERROR_EVENT } from "./failures.js";
 
 describe("translateResult", () => {
   // --- PreToolUse ---
@@ -529,8 +529,10 @@ describe("executeHooks", () => {
     expect(result.lastResult?.result).toBe("block");
     expect(result.lastResult?.reason).toContain("broken-hook");
 
+    // Load errors use LOAD_ERROR_EVENT, not the actual event name
     const state = await readFailures(fp(dir));
-    expect(state[hn("broken-hook")]?.["PreToolUse"]?.consecutiveFailures).toBe(1);
+    expect(state[hn("broken-hook")]?.[LOAD_ERROR_EVENT]?.consecutiveFailures).toBe(1);
+    expect(state[hn("broken-hook")]?.["PreToolUse"]).toBeUndefined();
   });
 
   it("load error reaches threshold → skipped with degraded message", async () => {
@@ -567,6 +569,73 @@ describe("executeHooks", () => {
     expect(result.lastResult).toEqual({ result: "allow" });
     expect(result.degradedMessages).toHaveLength(1);
     expect(result.degradedMessages[0]).toContain("broken-hook");
+  });
+
+  it("load errors use event-independent counting across different events", async () => {
+    const dir = makeTempDir();
+    const loadErrors: HookLoadError[] = [
+      { name: hn("broken-hook"), error: "Cannot find module '/path/to/broken-hook.ts'" },
+    ];
+    const config = makeTestConfig({ "broken-hook": {} }, 3);
+
+    // Fail on PreToolUse (count=1)
+    const r1 = await executeHooks([], "PreToolUse", {}, config, fp(dir), loadErrors);
+    expect(r1.lastResult?.result).toBe("block");
+
+    // Fail on PostToolUse (count=2, same counter via LOAD_ERROR_EVENT)
+    const r2 = await executeHooks([], "PostToolUse", {}, config, fp(dir), loadErrors);
+    expect(r2.lastResult?.result).toBe("block");
+
+    // Third failure on SessionStart (count=3) — should degrade, not block
+    const r3 = await executeHooks([], "SessionStart", {}, config, fp(dir), loadErrors);
+    expect(r3.lastResult).toBeUndefined();
+    expect(r3.degradedMessages).toHaveLength(1);
+    expect(r3.degradedMessages[0]).toContain("broken-hook");
+
+    // Verify single counter under LOAD_ERROR_EVENT
+    const state = await readFailures(fp(dir));
+    expect(state[hn("broken-hook")]?.[LOAD_ERROR_EVENT]?.consecutiveFailures).toBe(3);
+    expect(state[hn("broken-hook")]?.["PreToolUse"]).toBeUndefined();
+    expect(state[hn("broken-hook")]?.["PostToolUse"]).toBeUndefined();
+    expect(state[hn("broken-hook")]?.["SessionStart"]).toBeUndefined();
+  });
+
+  it("load error under threshold includes actionable system message", async () => {
+    const dir = makeTempDir();
+    const loadErrors: HookLoadError[] = [
+      { name: hn("order-tracer-home"), error: "Cannot find module '/home/joe/.clooks/hooks/order-tracer-home.ts'" },
+    ];
+    const config = makeTestConfig({ "order-tracer-home": {} }, 3);
+
+    const result = await executeHooks([], "PreToolUse", {}, config, fp(dir), loadErrors);
+    expect(result.lastResult?.result).toBe("block");
+    expect(result.systemMessages).toHaveLength(1);
+    expect(result.systemMessages[0]).toContain('[clooks] Hook "order-tracer-home" failed to load');
+    expect(result.systemMessages[0]).toContain("Cannot find module");
+    expect(result.systemMessages[0]).toContain("Fix: Remove");
+    expect(result.systemMessages[0]).toContain("clooks.yml");
+    expect(result.systemMessages[0]).toContain("disabled after 3 consecutive load failures");
+  });
+
+  it("load error at threshold includes disabled system message", async () => {
+    const dir = makeTempDir();
+    const loadErrors: HookLoadError[] = [
+      { name: hn("order-tracer-home"), error: "Cannot find module '/home/joe/.clooks/hooks/order-tracer-home.ts'" },
+    ];
+    const config = makeTestConfig({ "order-tracer-home": {} }, 3);
+
+    // Fail twice to reach threshold
+    for (let i = 0; i < 2; i++) {
+      await executeHooks([], "PreToolUse", {}, config, fp(dir), loadErrors);
+    }
+
+    // Third failure — threshold reached, should degrade
+    const result = await executeHooks([], "PostToolUse", {}, config, fp(dir), loadErrors);
+    expect(result.lastResult).toBeUndefined();
+    expect(result.systemMessages).toHaveLength(1);
+    expect(result.systemMessages[0]).toContain('[clooks] Hook "order-tracer-home" has been disabled');
+    expect(result.systemMessages[0]).toContain("3 consecutive load failures");
+    expect(result.systemMessages[0]).toContain("Fix: Remove");
   });
 
   // --- FEAT-0017: onError cascade tests ---

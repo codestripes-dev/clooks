@@ -31,7 +31,7 @@ import type { LoadConfigResult } from "./config/index.js";
 import { loadAllHooks } from "./loader.js";
 import type { LoadedHook, HookLoadError } from "./loader.js";
 import { INJECTABLE_EVENTS, isEventName } from "./config/constants.js";
-import { readFailures, writeFailures, recordFailure, clearFailure, getFailureCount, getFailurePath } from "./failures.js";
+import { readFailures, writeFailures, recordFailure, clearFailure, getFailureCount, getFailurePath, LOAD_ERROR_EVENT } from "./failures.js";
 import { orderHooksForEvent, partitionIntoGroups } from "./ordering.js";
 import type { OrderedHook, ExecutionGroup } from "./ordering.js";
 
@@ -386,23 +386,34 @@ export async function executeHooks(
 
   // Process load errors through the circuit breaker.
   // Import failures always block regardless of onError config.
+  // Load errors use LOAD_ERROR_EVENT so failures accumulate in a single
+  // counter regardless of which event triggered the invocation.
   for (const loadError of loadErrors) {
     const { maxFailures, maxFailuresMessage } = resolveMaxFailures(loadError.name, config);
-    failureState = recordFailure(failureState, loadError.name, eventName, loadError.error);
+    failureState = recordFailure(failureState, loadError.name, LOAD_ERROR_EVENT, loadError.error);
     failuresDirty = true;
-    const newCount = getFailureCount(failureState, loadError.name, eventName);
+    const newCount = getFailureCount(failureState, loadError.name, LOAD_ERROR_EVENT);
 
     if (maxFailures === 0 || newCount < maxFailures) {
       // Under threshold or circuit breaker disabled — fail-closed
       await writeFailures(failurePath, failureState);
+      systemMessages.push(
+        `[clooks] Hook "${loadError.name}" failed to load: ${loadError.error}\n` +
+        `Fix: Remove "${loadError.name}" from your clooks.yml, or restore the hook file.\n` +
+        `This hook will be disabled after ${maxFailures} consecutive load failures.`
+      );
       lastResult = { result: "block", reason: formatDiagnostic(loadError.name, eventName, new Error(loadError.error), "block") };
       return { lastResult, degradedMessages, debugMessages, traceMessages, systemMessages };
     }
 
-    // Threshold reached or already degraded — skip
+    // Threshold reached or already degraded — degrade (don't block)
+    systemMessages.push(
+      `[clooks] Hook "${loadError.name}" has been disabled after ${maxFailures} consecutive load failures.\n` +
+      `Fix: Remove "${loadError.name}" from your clooks.yml, or restore the hook file.`
+    );
     const msg = interpolateMessage(maxFailuresMessage, {
       hook: loadError.name,
-      event: eventName,
+      event: LOAD_ERROR_EVENT,
       count: newCount,
       error: loadError.error,
     });

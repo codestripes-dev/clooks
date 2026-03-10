@@ -7,6 +7,8 @@ import { DEFAULT_MAX_FAILURES, DEFAULT_MAX_FAILURES_MESSAGE } from "./constants.
 import { hn, ms } from "../test-utils.js"
 
 let tempDir: string
+// Isolate from real ~/.clooks/ config on this machine
+const fakeHomeRoot = join(tmpdir(), "clooks-no-home-" + process.pid)
 
 beforeEach(() => {
   tempDir = mkdtempSync(join(tmpdir(), "clooks-config-test-"))
@@ -41,7 +43,7 @@ PreToolUse:
 `,
     )
 
-    const result = await loadConfig(tempDir)
+    const result = await loadConfig(tempDir, { homeRoot: fakeHomeRoot })
     expect(result).not.toBeNull()
     const config = result!.config
     expect(config.version).toBe("1.0.0")
@@ -92,7 +94,7 @@ lint-guard:
 `,
     )
 
-    const result = await loadConfig(tempDir)
+    const result = await loadConfig(tempDir, { homeRoot: fakeHomeRoot })
     expect(result).not.toBeNull()
     // Local overrides replace atomically — so we get just { strict: false }
     // because hook entries are ATOMIC across layers
@@ -102,13 +104,13 @@ lint-guard:
   })
 
   test("returns null when no config files exist", async () => {
-    const result = await loadConfig(tempDir)
+    const result = await loadConfig(tempDir, { homeRoot: fakeHomeRoot })
     expect(result).toBeNull()
   })
 
   test("ignores missing local file", async () => {
     writeConfig(tempDir, "clooks.yml", `version: "1.0.0"\n`)
-    const result = await loadConfig(tempDir)
+    const result = await loadConfig(tempDir, { homeRoot: fakeHomeRoot })
     expect(result).not.toBeNull()
     expect(result!.config.version).toBe("1.0.0")
   })
@@ -122,21 +124,21 @@ version: "1.0.0"
 my-hook: {}
 `,
     )
-    const result = await loadConfig(tempDir)
+    const result = await loadConfig(tempDir, { homeRoot: fakeHomeRoot })
     expect(result).not.toBeNull()
     expect(result!.config.hooks[hn("my-hook")]!.origin).toBe("project")
   })
 
   test("hasProjectConfig is true when project config exists", async () => {
     writeConfig(tempDir, "clooks.yml", `version: "1.0.0"\n`)
-    const result = await loadConfig(tempDir)
+    const result = await loadConfig(tempDir, { homeRoot: fakeHomeRoot })
     expect(result).not.toBeNull()
     expect(result!.hasProjectConfig).toBe(true)
   })
 
   test("shadows is empty when no overlapping hooks", async () => {
     writeConfig(tempDir, "clooks.yml", `version: "1.0.0"\nmy-hook: {}\n`)
-    const result = await loadConfig(tempDir)
+    const result = await loadConfig(tempDir, { homeRoot: fakeHomeRoot })
     expect(result).not.toBeNull()
     expect(result!.shadows).toEqual([])
   })

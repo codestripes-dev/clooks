@@ -1,7 +1,5 @@
 version: "1.0.0"
 
-no-compound-commands: {}
-
 log-bash-commands:
   config:
     logDir: ".clooks"
