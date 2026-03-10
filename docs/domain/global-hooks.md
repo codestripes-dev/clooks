@@ -63,6 +63,8 @@ Failure state (circuit breaker data) is stored differently depending on project 
 
 The `getFailurePath()` function in `src/failures.ts` computes the path. `writeFailures()` ensures the parent directory exists before writing (handles the case where `~/.clooks/failures/` doesn't exist yet).
 
+**`LOAD_ERROR_EVENT` recovery:** When a hook fails to load (missing file), failures are recorded under the synthetic event key `__load__` (not the runtime event name). When the hook file is restored and loads successfully, the engine clears the `__load__` counter. This was a bug fix — previously, the `__load__` counter was never cleared because the success path only cleared the runtime event counter.
+
 ## Shadow Warnings
 
 When a project hook has the same name as a home hook, the home hook is replaced (shadowed). The engine emits a warning on `SessionStart` events:
@@ -72,6 +74,8 @@ clooks: project hook "security-audit" is shadowing a global hook with the same n
 ```
 
 Shadow detection is performed during config merge (`mergeThreeLayerConfig()` in `src/config/merge.ts`). The `shadows` list is returned in `LoadConfigResult` and consumed by `buildShadowWarnings()` in `src/engine.ts`.
+
+**Gotcha:** Shadow warnings are only emitted on `SessionStart` events. If no hooks match SessionStart (e.g., all hooks handle only PreToolUse), the shadow warning is still emitted because it runs before event matching. This was a bug fix — previously, shadow warnings were computed after the early-exit check and were lost when no hooks matched.
 
 ## Key Files
 

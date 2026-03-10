@@ -9,8 +9,8 @@ The entrypoint lives at `.clooks/bin/entrypoint.sh` in the project root. It is r
 The script performs six steps in order:
 
 1. **Bypass check** — If `SKIP_CLOOKS=true`, exit 0 immediately (no binary invocation).
-2. **Binary location** — Compute path: `${CLOOKS_HOME:-$HOME/.clooks}/bin/clooks`.
-3. **Bootstrap detection** — If binary missing/not executable, print install instructions to stderr and exit 2 (block).
+2. **Binary location** — Look up `clooks` on PATH via `command -v clooks`.
+3. **Bootstrap detection** — If binary not found on PATH, print install instructions to stderr and exit 2 (block).
 4. **Stdin capture** — Read all of stdin into a variable (`STDIN_DATA=$(cat)`) so it can be logged and replayed.
 5. **Debug logging** — If `CLOOKS_DEBUG=true`, write the captured stdin JSON to `${CLOOKS_LOGDIR:-/tmp/clooks-debug}/<timestamp>.json` for replay/diagnosis. The engine also outputs debug info (loaded hooks, matched hooks per event, per-hook results) to both stderr and `additionalContext` so Claude can read it.
 6. **Delegation + exit code translation** — Pipe captured stdin to the binary (`echo "$STDIN_DATA" | "$CLOOKS_BIN"`). Exit codes 0 and 2 pass through; everything else becomes exit 2 (fail-closed).
@@ -25,10 +25,7 @@ The script performs six steps in order:
 
 ## Binary Location Strategy
 
-The binary is located at `${CLOOKS_HOME:-$HOME/.clooks}/bin/clooks`:
-
-- **Default:** `~/.clooks/bin/clooks` (per-user global install).
-- **Override:** Set `CLOOKS_HOME` to point to a different base directory (useful for development, CI, or testing multiple versions).
+The binary is found via `command -v clooks` — a standard PATH lookup. The installer adds `clooks` to a directory on the user's PATH (e.g., `/usr/local/bin` or `~/.local/bin`).
 
 The binary is a per-user global tool (like `git` or `node`). Hooks and config are per-project (in `.clooks/` within each project).
 
@@ -84,6 +81,7 @@ The flag file is a simple empty file created by `clooks init --global`. Its pres
 - **No `exec`:** The script does NOT use `exec` to replace itself with the binary, because that would prevent exit code inspection. The binary runs as a child process instead.
 - **Heredoc whitespace:** The bootstrap message uses `<<'MSG'` (single-quoted delimiter) to prevent variable expansion. The message lines must start at column 1 (no indentation).
 - **Stdin capture and replay:** Stdin is read into a variable (`STDIN_DATA=$(cat)`) rather than inherited directly. This is necessary because stdin must be both (a) logged for debug and (b) piped to the binary. A file descriptor can only be consumed once, so capture-and-replay is required.
+- **`date +%s%N` on macOS:** BSD `date` does not support `%N` (nanoseconds). The debug log filename becomes `1710000000N.json` instead of `1710000000123456789.json`. Only affects the debug path, does not break correctness.
 
 ## Related
 
@@ -91,3 +89,4 @@ The flag file is a simple empty file created by `clooks init --global`. Its pres
 - `docs/domain/claude-code-hooks/events.md` — All 18 lifecycle events
 - `docs/domain/claude-code-hooks/io-contract.md` — Exit code semantics
 - `docs/research/bash-entrypoint-overhead.md` — Performance measurements (~2ms bash overhead)
+- `docs/domain/testing.md` — E2E test patterns for entrypoint verification

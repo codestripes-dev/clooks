@@ -403,6 +403,18 @@ export async function executeHooks(
     degradedMessages.push(msg);
   }
 
+  // Clear LOAD_ERROR_EVENT counters for hooks that loaded successfully.
+  // This handles recovery after a hook file is restored — without this,
+  // a hook that was degraded due to load errors would remain permanently
+  // degraded even after the file is fixed because the __load__ counter
+  // is never cleared by the per-event success path.
+  for (const loaded of matched) {
+    if (getFailureCount(failureState, loaded.name, LOAD_ERROR_EVENT) > 0) {
+      failureState = clearFailure(failureState, loaded.name, LOAD_ERROR_EVENT);
+      failuresDirty = true;
+    }
+  }
+
   // --- Pipeline state ---
   const originalToolInput = normalized.toolInput as Record<string, unknown> | undefined;
   let currentToolInput = originalToolInput;
@@ -948,7 +960,16 @@ export async function runEngine(): Promise<void> {
       engineDebugLines.push(`event="${eventName}" matched ${matched.length} hook(s): ${matched.map(h => h.name).join(", ") || "(none)"}`);
     }
 
+    // --- Shadow warnings (SessionStart only) ---
+    // Computed before the early exit so warnings are emitted even when
+    // no hooks match the current event.
+    const startupWarnings: string[] = buildShadowWarnings(eventName, shadows);
+
     if (matched.length === 0 && loadErrors.length === 0) {
+      if (startupWarnings.length > 0) {
+        const output: ClaudeCodeOutput = { systemMessage: startupWarnings.join("\n") };
+        process.stdout.write(JSON.stringify(output) + "\n");
+      }
       if (debug) {
         for (const line of engineDebugLines) {
           process.stderr.write(`[clooks:debug] ${line}\n`);
@@ -961,9 +982,6 @@ export async function runEngine(): Promise<void> {
     const normalized = normalizeKeys(payload);
     normalized.event = normalized.hookEventName;
     delete normalized.hookEventName;
-
-    // --- Shadow warnings (SessionStart only) ---
-    const startupWarnings: string[] = buildShadowWarnings(eventName, shadows);
 
     // --- Startup validation: warn about hook-level trace on non-injectable events ---
     for (const loaded of hooks) {
