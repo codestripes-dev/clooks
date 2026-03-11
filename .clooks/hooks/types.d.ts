@@ -257,7 +257,7 @@ type BeforeHookEventVariants = {
 }[EventName];
 export type BeforeHookEvent = {
 	meta: HookEventMeta;
-	respond(result: BlockResult): void;
+	respond(result: BlockResult | SkipResult): void;
 } & BeforeHookEventVariants;
 type AfterHookEventVariants = {
 	[K in EventName]: {
