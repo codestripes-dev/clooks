@@ -100,9 +100,13 @@ The origin determines path resolution: home hooks resolve source paths relative 
 
 Hook `meta.config` defaults are shallow-merged with config overrides from `clooks.yml` in the loader (`src/loader.ts`). The `loadHook()` function reads `hook.meta.config`, spreads the config overrides from `HookEntry.config` on top (`{ ...metaDefaults, ...overrides }`), and returns the merged config in `LoadedHook.config`. This merged config is what gets passed to handlers at runtime — handlers never see the raw meta.config or raw overrides separately.
 
+`LoadedHook` also carries `usesTarget?: string` — the raw `uses` value from YAML config, present only when the hook is an alias. The engine uses this for error message formatting (including provenance like `(uses: crasher, .clooks/hooks/crasher.ts)`) and for `config --resolved` output.
+
 ### Runtime validation
 
 TypeScript types are erased when hook files are dynamically imported. The loader (`src/loader.ts`) performs runtime validation of every hook export via `validateHookExport()`. It checks: `hook` named export exists and is an object, `hook.meta` exists with a `name` string, all property keys are in the allowed set (`meta`, `beforeHook`, `afterHook`, plus 18 event names), and all non-`meta` properties are functions. Invalid hooks cause fail-closed behavior (the engine exits with code 2 and a diagnostic message on stderr).
+
+**`meta.name` relaxation for aliases:** After `validateHookExport()`, the loader checks `meta.name` against an expected name. For regular hooks (no `uses`), `meta.name` must match the YAML key. For aliases with hook-name `uses`, `meta.name` must match the `uses` target (not the YAML key). For aliases with path-like `uses` (`./`, `../`, `/`), `meta.name` validation is skipped entirely — the hook file is a custom path and its `meta.name` is whatever the author set.
 
 ### Two type layers
 

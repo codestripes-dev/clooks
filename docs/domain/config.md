@@ -66,7 +66,7 @@ PreToolUse:
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `config` | object | `{}` | Config overrides (shallow-merged with hook's `meta.config` at load time) |
-| `path` | string | convention | Explicit file path relative to the origin root (project root for project hooks, `~/.clooks/` for home hooks) |
+| `uses` | string | — | Implementation source. Path-like values (`./`, `../`, `/`) are file paths. Hook names resolve via conventions. Enables aliases when different from the YAML key. |
 | `timeout` | `Milliseconds` | — | Per-hook timeout in ms |
 | `onError` | `"block"` \| `"continue"` \| `"trace"` | — | Per-hook error handling |
 | `parallel` | boolean | `false` | Run independently of sequential pipeline |
@@ -93,13 +93,44 @@ Event-level `timeout` and `onError` have been removed. Use per-hook `timeout` an
 
 ## Hook Path Resolution
 
-Hook names are resolved to file paths using these rules (in order):
+Hook paths are resolved using a two-step process: first determine the **resolution key** (what name to resolve), then apply **convention rules** to map it to a file path.
 
-1. **Explicit path** — If `path` is set in the hook entry, use it as-is (relative to the origin root: project root for project hooks, `~/.clooks/` for home hooks).
-2. **Remote hook** — If the name contains `/`, resolve to `.clooks/vendor/<name>/index.ts`.
-3. **Local hook** — Otherwise, resolve to `.clooks/hooks/<name>.ts`.
+**Step 1 — Resolution key:**
+
+- If `uses` is set and path-like (`./`, `../`, `/`) — use `uses` as a direct file path (relative to the origin root).
+- If `uses` is set and is a hook name — resolve using convention rules with `uses` as the key.
+- If `uses` is not set — resolve using convention rules with the YAML key as the key.
+
+**Step 2 — Convention rules (applied to the resolution key):**
+
+1. **Remote hook** — If the key contains `/`, resolve to `.clooks/vendor/<key>/index.ts`.
+2. **Local hook** — Otherwise, resolve to `.clooks/hooks/<key>.ts`.
 
 Resolution does not check file existence. That is a loading concern handled by the engine.
+
+## Hook Aliases
+
+A hook alias is a YAML entry whose `uses` field references a different hook implementation. This allows the same `.ts` file to run multiple times with different configs.
+
+```yaml
+verbose-logger:
+  uses: log-bash
+  config: { verbose: true }
+quiet-logger:
+  uses: log-bash
+  config: { verbose: false }
+```
+
+**Rules:**
+
+1. Referenced hook does NOT need its own YAML entry.
+2. Each alias is an independent hook for ordering, circuit breaker, and error tracking (keyed by YAML key, not `uses` target).
+3. `meta.name` is validated against the `uses` target, not the YAML key. Path-like `uses` skips `meta.name` validation entirely.
+4. Alias chains are not allowed — if `uses` references a YAML key that itself has `uses`, validation fails.
+5. Module-level state is shared between aliases of the same `.ts` file within a single invocation (Bun's module cache).
+6. Error messages include the `uses` target: `Hook "my-alias" (uses: crasher, .clooks/hooks/crasher.ts) failed on PreToolUse`.
+
+**Local overrides:** Because local config uses atomic replacement, a local override of an alias must repeat the `uses` field. Without `uses`, the alias name resolves as a file path (which likely does not exist).
 
 ## Config Merging — Three-Layer Loading
 
@@ -142,9 +173,10 @@ When the engine executes hooks for an event, it partitions them into **execution
 
 When a hook defines `beforeHook` and/or `afterHook`, the lifecycle is an atomic unit within the hook's execution. In sequential groups, the lifecycle (beforeHook → handler → afterHook) runs as part of the sequential flow. In parallel groups, the lifecycle is atomic within the hook's promise chain — each hook's lifecycle runs independently of other hooks in the batch.
 
-The `LoadedHook` interface carries two fields used by the lifecycle system:
+The `LoadedHook` interface carries fields used by the lifecycle system and alias tracking:
 - `hookPath: string` — Absolute path to the hook's `.ts` file. Populated by `loadHook()`.
 - `configPath: string` — Absolute path to the `clooks.yml` that registered the hook. Derived from the hook's origin (home or project).
+- `usesTarget?: string` — Raw `uses` value from YAML config, present only for alias hooks. Used by error formatting to include provenance in diagnostic messages.
 
 ### Ordering
 
