@@ -16,7 +16,7 @@ import {
   DEFAULT_MAX_FAILURES,
   DEFAULT_MAX_FAILURES_MESSAGE,
 } from "./constants.js"
-import { resolveHookPath } from "./resolve.js"
+import { resolveHookPath, isPathLike } from "./resolve.js"
 import { classifyConfigKeys } from "./classify.js"
 
 function isPlainObject(val: unknown): val is Record<string, unknown> {
@@ -139,8 +139,39 @@ export function validateConfig(raw: Record<string, unknown>): ClooksConfig {
       )
     }
 
+    // Reject deprecated `path` field with migration guidance
+    if (value.path !== undefined) {
+      const suggestion = typeof value.path === "string" && !value.path.startsWith("./")
+        ? ` Try: uses: "./${value.path}"`
+        : typeof value.path === "string"
+          ? ` Try: uses: "${value.path}"`
+          : ""
+      throw new Error(
+        `clooks: hook "${key}" uses deprecated "path" field — use "uses" instead.${suggestion}`
+      )
+    }
+
+    let uses: string | undefined
+    if (value.uses !== undefined) {
+      if (typeof value.uses !== "string" || value.uses.length === 0) {
+        throw new Error(
+          `clooks: hook "${key}" has invalid "uses": must be a non-empty string`
+        )
+      }
+      uses = value.uses
+
+      // Detect likely bare-path mistakes: value ends in .ts but has no path-like prefix.
+      // This catches "scripts/hook.ts" (should be "./scripts/hook.ts").
+      if (uses.endsWith(".ts") && !isPathLike(uses)) {
+        throw new Error(
+          `clooks: hook "${key}" has uses: "${uses}" which looks like a file path but ` +
+          `doesn't start with "./" or "../". If this is a file path, use "uses: ./${uses}". ` +
+          `If it is a hook name, remove the ".ts" extension.`
+        )
+      }
+    }
+
     let config: Record<string, unknown> = {}
-    let path: string | undefined
     let timeout: Milliseconds | undefined
     let onError: ErrorMode | undefined
     let parallel = false
@@ -154,14 +185,6 @@ export function validateConfig(raw: Record<string, unknown>): ClooksConfig {
         )
       }
       config = value.config as Record<string, unknown>
-    }
-    if (value.path !== undefined) {
-      if (typeof value.path !== "string") {
-        throw new Error(
-          `clooks: hook "${key}" has invalid "path": must be a string`,
-        )
-      }
-      path = value.path
     }
     if (value.timeout !== undefined) {
       timeout = validatePositiveNumber(value.timeout, `hook "${key}"`, "timeout") as Milliseconds
@@ -233,9 +256,10 @@ export function validateConfig(raw: Record<string, unknown>): ClooksConfig {
 
     // Boundary cast: key is a hook name (not an event name or reserved key).
     const hookName = key as HookName
-    const resolvedPath = resolveHookPath(hookName, { path })
+    const resolvedPath = resolveHookPath(hookName, { uses })
 
     const entry: HookEntry = { resolvedPath, config, parallel, origin: "project" as HookOrigin }
+    if (uses !== undefined) entry.uses = uses
     if (timeout !== undefined) entry.timeout = timeout
     if (onError !== undefined) entry.onError = onError
     if (maxFailures !== undefined) entry.maxFailures = maxFailures
@@ -256,6 +280,28 @@ export function validateConfig(raw: Record<string, unknown>): ClooksConfig {
           )
         }
       }
+    }
+  }
+
+  // Third pass: detect alias chains.
+  // A `uses` value that references another YAML key which itself has `uses` is a chain.
+  // Only applies to hook-name references (not path-like values).
+  for (const [hookKey, hookEntry] of Object.entries(hooks)) {
+    if (hookEntry.uses === undefined) continue
+    // Path-like uses values reference files, not other YAML keys — skip
+    if (isPathLike(hookEntry.uses)) continue
+    // Self-reference is allowed (pointless but not a chain)
+    if (hookEntry.uses === hookKey) continue
+
+    // Check if the uses target is a YAML key that also has uses (a chain)
+    const targetName = hookEntry.uses as HookName
+    const targetEntry = hooks[targetName]
+    if (targetEntry?.uses !== undefined) {
+      throw new Error(
+        `clooks: hook "${hookKey}" uses "${hookEntry.uses}" which itself has a uses field ` +
+        `("${targetEntry.uses}"). Alias chains are not allowed — uses must resolve to a ` +
+        `concrete hook implementation, not another alias.`
+      )
     }
   }
 

@@ -72,7 +72,7 @@ export async function loadConfig(
   }
 
   // Merge the three layers
-  const { merged, originMap, shadows, homeHookPaths } = mergeThreeLayerConfig(
+  const { merged, originMap, shadows, homeHookUses } = mergeThreeLayerConfig(
     homeRaw,
     projectRaw,
     localRaw,
@@ -90,11 +90,11 @@ export async function loadConfig(
   }
 
   // For home hooks, re-resolve paths with homeRoot base using the original
-  // home hook path (before any local override could have changed it)
+  // home hook uses (before any local override could have changed it)
   for (const [hookName, entry] of Object.entries(config.hooks)) {
     if (entry.origin === "home") {
-      const rawPath = homeHookPaths.get(hookName)
-      entry.resolvedPath = resolveHookPath(hookName as HookName, { path: rawPath }, homeRoot)
+      const rawUses = homeHookUses.get(hookName)
+      entry.resolvedPath = resolveHookPath(hookName as HookName, { uses: rawUses }, homeRoot)
     }
   }
 

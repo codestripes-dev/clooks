@@ -378,29 +378,29 @@ describe("mergeThreeLayerConfig", () => {
     )
   })
 
-  test("homeHookPaths tracks original home hook path before local override", () => {
+  test("homeHookUses tracks original home hook uses before local override", () => {
     const home = {
       version: "1.0.0",
-      "home-hook": { path: "custom/home-hook.ts" },
+      "home-hook": { uses: "./custom/home-hook.ts" },
     }
     const local = {
-      "home-hook": { path: "overridden/path.ts" },
+      "home-hook": { uses: "./overridden/path.ts" },
     }
     const result = mergeThreeLayerConfig(home, undefined, local)
 
-    // homeHookPaths should have the ORIGINAL home path, not the local override
-    expect(result.homeHookPaths.get("home-hook")).toBe("custom/home-hook.ts")
+    // homeHookUses should have the ORIGINAL home uses, not the local override
+    expect(result.homeHookUses.get("home-hook")).toBe("./custom/home-hook.ts")
     // merged should have the local override
-    expect((result.merged["home-hook"] as Record<string, unknown>).path).toBe("overridden/path.ts")
+    expect((result.merged["home-hook"] as Record<string, unknown>).uses).toBe("./overridden/path.ts")
   })
 
-  test("homeHookPaths is undefined when home hook has no explicit path", () => {
+  test("homeHookUses is undefined when home hook has no explicit uses", () => {
     const home = {
       version: "1.0.0",
       "home-hook": {},
     }
     const result = mergeThreeLayerConfig(home, undefined, undefined)
 
-    expect(result.homeHookPaths.get("home-hook")).toBeUndefined()
+    expect(result.homeHookUses.get("home-hook")).toBeUndefined()
   })
 })

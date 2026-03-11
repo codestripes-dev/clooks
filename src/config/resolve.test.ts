@@ -4,13 +4,15 @@ import { hn } from "../test-utils.js"
 import { join } from "path"
 
 describe("resolveHookPath", () => {
-  test("local hook (no slash)", () => {
+  // --- No uses, convention-based resolution ---
+
+  test("No uses, no slash → local hook convention", () => {
     expect(resolveHookPath(hn("my-hook"), {})).toBe(".clooks/hooks/my-hook.ts")
   })
 
-  test("remote hook (with slash)", () => {
-    expect(resolveHookPath(hn("anthropic/secret-scanner"), {})).toBe(
-      ".clooks/vendor/anthropic/secret-scanner/index.ts",
+  test("No uses, with slash → vendor hook convention", () => {
+    expect(resolveHookPath(hn("acme/scanner"), {})).toBe(
+      ".clooks/vendor/acme/scanner/index.ts",
     )
   })
 
@@ -20,16 +22,50 @@ describe("resolveHookPath", () => {
     )
   })
 
-  test("explicit path overrides convention", () => {
+  // --- Uses: path-like values ---
+
+  test("Uses: path-like (./)", () => {
     expect(
-      resolveHookPath(hn("my-hook"), { path: "scripts/hooks/my-hook.ts" }),
-    ).toBe("scripts/hooks/my-hook.ts")
+      resolveHookPath(hn("my-alias"), { uses: "./lib/hook.ts" }),
+    ).toBe("./lib/hook.ts")
   })
 
-  test("explicit path overrides remote convention", () => {
+  test("Uses: path-like (../)", () => {
     expect(
-      resolveHookPath(hn("anthropic/scanner"), { path: "custom/scanner.ts" }),
-    ).toBe("custom/scanner.ts")
+      resolveHookPath(hn("my-alias"), { uses: "../shared/hook.ts" }),
+    ).toBe("../shared/hook.ts")
+  })
+
+  test("Uses: path-like (/)", () => {
+    expect(
+      resolveHookPath(hn("my-alias"), { uses: "/absolute/hook.ts" }),
+    ).toBe("/absolute/hook.ts")
+  })
+
+  test("Uses: path-like with basePath", () => {
+    expect(
+      resolveHookPath(hn("my-alias"), { uses: "./lib/hook.ts" }, "/home/user/.clooks"),
+    ).toBe(join("/home/user/.clooks", "lib/hook.ts"))
+  })
+
+  // --- Uses: hook name references ---
+
+  test("Uses: hook name (no slash)", () => {
+    expect(
+      resolveHookPath(hn("verbose-logger"), { uses: "log-bash-commands" }),
+    ).toBe(".clooks/hooks/log-bash-commands.ts")
+  })
+
+  test("Uses: hook name (with slash)", () => {
+    expect(
+      resolveHookPath(hn("strict-scanner"), { uses: "acme/security" }),
+    ).toBe(".clooks/vendor/acme/security/index.ts")
+  })
+
+  test("Uses: hook name with basePath", () => {
+    expect(
+      resolveHookPath(hn("my-alias"), { uses: "base-hook" }, "/home/user"),
+    ).toBe(join("/home/user", ".clooks/hooks/base-hook.ts"))
   })
 
   // --- basePath parameter tests ---
@@ -44,12 +80,6 @@ describe("resolveHookPath", () => {
     expect(resolveHookPath(hn("anthropic/scanner"), {}, "/home/user")).toBe(
       join("/home/user", ".clooks/vendor/anthropic/scanner/index.ts"),
     )
-  })
-
-  test("basePath prepends to explicit path", () => {
-    expect(
-      resolveHookPath(hn("my-hook"), { path: "scripts/my-hook.ts" }, "/home/user"),
-    ).toBe(join("/home/user", "scripts/my-hook.ts"))
   })
 
   test("basePath '.' is same as default (no basePath)", () => {

@@ -49,6 +49,8 @@ interface ResolvedHook {
   localOverride?: Record<string, unknown>
   localPath?: string
   shadowed?: boolean
+  /** Raw `uses` value from YAML, if this hook is an alias. */
+  usesTarget?: string
 }
 
 interface ResolvedEvent {
@@ -144,7 +146,7 @@ async function buildResolved(
   /** Compute the display source path for a hook. */
   function computeSourcePath(hookName: string, hookData: unknown, origin: HookOrigin): string {
     const hookFields = isPlainObject(hookData) ? hookData : {}
-    const entry = { path: typeof hookFields.path === "string" ? hookFields.path : undefined }
+    const entry = { uses: typeof hookFields.uses === "string" ? hookFields.uses : undefined }
     if (origin === "home") {
       const resolved = resolveHookPath(hookName as HookName, entry, homeRoot)
       // Display as relative to home: ~/.clooks/...
@@ -153,6 +155,12 @@ async function buildResolved(
     }
     const resolved = resolveHookPath(hookName as HookName, entry)
     return resolved
+  }
+
+  function extractUsesTarget(hookData: unknown): string | undefined {
+    if (!isPlainObject(hookData)) return undefined
+    const uses = (hookData as Record<string, unknown>).uses
+    return typeof uses === "string" ? uses : undefined
   }
 
   // Collect all unique hook names preserving order
@@ -173,6 +181,7 @@ async function buildResolved(
         fields: homeFields,
         sourcePath: computeSourcePath(name, homeData, "home"),
         shadowed: true,
+        usesTarget: extractUsesTarget(homeData),
       })
     }
 
@@ -185,6 +194,7 @@ async function buildResolved(
         origin: "project",
         fields: projectFields,
         sourcePath: computeSourcePath(name, projectData, "project"),
+        usesTarget: extractUsesTarget(projectData),
       }
       if (name in localHooks) {
         hook.localOverride = isPlainObject(localHooks[name]) ? localHooks[name] as Record<string, unknown> : {}
@@ -199,6 +209,7 @@ async function buildResolved(
         origin: "home",
         fields: homeFields,
         sourcePath: computeSourcePath(name, homeData, "home"),
+        usesTarget: extractUsesTarget(homeData),
       }
       if (name in localHooks) {
         hook.localOverride = isPlainObject(localHooks[name]) ? localHooks[name] as Record<string, unknown> : {}
@@ -281,8 +292,17 @@ function formatHumanResolved(resolved: ResolvedOutput): string {
   for (const hook of resolved.hooks) {
     const shadowTag = hook.shadowed ? "  (shadowed by project)" : ""
     lines.push(`hook: ${hook.name}  [${hook.origin}]${shadowTag}`)
+
+    // Show alias info if this is an aliased hook
+    if (hook.usesTarget) {
+      lines.push(`  uses: ${hook.usesTarget}`)
+      lines.push(`  resolved: ${hook.sourcePath}`)
+    }
+
     const fields = hook.fields as Record<string, unknown>
     for (const [key, val] of Object.entries(fields)) {
+      // Skip 'uses' in fields — already shown above
+      if (key === "uses") continue
       if (key === "config" && isPlainObject(val)) {
         for (const [ck, cv] of Object.entries(val as Record<string, unknown>)) {
           lines.push(`  config.${ck}: ${formatValue(cv)}`)
@@ -291,7 +311,10 @@ function formatHumanResolved(resolved: ResolvedOutput): string {
         lines.push(`  ${key}: ${formatValue(val)}`)
       }
     }
-    lines.push(`  source: ${hook.sourcePath}`)
+    // Suppress source: line for aliases (resolved: already shows the same path)
+    if (!hook.usesTarget) {
+      lines.push(`  source: ${hook.sourcePath}`)
+    }
 
     if (hook.localOverride) {
       lines.push("")
@@ -370,6 +393,10 @@ function buildJsonResolved(resolved: ResolvedOutput): Record<string, unknown> {
       fields: hook.fields,
       source: hook.sourcePath,
     }
+    if (hook.usesTarget) {
+      hookData.uses = hook.usesTarget
+      hookData.resolved = hook.sourcePath
+    }
     if (hook.shadowed) {
       hookData.shadowed = true
     }
@@ -387,6 +414,10 @@ function buildJsonResolved(resolved: ResolvedOutput): Record<string, unknown> {
       origin: hook.origin,
       fields: hook.fields,
       source: hook.sourcePath,
+    }
+    if (hook.usesTarget) {
+      hookData.uses = hook.usesTarget
+      hookData.resolved = hook.sourcePath
     }
     if (hook.localOverride) {
       hookData.localOverride = hook.localOverride

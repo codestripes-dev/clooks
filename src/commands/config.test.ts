@@ -416,4 +416,170 @@ describe('config --resolved', () => {
 
     expect(exitSpy).toHaveBeenCalledWith(1)
   })
+
+  test('--resolved human output: alias hook shows uses + resolved lines', async () => {
+    tempDir = mkdtempSync(join(tmpdir(), 'clooks-config-resolved-'))
+    const homeDir = join(tempDir, 'home')
+    const projectDir = join(tempDir, 'project')
+
+    mkdirSync(join(homeDir, '.clooks'), { recursive: true })
+    mkdirSync(join(projectDir, '.clooks'), { recursive: true })
+
+    writeFileSync(join(projectDir, '.clooks/clooks.yml'), `version: "1.0.0"\nverbose-logger:\n  uses: log-bash\n  config:\n    verbose: true\n`)
+
+    process.chdir(projectDir)
+    process.env.CLOOKS_HOME_ROOT = homeDir
+
+    const program = createResolvedProgram()
+    await program.parseAsync(['config', '--resolved'], { from: 'user' })
+
+    const output = stdoutSpy.mock.calls
+      .map((c: unknown[]) => String(c[0]))
+      .join('')
+
+    expect(output).toContain('hook: verbose-logger  [project]')
+    expect(output).toContain('  uses: log-bash')
+    expect(output).toContain('  resolved: .clooks/hooks/log-bash.ts')
+    expect(output).toContain('  config.verbose: true')
+    // source: line should NOT appear for alias hooks
+    expect(output).not.toContain('  source:')
+  })
+
+  test('--resolved human output: non-alias hook omits uses/resolved', async () => {
+    tempDir = mkdtempSync(join(tmpdir(), 'clooks-config-resolved-'))
+    const homeDir = join(tempDir, 'home')
+    const projectDir = join(tempDir, 'project')
+
+    mkdirSync(join(homeDir, '.clooks'), { recursive: true })
+    mkdirSync(join(projectDir, '.clooks'), { recursive: true })
+
+    writeFileSync(join(projectDir, '.clooks/clooks.yml'), `version: "1.0.0"\nlog-bash: {}\n`)
+
+    process.chdir(projectDir)
+    process.env.CLOOKS_HOME_ROOT = homeDir
+
+    const program = createResolvedProgram()
+    await program.parseAsync(['config', '--resolved'], { from: 'user' })
+
+    const output = stdoutSpy.mock.calls
+      .map((c: unknown[]) => String(c[0]))
+      .join('')
+
+    expect(output).toContain('hook: log-bash  [project]')
+    expect(output).toContain('  source: .clooks/hooks/log-bash.ts')
+    expect(output).not.toContain('  uses:')
+    expect(output).not.toContain('  resolved:')
+  })
+
+  test('--resolved JSON output: alias hook has uses + resolved fields', async () => {
+    tempDir = mkdtempSync(join(tmpdir(), 'clooks-config-resolved-'))
+    const homeDir = join(tempDir, 'home')
+    const projectDir = join(tempDir, 'project')
+
+    mkdirSync(join(homeDir, '.clooks'), { recursive: true })
+    mkdirSync(join(projectDir, '.clooks'), { recursive: true })
+
+    writeFileSync(join(projectDir, '.clooks/clooks.yml'), `version: "1.0.0"\nverbose-logger:\n  uses: log-bash\n  config:\n    verbose: true\n`)
+
+    process.chdir(projectDir)
+    process.env.CLOOKS_HOME_ROOT = homeDir
+
+    const program = createResolvedProgram()
+    await program.parseAsync(['--json', 'config', '--resolved'], { from: 'user' })
+
+    const output = stdoutSpy.mock.calls
+      .map((c: unknown[]) => String(c[0]))
+      .join('')
+    const parsed = JSON.parse(output.trim())
+
+    expect(parsed.ok).toBe(true)
+    const hookKeyed = parsed.data.hooks['verbose-logger']
+    expect(hookKeyed.uses).toBe('log-bash')
+    expect(hookKeyed.resolved).toBe('.clooks/hooks/log-bash.ts')
+
+    const hookDetail = parsed.data.hookDetails.find((d: { name: string }) => d.name === 'verbose-logger')
+    expect(hookDetail.uses).toBe('log-bash')
+    expect(hookDetail.resolved).toBe('.clooks/hooks/log-bash.ts')
+  })
+
+  test('--resolved JSON output: non-alias hook omits uses/resolved', async () => {
+    tempDir = mkdtempSync(join(tmpdir(), 'clooks-config-resolved-'))
+    const homeDir = join(tempDir, 'home')
+    const projectDir = join(tempDir, 'project')
+
+    mkdirSync(join(homeDir, '.clooks'), { recursive: true })
+    mkdirSync(join(projectDir, '.clooks'), { recursive: true })
+
+    writeFileSync(join(projectDir, '.clooks/clooks.yml'), `version: "1.0.0"\nlog-bash: {}\n`)
+
+    process.chdir(projectDir)
+    process.env.CLOOKS_HOME_ROOT = homeDir
+
+    const program = createResolvedProgram()
+    await program.parseAsync(['--json', 'config', '--resolved'], { from: 'user' })
+
+    const output = stdoutSpy.mock.calls
+      .map((c: unknown[]) => String(c[0]))
+      .join('')
+    const parsed = JSON.parse(output.trim())
+
+    expect(parsed.ok).toBe(true)
+    const hookKeyed = parsed.data.hooks['log-bash']
+    expect(hookKeyed.uses).toBeUndefined()
+    expect(hookKeyed.resolved).toBeUndefined()
+    expect(hookKeyed.source).toBe('.clooks/hooks/log-bash.ts')
+  })
+
+  test('--resolved human output: path-like uses', async () => {
+    tempDir = mkdtempSync(join(tmpdir(), 'clooks-config-resolved-'))
+    const homeDir = join(tempDir, 'home')
+    const projectDir = join(tempDir, 'project')
+
+    mkdirSync(join(homeDir, '.clooks'), { recursive: true })
+    mkdirSync(join(projectDir, '.clooks'), { recursive: true })
+
+    writeFileSync(join(projectDir, '.clooks/clooks.yml'), `version: "1.0.0"\ncustom-hook:\n  uses: "./lib/hook.ts"\n`)
+
+    process.chdir(projectDir)
+    process.env.CLOOKS_HOME_ROOT = homeDir
+
+    const program = createResolvedProgram()
+    await program.parseAsync(['config', '--resolved'], { from: 'user' })
+
+    const output = stdoutSpy.mock.calls
+      .map((c: unknown[]) => String(c[0]))
+      .join('')
+
+    expect(output).toContain('  uses: ./lib/hook.ts')
+    expect(output).toContain('  resolved: ./lib/hook.ts')
+  })
+
+  test('--resolved human output: two aliases of same hook both appear with uses lines', async () => {
+    tempDir = mkdtempSync(join(tmpdir(), 'clooks-config-resolved-'))
+    const homeDir = join(tempDir, 'home')
+    const projectDir = join(tempDir, 'project')
+
+    mkdirSync(join(homeDir, '.clooks'), { recursive: true })
+    mkdirSync(join(projectDir, '.clooks'), { recursive: true })
+
+    writeFileSync(join(projectDir, '.clooks/clooks.yml'), `version: "1.0.0"\nverbose:\n  uses: base\nquiet:\n  uses: base\n`)
+
+    process.chdir(projectDir)
+    process.env.CLOOKS_HOME_ROOT = homeDir
+
+    const program = createResolvedProgram()
+    await program.parseAsync(['config', '--resolved'], { from: 'user' })
+
+    const output = stdoutSpy.mock.calls
+      .map((c: unknown[]) => String(c[0]))
+      .join('')
+
+    expect(output).toContain('hook: verbose  [project]')
+    expect(output).toContain('hook: quiet  [project]')
+    // Both should show uses: base and resolve to the same path
+    const usesMatches = output.match(/  uses: base/g)
+    expect(usesMatches).toHaveLength(2)
+    const resolvedMatches = output.match(/  resolved: .clooks\/hooks\/base\.ts/g)
+    expect(resolvedMatches).toHaveLength(2)
+  })
 })

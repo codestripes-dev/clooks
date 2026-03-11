@@ -461,3 +461,127 @@ describe("loadAllHooks with mixed origins", () => {
     rmSync(projectDir, { recursive: true, force: true })
   })
 })
+
+// --- Alias loading (M3) ---
+
+describe("loadHook with aliases", () => {
+  function makeAliasEntry(
+    resolvedPath: string,
+    uses: string,
+    config: Record<string, unknown> = {},
+  ): HookEntry {
+    return {
+      resolvedPath,
+      uses,
+      config,
+      parallel: false,
+      origin: "project",
+    }
+  }
+
+  test("alias with hook-name uses loads successfully when meta.name matches uses target", async () => {
+    const dir = makeTempDir()
+    const hookFile = join(dir, "real-hook.ts")
+    writeFileSync(
+      hookFile,
+      `export const hook = {
+        meta: { name: "real-hook" },
+        PreToolUse() { return { result: "allow" } },
+      }`,
+    )
+    const entry = makeAliasEntry(hookFile, "real-hook")
+    const result = await loadHook(hn("my-alias"), entry, dir)
+    expect(result.name).toBe(hn("my-alias"))
+    expect(result.hook.meta.name).toBe(hn("real-hook"))
+    expect(result.usesTarget).toBe("real-hook")
+  })
+
+  test("alias meta.name mismatch throws with context mentioning alias and uses target", async () => {
+    const dir = makeTempDir()
+    const hookFile = join(dir, "wrong-name.ts")
+    writeFileSync(
+      hookFile,
+      `export const hook = {
+        meta: { name: "wrong-name" },
+        PreToolUse() { return { result: "allow" } },
+      }`,
+    )
+    const entry = makeAliasEntry(hookFile, "expected-name")
+    await expect(loadHook(hn("my-alias"), entry, dir)).rejects.toThrow(
+      /declares meta\.name "wrong-name".*uses: "expected-name".*alias "my-alias"/,
+    )
+  })
+
+  test("path-like uses skips meta.name check", async () => {
+    const dir = makeTempDir()
+    mkdirSync(join(dir, "custom"), { recursive: true })
+    const hookFile = join(dir, "custom", "path.ts")
+    writeFileSync(
+      hookFile,
+      `export const hook = {
+        meta: { name: "anything-goes" },
+        PreToolUse() { return { result: "allow" } },
+      }`,
+    )
+    const entry = makeAliasEntry(hookFile, "./custom/path.ts")
+    const result = await loadHook(hn("my-alias"), entry, dir)
+    expect(result.name).toBe(hn("my-alias"))
+    expect(result.hook.meta.name).toBe(hn("anything-goes"))
+    expect(result.usesTarget).toBe("./custom/path.ts")
+  })
+
+  test("regular hook (no uses) still validates meta.name against YAML key", async () => {
+    const dir = makeTempDir()
+    const hookFile = join(dir, "mismatch.ts")
+    writeFileSync(
+      hookFile,
+      `export const hook = {
+        meta: { name: "actual-name" },
+        PreToolUse() { return { result: "skip" } },
+      }`,
+    )
+    const entry = makeHookEntry(hookFile)
+    await expect(loadHook(hn("config-key"), entry, dir)).rejects.toThrow(
+      'declares meta.name "actual-name" but is registered as "config-key" in clooks.yml',
+    )
+  })
+
+  test("usesTarget is undefined for non-alias hooks", async () => {
+    const dir = makeTempDir()
+    const hookFile = join(dir, "regular.ts")
+    writeFileSync(
+      hookFile,
+      `export const hook = {
+        meta: { name: "regular" },
+        PreToolUse() { return { result: "skip" } },
+      }`,
+    )
+    const entry = makeHookEntry(hookFile)
+    const result = await loadHook(hn("regular"), entry, dir)
+    expect(result.usesTarget).toBeUndefined()
+  })
+
+  test("usesTarget is populated for alias hooks", async () => {
+    const dir = makeTempDir()
+    const hookFile = join(dir, "target.ts")
+    writeFileSync(
+      hookFile,
+      `export const hook = {
+        meta: { name: "target" },
+        PreToolUse() { return { result: "skip" } },
+      }`,
+    )
+    const entry = makeAliasEntry(hookFile, "target")
+    const result = await loadHook(hn("alias-name"), entry, dir)
+    expect(result.usesTarget).toBe("target")
+    expect(result.name).toBe(hn("alias-name"))
+  })
+
+  test("load error includes uses context when entry has uses", async () => {
+    const dir = makeTempDir()
+    const entry = makeAliasEntry(join(dir, "nonexistent.ts"), "some-hook")
+    await expect(loadHook(hn("my-alias"), entry, dir)).rejects.toThrow(
+      /failed to import hook "my-alias" \(uses: "some-hook"\)/,
+    )
+  })
+})
