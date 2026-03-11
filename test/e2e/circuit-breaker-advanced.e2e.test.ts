@@ -333,4 +333,51 @@ crash-hook:
     // The hash-based file is now orphaned (still exists from before)
     expect(existsSync(hashPath)).toBe(true)
   })
+
+  test('9. load error uses single __load__ counter across different events — no per-event multiplication', () => {
+    sandbox = createSandbox()
+    // Register a hook pointing to a nonexistent file
+    sandbox.writeConfig(`
+version: "1.0.0"
+missing-hook:
+  path: .clooks/hooks/does-not-exist.ts
+  maxFailures: 3
+`)
+
+    // Invocation 1: PreToolUse event → load error → block (count 1 < 3)
+    const r1 = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
+    expect(r1.exitCode).toBe(0)
+    const o1 = JSON.parse(r1.stdout)
+    expect(o1.hookSpecificOutput.permissionDecision).toBe('deny')
+
+    // Verify __load__ counter is 1
+    const failures1 = JSON.parse(sandbox.readFile('.clooks/.failures'))
+    expect(failures1['missing-hook']['__load__'].consecutiveFailures).toBe(1)
+
+    // Invocation 2: PostToolUse event (different event!) → load error → block (count 2 < 3)
+    const r2 = sandbox.run([], { stdin: loadEvent('post-tool-use.json') })
+    expect(r2.exitCode).toBe(0)
+
+    // Verify __load__ counter incremented to 2 (not starting fresh for PostToolUse)
+    const failures2 = JSON.parse(sandbox.readFile('.clooks/.failures'))
+    expect(failures2['missing-hook']['__load__'].consecutiveFailures).toBe(2)
+    // No per-event counter should exist — only __load__
+    expect(failures2['missing-hook']['PostToolUse']).toBeUndefined()
+    expect(failures2['missing-hook']['PreToolUse']).toBeUndefined()
+
+    // Invocation 3: Notification event (yet another event!) → load error → degraded (count 3 == 3)
+    const r3 = sandbox.run([], { stdin: loadEvent('notification.json') })
+    expect(r3.exitCode).toBe(0)
+
+    // Verify __load__ counter is 3 and hook is degraded
+    const failures3 = JSON.parse(sandbox.readFile('.clooks/.failures'))
+    expect(failures3['missing-hook']['__load__'].consecutiveFailures).toBe(3)
+
+    // Invocation 4: back to PreToolUse — hook should still be degraded, not blocking
+    const r4 = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
+    expect(r4.exitCode).toBe(0)
+    const o4 = JSON.parse(r4.stdout)
+    // Should NOT be blocked (deny) — should be degraded (hook skipped)
+    expect(o4.hookSpecificOutput?.permissionDecision).not.toBe('deny')
+  })
 })
