@@ -20,8 +20,7 @@ describe('bash entrypoint', () => {
     sandbox.writeEntrypoint(ENTRYPOINT_SCRIPT)
     sandbox.writeHook('allow-all.ts', loadHook('allow-all.ts'))
     sandbox.writeConfig(`version: "1.0.0"
-allow-all:
-  path: .clooks/hooks/allow-all.ts
+allow-all: {}
 `)
     const result = sandbox.runEntrypoint({ stdin: loadEvent('pre-tool-use-bash.json') })
     expect(result.exitCode).toBe(0)
@@ -44,8 +43,7 @@ allow-all:
     sandbox.writeEntrypoint(ENTRYPOINT_SCRIPT)
     sandbox.writeHook('allow-all.ts', loadHook('allow-all.ts'))
     sandbox.writeConfig(`version: "1.0.0"
-allow-all:
-  path: .clooks/hooks/allow-all.ts
+allow-all: {}
 `)
     const logDir = join(sandbox.dir, 'debug-logs')
     const event = loadEvent('pre-tool-use-bash.json')

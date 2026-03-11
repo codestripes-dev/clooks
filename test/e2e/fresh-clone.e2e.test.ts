@@ -23,8 +23,7 @@ describe('fresh clone', () => {
     sandbox.writeEntrypoint(ENTRYPOINT_SCRIPT)
     sandbox.writeHook('allow-all.ts', loadHook('allow-all.ts'))
     sandbox.writeConfig(`version: "1.0.0"
-allow-all:
-  path: .clooks/hooks/allow-all.ts
+allow-all: {}
 `)
 
     // Remove the binary to simulate a fresh clone where clooks is not installed.

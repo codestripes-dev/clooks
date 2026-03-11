@@ -19,8 +19,7 @@ describe('debug mode', () => {
     sandbox.writeHook('allow-all.ts', loadHook('allow-all.ts'))
     sandbox.writeConfig(`
 version: "1.0.0"
-allow-all:
-  path: .clooks/hooks/allow-all.ts
+allow-all: {}
 `)
     const result = sandbox.run([], {
       stdin: loadEvent('pre-tool-use-bash.json'),

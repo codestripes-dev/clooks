@@ -31,8 +31,7 @@ export const hook = {
 }
 `)
     sandbox.writeConfig(`version: "1.0.0"
-allow-all:
-  path: .clooks/hooks/allow-all.ts
+allow-all: {}
 `)
     const event = JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'ls' } })
     const result = sandbox.run([], { stdin: event })

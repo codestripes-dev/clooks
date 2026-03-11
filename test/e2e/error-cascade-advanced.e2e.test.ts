@@ -30,10 +30,8 @@ export const hook = {
     sandbox.writeConfig(`
 version: "1.0.0"
 hook-a:
-  path: .clooks/hooks/hook-a.ts
   onError: continue
 hook-b:
-  path: .clooks/hooks/hook-b.ts
   onError: block
 PreToolUse:
   order: [hook-a, hook-b]
@@ -70,10 +68,8 @@ export const hook = {
 version: "1.0.0"
 config:
   onError: continue
-cont-a:
-  path: .clooks/hooks/cont-a.ts
-cont-b:
-  path: .clooks/hooks/cont-b.ts
+cont-a: {}
+cont-b: {}
 PreToolUse:
   order: [cont-a, cont-b]
 `)
@@ -101,7 +97,6 @@ export const hook = {
     sandbox.writeConfig(`
 version: "1.0.0"
 degrading:
-  path: .clooks/hooks/degrading.ts
   maxFailures: 2
 `)
 
@@ -134,7 +129,6 @@ export const hook = {
     sandbox.writeConfig(`
 version: "1.0.0"
 trace-noninject:
-  path: .clooks/hooks/trace-noninject.ts
   onError: trace
 `)
 
@@ -174,10 +168,8 @@ export const hook = {
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-inject-a:
-  path: .clooks/hooks/inject-a.ts
-before-block-b:
-  path: .clooks/hooks/before-block-b.ts
+inject-a: {}
+before-block-b: {}
 PreToolUse:
   order: [inject-a, before-block-b]
 `)
@@ -213,7 +205,6 @@ export const hook = {
     sandbox.writeConfig(`
 version: "1.0.0"
 after-crash:
-  path: .clooks/hooks/after-crash.ts
   onError: continue
 `)
 
@@ -246,8 +237,7 @@ export const hook = {
     // Use onError:block (default) to see the error surface
     sandbox.writeConfig(`
 version: "1.0.0"
-respond-twice:
-  path: .clooks/hooks/respond-twice.ts
+respond-twice: {}
 `)
 
     const stdin = loadEvent('pre-tool-use-bash.json')
@@ -283,8 +273,7 @@ export const hook = {
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-respond-null:
-  path: .clooks/hooks/respond-null.ts
+respond-null: {}
 `)
 
     const stdin = loadEvent('pre-tool-use-bash.json')

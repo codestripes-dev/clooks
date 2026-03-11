@@ -20,8 +20,7 @@ describe('environment edge cases', () => {
     sandbox.writeHook('crash-on-run.ts', loadHook('crash-on-run.ts'))
     sandbox.writeConfig(`
 version: "1.0.0"
-crash-on-run:
-  path: .clooks/hooks/crash-on-run.ts
+crash-on-run: {}
 `)
     // Make .clooks directory read-only AFTER writing config and hooks
     chmodSync(join(sandbox.dir, '.clooks'), 0o555)
@@ -66,8 +65,7 @@ crash-on-run:
     writeFileSync(join(hooksDir, 'allow-all.ts'), hookContent)
     writeFileSync(join(realDir, 'clooks.yml'), `
 version: "1.0.0"
-allow-all:
-  path: .clooks/hooks/allow-all.ts
+allow-all: {}
 `)
 
     // Create .clooks as a symlink to the real directory
@@ -85,7 +83,6 @@ allow-all:
     sandbox.writeConfig(`
 version: "1.0.0"
 crash-on-run:
-  path: .clooks/hooks/crash-on-run.ts
   maxFailures: 10
 `)
     const stdin = loadEvent('pre-tool-use-bash.json')

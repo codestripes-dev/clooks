@@ -19,8 +19,7 @@ describe('fail-closed invariant', () => {
     sandbox = createSandbox()
     sandbox.writeHook('crash-on-run.ts', loadHook('crash-on-run.ts'))
     sandbox.writeConfig(`version: "1.0.0"
-crash-on-run:
-  path: .clooks/hooks/crash-on-run.ts
+crash-on-run: {}
 `)
     const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
     // PreToolUse blocks are communicated via JSON with exit code 0
@@ -43,7 +42,6 @@ crash-on-run:
     sandbox.writeHook('broken.ts', 'export const hook = {')  // syntax error
     sandbox.writeConfig(`version: "1.0.0"
 broken:
-  path: .clooks/hooks/broken.ts
   maxFailures: 3
 `)
     const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })

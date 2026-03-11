@@ -22,10 +22,8 @@ describe('composability', () => {
     sandbox.writeConfig(`
 version: "1.0.0"
 allow-all:
-  path: .clooks/hooks/allow-all.ts
   parallel: true
 allow-with-context:
-  path: .clooks/hooks/allow-with-context.ts
   parallel: true
 `)
     const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
@@ -43,10 +41,8 @@ allow-with-context:
     sandbox.writeConfig(`
 version: "1.0.0"
 allow-all:
-  path: .clooks/hooks/allow-all.ts
   parallel: true
 block-always:
-  path: .clooks/hooks/block-always.ts
   parallel: true
 `)
     const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
@@ -63,10 +59,8 @@ block-always:
     sandbox.writeConfig(`
 version: "1.0.0"
 allow-all:
-  path: .clooks/hooks/allow-all.ts
   parallel: true
 crash-on-run:
-  path: .clooks/hooks/crash-on-run.ts
   parallel: true
   onError: block
 `)
@@ -84,7 +78,6 @@ crash-on-run:
     sandbox.writeConfig(`
 version: "1.0.0"
 rewrite-command:
-  path: .clooks/hooks/rewrite-command.ts
   parallel: true
 `)
     const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
@@ -124,12 +117,9 @@ export const hook = {
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-ctx-alpha:
-  path: .clooks/hooks/ctx-alpha.ts
-ctx-beta:
-  path: .clooks/hooks/ctx-beta.ts
-ctx-gamma:
-  path: .clooks/hooks/ctx-gamma.ts
+ctx-alpha: {}
+ctx-beta: {}
+ctx-gamma: {}
 `)
     const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
     expect(result.exitCode).toBe(0)
@@ -164,10 +154,8 @@ export const hook = {
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-hook-a:
-  path: .clooks/hooks/hook-a.ts
-hook-b:
-  path: .clooks/hooks/hook-b.ts
+hook-a: {}
+hook-b: {}
 PreToolUse:
   order: [hook-b, hook-a]
 `)
@@ -221,15 +209,11 @@ export const hook = {
     sandbox.writeConfig(`
 version: "1.0.0"
 p1:
-  path: .clooks/hooks/p1.ts
   parallel: true
 p2:
-  path: .clooks/hooks/p2.ts
   parallel: true
-s1:
-  path: .clooks/hooks/s1.ts
+s1: {}
 p3:
-  path: .clooks/hooks/p3.ts
   parallel: true
 PreToolUse:
   order: [p1, p2, s1, p3]
@@ -259,13 +243,10 @@ PreToolUse:
     sandbox.writeHook('allow-with-context.ts', loadHook('allow-with-context.ts'))
     sandbox.writeConfig(`
 version: "1.0.0"
-allow-all:
-  path: .clooks/hooks/allow-all.ts
+allow-all: {}
 crash-on-run:
-  path: .clooks/hooks/crash-on-run.ts
   onError: continue
-allow-with-context:
-  path: .clooks/hooks/allow-with-context.ts
+allow-with-context: {}
 `)
     const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
     expect(result.exitCode).toBe(0)
@@ -284,10 +265,8 @@ allow-with-context:
     sandbox.writeHook('block-always.ts', loadHook('block-always.ts'))
     sandbox.writeConfig(`
 version: "1.0.0"
-allow-with-context:
-  path: .clooks/hooks/allow-with-context.ts
-block-always:
-  path: .clooks/hooks/block-always.ts
+allow-with-context: {}
+block-always: {}
 `)
     const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
     expect(result.exitCode).toBe(0)

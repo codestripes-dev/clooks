@@ -20,7 +20,6 @@ describe('Bug 1: LOAD_ERROR_EVENT counter cleared after hook restoration', () =>
     sandbox.writeConfig(`
 version: "1.0.0"
 recoverable-hook:
-  path: .clooks/hooks/recoverable-hook.ts
   maxFailures: 3
 `)
 
@@ -86,7 +85,6 @@ export const hook = {
     sandbox.writeConfig(`
 version: "1.0.0"
 partial-fail-hook:
-  path: .clooks/hooks/partial-fail-hook.ts
   maxFailures: 5
 `)
 
@@ -137,8 +135,7 @@ export const hook = {
 `)
     sandbox.writeHomeConfig(`
 version: "1.0.0"
-shared-hook:
-  path: .clooks/hooks/shared-hook.ts
+shared-hook: {}
 `)
 
     // Project config defines shared-hook handling only PreToolUse (same name = shadow)
@@ -152,8 +149,7 @@ export const hook = {
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-shared-hook:
-  path: .clooks/hooks/shared-hook.ts
+shared-hook: {}
 `)
 
     // Send SessionStart — neither hook handles SessionStart, so no hooks match.
@@ -180,8 +176,7 @@ export const hook = {
 `)
     sandbox.writeHomeConfig(`
 version: "1.0.0"
-shared-hook:
-  path: .clooks/hooks/shared-hook.ts
+shared-hook: {}
 `)
 
     // Project config shadows with SessionStart + PreToolUse
@@ -196,8 +191,7 @@ export const hook = {
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-shared-hook:
-  path: .clooks/hooks/shared-hook.ts
+shared-hook: {}
 `)
 
     // SessionStart: hook matches → goes through full pipeline → shadow warning should still appear
@@ -224,10 +218,9 @@ export const hook = {
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-working-hook:
-  path: .clooks/hooks/working-hook.ts
+working-hook: {}
 missing-hook:
-  path: .clooks/hooks/does-not-exist.ts
+  uses: ./.clooks/hooks/does-not-exist.ts
   maxFailures: 2
 `)
 
@@ -265,10 +258,9 @@ export const hook = {
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-working-hook:
-  path: .clooks/hooks/working-hook.ts
+working-hook: {}
 missing-hook:
-  path: .clooks/hooks/does-not-exist.ts
+  uses: ./.clooks/hooks/does-not-exist.ts
   maxFailures: 2
 `)
 

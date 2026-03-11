@@ -64,12 +64,9 @@ export const hook = {
 `)
       sandbox.writeConfig(`
 version: "1.0.0"
-chain-a:
-  path: .clooks/hooks/chain-a.ts
-chain-b:
-  path: .clooks/hooks/chain-b.ts
-chain-c:
-  path: .clooks/hooks/chain-c.ts
+chain-a: {}
+chain-b: {}
+chain-c: {}
 PreToolUse:
   order: [chain-a, chain-b, chain-c]
 `)
@@ -112,10 +109,8 @@ export const hook = {
 `)
       sandbox.writeConfig(`
 version: "1.0.0"
-mutate-input:
-  path: .clooks/hooks/mutate-input.ts
-skipper:
-  path: .clooks/hooks/skipper.ts
+mutate-input: {}
+skipper: {}
 PreToolUse:
   order: [mutate-input, skipper]
 `)
@@ -143,8 +138,7 @@ export const hook = {
 `)
       sandbox.writeConfig(`
 version: "1.0.0"
-string-input:
-  path: .clooks/hooks/string-input.ts
+string-input: {}
 `)
       const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
       expect(result.exitCode).toBe(0)
@@ -185,10 +179,8 @@ export const hook = {
       sandbox.writeConfig(`
 version: "1.0.0"
 parallel-mutate:
-  path: .clooks/hooks/parallel-mutate.ts
   parallel: true
-sidecar-writer:
-  path: .clooks/hooks/sidecar-writer.ts
+sidecar-writer: {}
 PreToolUse:
   order: [parallel-mutate, sidecar-writer]
 `)
@@ -226,11 +218,9 @@ export const hook = {
       sandbox.writeConfig(`
 version: "1.0.0"
 crash-p1:
-  path: .clooks/hooks/crash-p1.ts
   parallel: true
   onError: block
 crash-p2:
-  path: .clooks/hooks/crash-p2.ts
   parallel: true
   onError: block
 `)
@@ -263,10 +253,8 @@ export const hook = {
       sandbox.writeConfig(`
 version: "1.0.0"
 ctx-parallel:
-  path: .clooks/hooks/ctx-parallel.ts
   parallel: true
 crash-parallel:
-  path: .clooks/hooks/crash-parallel.ts
   parallel: true
   onError: block
 `)
@@ -304,10 +292,8 @@ export const hook = {
       sandbox.writeConfig(`
 version: "1.0.0"
 skip-parallel:
-  path: .clooks/hooks/skip-parallel.ts
   parallel: true
 block-parallel:
-  path: .clooks/hooks/block-parallel.ts
   parallel: true
 `)
       const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
@@ -351,10 +337,8 @@ export const hook = {
       sandbox.writeConfig(`
 version: "1.0.0"
 slow-parallel:
-  path: .clooks/hooks/slow-parallel.ts
   parallel: true
 fast-block:
-  path: .clooks/hooks/fast-block.ts
   parallel: true
 `)
       const startMs = Date.now()
@@ -393,10 +377,8 @@ export const hook = {
 `)
       sandbox.writeConfig(`
 version: "1.0.0"
-post-only:
-  path: .clooks/hooks/post-only.ts
-allow-pre:
-  path: .clooks/hooks/allow-pre.ts
+post-only: {}
+allow-pre: {}
 PreToolUse:
   order: [post-only, allow-pre]
 `)
@@ -420,8 +402,7 @@ export const hook = {
 `)
       sandbox.writeConfig(`
 version: "1.0.0"
-solo:
-  path: .clooks/hooks/solo.ts
+solo: {}
 PreToolUse:
   order: [solo]
 `)
@@ -464,13 +445,10 @@ export const hook = {
       sandbox.writeConfig(`
 version: "1.0.0"
 par-a:
-  path: .clooks/hooks/par-a.ts
   parallel: true
 par-b:
-  path: .clooks/hooks/par-b.ts
   parallel: true
 par-c:
-  path: .clooks/hooks/par-c.ts
   parallel: true
 PreToolUse:
   order: [par-a, par-b, par-c]
@@ -518,12 +496,9 @@ export const hook = {
       sandbox.writeConfig(`
 version: "1.0.0"
 unord-par:
-  path: .clooks/hooks/unord-par.ts
   parallel: true
-ord-seq:
-  path: .clooks/hooks/ord-seq.ts
-unord-seq:
-  path: .clooks/hooks/unord-seq.ts
+ord-seq: {}
+unord-seq: {}
 PreToolUse:
   order: [ord-seq]
 `)
@@ -579,10 +554,8 @@ export const hook = {
 `)
       sandbox.writeConfig(`
 version: "1.0.0"
-before-block-a:
-  path: .clooks/hooks/before-block-a.ts
-normal-b:
-  path: .clooks/hooks/normal-b.ts
+before-block-a: {}
+normal-b: {}
 PreToolUse:
   order: [before-block-a, normal-b]
 `)
@@ -619,7 +592,6 @@ export const hook = {
       sandbox.writeConfig(`
 version: "1.0.0"
 after-override:
-  path: .clooks/hooks/after-override.ts
   parallel: true
 `)
       const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
@@ -654,11 +626,9 @@ export const hook = {
       sandbox.writeConfig(`
 version: "1.0.0"
 after-crash:
-  path: .clooks/hooks/after-crash.ts
   parallel: true
   onError: continue
 sibling-ctx:
-  path: .clooks/hooks/sibling-ctx.ts
   parallel: true
 `)
       const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
@@ -689,7 +659,6 @@ export const hook = {
       sandbox.writeConfig(`
 version: "1.0.0"
 before-hang:
-  path: .clooks/hooks/before-hang.ts
   timeout: 500
 `)
       const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json'), timeout: 10000 })
@@ -723,10 +692,8 @@ export const hook = {
 `)
       sandbox.writeConfig(`
 version: "1.0.0"
-skip-a:
-  path: .clooks/hooks/skip-a.ts
-skip-b:
-  path: .clooks/hooks/skip-b.ts
+skip-a: {}
+skip-b: {}
 `)
       const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
       expect(result.exitCode).toBe(0)
@@ -751,10 +718,8 @@ export const hook = {
 `)
       sandbox.writeConfig(`
 version: "1.0.0"
-null-a:
-  path: .clooks/hooks/null-a.ts
-undef-b:
-  path: .clooks/hooks/undef-b.ts
+null-a: {}
+undef-b: {}
 `)
       const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
       expect(result.exitCode).toBe(0)
@@ -811,18 +776,13 @@ export const hook = {
       sandbox.writeConfig(`
 version: "1.0.0"
 par-g1a:
-  path: .clooks/hooks/par-g1a.ts
   parallel: true
 par-g1b:
-  path: .clooks/hooks/par-g1b.ts
   parallel: true
-seq-mid:
-  path: .clooks/hooks/seq-mid.ts
+seq-mid: {}
 par-g2a:
-  path: .clooks/hooks/par-g2a.ts
   parallel: true
 par-g2b:
-  path: .clooks/hooks/par-g2b.ts
   parallel: true
 PreToolUse:
   order: [par-g1a, par-g1b, seq-mid, par-g2a, par-g2b]
@@ -869,10 +829,8 @@ export const hook = {
 `)
       sandbox.writeConfig(`
 version: "1.0.0"
-ctx-hook:
-  path: .clooks/hooks/ctx-hook.ts
+ctx-hook: {}
 trace-crash:
-  path: .clooks/hooks/trace-crash.ts
   onError: trace
 PreToolUse:
   order: [ctx-hook, trace-crash]

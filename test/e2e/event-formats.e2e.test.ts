@@ -26,8 +26,7 @@ export const hook = {
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-perm-block:
-  path: .clooks/hooks/perm-block.ts
+perm-block: {}
 `)
     const result = sandbox.run([], { stdin: loadEvent('permission-request.json') })
     expect(result.exitCode).toBe(0)
@@ -52,8 +51,7 @@ export const hook = {
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-perm-allow:
-  path: .clooks/hooks/perm-allow.ts
+perm-allow: {}
 `)
     const result = sandbox.run([], { stdin: loadEvent('permission-request.json') })
     expect(result.exitCode).toBe(0)
@@ -73,8 +71,7 @@ export const hook = {
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-perm-skip:
-  path: .clooks/hooks/perm-skip.ts
+perm-skip: {}
 `)
     const result = sandbox.run([], { stdin: loadEvent('permission-request.json') })
     expect(result.exitCode).toBe(0)
@@ -95,7 +92,6 @@ export const hook = {
     sandbox.writeConfig(`
 version: "1.0.0"
 perm-crash:
-  path: .clooks/hooks/perm-crash.ts
   onError: block
 `)
     const result = sandbox.run([], { stdin: loadEvent('permission-request.json') })
@@ -121,8 +117,7 @@ export const hook = {
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-prompt-block:
-  path: .clooks/hooks/prompt-block.ts
+prompt-block: {}
 `)
     const result = sandbox.run([], { stdin: loadEvent('user-prompt-submit.json') })
     expect(result.exitCode).toBe(0)
@@ -146,8 +141,7 @@ export const hook = {
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-prompt-allow:
-  path: .clooks/hooks/prompt-allow.ts
+prompt-allow: {}
 `)
     const result = sandbox.run([], { stdin: loadEvent('user-prompt-submit.json') })
     expect(result.exitCode).toBe(0)
@@ -167,8 +161,7 @@ export const hook = {
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-stop-block:
-  path: .clooks/hooks/stop-block.ts
+stop-block: {}
 `)
     const result = sandbox.run([], { stdin: loadEvent('stop.json') })
     expect(result.exitCode).toBe(0)
@@ -190,8 +183,7 @@ export const hook = {
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-pre-skip:
-  path: .clooks/hooks/pre-skip.ts
+pre-skip: {}
 `)
     const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
     expect(result.exitCode).toBe(0)
@@ -214,8 +206,7 @@ export const hook = {
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-pre-rewrite:
-  path: .clooks/hooks/pre-rewrite.ts
+pre-rewrite: {}
 `)
     const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
     expect(result.exitCode).toBe(0)
@@ -240,8 +231,7 @@ export const hook = {
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-post-context:
-  path: .clooks/hooks/post-context.ts
+post-context: {}
 `)
     const result = sandbox.run([], { stdin: loadEvent('post-tool-use.json') })
     expect(result.exitCode).toBe(0)
@@ -265,7 +255,6 @@ export const hook = {
     sandbox.writeConfig(`
 version: "1.0.0"
 post-crash:
-  path: .clooks/hooks/post-crash.ts
   onError: block
 `)
     const result = sandbox.run([], { stdin: loadEvent('post-tool-use.json') })
@@ -290,8 +279,7 @@ export const hook = {
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-session-context:
-  path: .clooks/hooks/session-context.ts
+session-context: {}
 `)
     const result = sandbox.run([], { stdin: loadEvent('session-start.json') })
     expect(result.exitCode).toBe(0)
@@ -314,8 +302,7 @@ export const hook = {
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-notify-context:
-  path: .clooks/hooks/notify-context.ts
+notify-context: {}
 `)
     const result = sandbox.run([], { stdin: loadEvent('notification.json') })
     expect(result.exitCode).toBe(0)
@@ -340,8 +327,7 @@ export const hook = {
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-task-continue:
-  path: .clooks/hooks/task-continue.ts
+task-continue: {}
 `)
     const result = sandbox.run([], { stdin: loadEvent('task-completed.json') })
     expect(result.exitCode).toBe(2)
@@ -362,8 +348,7 @@ export const hook = {
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-task-stop:
-  path: .clooks/hooks/task-stop.ts
+task-stop: {}
 `)
     const result = sandbox.run([], { stdin: loadEvent('task-completed.json') })
     expect(result.exitCode).toBe(0)
@@ -386,7 +371,6 @@ export const hook = {
     sandbox.writeConfig(`
 version: "1.0.0"
 teammate-crash:
-  path: .clooks/hooks/teammate-crash.ts
   onError: block
 `)
     const result = sandbox.run([], { stdin: loadEvent('teammate-idle.json') })
@@ -413,8 +397,7 @@ export const hook = {
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-teammate-skip:
-  path: .clooks/hooks/teammate-skip.ts
+teammate-skip: {}
 `)
     const result = sandbox.run([], { stdin: loadEvent('teammate-idle.json') })
     expect(result.exitCode).toBe(0)
@@ -436,8 +419,7 @@ export const hook = {
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-worktree-block:
-  path: .clooks/hooks/worktree-block.ts
+worktree-block: {}
 `)
     const result = sandbox.run([], { stdin: loadEvent('worktree-create.json') })
     expect(result.exitCode).toBe(1)
@@ -461,7 +443,6 @@ export const hook = {
     sandbox.writeConfig(`
 version: "1.0.0"
 prompt-trace-crash:
-  path: .clooks/hooks/prompt-trace-crash.ts
   onError: trace
 `)
     const result = sandbox.run([], { stdin: loadEvent('user-prompt-submit.json') })
@@ -488,7 +469,6 @@ export const hook = {
     sandbox.writeConfig(`
 version: "1.0.0"
 session-end-trace:
-  path: .clooks/hooks/session-end-trace.ts
   onError: trace
 `)
     const result = sandbox.run([], { stdin: loadEvent('session-end.json') })
@@ -513,8 +493,7 @@ export const hook = {
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-stop-with-context:
-  path: .clooks/hooks/stop-with-context.ts
+stop-with-context: {}
 `)
     const result = sandbox.run([], { stdin: loadEvent('stop.json') })
     expect(result.exitCode).toBe(0)
@@ -536,7 +515,6 @@ export const hook = {
     sandbox.writeConfig(`
 version: "1.0.0"
 stop-crasher:
-  path: .clooks/hooks/stop-crasher.ts
   onError: block
   maxFailures: 2
 `)
@@ -565,8 +543,7 @@ export const hook = {
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-any-hook:
-  path: .clooks/hooks/any-hook.ts
+any-hook: {}
 `)
     const result = sandbox.run([], {
       stdin: JSON.stringify({ hook_event_name: 'NonExistentEvent' }),
