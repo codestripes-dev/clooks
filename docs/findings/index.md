@@ -79,6 +79,16 @@ Severity levels:
 - **friction** — slowed work noticeably, required multiple attempts or workarounds
 - **note** — worth knowing for future reference, didn't significantly impede progress
 
+### Consuming findings
+
+Findings are not write-only — they are inputs to plans and research.
+
+**Plans:** Before writing an ExecPlan, scan the category files for findings relevant to the area of work. Known issues should inform the plan's approach. List relevant findings in the plan's `Related Findings` section (see `docs/plans/PLANS.md`). On plan completion, review findings logged during execution and remove any that the plan resolved.
+
+**Research:** Recurring or unresolved findings can prompt dedicated research. If a finding keeps appearing or its recommendation requires deeper investigation, create a research doc in `docs/research/` and link it back to the originating finding.
+
+**Features:** When a finding reveals a systemic issue that requires its own feature proposal, create the feature and note it in the finding's resolution. The finding can then be removed once the feature is planned.
+
 ### Maintenance
 
 Findings are not permanent. Remove entries when:

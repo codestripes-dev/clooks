@@ -5,3 +5,5 @@ log-bash-commands:
     logDir: ".clooks"
 
 domain-doc-size: {}
+
+debug-payload: {}
