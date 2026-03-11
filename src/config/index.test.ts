@@ -250,33 +250,33 @@ security-scanner: {}
     rmSync(fakeHome, { recursive: true, force: true })
   })
 
-  test("local override of home hook path does not affect resolvedPath resolution", async () => {
+  test("local override of home hook uses does not affect resolvedPath resolution", async () => {
     const fakeHome = mkdtempSync(join(tmpdir(), "clooks-home-test-"))
-    // Home hook with explicit path
+    // Home hook with explicit uses
     writeConfig(
       fakeHome,
       "clooks.yml",
       `
 version: "1.0.0"
 security-scanner:
-  path: custom/security-scanner.ts
+  uses: "./custom/security-scanner.ts"
 `,
     )
 
-    // Local override changes the path field — but resolvedPath should still use the ORIGINAL home path
+    // Local override changes the uses field — but resolvedPath should still use the ORIGINAL home uses
     writeConfig(
       tempDir,
       "clooks.local.yml",
       `
 security-scanner:
-  path: overridden/path.ts
+  uses: "./overridden/path.ts"
 `,
     )
 
     const result = await loadConfig(tempDir, { homeRoot: fakeHome })
     expect(result).not.toBeNull()
     expect(result!.config.hooks[hn("security-scanner")]!.origin).toBe("home")
-    // resolvedPath should use the ORIGINAL home path resolved against homeRoot
+    // resolvedPath should use the ORIGINAL home uses resolved against homeRoot
     expect(result!.config.hooks[hn("security-scanner")]!.resolvedPath).toBe(
       join(fakeHome, "custom/security-scanner.ts"),
     )

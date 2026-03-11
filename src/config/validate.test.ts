@@ -33,7 +33,7 @@ describe("validateConfig", () => {
         timeout: 5000,
       },
       "company-policy": {
-        path: "scripts/hooks/company-policy.ts",
+        uses: "./scripts/hooks/company-policy.ts",
       },
       PreToolUse: {
         order: ["anthropic/secret-scanner", "no-production-writes"],
@@ -66,7 +66,10 @@ describe("validateConfig", () => {
       ".clooks/vendor/anthropic/secret-scanner/index.ts",
     )
     expect(result.hooks[hn("company-policy")]!.resolvedPath).toBe(
-      "scripts/hooks/company-policy.ts",
+      "./scripts/hooks/company-policy.ts",
+    )
+    expect(result.hooks[hn("company-policy")]!.uses).toBe(
+      "./scripts/hooks/company-policy.ts",
     )
 
     expect(Object.keys(result.events)).toEqual(["PreToolUse"])
@@ -115,14 +118,15 @@ describe("validateConfig", () => {
       version: "1.0.0",
       "my-hook": {
         config: { key: "val" },
-        path: "custom/path.ts",
+        uses: "./custom/path.ts",
         timeout: 5000,
         onError: "continue",
         parallel: true,
       },
     })
     const hook = result.hooks[hn("my-hook")]!
-    expect(hook.resolvedPath).toBe("custom/path.ts")
+    expect(hook.resolvedPath).toBe("./custom/path.ts")
+    expect(hook.uses).toBe("./custom/path.ts")
     expect(hook.config).toEqual({ key: "val" })
     expect(hook.timeout).toBe(ms(5000))
     expect(hook.onError).toBe("continue")
@@ -373,5 +377,174 @@ describe("validateConfig", () => {
     })
     expect(result.hooks[hn("scanner")]!.events!["PreToolUse"]).toEqual({ onError: "trace" })
     expect(result.hooks[hn("scanner")]!.events!["PostToolUse"]).toEqual({ onError: "trace" })
+  })
+
+  // --- FEAT-0034: path-to-uses migration ---
+
+  test("path field rejected with migration error", () => {
+    expect(() =>
+      validateConfig({
+        version: "1.0.0",
+        "my-hook": { path: "scripts/hook.ts" },
+      }),
+    ).toThrow('uses deprecated "path" field')
+    expect(() =>
+      validateConfig({
+        version: "1.0.0",
+        "my-hook": { path: "scripts/hook.ts" },
+      }),
+    ).toThrow('uses: "./scripts/hook.ts"')
+  })
+
+  test("uses field accepted (path-like)", () => {
+    const result = validateConfig({
+      version: "1.0.0",
+      "my-hook": { uses: "./lib/hook.ts" },
+    })
+    expect(result.hooks[hn("my-hook")]!.resolvedPath).toBe("./lib/hook.ts")
+    expect(result.hooks[hn("my-hook")]!.uses).toBe("./lib/hook.ts")
+  })
+
+  test("uses field accepted (hook name)", () => {
+    const result = validateConfig({
+      version: "1.0.0",
+      "my-alias": { uses: "base-hook" },
+    })
+    expect(result.hooks[hn("my-alias")]!.resolvedPath).toBe(".clooks/hooks/base-hook.ts")
+    expect(result.hooks[hn("my-alias")]!.uses).toBe("base-hook")
+  })
+
+  test("uses field empty string rejected", () => {
+    expect(() =>
+      validateConfig({
+        version: "1.0.0",
+        "my-hook": { uses: "" },
+      }),
+    ).toThrow("must be a non-empty string")
+  })
+
+  test("uses field non-string rejected", () => {
+    expect(() =>
+      validateConfig({
+        version: "1.0.0",
+        "my-hook": { uses: 42 },
+      }),
+    ).toThrow("must be a non-empty string")
+  })
+
+  // --- FEAT-0034 M2: Chain detection ---
+
+  test("valid alias (target not in YAML) validates successfully", () => {
+    const result = validateConfig({
+      version: "1.0.0",
+      "verbose-logger": { uses: "log-bash-commands" },
+    })
+    expect(result.hooks[hn("verbose-logger")]!.uses).toBe("log-bash-commands")
+    expect(result.hooks[hn("verbose-logger")]!.resolvedPath).toBe(".clooks/hooks/log-bash-commands.ts")
+  })
+
+  test("valid alias (target in YAML, no uses) validates successfully", () => {
+    const result = validateConfig({
+      version: "1.0.0",
+      "verbose-logger": { uses: "log-bash-commands" },
+      "log-bash-commands": {},
+    })
+    expect(result.hooks[hn("verbose-logger")]!.uses).toBe("log-bash-commands")
+  })
+
+  test("chain rejected — alias-a uses alias-b which has uses", () => {
+    expect(() =>
+      validateConfig({
+        version: "1.0.0",
+        "alias-a": { uses: "alias-b" },
+        "alias-b": { uses: "real-hook" },
+      }),
+    ).toThrow("Alias chains are not allowed")
+  })
+
+  test("mutual chain rejected — hook-a uses hook-b which uses hook-a", () => {
+    expect(() =>
+      validateConfig({
+        version: "1.0.0",
+        "hook-a": { uses: "hook-b" },
+        "hook-b": { uses: "hook-a" },
+      }),
+    ).toThrow("Alias chains are not allowed")
+  })
+
+  test("path-like uses skipped in chain check", () => {
+    const result = validateConfig({
+      version: "1.0.0",
+      "alias-a": { uses: "./lib/hook.ts" },
+      "alias-b": { uses: "../hooks/other.ts" },
+    })
+    expect(result.hooks[hn("alias-a")]!.uses).toBe("./lib/hook.ts")
+    expect(result.hooks[hn("alias-b")]!.uses).toBe("../hooks/other.ts")
+  })
+
+  test("self-reference allowed", () => {
+    const result = validateConfig({
+      version: "1.0.0",
+      "my-hook": { uses: "my-hook" },
+    })
+    expect(result.hooks[hn("my-hook")]!.uses).toBe("my-hook")
+  })
+
+  // --- FEAT-0034 M2: Bare-path detection ---
+
+  test("bare path with .ts rejected", () => {
+    expect(() =>
+      validateConfig({
+        version: "1.0.0",
+        "my-hook": { uses: "scripts/hook.ts" },
+      }),
+    ).toThrow('doesn\'t start with "./" or "../"')
+  })
+
+  test("bare path without .ts allowed (hook name)", () => {
+    const result = validateConfig({
+      version: "1.0.0",
+      "my-hook": { uses: "some-hook" },
+    })
+    expect(result.hooks[hn("my-hook")]!.uses).toBe("some-hook")
+  })
+
+  test("path-like with .ts allowed", () => {
+    const result = validateConfig({
+      version: "1.0.0",
+      "my-hook": { uses: "./scripts/hook.ts" },
+    })
+    expect(result.hooks[hn("my-hook")]!.uses).toBe("./scripts/hook.ts")
+  })
+
+  test("vendor-style path with .ts rejected as bare path", () => {
+    expect(() =>
+      validateConfig({
+        version: "1.0.0",
+        "my-hook": { uses: "acme/hook.ts" },
+      }),
+    ).toThrow('doesn\'t start with "./" or "../"')
+  })
+
+  // --- FEAT-0034 M2: Multiple aliases ---
+
+  test("two aliases of same hook validate successfully", () => {
+    const result = validateConfig({
+      version: "1.0.0",
+      verbose: { uses: "log-bash" },
+      quiet: { uses: "log-bash" },
+    })
+    expect(result.hooks[hn("verbose")]!.resolvedPath).toBe(".clooks/hooks/log-bash.ts")
+    expect(result.hooks[hn("quiet")]!.resolvedPath).toBe(".clooks/hooks/log-bash.ts")
+  })
+
+  test("two aliases with different configs carry their own overrides", () => {
+    const result = validateConfig({
+      version: "1.0.0",
+      verbose: { uses: "log-bash", config: { level: "debug" } },
+      quiet: { uses: "log-bash", config: { level: "error" } },
+    })
+    expect(result.hooks[hn("verbose")]!.config).toEqual({ level: "debug" })
+    expect(result.hooks[hn("quiet")]!.config).toEqual({ level: "error" })
   })
 })

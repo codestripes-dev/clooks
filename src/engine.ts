@@ -305,11 +305,13 @@ export function resolveOnError(
   return config.global.onError;
 }
 
-function formatDiagnostic(
+export function formatDiagnostic(
   hookName: HookName,
   eventName: EventName,
   error: unknown,
   mode: ErrorMode,
+  usesTarget?: string,
+  resolvedPath?: string,
 ): string {
   const errorType = error instanceof Error ? error.constructor.name : "Error";
   const firstLine = error instanceof Error
@@ -318,18 +320,24 @@ function formatDiagnostic(
   const action = mode === "block"
     ? "Action blocked"
     : "Continuing";
-  return `[clooks] Hook "${hookName}" failed on ${eventName} (${errorType}: ${firstLine}). ${action} (onError: ${mode}).`;
+  const usesInfo = usesTarget !== undefined
+    ? ` (uses: ${usesTarget}, ${resolvedPath ?? "unknown"})` : "";
+  return `[clooks] Hook "${hookName}"${usesInfo} failed on ${eventName} (${errorType}: ${firstLine}). ${action} (onError: ${mode}).`;
 }
 
-function formatTraceMessage(
+export function formatTraceMessage(
   hookName: HookName,
   error: unknown,
+  usesTarget?: string,
+  resolvedPath?: string,
 ): string {
   const errorType = error instanceof Error ? error.constructor.name : "Error";
   const firstLine = error instanceof Error
     ? error.message.split("\n")[0] ?? error.message
     : String(error).split("\n")[0] ?? String(error);
-  return `Hook "${hookName}" errored: ${errorType}: ${firstLine}. Configured as onError: trace — action not affected.`;
+  const usesInfo = usesTarget !== undefined
+    ? ` (uses: ${usesTarget}, ${resolvedPath ?? "unknown"})` : "";
+  return `Hook "${hookName}"${usesInfo} errored: ${errorType}: ${firstLine}. Configured as onError: trace — action not affected.`;
 }
 
 function resolveTimeout(hookName: HookName, config: ClooksConfig): number {
@@ -473,7 +481,7 @@ export async function executeHooks(
             // Under threshold — block. Write failures and stop pipeline.
             await writeFailures(failurePath, failureState);
             failuresDirty = false;
-            blockResult = { result: "block", reason: formatDiagnostic(loaded.name, eventName, e, "block") };
+            blockResult = { result: "block", reason: formatDiagnostic(loaded.name, eventName, e, "block", loaded.usesTarget, loaded.hookPath) };
             pipelineBlocked = true;
             return;
           }
@@ -490,15 +498,15 @@ export async function executeHooks(
         }
 
         if (effectiveMode === "continue") {
-          systemMessages.push(formatDiagnostic(loaded.name, eventName, e, "continue"));
+          systemMessages.push(formatDiagnostic(loaded.name, eventName, e, "continue", loaded.usesTarget, loaded.hookPath));
           if (debug) {
-            debugMessages.push(formatDiagnostic(loaded.name, eventName, e, "continue"));
+            debugMessages.push(formatDiagnostic(loaded.name, eventName, e, "continue", loaded.usesTarget, loaded.hookPath));
           }
           continue;
         }
 
         if (effectiveMode === "trace") {
-          traceMessages.push(formatTraceMessage(loaded.name, e));
+          traceMessages.push(formatTraceMessage(loaded.name, e, loaded.usesTarget, loaded.hookPath));
           continue;
         }
 
@@ -598,6 +606,14 @@ export async function executeHooks(
         }
       }
       return false;
+    }
+
+    // Build pre-lookup maps for usesTarget and hookPath (needed in results loop)
+    const usesTargetMap = new Map<HookName, string | undefined>()
+    const hookPathMap = new Map<HookName, string | undefined>()
+    for (const hook of group.hooks) {
+      usesTargetMap.set(hook.loaded.name, hook.loaded.usesTarget)
+      hookPathMap.set(hook.loaded.name, hook.loaded.hookPath)
     }
 
     // Build tasks — start all hooks concurrently
@@ -747,18 +763,18 @@ export async function executeHooks(
           const projectedCount = currentCount + 1;
           if (maxFailures === 0 || projectedCount < maxFailures) {
             // Under threshold — block
-            const diagnostic = formatDiagnostic(settled.hookName, eventName, settled.reason, "block");
+            const diagnostic = formatDiagnostic(settled.hookName, eventName, settled.reason, "block", usesTargetMap.get(settled.hookName), hookPathMap.get(settled.hookName));
             blockResult = { result: "block", reason: diagnostic };
             pipelineBlocked = true;
           }
           // At/above threshold case handled in circuit breaker loop below
         } else if (effectiveMode === "continue") {
-          systemMessages.push(formatDiagnostic(settled.hookName, eventName, settled.reason, "continue"));
+          systemMessages.push(formatDiagnostic(settled.hookName, eventName, settled.reason, "continue", usesTargetMap.get(settled.hookName), hookPathMap.get(settled.hookName)));
           if (debug) {
-            debugMessages.push(formatDiagnostic(settled.hookName, eventName, settled.reason, "continue"));
+            debugMessages.push(formatDiagnostic(settled.hookName, eventName, settled.reason, "continue", usesTargetMap.get(settled.hookName), hookPathMap.get(settled.hookName)));
           }
         } else if (effectiveMode === "trace") {
-          traceMessages.push(formatTraceMessage(settled.hookName, settled.reason));
+          traceMessages.push(formatTraceMessage(settled.hookName, settled.reason, usesTargetMap.get(settled.hookName), hookPathMap.get(settled.hookName)));
         }
       }
     }

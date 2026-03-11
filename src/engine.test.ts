@@ -2,7 +2,7 @@ import { describe, expect, it, afterEach, spyOn } from "bun:test";
 import { mkdtempSync, rmSync, mkdirSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
-import { translateResult, matchHooksForEvent, executeHooks, interpolateMessage, resolveOnError, buildShadowWarnings } from "./engine.js";
+import { translateResult, matchHooksForEvent, executeHooks, interpolateMessage, resolveOnError, buildShadowWarnings, formatDiagnostic, formatTraceMessage } from "./engine.js";
 import type { LoadedHook, HookLoadError } from "./loader.js";
 import type { ClooksHook } from "./types/hook.js";
 import type { ClooksConfig } from "./config/types.js";
@@ -1628,5 +1628,72 @@ describe("executeHooks with home-only failure path", () => {
     // Verify the path is under homeRoot/.clooks/failures/
     expect(failurePath).toContain(join(homeRoot, ".clooks/failures"));
     expect(failurePath).toMatch(/\.json$/);
+  });
+});
+
+// --- formatDiagnostic / formatTraceMessage with usesTarget ---
+
+describe("formatDiagnostic", () => {
+  it("includes (uses: X, path) when usesTarget is provided", () => {
+    const msg = formatDiagnostic(
+      hn("log-bash-verbose"),
+      "PreToolUse",
+      new Error("boom"),
+      "block",
+      "log-bash-commands",
+      ".clooks/hooks/log-bash-commands.ts",
+    );
+    expect(msg).toContain('Hook "log-bash-verbose"');
+    expect(msg).toContain("(uses: log-bash-commands, .clooks/hooks/log-bash-commands.ts)");
+    expect(msg).toContain("Action blocked");
+    expect(msg).toContain("onError: block");
+  });
+
+  it("does not include uses info when usesTarget is undefined", () => {
+    const msg = formatDiagnostic(
+      hn("my-hook"),
+      "PreToolUse",
+      new Error("boom"),
+      "block",
+    );
+    expect(msg).toContain('Hook "my-hook"');
+    expect(msg).not.toContain("(uses:");
+    expect(msg).toContain("Action blocked");
+  });
+
+  it("shows 'unknown' when usesTarget is set but resolvedPath is undefined", () => {
+    const msg = formatDiagnostic(
+      hn("alias"),
+      "PostToolUse",
+      new Error("fail"),
+      "continue",
+      "target-hook",
+    );
+    expect(msg).toContain("(uses: target-hook, unknown)");
+    expect(msg).toContain("Continuing");
+  });
+});
+
+describe("formatTraceMessage", () => {
+  it("includes (uses: X, path) when usesTarget is provided", () => {
+    const msg = formatTraceMessage(
+      hn("alias-hook"),
+      new Error("oops"),
+      "real-hook",
+      ".clooks/hooks/real-hook.ts",
+    );
+    expect(msg).toContain('Hook "alias-hook"');
+    expect(msg).toContain("(uses: real-hook, .clooks/hooks/real-hook.ts)");
+    expect(msg).toContain("onError: trace");
+  });
+
+  it("does not include uses info when usesTarget is undefined", () => {
+    const msg = formatTraceMessage(
+      hn("my-hook"),
+      new Error("oops"),
+    );
+    expect(msg).toContain('Hook "my-hook"');
+    expect(msg).not.toContain("(uses:");
+    expect(msg).toContain("onError: trace");
   });
 });

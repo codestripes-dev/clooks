@@ -39,8 +39,10 @@ export interface GlobalConfig {
 }
 
 export interface HookEntry {
-  /** Resolved file path, relative to project root. */
+  /** Resolved file path. */
   resolvedPath: string
+  /** Raw `uses` value from clooks.yml, if this entry is an alias or has a custom path. */
+  uses?: string
   /** Config overrides from clooks.yml (shallow-merged with hook's meta.config at load time). */
   config: Record<string, unknown>
   /** Per-hook timeout in ms, if set. */

@@ -39,7 +39,7 @@ export interface ThreeLayerMergeResult {
   merged: Record<string, unknown>
   originMap: Map<string, HookOrigin>
   shadows: string[]  // hook names where project shadowed home
-  homeHookPaths: Map<string, string | undefined>  // raw path field from home hooks (before local override)
+  homeHookUses: Map<string, string | undefined>  // raw uses field from home hooks (before local override)
 }
 
 /**
@@ -62,7 +62,7 @@ export function mergeThreeLayerConfig(
 ): ThreeLayerMergeResult {
   const originMap = new Map<string, HookOrigin>()
   const shadows: string[] = []
-  const homeHookPaths = new Map<string, string | undefined>()
+  const homeHookUses = new Map<string, string | undefined>()
 
   // Classify each layer
   const homeClassified = home ? classifyConfigKeys(home) : undefined
@@ -136,11 +136,11 @@ export function mergeThreeLayerConfig(
     for (const [name, value] of Object.entries(homeClassified.hooks)) {
       mergedHooks[name] = value
       originMap.set(name, "home")
-      // Track the raw path field from the home hook entry before any local override
-      const rawPath = isPlainObject(value)
-        ? (value as Record<string, unknown>).path as string | undefined
+      // Track the raw uses field from the home hook entry before any local override
+      const rawUses = isPlainObject(value)
+        ? (value as Record<string, unknown>).uses as string | undefined
         : undefined
-      homeHookPaths.set(name, rawPath)
+      homeHookUses.set(name, rawUses)
     }
   }
 
@@ -220,5 +220,5 @@ export function mergeThreeLayerConfig(
     merged[name] = value
   }
 
-  return { merged, originMap, shadows, homeHookPaths }
+  return { merged, originMap, shadows, homeHookUses }
 }

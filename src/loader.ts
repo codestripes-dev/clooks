@@ -2,6 +2,7 @@ import type { HookName } from "./types/branded.js"
 import type { ClooksHook } from "./types/hook.js"
 import type { HookEntry, ClooksConfig } from "./config/types.js"
 import { CLAUDE_CODE_EVENTS } from "./config/constants.js"
+import { isPathLike } from "./config/resolve.js"
 import { resolve } from "path"
 
 export interface LoadedHook {
@@ -12,6 +13,8 @@ export interface LoadedHook {
   hookPath: string
   /** Absolute path to the clooks.yml that registered this hook. */
   configPath: string
+  /** Raw `uses` value from config, if this hook was loaded via alias. */
+  usesTarget?: string
 }
 
 export function validateHookExport(
@@ -79,6 +82,7 @@ export async function loadHook(
     mod = (await import(absolutePath)) as Record<string, unknown>
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)
+    const usesContext = entry.uses !== undefined ? ` (uses: "${entry.uses}")` : ""
     // Detect bare npm specifier failures (e.g., `import { z } from "zod"`)
     // and produce a clear error directing users to the project hook pipeline.
     // Distinguish from file-not-found: "Cannot find module '<absolutePath>'"
@@ -92,23 +96,34 @@ export async function loadHook(
       message.includes("Cannot find package")
     if (isModuleError && !isFileNotFound) {
       throw new Error(
-        `clooks: hook "${hookName}" failed to import — it may use npm packages that require pre-bundling. ` +
+        `clooks: hook "${hookName}"${usesContext} failed to import — it may use npm packages that require pre-bundling. ` +
           `Convert it to a project hook (directory with package.json) and run "clooks build". ` +
           `See docs/research/hook-npm-dependencies.md. Original error: ${message}`,
       )
     }
     throw new Error(
-      `clooks: failed to import hook "${hookName}" from ${entry.resolvedPath}: ${message}`,
+      `clooks: failed to import hook "${hookName}"${usesContext} from ${entry.resolvedPath}: ${message}`,
     )
   }
 
   const hook = validateHookExport(mod, entry.resolvedPath)
 
-  // Verify the hook's self-declared name matches the config key
-  if (hook.meta.name !== hookName) {
+  // For aliases (entry.uses set), meta.name must match the uses target.
+  // For regular hooks, meta.name must match the YAML key.
+  const expectedName = entry.uses ?? hookName
+  const isPathLikeUses = entry.uses !== undefined && isPathLike(entry.uses)
+
+  if (isPathLikeUses) {
+    // Path-like uses: meta.name can be anything — no validation.
+    // The hook file is a custom path, its meta.name is whatever the author set.
+    // (We still require meta.name exists and is a string — validated by validateHookExport.)
+  } else if (hook.meta.name !== expectedName) {
+    // Hook-name uses or no uses: meta.name must match
+    const context = entry.uses !== undefined
+      ? ` (loaded via uses: "${entry.uses}" for alias "${hookName}")`
+      : ` but is registered as "${hookName}" in clooks.yml`
     throw new Error(
-      `clooks: hook at ${entry.resolvedPath} declares meta.name "${hook.meta.name}" ` +
-        `but is registered as "${hookName}" in clooks.yml`,
+      `clooks: hook at ${entry.resolvedPath} declares meta.name "${hook.meta.name}"${context}`,
     )
   }
 
@@ -119,7 +134,9 @@ export async function loadHook(
   const configDir = entry.origin === "home" ? homeRoot : projectRoot
   const configPath = resolve(configDir, ".clooks", "clooks.yml")
 
-  return { name: hookName, hook, config: merged, hookPath: absolutePath, configPath }
+  const result: LoadedHook = { name: hookName, hook, config: merged, hookPath: absolutePath, configPath }
+  if (entry.uses !== undefined) result.usesTarget = entry.uses
+  return result
 }
 
 export interface HookLoadError {
