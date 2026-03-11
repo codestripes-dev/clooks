@@ -3,6 +3,7 @@ import { join } from 'path'
 import { tmpdir } from 'os'
 
 // Path to the compiled binary. Must run `bun run build` before E2E tests.
+// @ts-ignore
 const CLOOKS_BIN = join(import.meta.dir, '../../../dist/clooks')
 
 export interface RunResult {
