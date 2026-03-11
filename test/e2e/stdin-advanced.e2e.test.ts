@@ -18,8 +18,7 @@ describe('stdin advanced', () => {
     sandbox.writeHook('allow-all.ts', loadHook('allow-all.ts'))
     sandbox.writeConfig(`
 version: "1.0.0"
-allow-all:
-  path: .clooks/hooks/allow-all.ts
+allow-all: {}
 `)
     const result = sandbox.run([], { stdin: JSON.stringify([1, 2, 3]) })
     expect(result.exitCode).toBe(2)
@@ -31,8 +30,7 @@ allow-all:
     sandbox.writeHook('allow-all.ts', loadHook('allow-all.ts'))
     sandbox.writeConfig(`
 version: "1.0.0"
-allow-all:
-  path: .clooks/hooks/allow-all.ts
+allow-all: {}
 `)
     const result = sandbox.run([], { stdin: JSON.stringify({ hook_event_name: 42 }) })
     expect(result.exitCode).toBe(2)
@@ -44,8 +42,7 @@ allow-all:
     sandbox.writeHook('allow-all.ts', loadHook('allow-all.ts'))
     sandbox.writeConfig(`
 version: "1.0.0"
-allow-all:
-  path: .clooks/hooks/allow-all.ts
+allow-all: {}
 `)
     const result = sandbox.run([], { stdin: JSON.stringify({ hook_event_name: "FooBar" }) })
     expect(result.exitCode).toBe(2)
@@ -57,8 +54,7 @@ allow-all:
     sandbox.writeHook('allow-all.ts', loadHook('allow-all.ts'))
     sandbox.writeConfig(`
 version: "1.0.0"
-allow-all:
-  path: .clooks/hooks/allow-all.ts
+allow-all: {}
 `)
     const result = sandbox.run([], { stdin: 'null' })
     expect(result.exitCode).toBe(2)
@@ -70,8 +66,7 @@ allow-all:
     sandbox.writeHook('allow-all.ts', loadHook('allow-all.ts'))
     sandbox.writeConfig(`
 version: "1.0.0"
-allow-all:
-  path: .clooks/hooks/allow-all.ts
+allow-all: {}
 `)
     const result = sandbox.run([], {
       stdin: JSON.stringify({

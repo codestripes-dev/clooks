@@ -19,8 +19,7 @@ describe('adversarial', () => {
     sandbox.writeHook('garbage-return.ts', loadHook('garbage-return.ts'))
     sandbox.writeConfig(`
 version: "1.0.0"
-garbage-return:
-  path: .clooks/hooks/garbage-return.ts
+garbage-return: {}
 `)
     const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
     expect(result.exitCode).toBe(2)
@@ -34,8 +33,7 @@ garbage-return:
       sandbox.writeHook('allow-all.ts', loadHook('allow-all.ts'))
       sandbox.writeConfig(`
 version: "1.0.0"
-allow-all:
-  path: .clooks/hooks/allow-all.ts
+allow-all: {}
 `)
       const result = sandbox.run([], { stdin: '' })
       expect(result.exitCode).toBe(2)
@@ -47,8 +45,7 @@ allow-all:
       sandbox.writeHook('allow-all.ts', loadHook('allow-all.ts'))
       sandbox.writeConfig(`
 version: "1.0.0"
-allow-all:
-  path: .clooks/hooks/allow-all.ts
+allow-all: {}
 `)
       const result = sandbox.run([], { stdin: 'not json at all' })
       expect(result.exitCode).toBe(2)
@@ -60,8 +57,7 @@ allow-all:
       sandbox.writeHook('allow-all.ts', loadHook('allow-all.ts'))
       sandbox.writeConfig(`
 version: "1.0.0"
-allow-all:
-  path: .clooks/hooks/allow-all.ts
+allow-all: {}
 `)
       const result = sandbox.run([], { stdin: JSON.stringify({ tool_name: 'Bash' }) })
       expect(result.exitCode).toBe(2)
@@ -75,7 +71,6 @@ allow-all:
     sandbox.writeConfig(`
 version: "1.0.0"
 crash-on-run:
-  path: .clooks/hooks/crash-on-run.ts
   onError: continue
 `)
     const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
@@ -95,7 +90,6 @@ crash-on-run:
     sandbox.writeConfig(`
 version: "1.0.0"
 crash-on-run:
-  path: .clooks/hooks/crash-on-run.ts
   onError: trace
 `)
     const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
@@ -116,7 +110,6 @@ version: "1.0.0"
 config:
   future_setting: true
 allow-all:
-  path: .clooks/hooks/allow-all.ts
   unknown_option: "should be ignored"
 `)
     const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
@@ -129,8 +122,7 @@ allow-all:
     sandbox.writeHook('allow-all.ts', loadHook('allow-all.ts'))
     sandbox.writeConfig(`
 version: "1.0.0"
-allow-all:
-  path: .clooks/hooks/allow-all.ts
+allow-all: {}
 `)
     const event = loadEvent('pre-tool-use-bash.json')
     const start = performance.now()

@@ -41,7 +41,7 @@ describe('partial home state', () => {
     sandbox.writeHomeConfig(`
 version: "1.0.0"
 missing-hook:
-  path: .clooks/hooks/does-not-exist.ts
+  uses: ./.clooks/hooks/does-not-exist.ts
   maxFailures: 3
 `)
 
@@ -86,8 +86,7 @@ missing-hook:
     sandbox = createSandbox()
 
     sandbox.writeHomeConfig(`
-my-hook:
-  path: .clooks/hooks/my-hook.ts
+my-hook: {}
 `)
 
     const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
@@ -127,7 +126,6 @@ export const hook = {
     sandbox.writeHomeConfig(`
 version: "1.0.0"
 crash-hook:
-  path: .clooks/hooks/crash-hook.ts
   maxFailures: 3
 `)
 
@@ -166,7 +164,6 @@ export const hook = {
     sandbox.writeHomeConfig(`
 version: "1.0.0"
 crash-hook:
-  path: .clooks/hooks/crash-hook.ts
   maxFailures: 2
 `)
 
@@ -213,7 +210,6 @@ export const hook = {
     const homeConfig = `
 version: "1.0.0"
 crash-hook:
-  path: .clooks/hooks/crash-hook.ts
   maxFailures: 2
 `
 
@@ -275,10 +271,8 @@ export const hook = {
 `)
     sandbox.writeHomeConfig(`
 version: "1.0.0"
-blocker:
-  path: .clooks/hooks/blocker.ts
-observer:
-  path: .clooks/hooks/observer.ts
+blocker: {}
+observer: {}
 PreToolUse:
   order: [blocker, observer]
 `)
@@ -314,10 +308,8 @@ export const hook = {
 `)
     sandbox.writeHomeConfig(`
 version: "1.0.0"
-first:
-  path: .clooks/hooks/first.ts
-second:
-  path: .clooks/hooks/second.ts
+first: {}
+second: {}
 PreToolUse:
   order: [first, second]
 `)
@@ -349,8 +341,7 @@ export const hook = {
 `)
     sandbox.writeHomeConfig(`
 version: "1.0.0"
-multi-event:
-  path: .clooks/hooks/multi-event.ts
+multi-event: {}
 `)
 
     // Project hook: handles PreToolUse only (different name, no shadow)
@@ -364,8 +355,7 @@ export const hook = {
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-project-only:
-  path: .clooks/hooks/project-only.ts
+project-only: {}
 `)
 
     // SessionStart: home hook should fire (project-only has no SessionStart handler)
@@ -400,8 +390,7 @@ export const hook = {
 `)
     sandbox.writeHomeConfig(`
 version: "1.0.0"
-shared-hook:
-  path: .clooks/hooks/shared-hook.ts
+shared-hook: {}
 `)
 
     // Project hook: same name, only handles PreToolUse
@@ -416,8 +405,7 @@ export const hook = {
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-shared-hook:
-  path: .clooks/hooks/shared-hook.ts
+shared-hook: {}
 `)
 
     // SessionStart: the home hook's SessionStart handler is gone because the whole hook is shadowed
@@ -465,8 +453,7 @@ export const hook = {
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-crash-hook:
-  path: .clooks/hooks/crash-hook.ts
+crash-hook: {}
 `)
 
     const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
@@ -500,8 +487,7 @@ export const hook = {
 version: "1.0.0"
 config:
   timeout: 200
-hang-hook:
-  path: .clooks/hooks/hang-hook.ts
+hang-hook: {}
 `)
 
     const start = Date.now()
@@ -537,8 +523,7 @@ export const hook = {
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-crash-hook:
-  path: .clooks/hooks/crash-hook.ts
+crash-hook: {}
 `)
 
     const stdin = loadEvent('pre-tool-use-bash.json')
@@ -570,8 +555,7 @@ export const hook = {
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-crash-hook:
-  path: .clooks/hooks/crash-hook.ts
+crash-hook: {}
 `)
 
     // Local override: onError back to block
@@ -607,8 +591,7 @@ export const hook = {
 `)
     sandbox.writeHomeConfig(`
 version: "1.0.0"
-shared-hook:
-  path: .clooks/hooks/shared-hook.ts
+shared-hook: {}
 `)
 
     sandbox.writeHook('shared-hook.ts', `
@@ -622,8 +605,7 @@ export const hook = {
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-shared-hook:
-  path: .clooks/hooks/shared-hook.ts
+shared-hook: {}
 `)
 
     // SessionStart: shadow warning should appear
@@ -657,10 +639,8 @@ export const hook = {
 `)
     sandbox.writeHomeConfig(`
 version: "1.0.0"
-hook-a:
-  path: .clooks/hooks/hook-a.ts
-hook-b:
-  path: .clooks/hooks/hook-b.ts
+hook-a: {}
+hook-b: {}
 `)
 
     // Project hooks with same names
@@ -678,10 +658,8 @@ export const hook = {
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-hook-a:
-  path: .clooks/hooks/hook-a.ts
-hook-b:
-  path: .clooks/hooks/hook-b.ts
+hook-a: {}
+hook-b: {}
 `)
 
     const result = sandbox.run([], { stdin: loadEvent('session-start.json') })
@@ -714,15 +692,13 @@ export const hook = {
 `)
     sandbox.writeHomeConfig(`
 version: "1.0.0"
-config-hook:
-  path: .clooks/hooks/config-hook.ts
+config-hook: {}
 `)
 
-    // Local override changes the config but must re-specify path
+    // Local override changes the config
     // (local replacement is atomic per hook entry)
     sandbox.writeLocalConfig(`
 config-hook:
-  path: .clooks/hooks/config-hook.ts
   config:
     greeting: "local-override"
 `)
@@ -747,8 +723,7 @@ version: "1.0.0"
 
     // Local tries to define a new hook that doesn't exist in home or project
     sandbox.writeLocalConfig(`
-new-hook:
-  path: .clooks/hooks/new-hook.ts
+new-hook: {}
 `)
 
     const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
@@ -777,8 +752,7 @@ export const hook = {
 `)
     sandbox.writeHomeConfig(`
 version: "1.0.0"
-home-hook:
-  path: .clooks/hooks/home-hook.ts
+home-hook: {}
 `)
 
     // Run with cwd set to the home dir — engine will see projectRoot == homeRoot
@@ -813,8 +787,7 @@ export const hook = {
 `)
     sandbox.writeHomeConfig(`
 version: "1.0.0"
-npm-hook:
-  path: .clooks/hooks/npm-hook.ts
+npm-hook: {}
 `)
 
     const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
@@ -851,10 +824,8 @@ export const hook = {
 `)
     sandbox.writeHomeConfig(`
 version: "1.0.0"
-home-first:
-  path: .clooks/hooks/home-first.ts
-home-second:
-  path: .clooks/hooks/home-second.ts
+home-first: {}
+home-second: {}
 PreToolUse:
   order: [home-first, home-second]
 `)
@@ -877,10 +848,8 @@ export const hook = {
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-project-first:
-  path: .clooks/hooks/project-first.ts
-project-second:
-  path: .clooks/hooks/project-second.ts
+project-first: {}
+project-second: {}
 PreToolUse:
   order: [project-first, project-second]
 `)
@@ -912,8 +881,7 @@ export const hook = {
 `)
     sandbox.writeHomeConfig(`
 version: "1.0.0"
-home-hook:
-  path: .clooks/hooks/home-hook.ts
+home-hook: {}
 PreToolUse:
   order: [home-hook]
 `)
@@ -928,8 +896,7 @@ export const hook = {
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-project-hook:
-  path: .clooks/hooks/project-hook.ts
+project-hook: {}
 PreToolUse:
   order: [project-hook]
 `)

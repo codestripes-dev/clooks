@@ -26,8 +26,7 @@ export const hook = {
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-exit-zero:
-  path: .clooks/hooks/exit-zero.ts
+exit-zero: {}
 `)
     const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
     // Known limitation: process.exit(0) kills the process before the engine
@@ -51,8 +50,7 @@ export const hook = {
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-stdout-write:
-  path: .clooks/hooks/stdout-write.ts
+stdout-write: {}
 `)
     const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
     // The hook writes "garbage" to stdout before the engine writes JSON.
@@ -87,8 +85,7 @@ export const hook = {
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-sync-loop:
-  path: .clooks/hooks/sync-loop.ts
+sync-loop: {}
 `)
     // The engine's Promise.race timeout cannot interrupt synchronous code.
     // Bun.spawnSync timeout sends SIGTERM which can't interrupt a sync loop
@@ -138,10 +135,8 @@ export const hook = {
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-mutate-context:
-  path: .clooks/hooks/mutate-context.ts
-observer:
-  path: .clooks/hooks/observer.ts
+mutate-context: {}
+observer: {}
 PreToolUse:
   order: [mutate-context, observer]
 `)
@@ -172,8 +167,7 @@ export const hook = new MyHook()
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-class-hook:
-  path: .clooks/hooks/class-hook.ts
+class-hook: {}
 `)
     const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
     expect(result.exitCode).toBe(0)
@@ -194,8 +188,7 @@ export const hook = {
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-null-return:
-  path: .clooks/hooks/null-return.ts
+null-return: {}
 `)
     const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
     expect(result.exitCode).toBe(0)
@@ -215,8 +208,7 @@ export const hook = {
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-reject-string:
-  path: .clooks/hooks/reject-string.ts
+reject-string: {}
 `)
     const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
     // Default onError is "block", so this should block with exit 0 (PreToolUse)
@@ -239,8 +231,7 @@ export const hook = {
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-reject-null:
-  path: .clooks/hooks/reject-null.ts
+reject-null: {}
 `)
     const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
     // Default onError is "block", so this should block with exit 0 (PreToolUse)
@@ -263,8 +254,7 @@ export const hook = {
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-undef-return:
-  path: .clooks/hooks/undef-return.ts
+undef-return: {}
 `)
     const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
     expect(result.exitCode).toBe(0)

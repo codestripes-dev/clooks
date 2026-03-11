@@ -21,7 +21,6 @@ describe('circuit breaker advanced', () => {
     sandbox.writeConfig(`
 version: "1.0.0"
 crash-on-run:
-  path: .clooks/hooks/crash-on-run.ts
   maxFailures: 3
 `)
 
@@ -46,7 +45,6 @@ crash-on-run:
     sandbox.writeConfig(`
 version: "1.0.0"
 crash-on-run:
-  path: .clooks/hooks/crash-on-run.ts
   maxFailures: 3
 `)
 
@@ -71,7 +69,6 @@ crash-on-run:
     sandbox.writeConfig(`
 version: "1.0.0"
 crash-on-run:
-  path: .clooks/hooks/crash-on-run.ts
   maxFailures: 5
 `)
 
@@ -85,7 +82,6 @@ crash-on-run:
     sandbox.writeConfig(`
 version: "1.0.0"
 crash-on-run:
-  path: .clooks/hooks/crash-on-run.ts
   maxFailures: 2
 `)
 
@@ -105,7 +101,6 @@ crash-on-run:
     sandbox.writeConfig(`
 version: "1.0.0"
 crash-on-run:
-  path: .clooks/hooks/crash-on-run.ts
   maxFailures: 2
 `)
 
@@ -154,7 +149,7 @@ export const hook = {
     sandbox.writeConfig(`
 version: "1.0.0"
 missing-hook:
-  path: .clooks/hooks/does-not-exist.ts
+  uses: ./.clooks/hooks/does-not-exist.ts
   maxFailures: 2
 `)
 
@@ -201,7 +196,6 @@ export const hook = {
     sandbox.writeConfig(`
 version: "1.0.0"
 runtime-crash:
-  path: .clooks/hooks/runtime-crash.ts
   maxFailures: 3
 `)
 
@@ -250,11 +244,9 @@ export const hook = {
     sandbox.writeConfig(`
 version: "1.0.0"
 parallel-crash:
-  path: .clooks/hooks/parallel-crash.ts
   parallel: true
   maxFailures: 2
 allow-all:
-  path: .clooks/hooks/allow-all.ts
   parallel: true
 `)
 
@@ -290,7 +282,6 @@ export const hook = {
     sandbox.writeHomeConfig(`
 version: "1.0.0"
 crash-hook:
-  path: .clooks/hooks/crash-hook.ts
   maxFailures: 5
 `)
 
@@ -318,7 +309,6 @@ export const hook = {
     sandbox.writeConfig(`
 version: "1.0.0"
 crash-hook:
-  path: .clooks/hooks/crash-hook.ts
   maxFailures: 5
 `)
 
@@ -340,7 +330,7 @@ crash-hook:
     sandbox.writeConfig(`
 version: "1.0.0"
 missing-hook:
-  path: .clooks/hooks/does-not-exist.ts
+  uses: ./.clooks/hooks/does-not-exist.ts
   maxFailures: 3
 `)
 

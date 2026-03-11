@@ -19,8 +19,7 @@ describe('lifecycle', () => {
     sandbox.writeHook('before-block.ts', loadHook('before-block.ts'))
     sandbox.writeConfig(`
 version: "1.0.0"
-before-block:
-  path: .clooks/hooks/before-block.ts
+before-block: {}
 `)
     const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
     expect(result.exitCode).toBe(0)
@@ -34,8 +33,7 @@ before-block:
     sandbox.writeHook('before-block.ts', loadHook('before-block.ts'))
     sandbox.writeConfig(`
 version: "1.0.0"
-before-block:
-  path: .clooks/hooks/before-block.ts
+before-block: {}
 `)
     const result = sandbox.run([], {
       stdin: loadEvent('pre-tool-use-bash.json'),

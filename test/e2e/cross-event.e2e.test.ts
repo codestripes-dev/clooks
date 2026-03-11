@@ -31,7 +31,6 @@ export const hook = {
     sandbox.writeConfig(`
 version: "1.0.0"
 multi-event:
-  path: .clooks/hooks/multi-event.ts
   onError: block
   maxFailures: 2
 `)
@@ -71,8 +70,7 @@ export const hook = {
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-lifecycle-multi:
-  path: .clooks/hooks/lifecycle-multi.ts
+lifecycle-multi: {}
 `)
     // PreToolUse blocked by beforeHook
     const r1 = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
@@ -109,11 +107,9 @@ export const hook = {
     sandbox.writeConfig(`
 version: "1.0.0"
 crasher:
-  path: .clooks/hooks/crasher.ts
   onError: block
   maxFailures: 2
-observer:
-  path: .clooks/hooks/observer.ts
+observer: {}
 `)
     // Crash the first hook on PreToolUse
     const r1 = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
@@ -140,8 +136,7 @@ export const hook = {
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-any-hook:
-  path: .clooks/hooks/any-hook.ts
+any-hook: {}
 `)
     const result = sandbox.run([], {
       stdin: JSON.stringify({ hook_event_name: 'FakeEvent', tool_name: 'Bash' }),
@@ -161,8 +156,7 @@ export const hook = {
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-any-hook:
-  path: .clooks/hooks/any-hook.ts
+any-hook: {}
 `)
     const result = sandbox.run([], {
       stdin: JSON.stringify([{ hook_event_name: 'PreToolUse' }]),

@@ -105,8 +105,7 @@ export const hook = {
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-allow-all:
-  path: .clooks/hooks/allow-all.ts
+allow-all: {}
 PreToolUse:
   onError: continue
 `)
@@ -129,7 +128,6 @@ export const hook = {
     sandbox.writeConfig(`
 version: "1.0.0"
 bad-events:
-  path: .clooks/hooks/bad-events.ts
   events:
     NonExistentEvent:
       onError: continue
@@ -155,7 +153,6 @@ export const hook = {
     sandbox.writeConfig(`
 version: "1.0.0"
 trace-bad:
-  path: .clooks/hooks/trace-bad.ts
   events:
     SessionEnd:
       onError: trace
@@ -180,8 +177,7 @@ export const hook = {
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-real-hook:
-  path: .clooks/hooks/real-hook.ts
+real-hook: {}
 PreToolUse:
   order: [real-hook, ghost-hook]
 `)

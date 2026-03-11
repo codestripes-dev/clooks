@@ -20,7 +20,6 @@ describe('onError cascade', () => {
     sandbox.writeConfig(`
 version: "1.0.0"
 crash-on-run-multi:
-  path: .clooks/hooks/crash-on-run-multi.ts
   onError: block
   events:
     PreToolUse:
@@ -53,8 +52,7 @@ crash-on-run-multi:
 version: "1.0.0"
 config:
   onError: continue
-crash-on-run:
-  path: .clooks/hooks/crash-on-run.ts
+crash-on-run: {}
 `)
 
     const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })

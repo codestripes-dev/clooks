@@ -28,8 +28,7 @@ export const hook = {
 `)
     sandbox.writeHomeConfig(`
 version: "1.0.0"
-home-hook:
-  path: .clooks/hooks/home-hook.ts
+home-hook: {}
 `)
 
     // Project config with a project hook
@@ -43,8 +42,7 @@ export const hook = {
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-project-hook:
-  path: .clooks/hooks/project-hook.ts
+project-hook: {}
 `)
 
     const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
@@ -70,8 +68,7 @@ export const hook = {
 `)
     sandbox.writeHomeConfig(`
 version: "1.0.0"
-shared-hook:
-  path: .clooks/hooks/shared-hook.ts
+shared-hook: {}
 `)
 
     // Project config: shared-hook (same name) returns project context
@@ -86,8 +83,7 @@ export const hook = {
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-shared-hook:
-  path: .clooks/hooks/shared-hook.ts
+shared-hook: {}
 `)
 
     // SessionStart should produce a shadow warning
@@ -112,15 +108,13 @@ shared-hook:
     sandbox.writeHook('config-echo.ts', loadHook('config-echo.ts'))
     sandbox.writeConfig(`
 version: "1.0.0"
-config-echo:
-  path: .clooks/hooks/config-echo.ts
+config-echo: {}
 `)
 
     // Local override replaces config-echo entry with custom greeting
-    // Local override uses atomic replacement — must include path
+    // Local override uses atomic replacement
     sandbox.writeLocalConfig(`
 config-echo:
-  path: .clooks/hooks/config-echo.ts
   config:
     greeting: "local-override"
 `)
@@ -146,8 +140,7 @@ export const hook = {
 `)
     sandbox.writeHomeConfig(`
 version: "1.0.0"
-home-hook:
-  path: .clooks/hooks/home-hook.ts
+home-hook: {}
 `)
 
     const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })

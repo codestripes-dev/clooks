@@ -31,8 +31,7 @@ export const hook = {
 version: "1.0.0"
 config:
   timeout: 200
-before-hang:
-  path: .clooks/hooks/before-hang.ts
+before-hang: {}
 `)
 
     const stdin = loadEvent('pre-tool-use-bash.json')
@@ -64,8 +63,7 @@ export const hook = {
 version: "1.0.0"
 config:
   timeout: 200
-after-hang:
-  path: .clooks/hooks/after-hang.ts
+after-hang: {}
 `)
 
     const stdin = loadEvent('pre-tool-use-bash.json')
@@ -95,8 +93,7 @@ export const hook = {
 version: "1.0.0"
 config:
   timeout: 500
-near-miss:
-  path: .clooks/hooks/near-miss.ts
+near-miss: {}
 `)
 
     const stdin = loadEvent('pre-tool-use-bash.json')
@@ -124,7 +121,6 @@ version: "1.0.0"
 config:
   timeout: 200
 hang-continue:
-  path: .clooks/hooks/hang-continue.ts
   onError: continue
 `)
 
@@ -155,7 +151,6 @@ version: "1.0.0"
 config:
   timeout: 200
 hang-trace:
-  path: .clooks/hooks/hang-trace.ts
   onError: trace
 `)
 
@@ -187,7 +182,6 @@ version: "1.0.0"
 config:
   timeout: 200
 hang-breaker:
-  path: .clooks/hooks/hang-breaker.ts
   maxFailures: 2
 `)
 

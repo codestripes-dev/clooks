@@ -19,8 +19,7 @@ describe('event diversity', () => {
     sandbox.writeHook('continue-teammate.ts', loadHook('continue-teammate.ts'))
     sandbox.writeConfig(`
 version: "1.0.0"
-continue-teammate:
-  path: .clooks/hooks/continue-teammate.ts
+continue-teammate: {}
 `)
     const result = sandbox.run([], { stdin: loadEvent('teammate-idle.json') })
     // Continuation "continue" result uses exit 2 + stderr for feedback
@@ -41,8 +40,7 @@ export const hook = {
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-stop-teammate:
-  path: .clooks/hooks/stop-teammate.ts
+stop-teammate: {}
 `)
     const result = sandbox.run([], { stdin: loadEvent('teammate-idle.json') })
     expect(result.exitCode).toBe(0)
@@ -65,14 +63,12 @@ export const hook = {
     sandbox.writeHook('shared-hook.ts', hookContent)
     sandbox.writeConfig(`
 version: "1.0.0"
-shared-hook:
-  path: .clooks/hooks/shared-hook.ts
+shared-hook: {}
 `)
     sandbox.writeHomeHook('shared-hook.ts', hookContent)
     sandbox.writeHomeConfig(`
 version: "1.0.0"
-shared-hook:
-  path: .clooks/hooks/shared-hook.ts
+shared-hook: {}
 `)
     const result = sandbox.run([], { stdin: loadEvent('session-start.json') })
     expect(result.exitCode).toBe(0)
@@ -87,8 +83,7 @@ shared-hook:
     sandbox.writeHook('worktree-success.ts', loadHook('worktree-success.ts'))
     sandbox.writeConfig(`
 version: "1.0.0"
-worktree-success:
-  path: .clooks/hooks/worktree-success.ts
+worktree-success: {}
 `)
     const result = sandbox.run([], { stdin: loadEvent('worktree-create.json') })
     expect(result.exitCode).toBe(0)
@@ -108,8 +103,7 @@ export const hook = {
 `)
     sandbox.writeConfig(`
 version: "1.0.0"
-worktree-fail:
-  path: .clooks/hooks/worktree-fail.ts
+worktree-fail: {}
 `)
     const result = sandbox.run([], { stdin: loadEvent('worktree-create.json') })
     expect(result.exitCode).toBe(1)
@@ -132,7 +126,6 @@ export const hook = {
     sandbox.writeConfig(`
 version: "1.0.0"
 crash-session-end:
-  path: .clooks/hooks/crash-session-end.ts
   onError: block
 `)
     const result = sandbox.run([], { stdin: loadEvent('session-end.json') })

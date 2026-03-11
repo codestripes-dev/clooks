@@ -19,8 +19,7 @@ describe('hook execution', () => {
     sandbox.writeHook('allow-all.ts', loadHook('allow-all.ts'))
     sandbox.writeConfig(`
 version: "1.0.0"
-allow-all:
-  path: .clooks/hooks/allow-all.ts
+allow-all: {}
 `)
     const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
     expect(result.exitCode).toBe(0)
@@ -33,8 +32,7 @@ allow-all:
     sandbox.writeHook('block-always.ts', loadHook('block-always.ts'))
     sandbox.writeConfig(`
 version: "1.0.0"
-block-always:
-  path: .clooks/hooks/block-always.ts
+block-always: {}
 `)
     const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
     expect(result.exitCode).toBe(0)
@@ -47,8 +45,7 @@ block-always:
     sandbox.writeHook('allow-all.ts', loadHook('allow-all.ts'))
     sandbox.writeConfig(`
 version: "1.0.0"
-allow-all:
-  path: .clooks/hooks/allow-all.ts
+allow-all: {}
 `)
     const event = JSON.stringify({ hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command: 'ls' } })
     const result = sandbox.run([], { stdin: event })
@@ -64,10 +61,8 @@ allow-all:
     sandbox.writeHook('block-always.ts', loadHook('block-always.ts'))
     sandbox.writeConfig(`
 version: "1.0.0"
-allow-all:
-  path: .clooks/hooks/allow-all.ts
-block-always:
-  path: .clooks/hooks/block-always.ts
+allow-all: {}
+block-always: {}
 `)
     const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
     expect(result.exitCode).toBe(0)
@@ -80,8 +75,7 @@ block-always:
     sandbox.writeHook('log-event.ts', loadHook('log-event.ts'))
     sandbox.writeConfig(`
 version: "1.0.0"
-log-event:
-  path: .clooks/hooks/log-event.ts
+log-event: {}
 `)
     // log-event only handles PreToolUse, but we send Notification
     const result = sandbox.run([], { stdin: loadEvent('notification.json') })
@@ -96,10 +90,8 @@ log-event:
     sandbox.writeHook('read-command.ts', loadHook('read-command.ts'))
     sandbox.writeConfig(`
 version: "1.0.0"
-rewrite-command:
-  path: .clooks/hooks/rewrite-command.ts
-read-command:
-  path: .clooks/hooks/read-command.ts
+rewrite-command: {}
+read-command: {}
 `)
     const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
     expect(result.exitCode).toBe(0)

@@ -30,8 +30,7 @@ describe('init journey', () => {
     // Step 3: Write a hook and register it in the config
     sandbox.writeHook('allow-all.ts', loadHook('allow-all.ts'))
     sandbox.writeConfig(`version: "1.0.0"
-allow-all:
-  path: .clooks/hooks/allow-all.ts
+allow-all: {}
 `)
 
     // Step 4: Pipe a PreToolUse event through the entrypoint

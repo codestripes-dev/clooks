@@ -20,7 +20,6 @@ describe('circuit breaker', () => {
     sandbox.writeConfig(`
 version: "1.0.0"
 crash-on-run:
-  path: .clooks/hooks/crash-on-run.ts
   maxFailures: 2
 `)
 
@@ -53,7 +52,6 @@ crash-on-run:
     sandbox.writeConfig(`
 version: "1.0.0"
 crash-on-run:
-  path: .clooks/hooks/crash-on-run.ts
   maxFailures: 3
 `)
 
@@ -88,7 +86,6 @@ export const hook = {
     sandbox.writeConfig(`
 version: "1.0.0"
 crash-on-run:
-  path: .clooks/hooks/crash-on-run.ts
   maxFailures: 0
 `)
 
@@ -109,7 +106,6 @@ crash-on-run:
     sandbox.writeConfig(`
 version: "1.0.0"
 crash-on-run:
-  path: .clooks/hooks/crash-on-run.ts
   maxFailures: 3
 `)
 
@@ -141,7 +137,7 @@ export const hook = {
     sandbox.writeConfig(`
 version: "1.0.0"
 missing-hook:
-  path: .clooks/hooks/does-not-exist.ts
+  uses: ./.clooks/hooks/does-not-exist.ts
   maxFailures: 2
 `)
 

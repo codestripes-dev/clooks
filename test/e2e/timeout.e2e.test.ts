@@ -21,8 +21,7 @@ describe('timeout', () => {
 version: "1.0.0"
 config:
   timeout: 200
-hang-forever:
-  path: .clooks/hooks/hang-forever.ts
+hang-forever: {}
 `)
 
     const stdin = loadEvent('pre-tool-use-bash.json')
@@ -47,7 +46,6 @@ version: "1.0.0"
 config:
   timeout: 5000
 hang-forever:
-  path: .clooks/hooks/hang-forever.ts
   timeout: 200
 `)
 
