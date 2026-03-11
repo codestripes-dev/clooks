@@ -139,13 +139,14 @@ All lifecycle types live in `src/types/lifecycle.ts` and are re-exported from `s
 | `clooksVersion` | `string` | Runtime version string |
 | `configPath` | `string` | Path to the `clooks.yml` that registered this hook |
 
-**`BeforeHookEvent`** — Discriminated union for `beforeHook`. Narrows `event.input` by `event.type`. The `respond()` callback uniformly accepts `BlockResult` — `beforeHook` can only block, not return event-specific results.
+**`BeforeHookEvent`** — Discriminated union for `beforeHook`. Narrows `event.input` by `event.type`. The `respond()` callback accepts `BlockResult | SkipResult` — `beforeHook` can block the action or skip the hook entirely. Not calling `respond()` proceeds to the handler.
 
 ```typescript
 // After narrowing on event.type:
 if (event.type === "PreToolUse") {
   event.input.toolName  // ✅ narrowed to PreToolUseContext
   event.respond({ result: "block", reason: "gated" })  // ✅ BlockResult
+  event.respond({ result: "skip" })  // ✅ SkipResult — hook becomes invisible
 }
 ```
 

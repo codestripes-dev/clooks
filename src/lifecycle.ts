@@ -1,7 +1,7 @@
 // Runtime building blocks for hook lifecycle execution.
 // Consumed by the engine (M3) to wrap beforeHook → handler → afterHook.
 
-import type { BlockResult } from "./types/results.js"
+import type { BlockResult, SkipResult } from "./types/results.js"
 import type { BeforeHookEvent, AfterHookEvent, HookEventMeta } from "./types/lifecycle.js"
 import type { EventName } from "./types/branded.js"
 import type { LoadedHook } from "./loader.js"
@@ -34,7 +34,7 @@ export function buildBeforeHookEvent(
   eventName: EventName,
   input: Record<string, unknown>,
   meta: HookEventMeta,
-  respond: (result: BlockResult) => void,
+  respond: (result: BlockResult | SkipResult) => void,
 ): BeforeHookEvent {
   return { type: eventName, input, meta, respond } as unknown as BeforeHookEvent
 }
@@ -104,12 +104,16 @@ export async function runHookLifecycle(
     // --- beforeHook phase ---
     if (hasBeforeHook) {
       const meta = await metaCache.buildMeta(loaded)
-      const { respond, getResponse } = createRespondCallback<BlockResult>()
+      const { respond, getResponse } = createRespondCallback<BlockResult | SkipResult>()
       const beforeEvent = buildBeforeHookEvent(eventName, context, meta, respond)
       await hook.beforeHook!(beforeEvent, loaded.config)
-      const blocked = getResponse()
-      if (blocked) {
-        return { result: blocked, blockedByBefore: true, overriddenByAfter: false }
+      const beforeResponse = getResponse()
+      if (beforeResponse) {
+        if (beforeResponse.result === "block") {
+          return { result: beforeResponse, blockedByBefore: true, overriddenByAfter: false }
+        }
+        // skip — hook is invisible, handler and afterHook don't run
+        return { result: beforeResponse, blockedByBefore: false, overriddenByAfter: false }
       }
     }
 
