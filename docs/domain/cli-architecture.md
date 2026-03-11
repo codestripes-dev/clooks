@@ -78,7 +78,7 @@ interface OutputContext { json: boolean }
 
 Commands obtain it via `getCtx(cmd)` (defined in `src/tui/context.ts`), which reads `cmd.optsWithGlobals().json`. Commander passes `(options, cmd)` to every action handler, so `cmd` is always available.
 
-All TUI output functions (`printIntro`, `printSuccess`, `printInfo`, `printWarning`, `printOutro`) accept `OutputContext` as their first parameter and suppress output when `ctx.json` is true. `printError` is the exception — errors are always visible.
+All TUI output functions (`printIntro`, `printSuccess`, `printInfo`, `printWarning`, `printError`, `printOutro`) accept `OutputContext` as their first parameter and are JSON-mode aware. In JSON mode, `printError(ctx, command, message)` writes a `{"ok":false,...}` envelope to stdout and returns; in human mode it writes a styled error to stderr via `@clack/prompts`.
 
 ## Command Interface Pattern
 
@@ -106,7 +106,7 @@ TUI primitives live in `src/tui/`. They wrap `@clack/prompts` with two guards:
 Two suppression mechanisms with different scope:
 
 - **Prompt suppression** — `isNonInteractive(ctx)` in `prompts.ts` returns true when `ctx.json` is true OR `process.stdin.isTTY` is false. Prompts return their default value if one exists, or throw an error. The TTY guard is required because `@clack/prompts` does not check for TTY internally — prompts hang forever on piped stdin.
-- **Output/spinner suppression** — `printIntro`, `printSuccess`, `printInfo`, `printWarning`, `printOutro`, and `withSpinner` check `ctx.json` only. They suppress when `--json` is active but NOT based on TTY state. `printError` is never suppressed — errors are always visible (in JSON mode, commands should write a JSON envelope and exit before calling `printError`).
+- **Output/spinner suppression** — `printIntro`, `printSuccess`, `printInfo`, `printWarning`, `printOutro`, and `withSpinner` check `ctx.json` only. They suppress when `--json` is active but NOT based on TTY state. `printError(ctx, command, message)` is JSON-mode aware: in JSON mode it writes a JSON error envelope to stdout; in human mode it writes a styled error to stderr. Commands do not need to manually branch on `ctx.json` for error output.
 
 ### Cancel handling
 
