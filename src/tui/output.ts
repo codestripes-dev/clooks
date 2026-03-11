@@ -1,5 +1,6 @@
 import { log, intro, outro } from '@clack/prompts'
 import type { OutputContext } from './context.js'
+import { jsonError } from './json-envelope.js'
 
 /** Print a section header. Suppressed in JSON mode. */
 export function printIntro(ctx: OutputContext, title: string): void {
@@ -25,8 +26,12 @@ export function printWarning(ctx: OutputContext, message: string): void {
   log.warning(message)
 }
 
-/** Print an error. NOT suppressed in JSON mode — errors should always be visible. */
-export function printError(_ctx: OutputContext, message: string): void {
+/** Print an error. In JSON mode, writes a JSON error envelope to stdout. In human mode, writes styled error to stderr. */
+export function printError(ctx: OutputContext, command: string, message: string): void {
+  if (ctx.json) {
+    process.stdout.write(jsonError(command, message) + '\n')
+    return
+  }
   log.error(message)
 }
 

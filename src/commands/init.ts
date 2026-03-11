@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync, readFileSync, existsSync, chmodSync } from 'f
 import { join } from 'path'
 import os from 'os'
 import { getCtx } from '../tui/context.js'
-import { jsonSuccess, jsonError } from '../tui/json-envelope.js'
+import { jsonSuccess } from '../tui/json-envelope.js'
 import { printIntro, printSuccess, printInfo, printWarning, printError, printOutro } from '../tui/output.js'
 import { promptConfirm, isNonInteractive } from '../tui/prompts.js'
 import { registerClooks, CLOOKS_ENTRYPOINT_PATH } from '../settings.js'
@@ -46,11 +46,7 @@ async function initGlobal(cmd: Command): Promise<void> {
     // -- Filesystem root guardrail still applies --
     if (homeRoot === '/') {
       const message = 'Refusing to initialize global hooks: home directory resolves to filesystem root (/).'
-      if (ctx.json) {
-        process.stdout.write(jsonError('init', message) + '\n')
-        process.exit(1)
-      }
-      printError(ctx, message)
+      printError(ctx, 'init', message)
       process.exit(1)
     }
 
@@ -176,11 +172,7 @@ async function initGlobal(cmd: Command): Promise<void> {
     printOutro(ctx, 'Done.')
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)
-    if (ctx.json) {
-      process.stdout.write(jsonError('init', message) + '\n')
-      process.exit(1)
-    }
-    printError(ctx, message)
+    printError(ctx, 'init', message)
     process.exit(1)
   }
 }
@@ -201,11 +193,7 @@ async function initProject(cmd: Command): Promise<void> {
       const location = cwd === '/' ? 'filesystem root (/)' : 'home directory'
       if (isNonInteractive(ctx)) {
         const message = `Refusing to initialize in ${location} in non-interactive mode.`
-        if (ctx.json) {
-          process.stdout.write(jsonError('init', message) + '\n')
-          process.exit(1)
-        }
-        printError(ctx, message)
+        printError(ctx, 'init', message)
         process.exit(1)
       }
       printWarning(ctx, `You are about to initialize clooks in your ${location}. This is usually a mistake.`)
@@ -370,11 +358,7 @@ async function initProject(cmd: Command): Promise<void> {
     printOutro(ctx, 'Done.')
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)
-    if (ctx.json) {
-      process.stdout.write(jsonError('init', message) + '\n')
-      process.exit(1)
-    }
-    printError(ctx, message)
+    printError(ctx, 'init', message)
     process.exit(1)
   }
 }

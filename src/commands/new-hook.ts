@@ -3,7 +3,7 @@ import { writeFileSync, existsSync, mkdirSync } from 'fs'
 import { join } from 'path'
 import os from 'os'
 import { getCtx } from '../tui/context.js'
-import { jsonSuccess, jsonError } from '../tui/json-envelope.js'
+import { jsonSuccess } from '../tui/json-envelope.js'
 import {
   printIntro, printSuccess, printInfo, printWarning, printError, printOutro
 } from '../tui/output.js'
@@ -43,11 +43,7 @@ export function createNewHookCommand(): Command {
           if (isNonInteractive(ctx)) {
             const message =
               'Hook name is required in non-interactive mode. Use --name <name>.'
-            if (ctx.json) {
-              process.stdout.write(jsonError('new-hook', message) + '\n')
-              process.exit(1)
-            }
-            printError(ctx, message)
+            printError(ctx, 'new-hook', message)
             process.exit(1)
           }
 
@@ -64,11 +60,7 @@ export function createNewHookCommand(): Command {
         // Validate (covers --name flag which bypasses prompt validation)
         if (!KEBAB_CASE_RE.test(hookName)) {
           const message = `Invalid hook name "${hookName}". Must be kebab-case (e.g., my-hook).`
-          if (ctx.json) {
-            process.stdout.write(jsonError('new-hook', message) + '\n')
-            process.exit(1)
-          }
-          printError(ctx, message)
+          printError(ctx, 'new-hook', message)
           process.exit(1)
         }
 
@@ -88,11 +80,7 @@ export function createNewHookCommand(): Command {
         // Validate scope
         if (scope !== 'project' && scope !== 'user') {
           const message = `Invalid scope "${scope}". Must be "project" or "user".`
-          if (ctx.json) {
-            process.stdout.write(jsonError('new-hook', message) + '\n')
-            process.exit(1)
-          }
-          printError(ctx, message)
+          printError(ctx, 'new-hook', message)
           process.exit(1)
         }
 
@@ -109,11 +97,7 @@ export function createNewHookCommand(): Command {
         // --- Refuse to overwrite ---
         if (existsSync(hookPath)) {
           const message = `${displayPath} already exists. Will not overwrite.`
-          if (ctx.json) {
-            process.stdout.write(jsonError('new-hook', message) + '\n')
-            process.exit(1)
-          }
-          printError(ctx, message)
+          printError(ctx, 'new-hook', message)
           process.exit(1)
         }
 
@@ -152,11 +136,7 @@ export function createNewHookCommand(): Command {
         printOutro(ctx, 'Done.')
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e)
-        if (ctx.json) {
-          process.stdout.write(jsonError('new-hook', message) + '\n')
-          process.exit(1)
-        }
-        printError(ctx, message)
+        printError(ctx, 'new-hook', message)
         process.exit(1)
       }
     })

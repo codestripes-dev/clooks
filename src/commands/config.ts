@@ -9,7 +9,7 @@ import { resolveHookPath } from '../config/resolve.js'
 import type { HookOrigin } from '../config/types.js'
 import type { HookName } from '../types/branded.js'
 import { getCtx } from '../tui/context.js'
-import { jsonSuccess, jsonError } from '../tui/json-envelope.js'
+import { jsonSuccess } from '../tui/json-envelope.js'
 import { printIntro, printSuccess, printInfo, printError, printOutro } from '../tui/output.js'
 
 type LoadConfigFn = (projectRoot: string, options?: LoadConfigOptions) => Promise<LoadConfigResult | null>
@@ -430,11 +430,7 @@ export function createConfigCommand(loadConfig: LoadConfigFn = defaultLoadConfig
           const resolved = await buildResolved(projectRoot, homeRoot)
 
           if (resolved === null) {
-            if (ctx.json) {
-              process.stdout.write(jsonError('config', 'No clooks.yml found. Run `clooks init` to get started.') + '\n')
-            } else {
-              printError(ctx, 'No clooks.yml found. Run `clooks init` to get started.')
-            }
+            printError(ctx, 'config', 'No clooks.yml found. Run `clooks init` to get started.')
             process.exit(1)
             return
           }
@@ -455,11 +451,7 @@ export function createConfigCommand(loadConfig: LoadConfigFn = defaultLoadConfig
         const result = await loadConfig(projectRoot, { homeRoot })
 
         if (result === null) {
-          if (ctx.json) {
-            process.stdout.write(jsonError('config', 'No clooks.yml found. Run `clooks init` to get started.') + '\n')
-          } else {
-            printError(ctx, 'No clooks.yml found. Run `clooks init` to get started.')
-          }
+          printError(ctx, 'config', 'No clooks.yml found. Run `clooks init` to get started.')
           process.exit(1)
           return  // unreachable in production, but needed when process.exit is mocked in tests
         }
@@ -487,11 +479,7 @@ export function createConfigCommand(loadConfig: LoadConfigFn = defaultLoadConfig
         printOutro(ctx, 'Done')
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e)
-        if (ctx.json) {
-          process.stdout.write(jsonError('config', message) + '\n')
-          process.exit(1)
-        }
-        printError(ctx, message)
+        printError(ctx, 'config', message)
         process.exit(1)
       }
     })

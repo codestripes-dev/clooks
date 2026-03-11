@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync, existsSync } from 'fs'
 import { join } from 'path'
 import os from 'os'
 import { getCtx } from '../tui/context.js'
-import { jsonSuccess, jsonError } from '../tui/json-envelope.js'
+import { jsonSuccess } from '../tui/json-envelope.js'
 import { printIntro, printSuccess, printInfo, printWarning, printError, printOutro } from '../tui/output.js'
 import EMBEDDED_TYPES_DTS from '../generated/clooks-types.d.ts.txt' with { type: 'text' }
 
@@ -44,11 +44,7 @@ export function createTypesCommand(): Command {
         printOutro(ctx, 'Done.')
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e)
-        if (ctx.json) {
-          process.stdout.write(jsonError('types', message) + '\n')
-          process.exit(1)
-        }
-        printError(ctx, message)
+        printError(ctx, 'types', message)
         process.exit(1)
       }
     })
