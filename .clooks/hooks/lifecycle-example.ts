@@ -36,6 +36,10 @@ export const hook: ClooksHook = {
         reason: "Bash commands are blocked on the production branch",
       })
     }
+
+    // Skip pattern: make the hook invisible (handler + afterHook don't run).
+    // Useful for conditional hook activation:
+    //   if (someCondition) { event.respond({ result: "skip" }); return }
   },
 
   PreToolUse(_ctx) {

@@ -526,6 +526,67 @@ describe("lifecycle integration", () => {
     expect(typeof receivedEvent.respond).toBe("function")
   })
 
+  test("beforeHook skip — handler and afterHook do not run, hook is invisible", async () => {
+    let handlerRan = false
+    let afterHookRan = false
+
+    const hook = makeLoadedHook("skip-hook", {
+      beforeHook(event: any) {
+        event.respond({ result: "skip" })
+      },
+      PreToolUse() {
+        handlerRan = true
+        return { result: "allow" }
+      },
+      afterHook() {
+        afterHookRan = true
+      },
+    })
+
+    const dir = makeTempDir()
+    const config = makeTestConfig({ "skip-hook": {} })
+    const failurePath = fp(dir)
+    const { lastResult } = await executeHooks(
+      [hook], "PreToolUse",
+      { event: "PreToolUse", toolName: "Bash", toolInput: {} },
+      config, failurePath,
+    )
+
+    expect(handlerRan).toBe(false)
+    expect(afterHookRan).toBe(false)
+    // skip = hook is invisible, no result
+    expect(lastResult).toBeUndefined()
+  })
+
+  test("beforeHook skip — pipeline continues to next hook", async () => {
+    const hookA = makeLoadedHook("skipper", {
+      beforeHook(event: any) {
+        event.respond({ result: "skip" })
+      },
+      PreToolUse() {
+        return { result: "block", reason: "should not reach" }
+      },
+    })
+
+    const hookB = makeLoadedHook("runner", {
+      PreToolUse() {
+        return { result: "allow" }
+      },
+    })
+
+    const dir = makeTempDir()
+    const config = makeTestConfig({ skipper: {}, runner: {} })
+    const failurePath = fp(dir)
+    const { lastResult } = await executeHooks(
+      [hookA, hookB], "PreToolUse",
+      { event: "PreToolUse", toolName: "Bash", toolInput: {} },
+      config, failurePath,
+    )
+
+    // hookA skipped, hookB ran and returned allow
+    expect(lastResult?.result).toBe("allow")
+  })
+
   // --- Edge-case tests (M4 Step 2) ---
 
   test("respond(undefined) in afterHook is rejected with error", async () => {

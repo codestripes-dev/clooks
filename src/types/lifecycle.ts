@@ -20,6 +20,7 @@ import type {
   WorktreeCreateResult, WorktreeRemoveResult, PreCompactResult,
   TeammateIdleResult, TaskCompletedResult,
   BlockResult,
+  SkipResult,
 } from "./results.js"
 
 export interface EventContextMap extends Record<EventName, unknown> {
@@ -92,7 +93,7 @@ type BeforeHookEventVariants = {
 
 export type BeforeHookEvent = {
   meta: HookEventMeta
-  respond(result: BlockResult): void
+  respond(result: BlockResult | SkipResult): void
 } & BeforeHookEventVariants
 
 type AfterHookEventVariants = {

@@ -42,6 +42,13 @@ describe("lifecycle types", () => {
     expect(handler).toBeDefined()
   })
 
+  test("BeforeHookEvent.respond accepts SkipResult", () => {
+    const handler = (event: BeforeHookEvent) => {
+      event.respond({ result: "skip" })
+    }
+    expect(handler).toBeDefined()
+  })
+
   test("AfterHookEvent.respond rejects mismatched result for observe events", () => {
     const handler = (event: AfterHookEvent) => {
       if (event.type === "SessionStart") {
