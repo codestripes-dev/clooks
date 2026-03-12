@@ -97,7 +97,7 @@ Hook paths are resolved using a two-step process: first determine the **resoluti
 
 **Step 1 — Resolution key:**
 
-- If `uses` is set and path-like (`./`, `../`, `/`) — use `uses` as a direct file path (relative to the origin root).
+- If `uses` is set and path-like (`./`, `../`, `/`, or bare `..`) — use `uses` as a direct file path (relative to the origin root). The path must be relative — absolute paths and path traversal sequences (`..`) are rejected at resolution time with a descriptive error.
 - If `uses` is set and is a hook name — resolve using convention rules with `uses` as the key.
 - If `uses` is not set — resolve using convention rules with the YAML key as the key.
 
