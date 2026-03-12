@@ -29,6 +29,7 @@ export function orderHooksForEvent(
   eventEntry: EventEntry | undefined,
   hookEntries: Record<HookName, HookEntry>,
   eventName: string,
+  disabledNames?: Set<HookName>,
 ): OrderedHook[] {
   if (matched.length === 0) return []
 
@@ -63,6 +64,9 @@ export function orderHooksForEvent(
   const seenInOrder = new Set<string>()
   for (const name of orderList) {
     if (!matchedNames.has(name)) {
+      // If hook was disabled via config, skip silently
+      if (disabledNames?.has(name as HookName)) continue
+      // Otherwise, it's a real config error
       throw new Error(
         `clooks: event "${eventName}" order references hook "${name}" which does not handle this event`,
       )
@@ -94,10 +98,12 @@ export function orderHooksForEvent(
 
   // Build ordered middle section in the order specified by the order list
   const matchedByName = new Map(matched.map((h) => [h.name, h]))
-  const orderedMiddle: OrderedHook[] = orderList.map((name) => {
-    const hook = matchedByName.get(name)!
-    return annotate(hook)
-  })
+  const orderedMiddle: OrderedHook[] = []
+  for (const name of orderList) {
+    const hook = matchedByName.get(name)
+    if (!hook) continue  // disabled via config (already validated above)
+    orderedMiddle.push(annotate(hook))
+  }
 
   return [...unorderedParallel, ...orderedMiddle, ...unorderedSequential]
 }

@@ -209,6 +209,72 @@ describe("orderHooksForEvent", () => {
     const result = orderHooksForEvent(matched, eventEntry, hookEntries, "PreToolUse")
     expect(names(result)).toEqual(["hookB", "hookA"])
   })
+
+  test("order list references disabled hook (in disabledNames): silently skipped", () => {
+    const matched = [makeLoaded("hookA")]
+    const hookEntries = makeEntries({
+      hookA: makeEntry(false),
+      hookB: makeEntry(false),
+    })
+    const eventEntry: EventEntry = {
+      order: [hn("hookA"), hn("hookB")],
+    }
+    const disabledNames = new Set([hn("hookB")])
+
+    // Should NOT throw — hookB is disabled, so it's silently skipped
+    const result = orderHooksForEvent(matched, eventEntry, hookEntries, "PreToolUse", disabledNames)
+    expect(names(result)).toEqual(["hookA"])
+  })
+
+  test("order list references hook NOT in disabledNames and NOT in matched set: still throws", () => {
+    const matched = [makeLoaded("hookA")]
+    const hookEntries = makeEntries({
+      hookA: makeEntry(false),
+      hookB: makeEntry(false),
+    })
+    const eventEntry: EventEntry = {
+      order: [hn("hookA"), hn("hookB")],
+    }
+    // disabledNames does NOT include hookB
+    const disabledNames = new Set<import("./types/branded.js").HookName>()
+
+    expect(() => orderHooksForEvent(matched, eventEntry, hookEntries, "PreToolUse", disabledNames)).toThrow(
+      'event "PreToolUse" order references hook "hookB" which does not handle this event',
+    )
+  })
+
+  test("order list where all referenced hooks are disabled: empty orderedMiddle, only unordered hooks run", () => {
+    const matched = [makeLoaded("hookC")]
+    const hookEntries = makeEntries({
+      hookA: makeEntry(false),
+      hookB: makeEntry(false),
+      hookC: makeEntry(false),
+    })
+    const eventEntry: EventEntry = {
+      order: [hn("hookA"), hn("hookB")],
+    }
+    const disabledNames = new Set([hn("hookA"), hn("hookB")])
+
+    const result = orderHooksForEvent(matched, eventEntry, hookEntries, "PreToolUse", disabledNames)
+    // hookC is unordered sequential, so it goes at the end (which is the only section)
+    expect(names(result)).toEqual(["hookC"])
+  })
+
+  test("existing tests pass when disabledNames is omitted (backward compatible)", () => {
+    // This test confirms that omitting disabledNames doesn't change behavior
+    const matched = [makeLoaded("hookA"), makeLoaded("hookB")]
+    const hookEntries = makeEntries({
+      hookA: makeEntry(false),
+      hookB: makeEntry(false),
+    })
+    const eventEntry: EventEntry = {
+      order: [hn("hookB"), hn("hookA")],
+    }
+
+    // No disabledNames parameter — should work exactly as before
+    const result = orderHooksForEvent(matched, eventEntry, hookEntries, "PreToolUse")
+    expect(names(result)).toEqual(["hookB", "hookA"])
+  })
 })
 
 describe("home-first default ordering", () => {

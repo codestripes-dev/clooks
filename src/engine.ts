@@ -476,6 +476,7 @@ export async function executeHooks(
   config: ClooksConfig,
   failurePath: string,
   loadErrors: HookLoadError[] = [],
+  disabledNames?: Set<HookName>,
 ): Promise<{
   lastResult?: EngineResult;
   degradedMessages: string[];
@@ -551,7 +552,7 @@ export async function executeHooks(
   let lastNonSkipResult: EngineResult | undefined;
 
   // --- Order and partition ---
-  const orderedHooks = orderHooksForEvent(matched, config.events[eventName], config.hooks, eventName);
+  const orderedHooks = orderHooksForEvent(matched, config.events[eventName], config.hooks, eventName, disabledNames);
   const groups = partitionIntoGroups(orderedHooks, eventName);
 
   // --- Sequential group runner ---
@@ -1120,6 +1121,41 @@ export async function runEngine(): Promise<void> {
     // no hooks match the current event.
     const startupWarnings: string[] = buildShadowWarnings(eventName, shadows);
 
+    // --- Startup validation: warn about disabled hooks in order lists ---
+    for (const [eventKey, eventEntry] of Object.entries(config.events)) {
+      if (eventEntry?.order) {
+        for (const hookName of eventEntry.order) {
+          const hookEntry = config.hooks[hookName]
+          if (!hookEntry) continue
+          if (hookEntry.enabled === false) {
+            startupWarnings.push(
+              `clooks: event "${eventKey}" order references hook "${hookName}" which is disabled (enabled: false)`
+            )
+          } else if (hookEntry.events?.[eventKey as EventName]?.enabled === false) {
+            startupWarnings.push(
+              `clooks: event "${eventKey}" order references hook "${hookName}" which has enabled: false for ${eventKey}`
+            )
+          }
+        }
+      }
+    }
+
+    // --- Startup validation: warn about enabled: false on events the hook doesn't handle ---
+    for (const loaded of hooks) {
+      const hookEntry = config.hooks[loaded.name]
+      if (!hookEntry?.events) continue
+      for (const [evKey, evOverride] of Object.entries(hookEntry.events)) {
+        if (evOverride?.enabled === false) {
+          const handlesEvent = typeof (loaded.hook as unknown as Record<string, unknown>)[evKey] === "function"
+          if (!handlesEvent) {
+            startupWarnings.push(
+              `clooks: hook "${loaded.name}" events.${evKey} has enabled: false, but hook does not handle event "${evKey}"`
+            )
+          }
+        }
+      }
+    }
+
     if (matched.length === 0 && loadErrors.length === 0) {
       if (startupWarnings.length > 0) {
         const output: ClaudeCodeOutput = { systemMessage: startupWarnings.join("\n") };
@@ -1153,6 +1189,7 @@ export async function runEngine(): Promise<void> {
     }
 
     // --- Execute hooks with circuit breaker ---
+    const disabledNames = new Set(disabledSkips.map(s => s.hook))
     let { lastResult, degradedMessages, debugMessages, traceMessages, systemMessages } = await executeHooks(
       matched,
       eventName,
@@ -1160,6 +1197,7 @@ export async function runEngine(): Promise<void> {
       config,
       failurePath,
       loadErrors,
+      disabledNames,
     );
 
     // --- Handle trace messages (from onError: "trace" hooks) ---
