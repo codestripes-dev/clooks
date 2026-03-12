@@ -227,7 +227,7 @@ export const ClooksConfigSchema = ClooksConfigStructuralSchema.superRefine((val,
 // ── Derived TypeScript types ──
 // These are hand-written interfaces (not z.infer<>) because the final
 // ClooksConfig has additional fields (resolvedPath, origin, branded types)
-// that Zod cannot express. They MUST match src/config/types.ts exactly.
+// that Zod cannot express. They are the authoritative type definitions.
 
 export type ErrorMode = "block" | "continue" | "trace"
 

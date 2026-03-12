@@ -4,7 +4,7 @@ import { join } from "path"
 import { tmpdir } from "os"
 import { validateHookExport, loadHook, loadAllHooks } from "./loader.js"
 import type { HookLoadError } from "./loader.js"
-import type { HookEntry, ClooksConfig } from "./config/types.js"
+import type { HookEntry, ClooksConfig } from "./config/schema.js"
 import type { HookName } from "./types/branded.js"
 import { hn, ms } from "./test-utils.js"
 

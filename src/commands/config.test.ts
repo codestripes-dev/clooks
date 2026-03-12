@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import { createConfigCommand } from './config.js'
-import type { ClooksConfig } from '../config/types.js'
+import type { ClooksConfig } from '../config/schema.js'
 import type { LoadConfigResult, LoadConfigOptions } from '../config/index.js'
 import type { HookName, Milliseconds } from '../types/branded.js'
 

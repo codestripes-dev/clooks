@@ -5,7 +5,7 @@ import { resolveHookPath } from "./resolve.js"
 import { join } from "path"
 import { homedir } from "os"
 import type { HookName } from "../types/branded.js"
-import type { HookOrigin } from "./types.js"
+import type { HookOrigin } from "./schema.js"
 
 export type {
   ClooksConfig,
@@ -14,14 +14,14 @@ export type {
   GlobalConfig,
   ErrorMode,
   HookOrigin,
-} from "./types.js"
+} from "./schema.js"
 
 export interface LoadConfigOptions {
   homeRoot?: string  // defaults to os.homedir()
 }
 
 export interface LoadConfigResult {
-  config: import("./types.js").ClooksConfig
+  config: import("./schema.js").ClooksConfig
   shadows: HookName[]
   hasProjectConfig: boolean
 }
