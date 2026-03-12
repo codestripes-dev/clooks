@@ -1,5 +1,5 @@
 import type { LoadedHook } from "./loader.js"
-import type { HookEntry, EventEntry } from "./config/types.js"
+import type { HookEntry, EventEntry } from "./config/schema.js"
 import type { HookName } from "./types/branded.js"
 
 /** A matched hook annotated with its parallel flag from config. */

@@ -5,7 +5,7 @@ import { tmpdir } from "os"
 import { executeHooks } from "./engine.js"
 import type { LoadedHook } from "./loader.js"
 import type { ClooksHook } from "./types/hook.js"
-import type { ClooksConfig, HookEntry } from "./config/types.js"
+import type { ClooksConfig, HookEntry } from "./config/schema.js"
 import type { HookName } from "./types/branded.js"
 import { hn, ms } from "./test-utils.js"
 import { DEFAULT_MAX_FAILURES_MESSAGE } from "./config/constants.js"
@@ -32,10 +32,10 @@ function makeTestConfig(
   hookOverrides: Record<string, {
     parallel?: boolean
     maxFailures?: number
-    onError?: import("./config/types.js").ErrorMode
+    onError?: import("./config/schema.js").ErrorMode
   }> = {},
   globalMaxFailures = 3,
-  globalOnError: import("./config/types.js").ErrorMode = "block",
+  globalOnError: import("./config/schema.js").ErrorMode = "block",
 ): ClooksConfig {
   const hooks = {} as Record<HookName, HookEntry>
   for (const [name, overrides] of Object.entries(hookOverrides)) {

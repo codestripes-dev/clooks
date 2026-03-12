@@ -1,6 +1,6 @@
 import type { HookName } from "./types/branded.js"
 import type { ClooksHook } from "./types/hook.js"
-import type { HookEntry, ClooksConfig } from "./config/types.js"
+import type { HookEntry, ClooksConfig } from "./config/schema.js"
 import { CLAUDE_CODE_EVENTS } from "./config/constants.js"
 import { isPathLike } from "./config/resolve.js"
 import { resolve } from "path"

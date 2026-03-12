@@ -1,4 +1,4 @@
-import type { HookOrigin } from "./types.js"
+import type { HookOrigin } from "./schema.js"
 import { classifyConfigKeys } from "./classify.js"
 
 function isPlainObject(val: unknown): val is Record<string, unknown> {

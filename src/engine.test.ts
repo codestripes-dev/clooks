@@ -5,7 +5,7 @@ import { tmpdir } from "os";
 import { translateResult, matchHooksForEvent, executeHooks, interpolateMessage, resolveOnError, buildShadowWarnings, formatDiagnostic, formatTraceMessage, assertCategoryCompleteness, type MatchResult } from "./engine.js";
 import type { LoadedHook, HookLoadError } from "./loader.js";
 import type { ClooksHook } from "./types/hook.js";
-import type { ClooksConfig } from "./config/types.js";
+import type { ClooksConfig } from "./config/schema.js";
 import type { HookName, EventName } from "./types/branded.js";
 import { hn, ms } from "./test-utils.js";
 import { DEFAULT_MAX_FAILURES_MESSAGE } from "./config/constants.js";
@@ -324,7 +324,7 @@ function makeLoadedHook(
 describe("matchHooksForEvent", () => {
   /** Minimal config with hooks registered but no special overrides. */
   function configForHooks(...names: string[]): ClooksConfig {
-    const hooks = {} as Record<HookName, import("./config/types.js").HookEntry>;
+    const hooks = {} as Record<HookName, import("./config/schema.js").HookEntry>;
     for (const name of names) {
       hooks[hn(name)] = {
         resolvedPath: `.clooks/hooks/${name}.ts`,
@@ -522,13 +522,13 @@ function makeTestConfig(
     parallel?: boolean;
     maxFailures?: number;
     maxFailuresMessage?: string;
-    onError?: import("./config/types.js").ErrorMode;
-    events?: Record<string, { onError?: import("./config/types.js").ErrorMode }>;
+    onError?: import("./config/schema.js").ErrorMode;
+    events?: Record<string, { onError?: import("./config/schema.js").ErrorMode }>;
   }> = {},
   globalMaxFailures = 3,
-  globalOnError: import("./config/types.js").ErrorMode = "block",
+  globalOnError: import("./config/schema.js").ErrorMode = "block",
 ): ClooksConfig {
-  const hooks = {} as Record<HookName, import("./config/types.js").HookEntry>;
+  const hooks = {} as Record<HookName, import("./config/schema.js").HookEntry>;
   for (const [name, overrides] of Object.entries(hookOverrides)) {
     hooks[hn(name)] = {
       resolvedPath: `.clooks/hooks/${name}.ts`,

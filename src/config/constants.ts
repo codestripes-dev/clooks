@@ -52,7 +52,7 @@ export const INJECTABLE_EVENTS: Set<EventName> = new Set<EventName>([
 ])
 
 // Default values for global config
-import type { ErrorMode } from "./types.js"
+import type { ErrorMode } from "./schema.js"
 export const DEFAULT_TIMEOUT = 30_000 as Milliseconds
 export const DEFAULT_ON_ERROR: ErrorMode = "block"
 export const DEFAULT_MAX_FAILURES = 3

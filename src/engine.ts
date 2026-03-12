@@ -27,7 +27,7 @@ export interface EngineResult {
   interrupt?: boolean
   updatedMCPToolOutput?: unknown
 }
-import type { ClooksConfig, ErrorMode } from "./config/types.js";
+import type { ClooksConfig, ErrorMode } from "./config/schema.js";
 import { normalizeKeys } from "./normalize.js";
 import { loadConfig } from "./config/index.js";
 import type { LoadConfigResult } from "./config/index.js";
