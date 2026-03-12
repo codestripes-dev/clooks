@@ -141,8 +141,10 @@ bad-path:
   uses: /nonexistent/hook.ts
 `)
     const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
-    expect(result.exitCode).not.toBe(0)
-    expect(result.stderr).toContain('Cannot find module')
+    // Load failure on PreToolUse → block → deny via JSON (exit 0)
+    expect(result.exitCode).toBe(0)
+    const output = JSON.parse(result.stdout)
+    expect(output.hookSpecificOutput.permissionDecision).toBe('deny')
   })
 
   test('Scenario 26: hook entry with traversal path that does not exist fails at load', () => {
@@ -153,8 +155,10 @@ bad-path:
   uses: ../../outside.ts
 `)
     const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
-    expect(result.exitCode).not.toBe(0)
-    expect(result.stderr).toContain('Cannot find module')
+    // Load failure on PreToolUse → block → deny via JSON (exit 0)
+    expect(result.exitCode).toBe(0)
+    const output = JSON.parse(result.stdout)
+    expect(output.hookSpecificOutput.permissionDecision).toBe('deny')
   })
 
   test('Scenario 24: performance regression tripwire — under 2000ms', () => {

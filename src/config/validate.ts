@@ -157,7 +157,7 @@ function formatGlobalConfigError(issue: z.ZodIssue, raw: Record<string, unknown>
     if (rawVal === "trace") {
       return `clooks: global config "onError" cannot be "trace" — trace is only allowed at hook or hook+event level`
     }
-    return `clooks: global config "onError" must be "block", "continue", or "trace", got "${String(rawVal)}"`
+    return `clooks: global config "onError" must be "block" or "continue", got "${String(rawVal)}"`
   }
   if (field === "maxFailures") {
     return `clooks: global config "maxFailures" must be a non-negative integer`

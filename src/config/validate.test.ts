@@ -98,7 +98,7 @@ describe("validateConfig", () => {
   test("invalid global onError throws", () => {
     expect(() =>
       validateConfig({ version: "1.0.0", config: { onError: "ignore" } }),
-    ).toThrow('must be "block", "continue", or "trace"')
+    ).toThrow('must be "block" or "continue"')
   })
 
   test("invalid hook timeout throws", () => {
