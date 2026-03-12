@@ -4,9 +4,9 @@ import type { EventName, Milliseconds } from "../types/branded.js"
 // used as hook names in clooks.yml because they have special meaning
 // as per-event configuration entries.
 //
-// Note: The engine (src/engine.ts) defines categorized subsets of these
-// events (GUARD_EVENTS, OBSERVE_EVENTS, CONTINUATION_EVENTS) for result
-// translation. Both sets must stay in sync.
+// The engine (src/engine.ts) defines categorized subsets of these events
+// for result translation. Completeness is enforced by assertCategoryCompleteness()
+// in engine.ts — adding events here without categorizing them throws immediately.
 export const CLAUDE_CODE_EVENTS: Set<EventName> = new Set<EventName>([
   "PreToolUse",
   "PostToolUse",

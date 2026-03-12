@@ -2,11 +2,11 @@ import { describe, expect, it, afterEach, spyOn } from "bun:test";
 import { mkdtempSync, rmSync, mkdirSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
-import { translateResult, matchHooksForEvent, executeHooks, interpolateMessage, resolveOnError, buildShadowWarnings, formatDiagnostic, formatTraceMessage } from "./engine.js";
+import { translateResult, matchHooksForEvent, executeHooks, interpolateMessage, resolveOnError, buildShadowWarnings, formatDiagnostic, formatTraceMessage, assertCategoryCompleteness } from "./engine.js";
 import type { LoadedHook, HookLoadError } from "./loader.js";
 import type { ClooksHook } from "./types/hook.js";
 import type { ClooksConfig } from "./config/types.js";
-import type { HookName } from "./types/branded.js";
+import type { HookName, EventName } from "./types/branded.js";
 import { hn, ms } from "./test-utils.js";
 import { DEFAULT_MAX_FAILURES_MESSAGE } from "./config/constants.js";
 import { readFailures, getFailurePath, LOAD_ERROR_EVENT } from "./failures.js";
@@ -1697,3 +1697,53 @@ describe("formatTraceMessage", () => {
     expect(msg).toContain("onError: trace");
   });
 });
+
+describe("assertCategoryCompleteness", () => {
+  it("passes for current category sets (module loaded successfully)", () => {
+    // If the module-level call had failed, no test in this file would run.
+    // This test documents that the assertion passed at import time.
+    expect(assertCategoryCompleteness).toBeFunction()
+  })
+
+  it("throws when an event is missing from all categories", () => {
+    const allEvents = new Set<EventName>(["A" as EventName, "B" as EventName, "C" as EventName])
+    const categories: Array<[string, Set<EventName>]> = [
+      ["SET_1", new Set<EventName>(["A" as EventName])],
+      ["SET_2", new Set<EventName>(["B" as EventName])],
+    ]
+    expect(() => assertCategoryCompleteness(allEvents, categories)).toThrow(
+      'event "C" is in CLAUDE_CODE_EVENTS but not categorized'
+    )
+  })
+
+  it("throws when a categorized event is not in allEvents", () => {
+    const allEvents = new Set<EventName>(["A" as EventName])
+    const categories: Array<[string, Set<EventName>]> = [
+      ["SET_1", new Set<EventName>(["A" as EventName])],
+      ["SET_2", new Set<EventName>(["B" as EventName])],
+    ]
+    expect(() => assertCategoryCompleteness(allEvents, categories)).toThrow(
+      'event "B" is categorized in engine.ts but not in CLAUDE_CODE_EVENTS'
+    )
+  })
+
+  it("throws when an event appears in multiple categories", () => {
+    const allEvents = new Set<EventName>(["A" as EventName, "B" as EventName])
+    const categories: Array<[string, Set<EventName>]> = [
+      ["SET_1", new Set<EventName>(["A" as EventName, "B" as EventName])],
+      ["SET_2", new Set<EventName>(["B" as EventName])],
+    ]
+    expect(() => assertCategoryCompleteness(allEvents, categories)).toThrow(
+      'event "B" appears in both SET_1 and SET_2'
+    )
+  })
+
+  it("passes when categories exactly match allEvents", () => {
+    const allEvents = new Set<EventName>(["A" as EventName, "B" as EventName, "C" as EventName])
+    const categories: Array<[string, Set<EventName>]> = [
+      ["SET_1", new Set<EventName>(["A" as EventName])],
+      ["SET_2", new Set<EventName>(["B" as EventName, "C" as EventName])],
+    ]
+    expect(() => assertCategoryCompleteness(allEvents, categories)).not.toThrow()
+  })
+})
