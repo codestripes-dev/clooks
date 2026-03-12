@@ -18,7 +18,8 @@
     "test:e2e:build": "docker build -q -t clooks-e2e -f test/Dockerfile .",
     "test:e2e:run": "docker run --rm -v ./src:/app/src:ro -v ./test:/app/test:ro -v ./schemas:/app/schemas:ro -v ./tsconfig.json:/app/tsconfig.json:ro clooks-e2e",
     "test:e2e": "bun run test:e2e:build && bun run test:e2e:run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepare": "lefthook install"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
