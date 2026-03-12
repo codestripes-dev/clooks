@@ -1482,6 +1482,7 @@ describe("parallel batch", () => {
 describe("mixed pipeline", () => {
   it("sequential then parallel then sequential", async () => {
     const dir = makeTempDir();
+    const warnSpy = spyOn(console, "error").mockImplementation(() => {});
     let capturedParCtx: Record<string, unknown> | undefined;
     let capturedSeqCCtx: Record<string, unknown> | undefined;
 
@@ -1537,6 +1538,8 @@ describe("mixed pipeline", () => {
     expect(result.lastResult?.injectContext).toContain("from-A");
     expect(result.lastResult?.injectContext).toContain("from-B");
     expect(result.lastResult?.injectContext).toContain("from-C");
+
+    warnSpy.mockRestore();
   });
 
   it("parallel block stops subsequent groups", async () => {
