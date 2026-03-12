@@ -76,10 +76,12 @@ const KNOWN_HOOK_ENTRY_KEYS = new Set<string>([
   "maxFailures",
   "maxFailuresMessage",
   "events",
+  "enabled",
 ])
 
 const KNOWN_HOOK_EVENT_OVERRIDE_KEYS = new Set<string>([
   "onError",
+  "enabled",
 ])
 
 export function validateConfig(raw: Record<string, unknown>): ClooksConfig {
@@ -259,7 +261,17 @@ export function validateConfig(raw: Record<string, unknown>): ClooksConfig {
       maxFailuresMessage = value.maxFailuresMessage
     }
 
-    let eventsMap: Partial<Record<EventName, { onError?: ErrorMode }>> | undefined
+    let hookEnabled: boolean | undefined
+    if (value.enabled !== undefined) {
+      if (typeof value.enabled !== "boolean") {
+        throw new Error(
+          `clooks: hook "${key}" has invalid "enabled": must be a boolean`
+        )
+      }
+      hookEnabled = value.enabled
+    }
+
+    let eventsMap: Partial<Record<EventName, { onError?: ErrorMode; enabled?: boolean }>> | undefined
     if (value.events !== undefined) {
       if (!isPlainObject(value.events)) {
         throw new Error(
@@ -279,7 +291,7 @@ export function validateConfig(raw: Record<string, unknown>): ClooksConfig {
             `clooks: hook "${key}" events.${eventKey} must be an object`
           )
         }
-        const overrideEntry: { onError?: ErrorMode } = {}
+        const overrideEntry: { onError?: ErrorMode; enabled?: boolean } = {}
         if ((eventOverride as Record<string, unknown>).onError !== undefined) {
           overrideEntry.onError = validateErrorMode(
             (eventOverride as Record<string, unknown>).onError,
@@ -291,6 +303,15 @@ export function validateConfig(raw: Record<string, unknown>): ClooksConfig {
               `${eventKey} does not support additionalContext`
             )
           }
+        }
+        if ((eventOverride as Record<string, unknown>).enabled !== undefined) {
+          const enabledVal = (eventOverride as Record<string, unknown>).enabled
+          if (typeof enabledVal !== "boolean") {
+            throw new Error(
+              `clooks: hook "${key}" events.${eventKey} "enabled" must be a boolean`
+            )
+          }
+          overrideEntry.enabled = enabledVal
         }
         rejectUnknownKeys(
           eventOverride as Record<string, unknown>,
@@ -313,6 +334,7 @@ export function validateConfig(raw: Record<string, unknown>): ClooksConfig {
     if (onError !== undefined) entry.onError = onError
     if (maxFailures !== undefined) entry.maxFailures = maxFailures
     if (maxFailuresMessage !== undefined) entry.maxFailuresMessage = maxFailuresMessage
+    if (hookEnabled !== undefined) entry.enabled = hookEnabled
     if (eventsMap && Object.keys(eventsMap).length > 0) entry.events = eventsMap
 
     hooks[hookName] = entry

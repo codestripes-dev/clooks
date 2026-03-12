@@ -541,6 +541,81 @@ describe("validateConfig", () => {
     expect(result.hooks[hn("quiet")]!.config).toEqual({ level: "error" })
   })
 
+  // --- FEAT-0036: Per-event hook disable (enabled field) ---
+
+  test("hook-level enabled: false is accepted and stored on entry", () => {
+    const result = validateConfig({
+      version: "1.0.0",
+      "my-hook": { enabled: false },
+    })
+    expect(result.hooks[hn("my-hook")]!.enabled).toBe(false)
+  })
+
+  test("hook-level enabled: true is accepted (no-op but valid)", () => {
+    const result = validateConfig({
+      version: "1.0.0",
+      "my-hook": { enabled: true },
+    })
+    expect(result.hooks[hn("my-hook")]!.enabled).toBe(true)
+  })
+
+  test('hook-level enabled: "yes" is rejected (type error)', () => {
+    expect(() =>
+      validateConfig({
+        version: "1.0.0",
+        "my-hook": { enabled: "yes" },
+      }),
+    ).toThrow('invalid "enabled": must be a boolean')
+  })
+
+  test("per-event enabled: false is accepted and stored on override entry", () => {
+    const result = validateConfig({
+      version: "1.0.0",
+      scanner: {
+        events: {
+          PreToolUse: { enabled: false },
+        },
+      },
+    })
+    expect(result.hooks[hn("scanner")]!.events!["PreToolUse"]).toEqual({ enabled: false })
+  })
+
+  test("per-event enabled: true is accepted and stored on override entry", () => {
+    const result = validateConfig({
+      version: "1.0.0",
+      scanner: {
+        events: {
+          PreToolUse: { enabled: true },
+        },
+      },
+    })
+    expect(result.hooks[hn("scanner")]!.events!["PreToolUse"]).toEqual({ enabled: true })
+  })
+
+  test("per-event enabled: 42 is rejected (type error)", () => {
+    expect(() =>
+      validateConfig({
+        version: "1.0.0",
+        scanner: {
+          events: {
+            PreToolUse: { enabled: 42 },
+          },
+        },
+      }),
+    ).toThrow('"enabled" must be a boolean')
+  })
+
+  test("config with disabled hook in order list validates successfully", () => {
+    const result = validateConfig({
+      version: "1.0.0",
+      "hook-a": { enabled: false },
+      "hook-b": {},
+      PreToolUse: { order: ["hook-a", "hook-b"] },
+    })
+    expect(result.hooks[hn("hook-a")]!.enabled).toBe(false)
+    expect(result.events["PreToolUse"]!.order).toEqual([hn("hook-a"), hn("hook-b")])
+  })
+
   // --- Unknown-key rejection ---
 
   test("global config rejects unknown keys", () => {

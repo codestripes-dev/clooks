@@ -95,6 +95,11 @@
       "properties": {
         "onError": {
           "$ref": "#/$defs/errorMode"
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "Disable this hook for a specific event. Defaults to true (enabled).",
+          "default": true
         }
       },
       "additionalProperties": false
@@ -108,9 +113,9 @@
           "description": "Hook-specific config overrides, shallow-merged with the hook's meta.config defaults at load time.",
           "additionalProperties": true
         },
-        "path": {
+        "uses": {
           "type": "string",
-          "description": "Explicit file path relative to project root. Convention: .clooks/hooks/<name>.ts for local hooks, .clooks/vendor/<owner>/<name>/index.ts for marketplace hooks."
+          "description": "Implementation source. Path-like values (starting with ./, ../, or /) are treated as direct file paths. Hook names are resolved via conventions. Enables aliases: multiple entries can reference the same implementation."
         },
         "timeout": {
           "type": "number",
@@ -133,6 +138,11 @@
         "maxFailuresMessage": {
           "type": "string",
           "description": "Per-hook reminder message template override. Supports {hook}, {event}, {count}, {error} interpolation."
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "Disable this hook entirely. Defaults to true (enabled).",
+          "default": true
         },
         "events": {
           "type": "object",

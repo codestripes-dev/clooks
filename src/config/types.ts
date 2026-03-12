@@ -55,8 +55,10 @@ export interface HookEntry {
   maxFailures?: number
   /** Per-hook override for the reminder message template. */
   maxFailuresMessage?: string
-  /** Per-hook, per-event overrides. Currently only onError is supported. */
-  events?: Partial<Record<EventName, { onError?: ErrorMode }>>
+  /** If false, this hook is fully disabled — it loads but never runs. Default true. */
+  enabled?: boolean
+  /** Per-hook, per-event overrides. Currently only onError and enabled are supported. */
+  events?: Partial<Record<EventName, { onError?: ErrorMode; enabled?: boolean }>>
   /** Which config layer this hook originated from. */
   origin: HookOrigin
 }
