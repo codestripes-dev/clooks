@@ -385,12 +385,12 @@ describe("matchHooksForEvent", () => {
       PreToolUse: () => ({ result: "skip" }),
     });
     const config = configForHooks("a");
-    config.hooks[hn("a")].enabled = false;
+    config.hooks[hn("a")]!.enabled = false;
     const { matched, disabledSkips } = matchHooksForEvent([hookA], "PreToolUse", config);
     expect(matched).toEqual([]);
     expect(disabledSkips).toHaveLength(1);
-    expect(disabledSkips[0].hook).toBe(hn("a"));
-    expect(disabledSkips[0].reason).toBe('hook "a" disabled entirely via config');
+    expect(disabledSkips[0]!.hook).toBe(hn("a"));
+    expect(disabledSkips[0]!.reason).toBe('hook "a" disabled entirely via config');
   });
 
   it("excludes hook for per-event disable but includes it for other events", () => {
@@ -399,18 +399,18 @@ describe("matchHooksForEvent", () => {
       PostToolUse: () => ({ result: "skip" }),
     });
     const config = configForHooks("a");
-    config.hooks[hn("a")].events = {
+    config.hooks[hn("a")]!.events = {
       PreToolUse: { enabled: false },
     };
 
     const pre = matchHooksForEvent([hookA], "PreToolUse", config);
     expect(pre.matched).toEqual([]);
     expect(pre.disabledSkips).toHaveLength(1);
-    expect(pre.disabledSkips[0].reason).toBe('hook "a" disabled for event "PreToolUse" via config');
+    expect(pre.disabledSkips[0]!.reason).toBe('hook "a" disabled for event "PreToolUse" via config');
 
     const post = matchHooksForEvent([hookA], "PostToolUse", config);
     expect(post.matched).toHaveLength(1);
-    expect(post.matched[0].name).toBe(hn("a"));
+    expect(post.matched[0]!.name).toBe(hn("a"));
     expect(post.disabledSkips).toEqual([]);
   });
 
@@ -419,14 +419,14 @@ describe("matchHooksForEvent", () => {
       PreToolUse: () => ({ result: "skip" }),
     });
     const config = configForHooks("a");
-    config.hooks[hn("a")].enabled = false;
-    config.hooks[hn("a")].events = {
+    config.hooks[hn("a")]!.enabled = false;
+    config.hooks[hn("a")]!.events = {
       PreToolUse: { enabled: true },
     };
     const { matched, disabledSkips } = matchHooksForEvent([hookA], "PreToolUse", config);
     expect(matched).toEqual([]);
     expect(disabledSkips).toHaveLength(1);
-    expect(disabledSkips[0].reason).toBe('hook "a" disabled entirely via config');
+    expect(disabledSkips[0]!.reason).toBe('hook "a" disabled entirely via config');
   });
 
   it("hook with enabled: true (explicit) behaves same as omitted", () => {
@@ -434,10 +434,10 @@ describe("matchHooksForEvent", () => {
       PreToolUse: () => ({ result: "skip" }),
     });
     const config = configForHooks("a");
-    config.hooks[hn("a")].enabled = true;
+    config.hooks[hn("a")]!.enabled = true;
     const { matched, disabledSkips } = matchHooksForEvent([hookA], "PreToolUse", config);
     expect(matched).toHaveLength(1);
-    expect(matched[0].name).toBe(hn("a"));
+    expect(matched[0]!.name).toBe(hn("a"));
     expect(disabledSkips).toEqual([]);
   });
 
@@ -446,13 +446,13 @@ describe("matchHooksForEvent", () => {
       PostToolUse: () => ({ result: "skip" }),
     });
     const config = configForHooks("a");
-    config.hooks[hn("a")].enabled = false;
+    config.hooks[hn("a")]!.enabled = false;
     // hookA does NOT handle PreToolUse, but enabled: false should still produce a disabledSkip
     const { matched, disabledSkips } = matchHooksForEvent([hookA], "PreToolUse", config);
     expect(matched).toEqual([]);
     expect(disabledSkips).toHaveLength(1);
-    expect(disabledSkips[0].hook).toBe(hn("a"));
-    expect(disabledSkips[0].reason).toBe('hook "a" disabled entirely via config');
+    expect(disabledSkips[0]!.hook).toBe(hn("a"));
+    expect(disabledSkips[0]!.reason).toBe('hook "a" disabled entirely via config');
   });
 
   it("hook with per-event enabled: false but no handler — appears in disabledSkips (disabled check before handler check)", () => {
@@ -460,15 +460,15 @@ describe("matchHooksForEvent", () => {
       PostToolUse: () => ({ result: "skip" }),
     });
     const config = configForHooks("a");
-    config.hooks[hn("a")].events = {
+    config.hooks[hn("a")]!.events = {
       PreToolUse: { enabled: false },
     };
     // hookA does NOT handle PreToolUse, but per-event enabled: false should still produce a disabledSkip
     const { matched, disabledSkips } = matchHooksForEvent([hookA], "PreToolUse", config);
     expect(matched).toEqual([]);
     expect(disabledSkips).toHaveLength(1);
-    expect(disabledSkips[0].hook).toBe(hn("a"));
-    expect(disabledSkips[0].reason).toBe('hook "a" disabled for event "PreToolUse" via config');
+    expect(disabledSkips[0]!.hook).toBe(hn("a"));
+    expect(disabledSkips[0]!.reason).toBe('hook "a" disabled for event "PreToolUse" via config');
   });
 });
 
