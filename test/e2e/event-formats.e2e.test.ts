@@ -33,7 +33,7 @@ perm-block: {}
     const output = JSON.parse(result.stdout)
     expect(output.hookSpecificOutput).toBeDefined()
     expect(output.hookSpecificOutput.hookEventName).toBe('PermissionRequest')
-    expect(output.hookSpecificOutput.decision).toEqual({ behavior: 'deny' })
+    expect(output.hookSpecificOutput.decision).toEqual({ behavior: 'deny', message: 'denied by policy' })
     // PermissionRequest block does NOT use top-level decision/reason
     expect(output.decision).toBeUndefined()
   })
@@ -101,7 +101,8 @@ perm-crash:
     // the PermissionRequest branch of translateResult
     expect(output.hookSpecificOutput).toBeDefined()
     expect(output.hookSpecificOutput.hookEventName).toBe('PermissionRequest')
-    expect(output.hookSpecificOutput.decision).toEqual({ behavior: 'deny' })
+    expect(output.hookSpecificOutput.decision.behavior).toBe('deny')
+    expect(output.hookSpecificOutput.decision.message).toContain('perm-crash')
   })
 
   // 5. UserPromptSubmit block → generic { decision: "block", reason } format

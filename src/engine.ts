@@ -23,6 +23,9 @@ export interface EngineResult {
   injectContext?: string
   debugMessage?: string
   updatedInput?: Record<string, unknown>
+  updatedPermissions?: unknown[]
+  interrupt?: boolean
+  updatedMCPToolOutput?: unknown
 }
 import type { ClooksConfig, ErrorMode } from "./config/types.js";
 import { normalizeKeys } from "./normalize.js";
@@ -183,17 +186,22 @@ export function translateResult(
   // --- PermissionRequest: uses hookSpecificOutput.decision ---
   if (eventName === "PermissionRequest") {
     if (resultType === "block") {
-      const hookOutput: HookSpecificOutputBase & { decision: { behavior: string } } = {
-        hookEventName: "PermissionRequest",
-        decision: { behavior: "deny" },
-      };
-      const output: ClaudeCodeOutput = { hookSpecificOutput: hookOutput as HookSpecificOutputBase };
-      return { output: JSON.stringify(output), exitCode: EXIT_OK };
+      const decision: Record<string, unknown> = { behavior: "deny", message: result.reason ?? "clooks: action blocked by hook" };
+      if (result.interrupt) decision.interrupt = true;
+      const hookOutput = { hookEventName: "PermissionRequest", decision };
+      return { output: JSON.stringify({ hookSpecificOutput: hookOutput }), exitCode: EXIT_OK };
     }
     if (resultType === "skip") {
       return { exitCode: EXIT_OK };
     }
     if (resultType === "allow") {
+      const decision: Record<string, unknown> = { behavior: "allow" };
+      if (result.updatedInput) decision.updatedInput = result.updatedInput;
+      if (result.updatedPermissions) decision.updatedPermissions = result.updatedPermissions;
+      if (Object.keys(decision).length > 1) {
+        const hookOutput = { hookEventName: "PermissionRequest", decision };
+        return { output: JSON.stringify({ hookSpecificOutput: hookOutput }), exitCode: EXIT_OK };
+      }
       return { exitCode: EXIT_OK };
     }
   }
@@ -236,6 +244,20 @@ export function translateResult(
       const output: ClaudeCodeOutput = { systemMessage: reason };
       return { output: JSON.stringify(output), exitCode: EXIT_OK };
     }
+    // PostToolUse with updatedMCPToolOutput — top-level field, not inside hookSpecificOutput
+    if (eventName === "PostToolUse" && result.updatedMCPToolOutput !== undefined) {
+      const outputObj: Record<string, unknown> = {
+        updatedMCPToolOutput: result.updatedMCPToolOutput,
+      };
+      if (result.injectContext) {
+        outputObj.hookSpecificOutput = {
+          hookEventName: eventName,
+          additionalContext: result.injectContext,
+        };
+      }
+      return { output: JSON.stringify(outputObj), exitCode: EXIT_OK };
+    }
+
     if (result.injectContext && INJECTABLE_EVENTS.has(eventName)) {
       const hookOutput: HookSpecificOutputBase = {
         hookEventName: eventName,
@@ -256,6 +278,12 @@ export function translateResult(
       };
     }
     if (resultType === "success") {
+      if (typeof result.path !== "string" || result.path === "") {
+        return {
+          exitCode: EXIT_HOOK_FAILURE,
+          stderr: "clooks: WorktreeCreate hook returned success but path is missing or empty",
+        };
+      }
       return { output: result.path, exitCode: EXIT_OK };
     }
     if (resultType === "failure") {
@@ -609,8 +637,14 @@ export async function executeHooks(
         return;
       }
 
-      // Skip does not affect pipeline state
+      // Skip — still collect injectContext and promote if it carries passthrough fields
       if (resultObj.result === "skip") {
+        if (resultObj.injectContext) {
+          accumulatedInjectContext.push(resultObj.injectContext);
+        }
+        if (resultObj.updatedMCPToolOutput !== undefined) {
+          lastNonSkipResult = resultObj;
+        }
         continue;
       }
 
@@ -749,7 +783,16 @@ export async function executeHooks(
           debugMessages.push(`hook="${settled.hookName}" afterHook: overridden result (parallel)`);
         }
 
-        if (!val || val.result === "skip") continue;
+        if (!val) continue;
+        if (val.result === "skip") {
+          if (val.injectContext) {
+            batchInjectContext.push(val.injectContext);
+          }
+          if (val.updatedMCPToolOutput !== undefined) {
+            lastNonSkipResult = val;
+          }
+          continue;
+        }
 
         // Contract violation: updatedInput in parallel mode
         if (val.updatedInput) {

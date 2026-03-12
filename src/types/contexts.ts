@@ -17,7 +17,7 @@ export interface BaseContext {
   event: EventName
   sessionId: string
   cwd: string
-  permissionMode: PermissionMode
+  permissionMode?: PermissionMode
   transcriptPath: string
   agentId?: string
   agentType?: string
@@ -48,7 +48,7 @@ export interface PermissionRequestContext extends BaseContext {
   event: "PermissionRequest"
   toolName: string
   toolInput: Record<string, unknown>
-  permissionSuggestions: unknown[]
+  permissionSuggestions?: unknown[]
 }
 
 export interface StopContext extends BaseContext {
@@ -101,6 +101,7 @@ export interface PostToolUseContext extends BaseContext {
   toolInput: Record<string, unknown>
   toolResponse: unknown
   toolUseId: string
+  originalToolInput?: Record<string, unknown>
 }
 
 export interface PostToolUseFailureContext extends BaseContext {
@@ -109,7 +110,8 @@ export interface PostToolUseFailureContext extends BaseContext {
   toolInput: Record<string, unknown>
   toolUseId: string
   error: string
-  isInterrupt: boolean
+  isInterrupt?: boolean
+  originalToolInput?: Record<string, unknown>
 }
 
 export interface NotificationContext extends BaseContext {
@@ -133,7 +135,7 @@ export interface WorktreeRemoveContext extends BaseContext {
 export interface PreCompactContext extends BaseContext {
   event: "PreCompact"
   trigger: PreCompactTrigger
-  customInstructions: string
+  customInstructions: string | null
 }
 
 // --- Implementation events ---
@@ -156,6 +158,6 @@ export interface TaskCompletedContext extends BaseContext {
   taskId: string
   taskSubject: string
   taskDescription?: string
-  teammateName: string
-  teamName: string
+  teammateName?: string
+  teamName?: string
 }

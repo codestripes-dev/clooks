@@ -1,0 +1,9 @@
+{
+  "hook_event_name": "PostToolUseFailure",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "failing"
+  },
+  "tool_use_id": "toolu_123",
+  "error": "command failed"
+}

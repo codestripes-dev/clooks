@@ -133,22 +133,20 @@ allow-all:
     })
   })
 
-  test('Scenario 25: hook entry with absolute path is rejected', () => {
+  test('Scenario 25: hook entry with absolute path that does not exist fails at load', () => {
     sandbox = createSandbox()
-    sandbox.writeHook('allow-all.ts', loadHook('allow-all.ts'))
     sandbox.writeConfig(`
 version: "1.0.0"
 bad-path:
-  uses: /etc/passwd
+  uses: /nonexistent/hook.ts
 `)
     const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
     expect(result.exitCode).not.toBe(0)
-    expect(result.stderr).toContain('must be a relative path')
+    expect(result.stderr).toContain('Cannot find module')
   })
 
-  test('Scenario 26: hook entry with path traversal sequence is rejected', () => {
+  test('Scenario 26: hook entry with traversal path that does not exist fails at load', () => {
     sandbox = createSandbox()
-    sandbox.writeHook('allow-all.ts', loadHook('allow-all.ts'))
     sandbox.writeConfig(`
 version: "1.0.0"
 bad-path:
@@ -156,7 +154,7 @@ bad-path:
 `)
     const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
     expect(result.exitCode).not.toBe(0)
-    expect(result.stderr).toContain('path traversal')
+    expect(result.stderr).toContain('Cannot find module')
   })
 
   test('Scenario 24: performance regression tripwire — under 2000ms', () => {

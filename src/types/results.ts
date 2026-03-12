@@ -66,7 +66,15 @@ export type PreToolUseResult =
   | (BlockResult & InjectableContext)
   | (SkipResult & InjectableContext)
 export type UserPromptSubmitResult  = (AllowResult | BlockResult | SkipResult) & InjectableContext
-export type PermissionRequestResult = AllowResult | BlockResult | SkipResult
+export type PermissionRequestResult =
+  | (AllowResult & {
+      updatedInput?: Record<string, unknown>
+      updatedPermissions?: unknown[]
+    })
+  | (BlockResult & {
+      interrupt?: boolean
+    })
+  | SkipResult
 export type StopEventResult         = AllowResult | BlockResult | SkipResult
 export type SubagentStopResult      = AllowResult | BlockResult | SkipResult
 export type ConfigChangeResult      = AllowResult | BlockResult | SkipResult
@@ -75,7 +83,9 @@ export type ConfigChangeResult      = AllowResult | BlockResult | SkipResult
 export type SessionStartResult       = SkipResult & InjectableContext
 export type SessionEndResult         = SkipResult
 export type InstructionsLoadedResult = SkipResult
-export type PostToolUseResult        = SkipResult & InjectableContext
+export type PostToolUseResult = SkipResult & InjectableContext & {
+  updatedMCPToolOutput?: unknown
+}
 export type PostToolUseFailureResult = SkipResult & InjectableContext
 export type NotificationResult       = SkipResult & InjectableContext
 export type SubagentStartResult      = SkipResult & InjectableContext

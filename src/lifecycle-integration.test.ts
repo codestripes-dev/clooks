@@ -678,7 +678,7 @@ describe("lifecycle integration", () => {
     expect(lastResult?.injectContext).toContain("from handler")
   })
 
-  test("lifecycle on observe event — afterHook override still treated as skip by engine", async () => {
+  test("lifecycle on observe event — afterHook override skip with injectContext is preserved", async () => {
     let afterHookCalled = false
 
     const hook = makeLoadedHook("observe-lifecycle", {
@@ -688,10 +688,8 @@ describe("lifecycle integration", () => {
       afterHook(event: any) {
         afterHookCalled = true
         if (event.type === "SessionStart") {
-          // Override with skip+injectContext — but the engine treats skip
-          // results as no-ops (they don't set lastNonSkipResult), so the
-          // injectContext is lost. This is correct behavior: observe events
-          // can only skip, and skip does not affect pipeline state.
+          // Override with skip+injectContext — the engine now collects
+          // injectContext from skip results so it reaches the final output.
           event.respond({ result: "skip", injectContext: "added by afterHook" })
         }
       },
@@ -705,9 +703,11 @@ describe("lifecycle integration", () => {
       config, fp(dir),
     )
 
-    // afterHook ran but its override is a skip — engine treats it as no-op
+    // afterHook ran and its injectContext on skip is now collected
     expect(afterHookCalled).toBe(true)
-    expect(lastResult).toBeUndefined()
+    expect(lastResult).toBeDefined()
+    expect(lastResult!.result).toBe("allow")
+    expect(lastResult!.injectContext).toBe("added by afterHook")
   })
 
   test("sequential pipeline: hook A returns updatedInput, hook B beforeHook sees updated context", async () => {
