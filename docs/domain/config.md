@@ -72,7 +72,8 @@ PreToolUse:
 | `parallel` | boolean | `false` | Run independently of sequential pipeline |
 | `maxFailures` | number | — | Per-hook override for consecutive failure threshold |
 | `maxFailuresMessage` | string | — | Per-hook override for the reminder message template |
-| `events` | `Partial<Record<EventName, { onError?: ErrorMode }>>` | — | Per-hook, per-event overrides. Keys are event names, values are objects with `onError`. |
+| `enabled` | boolean | `true` | If `false`, hook is fully disabled — loads but never runs for any event. |
+| `events` | `Partial<Record<EventName, { onError?: ErrorMode; enabled?: boolean }>>` | — | Per-hook, per-event overrides. Keys are event names, values are objects with `onError` and/or `enabled`. |
 
 ### Event Entry Fields
 
@@ -165,6 +166,20 @@ Each `HookEntry` carries an `origin: HookOrigin` field (`"home" | "project"`) an
 
 **maxFailures** and **maxFailuresMessage** cascade: hook → global → default. `maxFailures: 0` disables the circuit breaker. `maxFailures` does NOT increment for execution errors on hooks configured with `onError: "continue"` or `"trace"`. Import/load failures always count regardless of onError config.
 
+## Disabling Hooks
+
+The `enabled` field controls whether a hook runs. It can be set at two levels:
+
+**Hook-level disable** (`enabled: false` on the hook entry) — the hook loads but never runs for any event. Hook-level disable takes precedence over per-event settings; even if a per-event override sets `enabled: true`, the hook remains fully disabled.
+
+**Per-event disable** (`events.<EventName>.enabled: false`) — the hook is skipped for that specific event but runs normally for others.
+
+**Interaction with order lists:** A disabled hook that appears in an event's `order` list is silently skipped at runtime (no error). A startup warning is emitted on SessionStart to alert the user that the order list references a disabled hook.
+
+**Unhandled event warning:** If `enabled: false` is set for an event the hook does not handle (i.e., the hook has no handler for that event), a startup warning is emitted on SessionStart. This catches typos and stale config.
+
+**Config layering:** Because hook entries merge atomically across layers, a local override of `enabled: false` replaces the entire hook entry — other fields (`uses`, `timeout`, `onError`, `events`) from the base layer are lost. To re-enable a hook, remove the local entry entirely rather than changing `enabled: false` to `enabled: true` (which would leave the other fields missing).
+
 ## Execution Group Model
 
 When the engine executes hooks for an event, it partitions them into **execution groups** — contiguous runs of hooks that share the same execution mode (parallel or sequential). The pipeline processes groups in order, and a block result from any group stops the entire pipeline.
@@ -190,7 +205,7 @@ Hook execution order is determined by `orderHooksForEvent()` in `src/ordering.ts
 The order list (`EventEntry.order`) is validated at two levels:
 
 - **Config-time** — Names in the order list must be defined hooks in the config (validated by `validateConfig()`).
-- **Runtime** — Names in the order list must appear in the matched hook set for the current event. If an order list references a hook that does not handle the event (i.e., it was filtered out by `matchHooksForEvent()`), `orderHooksForEvent()` throws with a descriptive error. This is a structural/config error — the engine cannot proceed with an invalid order list.
+- **Runtime** — Names in the order list must appear in the matched hook set for the current event. If an order list references a hook that does not handle the event (i.e., it was filtered out by `matchHooksForEvent()`), `orderHooksForEvent()` throws with a descriptive error. This is a structural/config error — the engine cannot proceed with an invalid order list. **Exception:** hooks disabled via `enabled: false` are silently skipped in the order list (not an error).
 
 ### Partitioning
 
