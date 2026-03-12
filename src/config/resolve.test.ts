@@ -30,16 +30,16 @@ describe("resolveHookPath", () => {
     ).toBe("./lib/hook.ts")
   })
 
-  test("Uses: path-like (../)", () => {
-    expect(
+  test("Uses: path-like (../) throws traversal error", () => {
+    expect(() =>
       resolveHookPath(hn("my-alias"), { uses: "../shared/hook.ts" }),
-    ).toBe("../shared/hook.ts")
+    ).toThrow('contains path traversal sequences')
   })
 
-  test("Uses: path-like (/)", () => {
-    expect(
+  test("Uses: path-like (/) throws absolute path error", () => {
+    expect(() =>
       resolveHookPath(hn("my-alias"), { uses: "/absolute/hook.ts" }),
-    ).toBe("/absolute/hook.ts")
+    ).toThrow('must be a relative path')
   })
 
   test("Uses: path-like with basePath", () => {
@@ -86,5 +86,61 @@ describe("resolveHookPath", () => {
     expect(resolveHookPath(hn("my-hook"), {}, ".")).toBe(
       ".clooks/hooks/my-hook.ts",
     )
+  })
+})
+
+describe("path traversal guard", () => {
+  test("rejects absolute path with basePath", () => {
+    expect(() =>
+      resolveHookPath(hn("my-hook"), { uses: "/etc/passwd" }, "/home/user"),
+    ).toThrow('must be a relative path')
+  })
+
+  test("rejects traversal that escapes basePath", () => {
+    expect(() =>
+      resolveHookPath(hn("my-hook"), { uses: "../../evil.ts" }, "/home/user/.clooks"),
+    ).toThrow('path traversal')
+  })
+
+  test("rejects embedded traversal that escapes basePath", () => {
+    expect(() =>
+      resolveHookPath(hn("my-hook"), { uses: "./hooks/../../../outside.ts" }, "/home/user"),
+    ).toThrow('path traversal')
+  })
+
+  test("rejects deeply nested traversal", () => {
+    expect(() =>
+      resolveHookPath(hn("my-hook"), { uses: "./a/b/c/../../../../../../../etc/passwd" }, "/home/user"),
+    ).toThrow('path traversal')
+  })
+
+  test("allows safe relative path within basePath", () => {
+    expect(
+      resolveHookPath(hn("my-hook"), { uses: "./hooks/my-hook.ts" }, "/home/user"),
+    ).toBe(join("/home/user", "hooks/my-hook.ts"))
+  })
+
+  test("allows safe relative path without basePath", () => {
+    expect(
+      resolveHookPath(hn("my-hook"), { uses: "./scripts/hook.ts" }),
+    ).toBe("./scripts/hook.ts")
+  })
+
+  test("allows path that resolves to exactly the base directory", () => {
+    expect(
+      resolveHookPath(hn("my-hook"), { uses: "./subdir/.." }, "/home/user"),
+    ).toBe(join("/home/user", "subdir/.."))
+  })
+
+  test("allows triple-dot directory name (not traversal)", () => {
+    expect(
+      resolveHookPath(hn("my-hook"), { uses: "./.../hook.ts" }),
+    ).toBe("./.../hook.ts")
+  })
+
+  test("rejects bare '..' as traversal", () => {
+    expect(() =>
+      resolveHookPath(hn("my-hook"), { uses: ".." }),
+    ).toThrow('path traversal')
   })
 })
