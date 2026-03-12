@@ -403,4 +403,49 @@ describe("mergeThreeLayerConfig", () => {
 
     expect(result.homeHookUses.get("home-hook")).toBeUndefined()
   })
+
+  test("non-string element (number) in home order → throws", () => {
+    const home = {
+      version: "1.0.0",
+      "home-hook": {},
+      PreToolUse: { order: [1, "home-hook"] },
+    }
+
+    expect(() => mergeThreeLayerConfig(home, undefined, undefined)).toThrow(
+      "invalid element at index 0",
+    )
+    expect(() => mergeThreeLayerConfig(home, undefined, undefined)).toThrow(
+      "got number",
+    )
+  })
+
+  test("null element in home order → throws", () => {
+    const home = {
+      version: "1.0.0",
+      "home-hook": {},
+      PreToolUse: { order: ["home-hook", null] },
+    }
+
+    expect(() => mergeThreeLayerConfig(home, undefined, undefined)).toThrow(
+      "invalid element at index 1",
+    )
+    expect(() => mergeThreeLayerConfig(home, undefined, undefined)).toThrow(
+      "got null",
+    )
+  })
+
+  test("empty-string element in home order → throws", () => {
+    const home = {
+      version: "1.0.0",
+      "home-hook": {},
+      PreToolUse: { order: [""] },
+    }
+
+    expect(() => mergeThreeLayerConfig(home, undefined, undefined)).toThrow(
+      "invalid element at index 0",
+    )
+    expect(() => mergeThreeLayerConfig(home, undefined, undefined)).toThrow(
+      "got empty string",
+    )
+  })
 })

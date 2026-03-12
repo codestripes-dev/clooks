@@ -58,14 +58,21 @@ export function orderHooksForEvent(
     return [...parallel, ...sequential]
   }
 
-  // Order list exists — validate that every name in order list is in matched set
+  // Order list exists — validate that every name in order list is in matched set and is unique
   const matchedNames = new Set(matched.map((h) => h.name))
+  const seenInOrder = new Set<string>()
   for (const name of orderList) {
     if (!matchedNames.has(name)) {
       throw new Error(
         `clooks: event "${eventName}" order references hook "${name}" which does not handle this event`,
       )
     }
+    if (seenInOrder.has(name)) {
+      throw new Error(
+        `clooks: event "${eventName}" order contains duplicate hook name "${name}"`,
+      )
+    }
+    seenInOrder.add(name)
   }
 
   // Build the ordered list

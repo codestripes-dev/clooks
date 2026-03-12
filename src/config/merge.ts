@@ -5,6 +5,20 @@ function isPlainObject(val: unknown): val is Record<string, unknown> {
   return val !== null && typeof val === "object" && !Array.isArray(val)
 }
 
+function assertOrderElementIsString(
+  element: unknown,
+  index: number,
+  eventKey: string,
+  layer: "home" | "project",
+): void {
+  if (typeof element !== "string" || element.length === 0) {
+    throw new Error(
+      `clooks: ${layer} config event "${eventKey}" order contains invalid element at index ${index}: ` +
+      `expected a non-empty string, got ${element === null ? "null" : element === "" ? "empty string" : typeof element}`
+    )
+  }
+}
+
 export function deepMerge(
   base: Record<string, unknown>,
   override: Record<string, unknown>,
@@ -78,7 +92,10 @@ export function mergeThreeLayerConfig(
   if (homeClassified) {
     for (const [eventKey, eventVal] of Object.entries(homeClassified.events)) {
       if (isPlainObject(eventVal) && Array.isArray((eventVal as Record<string, unknown>).order)) {
-        for (const hookRef of (eventVal as Record<string, unknown>).order as string[]) {
+        const rawOrder = (eventVal as Record<string, unknown>).order as unknown[]
+        for (let i = 0; i < rawOrder.length; i++) {
+          assertOrderElementIsString(rawOrder[i], i, eventKey, "home")
+          const hookRef = rawOrder[i] as string
           if (!homeHookNames.has(hookRef)) {
             throw new Error(
               `clooks: home config event "${eventKey}" order references hook "${hookRef}" which is not defined in the home config. ` +
@@ -94,7 +111,10 @@ export function mergeThreeLayerConfig(
   if (projectClassified) {
     for (const [eventKey, eventVal] of Object.entries(projectClassified.events)) {
       if (isPlainObject(eventVal) && Array.isArray((eventVal as Record<string, unknown>).order)) {
-        for (const hookRef of (eventVal as Record<string, unknown>).order as string[]) {
+        const rawOrder = (eventVal as Record<string, unknown>).order as unknown[]
+        for (let i = 0; i < rawOrder.length; i++) {
+          assertOrderElementIsString(rawOrder[i], i, eventKey, "project")
+          const hookRef = rawOrder[i] as string
           if (!projectHookNames.has(hookRef)) {
             throw new Error(
               `clooks: project config event "${eventKey}" order references hook "${hookRef}" which is not defined in the project config. ` +
@@ -188,12 +208,20 @@ export function mergeThreeLayerConfig(
       mergedEvents[eventKey] = localEvent
     } else {
       // Concatenate home order + project order
-      const homeOrder = isPlainObject(homeEvent) && Array.isArray((homeEvent as Record<string, unknown>).order)
-        ? (homeEvent as Record<string, unknown>).order as string[]
+      const rawHomeOrder = isPlainObject(homeEvent) && Array.isArray((homeEvent as Record<string, unknown>).order)
+        ? (homeEvent as Record<string, unknown>).order as unknown[]
         : []
-      const projectOrder = isPlainObject(projectEvent) && Array.isArray((projectEvent as Record<string, unknown>).order)
-        ? (projectEvent as Record<string, unknown>).order as string[]
+      for (let i = 0; i < rawHomeOrder.length; i++) {
+        assertOrderElementIsString(rawHomeOrder[i], i, eventKey, "home")
+      }
+      const homeOrder = rawHomeOrder as string[]
+      const rawProjectOrder = isPlainObject(projectEvent) && Array.isArray((projectEvent as Record<string, unknown>).order)
+        ? (projectEvent as Record<string, unknown>).order as unknown[]
         : []
+      for (let i = 0; i < rawProjectOrder.length; i++) {
+        assertOrderElementIsString(rawProjectOrder[i], i, eventKey, "project")
+      }
+      const projectOrder = rawProjectOrder as string[]
 
       if (homeOrder.length > 0 || projectOrder.length > 0) {
         mergedEvents[eventKey] = { order: [...homeOrder, ...projectOrder] }

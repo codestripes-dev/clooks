@@ -158,6 +158,15 @@ export function validateConfig(raw: Record<string, unknown>): ClooksConfig {
           `clooks: event "${key}" has invalid "order": must be an array of non-empty strings`,
         )
       }
+      const seenNames = new Set<string>()
+      for (const hookName of value.order as string[]) {
+        if (seenNames.has(hookName)) {
+          throw new Error(
+            `clooks: event "${key}" order contains duplicate hook name "${hookName}"`,
+          )
+        }
+        seenNames.add(hookName)
+      }
       entry.order = value.order as HookName[]
     }
     if (value.onError !== undefined) {

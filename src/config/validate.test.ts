@@ -477,10 +477,10 @@ describe("validateConfig", () => {
     const result = validateConfig({
       version: "1.0.0",
       "alias-a": { uses: "./lib/hook.ts" },
-      "alias-b": { uses: "../hooks/other.ts" },
+      "alias-b": { uses: "./hooks/other.ts" },
     })
     expect(result.hooks[hn("alias-a")]!.uses).toBe("./lib/hook.ts")
-    expect(result.hooks[hn("alias-b")]!.uses).toBe("../hooks/other.ts")
+    expect(result.hooks[hn("alias-b")]!.uses).toBe("./hooks/other.ts")
   })
 
   test("self-reference allowed", () => {
@@ -613,5 +613,15 @@ describe("validateConfig", () => {
         Stop: { config: { key: "val" } },
       }),
     ).toThrow('unknown key "config"')
+  })
+
+  test("event order rejects duplicate hook names", () => {
+    expect(() =>
+      validateConfig({
+        version: "1.0.0",
+        "hook-a": {},
+        PreToolUse: { order: ["hook-a", "hook-a"] },
+      }),
+    ).toThrow('duplicate hook name "hook-a"')
   })
 })

@@ -180,6 +180,35 @@ describe("orderHooksForEvent", () => {
       'event "PreToolUse" order references hook "hookB" which does not handle this event',
     )
   })
+
+  test("duplicate name in order list: throws", () => {
+    const matched = [makeLoaded("hookA"), makeLoaded("hookB")]
+    const hookEntries = makeEntries({
+      hookA: makeEntry(false),
+      hookB: makeEntry(false),
+    })
+    const eventEntry: EventEntry = {
+      order: [hn("hookA"), hn("hookB"), hn("hookA")],
+    }
+
+    expect(() => orderHooksForEvent(matched, eventEntry, hookEntries, "PreToolUse")).toThrow(
+      'duplicate hook name "hookA"',
+    )
+  })
+
+  test("unique order list succeeds (regression guard)", () => {
+    const matched = [makeLoaded("hookA"), makeLoaded("hookB")]
+    const hookEntries = makeEntries({
+      hookA: makeEntry(false),
+      hookB: makeEntry(false),
+    })
+    const eventEntry: EventEntry = {
+      order: [hn("hookB"), hn("hookA")],
+    }
+
+    const result = orderHooksForEvent(matched, eventEntry, hookEntries, "PreToolUse")
+    expect(names(result)).toEqual(["hookB", "hookA"])
+  })
 })
 
 describe("home-first default ordering", () => {
