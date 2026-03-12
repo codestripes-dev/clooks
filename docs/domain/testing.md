@@ -133,6 +133,45 @@ If a hook calls `process.exit(0)`, the process terminates before the engine can 
 
 When hooks run sequentially, `context.toolInput` modifications in one hook leak to the next because the engine performs a shallow copy of the context object. Tests that assert on context isolation between sequential hooks must account for this behavior.
 
+## Coverage
+
+Unit test coverage is configured in `bunfig.toml` at the project root. The relevant settings:
+
+```toml
+[test]
+coverageReporter = ["text", "lcov"]
+coverageDir = "coverage/unit"
+coverageSkipTestFiles = true
+coveragePathIgnorePatterns = ["**/tmp/**"]
+
+[test.coverageThreshold]
+lines = 0.5
+functions = 0.5
+```
+
+Coverage is **not** enabled by default. Running `bun test src/` is the fast path — no instrumentation, no threshold checking. Coverage is only enabled explicitly:
+
+```bash
+# Run unit tests with coverage (prints per-file table, writes lcov)
+bun test --coverage src/
+
+# Convenience alias
+bun run test:coverage
+```
+
+lcov output is written to `coverage/unit/lcov.info`. The entire `coverage/` directory is gitignored.
+
+### Ratchet enforcement
+
+A Lefthook pre-commit hook runs `bun test --coverage src/` on every commit. Bun enforces the `coverageThreshold` values **per file**, not just in aggregate — if any individual source file drops below 50% line or 50% function coverage, Bun exits non-zero and the commit is blocked.
+
+The thresholds in `bunfig.toml` are the ratchet. To raise the bar, increment the values in a separate PR. Thresholds can only move up.
+
+### Limitations
+
+- **No branch coverage.** Bun does not support branch coverage metrics ([oven-sh/bun#7100](https://github.com/oven-sh/bun/issues/7100)). Only line and function coverage are available.
+- **No E2E coverage.** E2E tests spawn the compiled binary as a subprocess. A compiled Bun binary cannot be instrumented for coverage ([oven-sh/bun#17867](https://github.com/oven-sh/bun/issues/17867)). Coverage metrics reflect unit tests only.
+
 ## Related
 
 - [E2E Testing Strategy Plan](../plans/PLAN-0009-e2e-testing-strategy.md) — original plan for the E2E test infrastructure

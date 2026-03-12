@@ -13,4 +13,4 @@ clooks.local.yml
 # Generated build artifacts
 src/generated/
 
-coverage/.lcov.info.*
+coverage/
