@@ -102,19 +102,35 @@ crash-on-run:
     expect(output.hookSpecificOutput.additionalContext).toContain('onError: trace')
   })
 
-  test('Scenario 23: config forward compatibility — unknown keys do not crash', () => {
-    sandbox = createSandbox()
-    sandbox.writeHook('allow-all.ts', loadHook('allow-all.ts'))
-    sandbox.writeConfig(`
+  describe('Scenario 23: unknown keys in config sections produce validation errors', () => {
+    test('unknown keys in global config produce validation errors', () => {
+      sandbox = createSandbox()
+      sandbox.writeHook('allow-all.ts', loadHook('allow-all.ts'))
+      sandbox.writeConfig(`
 version: "1.0.0"
 config:
   future_setting: true
 allow-all:
+  uses: ./.clooks/hooks/allow-all.ts
+`)
+      const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
+      expect(result.exitCode).toBe(2)
+      expect(result.stderr).toContain('unknown key "future_setting"')
+    })
+
+    test('unknown keys in hook entries produce validation errors', () => {
+      sandbox = createSandbox()
+      sandbox.writeHook('allow-all.ts', loadHook('allow-all.ts'))
+      sandbox.writeConfig(`
+version: "1.0.0"
+allow-all:
+  uses: ./.clooks/hooks/allow-all.ts
   unknown_option: "should be ignored"
 `)
-    const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
-    // The binary should not crash — exit 0 or a valid hook response
-    expect(result.exitCode).toBe(0)
+      const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
+      expect(result.exitCode).toBe(2)
+      expect(result.stderr).toContain('unknown key "unknown_option"')
+    })
   })
 
   test('Scenario 24: performance regression tripwire — under 2000ms', () => {

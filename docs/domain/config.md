@@ -8,7 +8,7 @@ The config system is the bridge between the YAML files a user writes and the typ
 
 1. **Parsing** — Read YAML files and return raw JavaScript objects.
 2. **Three-layer merging** — Merge home, project, and local configs with semantic rules per field type.
-3. **Validation** — Check types and structure, separate hooks from events.
+3. **Validation** — Check types and structure, separate hooks from events, reject unknown keys.
 4. **Resolution** — Map hook names to file paths using convention rules.
 5. **Origin tracking** — Annotate each hook with which layer it came from (`"home"` or `"project"`).
 
@@ -240,6 +240,7 @@ Config parsing takes ~15ms per invocation using Bun's native YAML parser (`Bun.Y
 
 ## Gotchas
 
+- **Unknown keys are rejected** — Unrecognized keys in any config section (global config, event entries, hook entries, hook event overrides) produce an immediate error naming the unknown key and listing valid keys. This catches typos like `tiemout` instead of `timeout`.
 - **Event names are reserved** — All 18 Claude Code event names are classified as event entries, never hook entries. A key like `Stop` always goes to `events`, even if its value looks like a hook entry.
 - **`noUncheckedIndexedAccess`** — The project uses strict TypeScript. Accessing `config.hooks["name"]` returns `HookEntry | undefined`. Always check before use.
 - **Arrays replace, don't append** — In config merging, arrays in the override file completely replace arrays in the base file. There is no array concatenation.

@@ -184,12 +184,13 @@ describe("validateConfig", () => {
     expect(result.events["SessionStart"]).toEqual({ order: [hn("a")] })
     expect(result.hooks[hn("SessionStart")]).toBeUndefined()
 
-    // Even with config-like fields, Stop is still an event
+    // Even with valid event-entry keys, Stop is still an event
     const result2 = validateConfig({
       version: "1.0.0",
-      Stop: { config: { key: "val" } },
+      "hook-a": {},
+      Stop: { order: ["hook-a"] },
     })
-    expect(result2.events["Stop"]).toBeDefined()
+    expect(result2.events["Stop"]).toEqual({ order: [hn("hook-a")] })
     expect(result2.hooks[hn("Stop")]).toBeUndefined()
   })
 
@@ -546,5 +547,71 @@ describe("validateConfig", () => {
     })
     expect(result.hooks[hn("verbose")]!.config).toEqual({ level: "debug" })
     expect(result.hooks[hn("quiet")]!.config).toEqual({ level: "error" })
+  })
+
+  // --- Unknown-key rejection ---
+
+  test("global config rejects unknown keys", () => {
+    expect(() =>
+      validateConfig({ version: "1.0.0", config: { tiemout: 5000 } }),
+    ).toThrow('unknown key "tiemout"')
+  })
+
+  test("event entry rejects unknown keys", () => {
+    expect(() =>
+      validateConfig({
+        version: "1.0.0",
+        PreToolUse: { priority: "high" },
+      }),
+    ).toThrow('unknown key "priority"')
+  })
+
+  test("hook entry rejects unknown keys", () => {
+    expect(() =>
+      validateConfig({
+        version: "1.0.0",
+        "my-hook": { tiemout: 5000 },
+      }),
+    ).toThrow('unknown key "tiemout"')
+  })
+
+  test("hook events sub-map entry rejects unknown keys", () => {
+    expect(() =>
+      validateConfig({
+        version: "1.0.0",
+        scanner: {
+          events: {
+            PreToolUse: { onError: "block", timeout: 5000 },
+          },
+        },
+      }),
+    ).toThrow('unknown key "timeout"')
+  })
+
+  test("hook entry rejects misspelled onError", () => {
+    expect(() =>
+      validateConfig({
+        version: "1.0.0",
+        "my-hook": { onEror: "continue" },
+      }),
+    ).toThrow('unknown key "onEror"')
+  })
+
+  test("hook entry with only unknown keys rejects the first one", () => {
+    expect(() =>
+      validateConfig({
+        version: "1.0.0",
+        "my-hook": { completely: "wrong", also: "bad" },
+      }),
+    ).toThrow('unknown key')
+  })
+
+  test("event entry with hook-like key rejects it as unknown", () => {
+    expect(() =>
+      validateConfig({
+        version: "1.0.0",
+        Stop: { config: { key: "val" } },
+      }),
+    ).toThrow('unknown key "config"')
   })
 })
