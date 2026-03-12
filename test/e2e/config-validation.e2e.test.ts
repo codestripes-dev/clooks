@@ -211,4 +211,73 @@ PreToolUse:
     expect(result.stderr).toContain('ghost-hook')
     expect(result.stderr).toContain('not defined')
   })
+
+  test('12. alias chain — exit 2', () => {
+    sandbox = createSandbox()
+    sandbox.writeConfig(`
+version: "1.0.0"
+alias-a:
+  uses: alias-b
+alias-b:
+  uses: real-hook
+`)
+    const stdin = loadEvent('pre-tool-use-bash.json')
+    const result = sandbox.run([], { stdin })
+    expect(result.exitCode).toBe(2)
+    expect(result.stderr).toContain('Alias chains are not allowed')
+  })
+
+  test('13. bare path with .ts — exit 2', () => {
+    sandbox = createSandbox()
+    sandbox.writeConfig(`
+version: "1.0.0"
+my-hook:
+  uses: scripts/hook.ts
+`)
+    const stdin = loadEvent('pre-tool-use-bash.json')
+    const result = sandbox.run([], { stdin })
+    expect(result.exitCode).toBe(2)
+    expect(result.stderr).toContain('doesn\'t start with "./"')
+  })
+
+  test('14. unknown key in hook entry — exit 2', () => {
+    sandbox = createSandbox()
+    sandbox.writeConfig(`
+version: "1.0.0"
+my-hook:
+  tiemout: 5000
+`)
+    const stdin = loadEvent('pre-tool-use-bash.json')
+    const result = sandbox.run([], { stdin })
+    expect(result.exitCode).toBe(2)
+    expect(result.stderr).toContain('unknown key')
+    expect(result.stderr).toContain('tiemout')
+  })
+
+  test('15. unknown key in global config — exit 2', () => {
+    sandbox = createSandbox()
+    sandbox.writeConfig(`
+version: "1.0.0"
+config:
+  tiemout: 5000
+`)
+    const stdin = loadEvent('pre-tool-use-bash.json')
+    const result = sandbox.run([], { stdin })
+    expect(result.exitCode).toBe(2)
+    expect(result.stderr).toContain('unknown key')
+    expect(result.stderr).toContain('tiemout')
+  })
+
+  test('16. hook maxFailures invalid — exit 2', () => {
+    sandbox = createSandbox()
+    sandbox.writeConfig(`
+version: "1.0.0"
+my-hook:
+  maxFailures: -1
+`)
+    const stdin = loadEvent('pre-tool-use-bash.json')
+    const result = sandbox.run([], { stdin })
+    expect(result.exitCode).toBe(2)
+    expect(result.stderr).toContain('maxFailures')
+  })
 })

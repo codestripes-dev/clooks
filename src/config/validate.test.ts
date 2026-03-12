@@ -691,4 +691,102 @@ describe("validateConfig", () => {
       }),
     ).toThrow('duplicate hook name "hook-a"')
   })
+
+  // --- M0: Additional validation coverage ---
+
+  test("non-object hook entry throws", () => {
+    expect(() =>
+      validateConfig({ version: "1.0.0", "my-hook": "just-a-string" }),
+    ).toThrow('entry "my-hook" must be an object')
+  })
+
+  test("non-object event entry throws", () => {
+    expect(() =>
+      validateConfig({ version: "1.0.0", PreToolUse: "not-an-object" }),
+    ).toThrow('entry "PreToolUse" must be an object')
+  })
+
+  test("non-object config field throws", () => {
+    expect(() =>
+      validateConfig({ version: "1.0.0", config: "string" }),
+    ).toThrow('"config" must be an object')
+  })
+
+  test("non-object hook events sub-map throws", () => {
+    expect(() =>
+      validateConfig({ version: "1.0.0", scanner: { events: "string" } }),
+    ).toThrow("events")
+  })
+
+  test("non-object event override in events sub-map throws", () => {
+    expect(() =>
+      validateConfig({
+        version: "1.0.0",
+        scanner: { events: { PreToolUse: "not-object" } },
+      }),
+    ).toThrow("events.PreToolUse")
+  })
+
+  test("event order with empty string throws", () => {
+    expect(() =>
+      validateConfig({
+        version: "1.0.0",
+        a: {},
+        PreToolUse: { order: ["a", ""] },
+      }),
+    ).toThrow("non-empty strings")
+  })
+
+  test("event order with non-string element throws", () => {
+    expect(() =>
+      validateConfig({
+        version: "1.0.0",
+        a: {},
+        PreToolUse: { order: ["a", 42] },
+      }),
+    ).toThrow("non-empty strings")
+  })
+
+  test("global timeout zero throws", () => {
+    expect(() =>
+      validateConfig({ version: "1.0.0", config: { timeout: 0 } }),
+    ).toThrow("must be a positive number")
+  })
+
+  test("global timeout non-number throws", () => {
+    expect(() =>
+      validateConfig({ version: "1.0.0", config: { timeout: "fast" } }),
+    ).toThrow("must be a positive number")
+  })
+
+  test("hook parallel non-boolean throws", () => {
+    expect(() =>
+      validateConfig({ version: "1.0.0", "my-hook": { parallel: "yes" } }),
+    ).toThrow("parallel")
+  })
+
+  test("hook maxFailures negative throws", () => {
+    expect(() =>
+      validateConfig({ version: "1.0.0", "my-hook": { maxFailures: -1 } }),
+    ).toThrow("non-negative integer")
+  })
+
+  test("hook maxFailuresMessage non-string throws", () => {
+    expect(() =>
+      validateConfig({ version: "1.0.0", "my-hook": { maxFailuresMessage: 42 } }),
+    ).toThrow("must be a string")
+  })
+
+  test("TaskCompleted and TeammateIdle recognized as events", () => {
+    const result = validateConfig({
+      version: "1.0.0",
+      "hook-a": {},
+      TaskCompleted: { order: ["hook-a"] },
+      TeammateIdle: { order: ["hook-a"] },
+    })
+    expect(result.events["TaskCompleted"]).toBeDefined()
+    expect(result.events["TeammateIdle"]).toBeDefined()
+    expect(result.hooks["TaskCompleted" as any]).toBeUndefined()
+    expect(result.hooks["TeammateIdle" as any]).toBeUndefined()
+  })
 })
