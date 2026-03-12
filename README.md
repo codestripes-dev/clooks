@@ -42,7 +42,7 @@ After `clooks init`, your project looks like:
 project/
 ├── .clooks/
 │   ├── clooks.yml            # Config + hook registration
-│   ├── clooks.schema.json    # JSON Schema for editor validation
+│   ├── clooks.schema.json    # JSON Schema for editor validation (auto-generated)
 │   ├── bin/entrypoint.sh     # Bash entrypoint (registered in settings.json)
 │   ├── hooks/
 │   │   └── types.d.ts        # TypeScript types for hook authoring

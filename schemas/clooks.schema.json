@@ -4,173 +4,626 @@
   "title": "clooks.yml",
   "description": "Configuration file for Clooks — a hook runtime for AI coding agents.",
   "type": "object",
-  "required": ["version"],
   "properties": {
     "version": {
-      "type": "string",
-      "description": "Semver version string for the config file format.",
-      "examples": ["1.0.0"]
+      "type": "string"
     },
     "config": {
-      "$ref": "#/$defs/globalConfig"
-    },
-    "PreToolUse": { "$ref": "#/$defs/eventEntry" },
-    "PostToolUse": { "$ref": "#/$defs/eventEntry" },
-    "UserPromptSubmit": { "$ref": "#/$defs/eventEntry" },
-    "SessionStart": { "$ref": "#/$defs/eventEntry" },
-    "SessionEnd": { "$ref": "#/$defs/eventEntry" },
-    "Stop": { "$ref": "#/$defs/eventEntry" },
-    "SubagentStop": { "$ref": "#/$defs/eventEntry" },
-    "SubagentStart": { "$ref": "#/$defs/eventEntry" },
-    "InstructionsLoaded": { "$ref": "#/$defs/eventEntry" },
-    "PostToolUseFailure": { "$ref": "#/$defs/eventEntry" },
-    "Notification": { "$ref": "#/$defs/eventEntry" },
-    "PermissionRequest": { "$ref": "#/$defs/eventEntry" },
-    "ConfigChange": { "$ref": "#/$defs/eventEntry" },
-    "WorktreeCreate": { "$ref": "#/$defs/eventEntry" },
-    "WorktreeRemove": { "$ref": "#/$defs/eventEntry" },
-    "PreCompact": { "$ref": "#/$defs/eventEntry" },
-    "TeammateIdle": { "$ref": "#/$defs/eventEntry" },
-    "TaskCompleted": { "$ref": "#/$defs/eventEntry" }
-  },
-  "additionalProperties": {
-    "$ref": "#/$defs/hookEntry"
-  },
-  "$defs": {
-    "errorMode": {
-      "type": "string",
-      "enum": ["block", "continue", "trace"],
-      "description": "Error handling mode. 'block' stops execution (default). 'continue' logs and continues. 'trace' injects context (only allowed at hook/event level, not global)."
-    },
-    "errorModeGlobal": {
-      "type": "string",
-      "enum": ["block", "continue"],
-      "description": "Global error handling mode. 'trace' is not allowed at the global level."
-    },
-    "globalConfig": {
       "type": "object",
-      "description": "Global settings applied to all hooks unless overridden.",
       "properties": {
         "timeout": {
           "type": "number",
-          "description": "Default timeout for all hooks in milliseconds.",
-          "default": 30000,
           "exclusiveMinimum": 0
         },
         "onError": {
-          "$ref": "#/$defs/errorModeGlobal",
-          "default": "block"
+          "type": "string",
+          "enum": [
+            "block",
+            "continue"
+          ]
         },
         "maxFailures": {
           "type": "integer",
-          "description": "Consecutive failures before a hook+event pair is degraded. Use 0 to disable the circuit breaker.",
-          "default": 3,
-          "minimum": 0
+          "minimum": 0,
+          "maximum": 9007199254740991
         },
         "maxFailuresMessage": {
-          "type": "string",
-          "description": "Template for the degradation reminder message. Supports {hook}, {event}, {count}, {error} interpolation."
+          "type": "string"
         }
       },
       "additionalProperties": false
     },
-    "eventEntry": {
+    "PreToolUse": {
       "type": "object",
-      "description": "Per-event configuration. Controls execution order for hooks registered to this event.",
       "properties": {
         "order": {
           "type": "array",
-          "description": "Explicit execution order for hooks on this event. All entries must reference defined hooks.",
           "items": {
             "type": "string",
             "minLength": 1
           }
         }
       },
-      "additionalProperties": false
+      "additionalProperties": {}
     },
-    "hookEventOverride": {
+    "PostToolUse": {
       "type": "object",
-      "description": "Per-event override for a specific hook.",
       "properties": {
-        "onError": {
-          "$ref": "#/$defs/errorMode"
-        },
-        "enabled": {
-          "type": "boolean",
-          "description": "Disable this hook for a specific event. Defaults to true (enabled).",
-          "default": true
+        "order": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
         }
       },
-      "additionalProperties": false
+      "additionalProperties": {}
     },
-    "hookEntry": {
+    "UserPromptSubmit": {
       "type": "object",
-      "description": "A hook entry. Any top-level key that is not 'version', 'config', or a Claude Code event name is treated as a hook.",
       "properties": {
-        "config": {
-          "type": "object",
-          "description": "Hook-specific config overrides, shallow-merged with the hook's meta.config defaults at load time.",
-          "additionalProperties": true
-        },
-        "uses": {
-          "type": "string",
-          "description": "Implementation source. Path-like values (starting with ./, ../, or /) are treated as direct file paths. Hook names are resolved via conventions. Enables aliases: multiple entries can reference the same implementation."
-        },
-        "timeout": {
-          "type": "number",
-          "description": "Per-hook timeout override in milliseconds.",
-          "exclusiveMinimum": 0
-        },
-        "onError": {
-          "$ref": "#/$defs/errorMode"
-        },
-        "parallel": {
-          "type": "boolean",
-          "description": "If true, runs independently of the sequential pipeline.",
-          "default": false
-        },
-        "maxFailures": {
-          "type": "integer",
-          "description": "Per-hook consecutive failure threshold override.",
-          "minimum": 0
-        },
-        "maxFailuresMessage": {
-          "type": "string",
-          "description": "Per-hook reminder message template override. Supports {hook}, {event}, {count}, {error} interpolation."
-        },
-        "enabled": {
-          "type": "boolean",
-          "description": "Disable this hook entirely. Defaults to true (enabled).",
-          "default": true
-        },
-        "events": {
-          "type": "object",
-          "description": "Per-hook, per-event overrides. Keys must be valid Claude Code event names.",
-          "properties": {
-            "PreToolUse": { "$ref": "#/$defs/hookEventOverride" },
-            "PostToolUse": { "$ref": "#/$defs/hookEventOverride" },
-            "UserPromptSubmit": { "$ref": "#/$defs/hookEventOverride" },
-            "SessionStart": { "$ref": "#/$defs/hookEventOverride" },
-            "SessionEnd": { "$ref": "#/$defs/hookEventOverride" },
-            "Stop": { "$ref": "#/$defs/hookEventOverride" },
-            "SubagentStop": { "$ref": "#/$defs/hookEventOverride" },
-            "SubagentStart": { "$ref": "#/$defs/hookEventOverride" },
-            "InstructionsLoaded": { "$ref": "#/$defs/hookEventOverride" },
-            "PostToolUseFailure": { "$ref": "#/$defs/hookEventOverride" },
-            "Notification": { "$ref": "#/$defs/hookEventOverride" },
-            "PermissionRequest": { "$ref": "#/$defs/hookEventOverride" },
-            "ConfigChange": { "$ref": "#/$defs/hookEventOverride" },
-            "WorktreeCreate": { "$ref": "#/$defs/hookEventOverride" },
-            "WorktreeRemove": { "$ref": "#/$defs/hookEventOverride" },
-            "PreCompact": { "$ref": "#/$defs/hookEventOverride" },
-            "TeammateIdle": { "$ref": "#/$defs/hookEventOverride" },
-            "TaskCompleted": { "$ref": "#/$defs/hookEventOverride" }
-          },
-          "additionalProperties": false
+        "order": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
         }
       },
-      "additionalProperties": false
+      "additionalProperties": {}
+    },
+    "SessionStart": {
+      "type": "object",
+      "properties": {
+        "order": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "additionalProperties": {}
+    },
+    "SessionEnd": {
+      "type": "object",
+      "properties": {
+        "order": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "additionalProperties": {}
+    },
+    "Stop": {
+      "type": "object",
+      "properties": {
+        "order": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "additionalProperties": {}
+    },
+    "SubagentStop": {
+      "type": "object",
+      "properties": {
+        "order": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "additionalProperties": {}
+    },
+    "SubagentStart": {
+      "type": "object",
+      "properties": {
+        "order": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "additionalProperties": {}
+    },
+    "InstructionsLoaded": {
+      "type": "object",
+      "properties": {
+        "order": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "additionalProperties": {}
+    },
+    "PostToolUseFailure": {
+      "type": "object",
+      "properties": {
+        "order": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "additionalProperties": {}
+    },
+    "Notification": {
+      "type": "object",
+      "properties": {
+        "order": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "additionalProperties": {}
+    },
+    "PermissionRequest": {
+      "type": "object",
+      "properties": {
+        "order": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "additionalProperties": {}
+    },
+    "ConfigChange": {
+      "type": "object",
+      "properties": {
+        "order": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "additionalProperties": {}
+    },
+    "WorktreeCreate": {
+      "type": "object",
+      "properties": {
+        "order": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "additionalProperties": {}
+    },
+    "WorktreeRemove": {
+      "type": "object",
+      "properties": {
+        "order": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "additionalProperties": {}
+    },
+    "PreCompact": {
+      "type": "object",
+      "properties": {
+        "order": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "additionalProperties": {}
+    },
+    "TeammateIdle": {
+      "type": "object",
+      "properties": {
+        "order": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "additionalProperties": {}
+    },
+    "TaskCompleted": {
+      "type": "object",
+      "properties": {
+        "order": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "additionalProperties": {}
     }
+  },
+  "required": [
+    "version"
+  ],
+  "additionalProperties": {
+    "type": "object",
+    "properties": {
+      "config": {
+        "type": "object",
+        "propertyNames": {
+          "type": "string"
+        },
+        "additionalProperties": {}
+      },
+      "uses": {
+        "type": "string",
+        "minLength": 1
+      },
+      "timeout": {
+        "type": "number",
+        "exclusiveMinimum": 0
+      },
+      "onError": {
+        "type": "string",
+        "enum": [
+          "block",
+          "continue",
+          "trace"
+        ]
+      },
+      "parallel": {
+        "type": "boolean"
+      },
+      "maxFailures": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      },
+      "maxFailuresMessage": {
+        "type": "string"
+      },
+      "enabled": {
+        "type": "boolean"
+      },
+      "events": {
+        "type": "object",
+        "properties": {
+          "PreToolUse": {
+            "type": "object",
+            "properties": {
+              "onError": {
+                "type": "string",
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
+              },
+              "enabled": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          },
+          "PostToolUse": {
+            "type": "object",
+            "properties": {
+              "onError": {
+                "type": "string",
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
+              },
+              "enabled": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          },
+          "UserPromptSubmit": {
+            "type": "object",
+            "properties": {
+              "onError": {
+                "type": "string",
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
+              },
+              "enabled": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          },
+          "SessionStart": {
+            "type": "object",
+            "properties": {
+              "onError": {
+                "type": "string",
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
+              },
+              "enabled": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          },
+          "SessionEnd": {
+            "type": "object",
+            "properties": {
+              "onError": {
+                "type": "string",
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
+              },
+              "enabled": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          },
+          "Stop": {
+            "type": "object",
+            "properties": {
+              "onError": {
+                "type": "string",
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
+              },
+              "enabled": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          },
+          "SubagentStop": {
+            "type": "object",
+            "properties": {
+              "onError": {
+                "type": "string",
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
+              },
+              "enabled": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          },
+          "SubagentStart": {
+            "type": "object",
+            "properties": {
+              "onError": {
+                "type": "string",
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
+              },
+              "enabled": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          },
+          "InstructionsLoaded": {
+            "type": "object",
+            "properties": {
+              "onError": {
+                "type": "string",
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
+              },
+              "enabled": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          },
+          "PostToolUseFailure": {
+            "type": "object",
+            "properties": {
+              "onError": {
+                "type": "string",
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
+              },
+              "enabled": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          },
+          "Notification": {
+            "type": "object",
+            "properties": {
+              "onError": {
+                "type": "string",
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
+              },
+              "enabled": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          },
+          "PermissionRequest": {
+            "type": "object",
+            "properties": {
+              "onError": {
+                "type": "string",
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
+              },
+              "enabled": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          },
+          "ConfigChange": {
+            "type": "object",
+            "properties": {
+              "onError": {
+                "type": "string",
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
+              },
+              "enabled": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          },
+          "WorktreeCreate": {
+            "type": "object",
+            "properties": {
+              "onError": {
+                "type": "string",
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
+              },
+              "enabled": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          },
+          "WorktreeRemove": {
+            "type": "object",
+            "properties": {
+              "onError": {
+                "type": "string",
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
+              },
+              "enabled": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          },
+          "PreCompact": {
+            "type": "object",
+            "properties": {
+              "onError": {
+                "type": "string",
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
+              },
+              "enabled": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          },
+          "TeammateIdle": {
+            "type": "object",
+            "properties": {
+              "onError": {
+                "type": "string",
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
+              },
+              "enabled": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          },
+          "TaskCompleted": {
+            "type": "object",
+            "properties": {
+              "onError": {
+                "type": "string",
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
+              },
+              "enabled": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "additionalProperties": false
   }
 }

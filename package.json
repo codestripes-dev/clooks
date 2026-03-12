@@ -3,10 +3,11 @@
   "version": "0.0.1",
   "type": "module",
   "scripts": {
-    "build": "bun run scripts/generate-types.ts && tsc --noEmit && mkdir -p dist && bun build --compile --outfile dist/clooks src/cli.ts",
+    "build": "bun run scripts/generate-types.ts && bun run scripts/generate-schema.ts && tsc --noEmit && mkdir -p dist && bun build --compile --outfile dist/clooks src/cli.ts",
     "build:darwin-arm64": "bun run scripts/generate-types.ts && tsc --noEmit && mkdir -p dist && bun build --compile --target bun-darwin-arm64 --outfile dist/clooks-darwin-arm64 src/cli.ts",
     "build:darwin-x64": "bun run scripts/generate-types.ts && tsc --noEmit && mkdir -p dist && bun build --compile --target bun-darwin-x64 --outfile dist/clooks-darwin-x64 src/cli.ts",
     "generate:types": "bun run scripts/generate-types.ts",
+    "generate:schema": "bun run scripts/generate-schema.ts",
     "lint": "eslint src/",
     "lint:sh": "bash scripts/lint-sh.sh",
     "lint:all": "bun run lint && bun run lint:sh",
