@@ -293,12 +293,14 @@ log-bash-commands:                   # With overrides
   timeout: 5000                      # Per-hook timeout
   onError: "continue"               # Don't block if this hook crashes
   parallel: true                     # Run independently of sequential pipeline
-
-domain-doc-size:
-  onError: "block"                   # Block on crash (default anyway)
   events:
     PreToolUse:
-      onError: "trace"              # But only trace errors for this specific event
+      enabled: false                 # Don't run on PreToolUse
+    PostToolUse:
+      onError: "trace"
+
+domain-doc-size:
+  enabled: false                     # Disable this hook entirely
 
 # Event ordering (optional)
 PreToolUse:
@@ -311,6 +313,28 @@ PreToolUse:
 ### Config Validation
 
 Clooks validates configuration at load time and rejects unknown keys with clear error messages. Invalid hook names, unknown config keys, invalid event names, and type errors are all caught before any hooks execute.
+
+### Disabling Hooks
+
+Disable a hook entirely or for specific events:
+
+```yaml
+# Disable a hook entirely (loads but never runs)
+noisy-hook:
+  enabled: false
+
+# Disable for specific events only
+debug-payload:
+  events:
+    PreToolUse:
+      enabled: false
+    SessionEnd:
+      enabled: false
+```
+
+`enabled` defaults to `true`. Setting it to `false` at the hook level disables the hook
+for all events. Setting it per-event disables only that event. Hook-level `enabled: false`
+takes precedence over per-event settings.
 
 ### Config Cascade
 
