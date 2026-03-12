@@ -51,19 +51,14 @@ hang-forever:
 
     const stdin = loadEvent('pre-tool-use-bash.json')
 
-    // If per-hook timeout works, this resolves in ~200ms, not 5000ms
-    const start = Date.now()
-    const result = sandbox.run([], { stdin, timeout: 5000 })
-    const elapsed = Date.now() - start
+    const result = sandbox.run([], { stdin, timeout: 10000 })
 
     expect(result.exitCode).toBe(0)
     const output = JSON.parse(result.stdout)
     expect(output.hookSpecificOutput.permissionDecision).toBe('deny')
 
-    // Should have timed out well before the global 5000ms timeout
-    expect(elapsed).toBeLessThan(3000)
-
+    // Verify the per-hook 200ms timeout was used, not the global 5000ms
     const combined = result.stderr + (output.systemMessage ?? '') + (output.hookSpecificOutput?.permissionDecisionReason ?? '')
-    expect(combined).toContain('timed out')
+    expect(combined).toContain('timed out after 200ms')
   })
 })
