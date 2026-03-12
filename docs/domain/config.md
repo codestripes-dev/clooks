@@ -8,7 +8,7 @@ The config system is the bridge between the YAML files a user writes and the typ
 
 1. **Parsing** — Read YAML files and return raw JavaScript objects.
 2. **Three-layer merging** — Merge home, project, and local configs with semantic rules per field type.
-3. **Validation** — Check types and structure, separate hooks from events, reject unknown keys.
+3. **Validation** — Zod v4 `safeParse()` validates types and structure; `superRefine()` handles cross-field checks (alias chains, order refs, trace+injectable). JSON Schema is auto-generated from the same Zod definitions.
 4. **Resolution** — Map hook names to file paths using convention rules.
 5. **Origin tracking** — Annotate each hook with which layer it came from (`"home"` or `"project"`).
 
@@ -17,10 +17,10 @@ The public entry point is `loadConfig(projectRoot, options?)`, which performs al
 ## Key Files
 
 - `src/config/index.ts` — Public API: `loadConfig()` and type re-exports.
-- `src/config/types.ts` — `ClooksConfig`, `HookEntry`, `EventEntry`, `GlobalConfig`, `ErrorMode`. Uses branded types from `src/types/branded.ts`: `HookName` for hook record keys, `EventName` for event record keys, `Milliseconds` for timeout fields.
+- `src/config/schema.ts` — Zod v4 schema definitions (single source of truth). Exports Zod schemas (`ClooksConfigSchema`, `GlobalConfigSchema`, `HookEntrySchema`, `EventEntrySchema`), derived TypeScript types (`ClooksConfig`, `HookEntry`, `EventEntry`, `GlobalConfig`, `ErrorMode`, `HookOrigin`), and `generateJsonSchema()` for auto-generating the JSON Schema. Uses branded types from `src/types/branded.ts`.
 - `src/config/constants.ts` — `CLAUDE_CODE_EVENTS`, `RESERVED_CONFIG_KEYS`, defaults.
 - `src/config/parse.ts` — `parseYamlFile()` — reads and parses a single YAML file.
-- `src/config/validate.ts` — `validateConfig()` — validates raw object, returns `ClooksConfig`.
+- `src/config/validate.ts` — `validateConfig()` — calls Zod's `safeParse()` on the raw object, translates errors via `formatZodError()`, and transforms the validated output to `ClooksConfig`.
 - `src/config/merge.ts` — `deepMerge()`, `mergeConfigFiles()`, `mergeThreeLayerConfig()` — merge logic including three-layer merge with origin tracking.
 - `src/config/resolve.ts` — `resolveHookPath()` — convention-based path resolution.
 - `src/loader.ts` — Consumer of `loadConfig()`. Dynamically imports hooks, validates exports, merges config.
