@@ -12,24 +12,15 @@ RUN useradd -m -s /bin/bash testuser && mkdir -p /app && chown testuser:testuser
 
 WORKDIR /app
 
-# Copy package files and install dev deps (for bun:test)
+# Copy package files and install deps as testuser (so node_modules is owned by them)
 COPY --chown=testuser:testuser package.json bun.lock ./
+USER testuser
 RUN bun install --frozen-lockfile
 
-# Copy source and config needed for build.
-# The generated types file (src/generated/clooks-types.d.ts.txt) is committed,
-# so we skip scripts/generate-types.ts (which needs npx, unavailable in bun image).
-COPY --chown=testuser:testuser src/ src/
-COPY --chown=testuser:testuser schemas/ schemas/
-COPY --chown=testuser:testuser tsconfig.json ./
-
-# Build as testuser so dist/clooks is owned by them (sandbox needs chmod on it).
-USER testuser
-RUN ./node_modules/.bin/tsc --noEmit && mkdir -p dist && bun build --compile --outfile dist/clooks src/cli.ts
-
-# Copy test fixtures and E2E tests (back to root for COPY, then switch back)
+# Copy entrypoint script
 USER root
-COPY --chown=testuser:testuser test/ test/
+COPY --chown=testuser:testuser test/docker-entrypoint.sh ./test/docker-entrypoint.sh
+RUN chmod +x test/docker-entrypoint.sh
 
 # git.test.ts needs a repo with at least one commit (for branch detection)
 USER testuser
@@ -37,7 +28,8 @@ RUN git init && git config user.email "test@test" && git config user.name "test"
 
 # Signal to E2E tests that they're running inside the Docker container
 ENV CLOOKS_E2E_DOCKER=true
-
-# Tests run via `docker run`, not during build. See test:e2e in package.json.
 ENV CLAUDECODE=1
-CMD ["bun", "test", "test/e2e/"]
+
+# Source and tests are bind-mounted at runtime for fast iteration.
+# Only node_modules and git repo are baked into the image.
+ENTRYPOINT ["test/docker-entrypoint.sh"]

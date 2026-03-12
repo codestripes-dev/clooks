@@ -18,7 +18,8 @@ E2E tests never import modules directly. They invoke the compiled binary as a su
 | Path | Purpose |
 |------|---------|
 | `test/e2e/helpers/sandbox.ts` | Sandbox factory (`createSandbox`). Creates isolated temp directories, symlinks the binary, provides `run()` for subprocess invocation. |
-| `test/Dockerfile` | Hermetic container definition. Based on `oven/bun:1.2`, creates a non-root `testuser`. |
+| `test/Dockerfile` | Base image definition. Based on `oven/bun:1.3`, installs deps, creates a non-root `testuser`. Source is bind-mounted at runtime. |
+| `test/docker-entrypoint.sh` | Container entrypoint. Compiles the binary from mounted source, then runs tests. |
 | `test/fixtures/hooks/` | Shared hook fixtures used across multiple test files (e.g., allow-all, crash-on-run, hang-forever). |
 | `test/fixtures/events/` | Event JSON fixtures representing Claude Code hook payloads. |
 | `test/e2e/*.e2e.test.ts` | 27 E2E test files containing 193 tests, organized by domain. |
@@ -85,8 +86,17 @@ The 27 E2E test files are organized by the domain they exercise, not by implemen
 ### How to run
 
 ```bash
-# Full E2E suite (builds Docker image, runs all tests)
+# Full E2E suite (builds base image + runs all tests)
 bun run test:e2e
+
+# Fast re-run without rebuild (bind-mounts source, picks up changes instantly)
+bun run test:e2e:run
+
+# Run a specific test file
+bun run test:e2e:run -- test/e2e/smoke.e2e.test.ts
+
+# Rebuild base image (only needed when dependencies change)
+bun run test:e2e:build
 
 # Unit tests only
 bun test src/
@@ -94,6 +104,8 @@ bun test src/
 # Single E2E test file (with env bypass for local debugging)
 CLOOKS_E2E_DOCKER=true bun test test/e2e/fail-closed.e2e.test.ts
 ```
+
+The Docker image contains only the base environment (Bun, git, testuser, `node_modules`). Source code and tests are bind-mounted at runtime via `-v` flags, so source changes are picked up on the next `test:e2e:run` without rebuilding the image. The `test/docker-entrypoint.sh` script compiles the binary from the mounted source before running tests.
 
 ## Gotchas
 
