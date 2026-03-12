@@ -55,14 +55,21 @@ export type PreToolUseResult = (AllowResult & InjectableContext & {
 	updatedInput?: Record<string, unknown>;
 }) | (BlockResult & InjectableContext) | (SkipResult & InjectableContext);
 export type UserPromptSubmitResult = (AllowResult | BlockResult | SkipResult) & InjectableContext;
-export type PermissionRequestResult = AllowResult | BlockResult | SkipResult;
+export type PermissionRequestResult = (AllowResult & {
+	updatedInput?: Record<string, unknown>;
+	updatedPermissions?: unknown[];
+}) | (BlockResult & {
+	interrupt?: boolean;
+}) | SkipResult;
 export type StopEventResult = AllowResult | BlockResult | SkipResult;
 export type SubagentStopResult = AllowResult | BlockResult | SkipResult;
 export type ConfigChangeResult = AllowResult | BlockResult | SkipResult;
 export type SessionStartResult = SkipResult & InjectableContext;
 export type SessionEndResult = SkipResult;
 export type InstructionsLoadedResult = SkipResult;
-export type PostToolUseResult = SkipResult & InjectableContext;
+export type PostToolUseResult = SkipResult & InjectableContext & {
+	updatedMCPToolOutput?: unknown;
+};
 export type PostToolUseFailureResult = SkipResult & InjectableContext;
 export type NotificationResult = SkipResult & InjectableContext;
 export type SubagentStartResult = SkipResult & InjectableContext;
@@ -75,7 +82,7 @@ export interface BaseContext {
 	event: EventName;
 	sessionId: string;
 	cwd: string;
-	permissionMode: PermissionMode;
+	permissionMode?: PermissionMode;
 	transcriptPath: string;
 	agentId?: string;
 	agentType?: string;
@@ -101,7 +108,7 @@ export interface PermissionRequestContext extends BaseContext {
 	event: "PermissionRequest";
 	toolName: string;
 	toolInput: Record<string, unknown>;
-	permissionSuggestions: unknown[];
+	permissionSuggestions?: unknown[];
 }
 export interface StopContext extends BaseContext {
 	event: "Stop";
@@ -145,6 +152,7 @@ export interface PostToolUseContext extends BaseContext {
 	toolInput: Record<string, unknown>;
 	toolResponse: unknown;
 	toolUseId: string;
+	originalToolInput?: Record<string, unknown>;
 }
 export interface PostToolUseFailureContext extends BaseContext {
 	event: "PostToolUseFailure";
@@ -152,7 +160,8 @@ export interface PostToolUseFailureContext extends BaseContext {
 	toolInput: Record<string, unknown>;
 	toolUseId: string;
 	error: string;
-	isInterrupt: boolean;
+	isInterrupt?: boolean;
+	originalToolInput?: Record<string, unknown>;
 }
 export interface NotificationContext extends BaseContext {
 	event: "Notification";
@@ -172,7 +181,7 @@ export interface WorktreeRemoveContext extends BaseContext {
 export interface PreCompactContext extends BaseContext {
 	event: "PreCompact";
 	trigger: PreCompactTrigger;
-	customInstructions: string;
+	customInstructions: string | null;
 }
 export interface WorktreeCreateContext extends BaseContext {
 	event: "WorktreeCreate";
@@ -188,8 +197,8 @@ export interface TaskCompletedContext extends BaseContext {
 	taskId: string;
 	taskSubject: string;
 	taskDescription?: string;
-	teammateName: string;
-	teamName: string;
+	teammateName?: string;
+	teamName?: string;
 }
 export interface EventContextMap extends Record<EventName, unknown> {
 	PreToolUse: PreToolUseContext;

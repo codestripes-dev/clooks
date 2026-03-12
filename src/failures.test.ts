@@ -70,7 +70,7 @@ describe("readFailures", () => {
     const dir = makeTempDir()
     const fPath = projectFailurePath(dir)
     await Bun.write(fPath, "not json{{{")
-    const spy = spyOn(process.stderr, "write")
+    const spy = spyOn(process.stderr, "write").mockImplementation(() => true)
     const result = await readFailures(fPath)
     expect(result).toEqual({})
     expect(spy).toHaveBeenCalledWith(
@@ -83,7 +83,7 @@ describe("readFailures", () => {
     const dir = makeTempDir()
     const fPath = projectFailurePath(dir)
     await Bun.write(fPath, JSON.stringify([1, 2, 3]))
-    const spy = spyOn(process.stderr, "write")
+    const spy = spyOn(process.stderr, "write").mockImplementation(() => true)
     const result = await readFailures(fPath)
     expect(result).toEqual({})
     expect(spy).toHaveBeenCalledWith(

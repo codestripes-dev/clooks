@@ -256,9 +256,9 @@ describe('clooks init', () => {
     process.cwd = () => home
 
     const program = createTestProgram()
-    await program.parseAsync(['init'], { from: 'user' }).catch(() => {})
+    await program.parseAsync(['init', '--json'], { from: 'user' }).catch(() => {})
 
-    // Should have called process.exit(1) because stdin is not a TTY in tests
+    // Should have called process.exit(1) because --json forces non-interactive mode
     expect(exitSpy).toHaveBeenCalledWith(1)
   })
 

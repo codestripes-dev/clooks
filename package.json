@@ -13,8 +13,10 @@
     "lint:all": "bun run lint && bun run lint:sh",
     "format": "prettier --write 'src/**/*.ts' '*.json' '*.mjs'",
     "format:check": "prettier --check 'src/**/*.ts' '*.json' '*.mjs'",
-    "test": "bun test",
-    "test:e2e": "docker build -t clooks-test -f test/Dockerfile .",
+    "test": "CLAUDECODE=1 bun test src/",
+    "test:verbose": "bun test src/",
+    "test:e2e:build": "docker build -q -t clooks-test -f test/Dockerfile .",
+    "test:e2e": "bun run test:e2e:build && docker run --rm clooks-test",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
