@@ -332,16 +332,55 @@ export function translateResult(
 }
 
 /**
- * Filters loaded hooks to those with a handler for the given event name.
+ * Result of matching hooks for an event: the matched hooks plus any hooks
+ * that were skipped due to enabled: false (hook-level or per-event).
+ */
+export interface MatchResult {
+  matched: LoadedHook[]
+  disabledSkips: Array<{ hook: HookName; reason: string }>
+}
+
+/**
+ * Filters loaded hooks to those with a handler for the given event name,
+ * excluding hooks disabled via config (hook-level or per-event).
  * Exported for unit testing.
  */
 export function matchHooksForEvent(
   hooks: LoadedHook[],
   eventName: EventName,
-): LoadedHook[] {
-  return hooks.filter(
-    (h) => typeof (h.hook as unknown as Record<string, unknown>)[eventName] === "function",
-  );
+  config: ClooksConfig,
+): MatchResult {
+  const matched: LoadedHook[] = []
+  const disabledSkips: Array<{ hook: HookName; reason: string }> = []
+
+  for (const h of hooks) {
+    const hookEntry = config.hooks[h.name]
+
+    // Hook-level disable
+    if (hookEntry?.enabled === false) {
+      disabledSkips.push({
+        hook: h.name,
+        reason: `hook "${h.name}" disabled entirely via config`,
+      })
+      continue
+    }
+
+    // Per-event disable
+    if (hookEntry?.events?.[eventName]?.enabled === false) {
+      disabledSkips.push({
+        hook: h.name,
+        reason: `hook "${h.name}" disabled for event "${eventName}" via config`,
+      })
+      continue
+    }
+
+    // Handler presence check (existing logic)
+    if (typeof (h.hook as unknown as Record<string, unknown>)[eventName] === "function") {
+      matched.push(h)
+    }
+  }
+
+  return { matched, disabledSkips }
 }
 
 function resolveMaxFailures(
@@ -1065,10 +1104,15 @@ export async function runEngine(): Promise<void> {
     const eventName: EventName = rawEventName;
 
     // --- Match hooks for this event ---
-    const matched = matchHooksForEvent(hooks, eventName);
+    const { matched, disabledSkips } = matchHooksForEvent(hooks, eventName, config);
 
     if (debug) {
-      engineDebugLines.push(`event="${eventName}" matched ${matched.length} hook(s): ${matched.map(h => h.name).join(", ") || "(none)"}`);
+      for (const skip of disabledSkips) {
+        engineDebugLines.push(skip.reason);
+      }
+      engineDebugLines.push(
+        `event="${eventName}" matched ${matched.length} hook(s): ${matched.map(h => h.name).join(", ") || "(none)"}`
+      );
     }
 
     // --- Shadow warnings (SessionStart only) ---
