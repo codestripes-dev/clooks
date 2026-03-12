@@ -6,5 +6,5 @@ coverageSkipTestFiles = true
 coveragePathIgnorePatterns = ["**/tmp/**"]
 
 [test.coverageThreshold]
-lines = 0.5
-functions = 0.5
+lines = 0.95
+functions = 0.95
