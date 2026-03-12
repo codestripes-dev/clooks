@@ -39,6 +39,50 @@ function validatePositiveNumber(value: unknown, label: string, field: string): n
   return value
 }
 
+function rejectUnknownKeys(
+  obj: Record<string, unknown>,
+  knownKeys: ReadonlySet<string>,
+  label: string,
+): void {
+  for (const key of Object.keys(obj)) {
+    if (!knownKeys.has(key)) {
+      const known = [...knownKeys].sort().join(", ")
+      throw new Error(
+        `clooks: ${label} has unknown key "${key}". Known keys: ${known}`
+      )
+    }
+  }
+}
+
+const KNOWN_GLOBAL_CONFIG_KEYS = new Set<string>([
+  "timeout",
+  "onError",
+  "maxFailures",
+  "maxFailuresMessage",
+])
+
+const KNOWN_EVENT_ENTRY_KEYS = new Set<string>([
+  "order",
+  "onError",
+  "timeout",
+])
+
+const KNOWN_HOOK_ENTRY_KEYS = new Set<string>([
+  "config",
+  "path", // deprecated — included so it won't be flagged as "unknown" if deprecation check ordering changes
+  "uses",
+  "timeout",
+  "onError",
+  "parallel",
+  "maxFailures",
+  "maxFailuresMessage",
+  "events",
+])
+
+const KNOWN_HOOK_EVENT_OVERRIDE_KEYS = new Set<string>([
+  "onError",
+])
+
 export function validateConfig(raw: Record<string, unknown>): ClooksConfig {
   // 1. Version field
   if (!("version" in raw)) {
@@ -86,6 +130,7 @@ export function validateConfig(raw: Record<string, unknown>): ClooksConfig {
       }
       global.maxFailuresMessage = cfg.maxFailuresMessage
     }
+    rejectUnknownKeys(cfg, KNOWN_GLOBAL_CONFIG_KEYS, 'global config')
   }
 
   // 3. Use classifyConfigKeys() to separate hooks from events
@@ -127,6 +172,7 @@ export function validateConfig(raw: Record<string, unknown>): ClooksConfig {
         `Use per-hook timeout instead: hooks.<name>.timeout`
       )
     }
+    rejectUnknownKeys(value, KNOWN_EVENT_ENTRY_KEYS, `event "${key}"`)
 
     events[key as EventName] = entry
   }
@@ -250,9 +296,16 @@ export function validateConfig(raw: Record<string, unknown>): ClooksConfig {
             )
           }
         }
+        rejectUnknownKeys(
+          eventOverride as Record<string, unknown>,
+          KNOWN_HOOK_EVENT_OVERRIDE_KEYS,
+          `hook "${key}" events.${eventKey}`
+        )
         eventsMap[eventKey] = overrideEntry
       }
     }
+
+    rejectUnknownKeys(value, KNOWN_HOOK_ENTRY_KEYS, `hook "${key}"`)
 
     // Boundary cast: key is a hook name (not an event name or reserved key).
     const hookName = key as HookName
