@@ -570,8 +570,12 @@ bun run build:darwin-x64         # Cross-compile for macOS x64
 
 ```bash
 bun test                         # Unit tests (co-located .test.ts files)
-bun run test:e2e                 # E2E tests (auto-builds Docker container, runs full binary)
+bun run test:e2e                 # E2E tests (builds base image + runs full binary)
+bun run test:e2e:run             # Fast re-run (skips build, bind-mounts source)
+bun run test:e2e:run -- test/e2e/smoke.e2e.test.ts  # Run specific test file
 ```
+
+The Docker image contains only the base environment (Bun, deps, testuser). Source and tests are bind-mounted at runtime, so `test:e2e:run` picks up changes instantly without a rebuild. Only run `test:e2e` (or `test:e2e:build`) when dependencies change.
 
 The E2E suite covers 25+ scenarios including fail-closed behavior, circuit breakers, config layering, timeouts, lifecycle hooks, event diversity, adversarial inputs, and pipeline edge cases.
 
