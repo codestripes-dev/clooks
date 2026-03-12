@@ -1,380 +1,264 @@
+import { z } from "zod"
+import {
+  ClooksConfigSchema,
+  HookEntrySchema,
+  type ClooksConfig,
+  type ErrorMode,
+  type GlobalConfig,
+  type HookEntry,
+  type EventEntry,
+  type HookOrigin,
+} from "./schema.js"
 import type { EventName, HookName, Milliseconds } from "../types/branded.js"
-import type {
-  ClooksConfig,
-  ErrorMode,
-  GlobalConfig,
-  HookEntry,
-  HookOrigin,
-  EventEntry,
-} from "./types.js"
+import { resolveHookPath, isPathLike } from "./resolve.js"
 import {
   CLAUDE_CODE_EVENTS,
-  INJECTABLE_EVENTS,
-  isEventName,
   DEFAULT_TIMEOUT,
   DEFAULT_ON_ERROR,
   DEFAULT_MAX_FAILURES,
   DEFAULT_MAX_FAILURES_MESSAGE,
 } from "./constants.js"
-import { resolveHookPath, isPathLike } from "./resolve.js"
-import { classifyConfigKeys } from "./classify.js"
-
-function isPlainObject(val: unknown): val is Record<string, unknown> {
-  return val !== null && typeof val === "object" && !Array.isArray(val)
-}
-
-function validateErrorMode(value: unknown, label: string): ErrorMode {
-  if (value !== "block" && value !== "continue" && value !== "trace") {
-    throw new Error(
-      `clooks: ${label} "onError" must be "block", "continue", or "trace", got "${String(value)}"`,
-    )
-  }
-  return value
-}
-
-function validatePositiveNumber(value: unknown, label: string, field: string): number {
-  if (typeof value !== "number" || value <= 0) {
-    throw new Error(`clooks: ${label} "${field}" must be a positive number`)
-  }
-  return value
-}
-
-function rejectUnknownKeys(
-  obj: Record<string, unknown>,
-  knownKeys: ReadonlySet<string>,
-  label: string,
-): void {
-  for (const key of Object.keys(obj)) {
-    if (!knownKeys.has(key)) {
-      const known = [...knownKeys].sort().join(", ")
-      throw new Error(
-        `clooks: ${label} has unknown key "${key}". Known keys: ${known}`
-      )
-    }
-  }
-}
-
-const KNOWN_GLOBAL_CONFIG_KEYS = new Set<string>([
-  "timeout",
-  "onError",
-  "maxFailures",
-  "maxFailuresMessage",
-])
-
-const KNOWN_EVENT_ENTRY_KEYS = new Set<string>([
-  "order",
-  "onError",
-  "timeout",
-])
-
-const KNOWN_HOOK_ENTRY_KEYS = new Set<string>([
-  "config",
-  "uses",
-  "timeout",
-  "onError",
-  "parallel",
-  "maxFailures",
-  "maxFailuresMessage",
-  "events",
-  "enabled",
-])
-
-const KNOWN_HOOK_EVENT_OVERRIDE_KEYS = new Set<string>([
-  "onError",
-  "enabled",
-])
 
 export function validateConfig(raw: Record<string, unknown>): ClooksConfig {
-  // 1. Version field
-  if (!("version" in raw)) {
-    throw new Error(`clooks: clooks.yml missing required "version" field`)
-  }
-  if (typeof raw.version !== "string") {
-    throw new Error(
-      `clooks: "version" must be a string, got ${typeof raw.version}`,
-    )
-  }
-  const version = raw.version
+  const result = ClooksConfigSchema.safeParse(raw, { reportInput: true })
 
-  // 2. Global config
-  let global: GlobalConfig = {
-    timeout: DEFAULT_TIMEOUT,
-    onError: DEFAULT_ON_ERROR,
-    maxFailures: DEFAULT_MAX_FAILURES,
-    maxFailuresMessage: DEFAULT_MAX_FAILURES_MESSAGE,
-  }
-  if (raw.config !== undefined) {
-    if (!isPlainObject(raw.config)) {
-      throw new Error(`clooks: "config" must be an object`)
-    }
-    const cfg = raw.config
-    if (cfg.timeout !== undefined) {
-      global.timeout = validatePositiveNumber(cfg.timeout, "global config", "timeout") as Milliseconds
-    }
-    if (cfg.onError !== undefined) {
-      global.onError = validateErrorMode(cfg.onError, "global config")
-      if (global.onError === "trace") {
-        throw new Error(
-          'clooks: global config "onError" cannot be "trace" — trace is only allowed at hook or hook+event level'
-        )
-      }
-    }
-    if (cfg.maxFailures !== undefined) {
-      if (typeof cfg.maxFailures !== "number" || cfg.maxFailures < 0 || !Number.isInteger(cfg.maxFailures)) {
-        throw new Error(`clooks: global config "maxFailures" must be a non-negative integer`)
-      }
-      global.maxFailures = cfg.maxFailures
-    }
-    if (cfg.maxFailuresMessage !== undefined) {
-      if (typeof cfg.maxFailuresMessage !== "string") {
-        throw new Error(`clooks: global config "maxFailuresMessage" must be a string`)
-      }
-      global.maxFailuresMessage = cfg.maxFailuresMessage
-    }
-    rejectUnknownKeys(cfg, KNOWN_GLOBAL_CONFIG_KEYS, 'global config')
+  if (!result.success) {
+    const msg = formatZodError(result.error.issues, raw)
+    throw new Error(msg)
   }
 
-  // 3. Use classifyConfigKeys() to separate hooks from events
-  const classified = classifyConfigKeys(raw)
+  return transformToConfig(result.data)
+}
 
+function transformToConfig(validated: z.output<typeof ClooksConfigSchema>): ClooksConfig {
+  const reservedKeys = new Set<string>(["version", "config", ...CLAUDE_CODE_EVENTS])
+
+  // Global config with defaults
+  const rawGlobal = validated.config
+  const global: GlobalConfig = {
+    timeout: (rawGlobal?.timeout ?? DEFAULT_TIMEOUT) as Milliseconds,
+    onError: (rawGlobal?.onError ?? DEFAULT_ON_ERROR) as ErrorMode,
+    maxFailures: rawGlobal?.maxFailures ?? DEFAULT_MAX_FAILURES,
+    maxFailuresMessage: rawGlobal?.maxFailuresMessage ?? DEFAULT_MAX_FAILURES_MESSAGE,
+  }
+
+  // Separate hooks and events
   const hooks: Record<HookName, HookEntry> = {} as Record<HookName, HookEntry>
   const events: Partial<Record<EventName, EventEntry>> = {}
 
-  // Validate event entries
-  for (const [key, value] of Object.entries(classified.events)) {
-    if (!isPlainObject(value)) {
-      throw new Error(
-        `clooks: entry "${key}" must be an object`,
-      )
-    }
+  for (const [key, value] of Object.entries(validated)) {
+    if (reservedKeys.has(key)) continue
 
-    const entry: EventEntry = {}
-
-    if (value.order !== undefined) {
-      if (
-        !Array.isArray(value.order) ||
-        !value.order.every((v: unknown) => typeof v === "string" && (v as string).length > 0)
-      ) {
-        throw new Error(
-          `clooks: event "${key}" has invalid "order": must be an array of non-empty strings`,
-        )
-      }
-      const seenNames = new Set<string>()
-      for (const hookName of value.order as string[]) {
-        if (seenNames.has(hookName)) {
-          throw new Error(
-            `clooks: event "${key}" order contains duplicate hook name "${hookName}"`,
-          )
-        }
-        seenNames.add(hookName)
-      }
-      entry.order = value.order as HookName[]
-    }
-    if (value.onError !== undefined) {
-      throw new Error(
-        `clooks: event "${key}" has "onError" — event-level onError has been removed. ` +
-        `Use per-hook event overrides instead: hooks.<name>.events.${key}.onError`
-      )
-    }
-    if (value.timeout !== undefined) {
-      throw new Error(
-        `clooks: event "${key}" has "timeout" — event-level timeout has been removed. ` +
-        `Use per-hook timeout instead: hooks.<name>.timeout`
-      )
-    }
-    rejectUnknownKeys(value, KNOWN_EVENT_ENTRY_KEYS, `event "${key}"`)
-
-    events[key as EventName] = entry
-  }
-
-  // Validate hook entries
-  for (const [key, value] of Object.entries(classified.hooks)) {
-    if (!isPlainObject(value)) {
-      throw new Error(
-        `clooks: entry "${key}" must be an object`,
-      )
-    }
-
-    let uses: string | undefined
-    if (value.uses !== undefined) {
-      if (typeof value.uses !== "string" || value.uses.length === 0) {
-        throw new Error(
-          `clooks: hook "${key}" has invalid "uses": must be a non-empty string`
-        )
-      }
-      uses = value.uses
-
-      // Detect likely bare-path mistakes: value ends in .ts but has no path-like prefix.
-      // This catches "scripts/hook.ts" (should be "./scripts/hook.ts").
-      if (uses.endsWith(".ts") && !isPathLike(uses)) {
-        throw new Error(
-          `clooks: hook "${key}" has uses: "${uses}" which looks like a file path but ` +
-          `doesn't start with "./" or "../". If this is a file path, use "uses: ./${uses}". ` +
-          `If it is a hook name, remove the ".ts" extension.`
-        )
-      }
-    }
-
-    let config: Record<string, unknown> = {}
-    let timeout: Milliseconds | undefined
-    let onError: ErrorMode | undefined
-    let parallel = false
-    let maxFailures: number | undefined
-    let maxFailuresMessage: string | undefined
-
-    if (value.config !== undefined) {
-      if (!isPlainObject(value.config)) {
-        throw new Error(
-          `clooks: hook "${key}" has invalid "config": must be an object`,
-        )
-      }
-      config = value.config as Record<string, unknown>
-    }
-    if (value.timeout !== undefined) {
-      timeout = validatePositiveNumber(value.timeout, `hook "${key}"`, "timeout") as Milliseconds
-    }
-    if (value.onError !== undefined) {
-      onError = validateErrorMode(value.onError, `hook "${key}"`)
-    }
-    if (value.parallel !== undefined) {
-      if (typeof value.parallel !== "boolean") {
-        throw new Error(
-          `clooks: hook "${key}" has invalid "parallel": must be a boolean`,
-        )
-      }
-      parallel = value.parallel
-    }
-    if (value.maxFailures !== undefined) {
-      if (typeof value.maxFailures !== "number" || value.maxFailures < 0 || !Number.isInteger(value.maxFailures)) {
-        throw new Error(
-          `clooks: hook "${key}" has invalid "maxFailures": must be a non-negative integer`,
-        )
-      }
-      maxFailures = value.maxFailures
-    }
-    if (value.maxFailuresMessage !== undefined) {
-      if (typeof value.maxFailuresMessage !== "string") {
-        throw new Error(
-          `clooks: hook "${key}" has invalid "maxFailuresMessage": must be a string`,
-        )
-      }
-      maxFailuresMessage = value.maxFailuresMessage
-    }
-
-    let hookEnabled: boolean | undefined
-    if (value.enabled !== undefined) {
-      if (typeof value.enabled !== "boolean") {
-        throw new Error(
-          `clooks: hook "${key}" has invalid "enabled": must be a boolean`
-        )
-      }
-      hookEnabled = value.enabled
-    }
-
-    let eventsMap: Partial<Record<EventName, { onError?: ErrorMode; enabled?: boolean }>> | undefined
-    if (value.events !== undefined) {
-      if (!isPlainObject(value.events)) {
-        throw new Error(
-          `clooks: hook "${key}" has invalid "events": must be an object`
-        )
-      }
-      eventsMap = {}
-      for (const eventKey of Object.keys(value.events)) {
-        if (!isEventName(eventKey)) {
-          throw new Error(
-            `clooks: hook "${key}" has unknown event "${eventKey}" in events sub-map`
-          )
-        }
-        const eventOverride = (value.events as Record<string, unknown>)[eventKey]
-        if (!isPlainObject(eventOverride)) {
-          throw new Error(
-            `clooks: hook "${key}" events.${eventKey} must be an object`
-          )
-        }
-        const overrideEntry: { onError?: ErrorMode; enabled?: boolean } = {}
-        if ((eventOverride as Record<string, unknown>).onError !== undefined) {
-          overrideEntry.onError = validateErrorMode(
-            (eventOverride as Record<string, unknown>).onError,
-            `hook "${key}" events.${eventKey}`
-          )
-          if (overrideEntry.onError === "trace" && !INJECTABLE_EVENTS.has(eventKey)) {
-            throw new Error(
-              `clooks: hook "${key}" events.${eventKey} onError cannot be "trace" — ` +
-              `${eventKey} does not support additionalContext`
-            )
-          }
-        }
-        if ((eventOverride as Record<string, unknown>).enabled !== undefined) {
-          const enabledVal = (eventOverride as Record<string, unknown>).enabled
-          if (typeof enabledVal !== "boolean") {
-            throw new Error(
-              `clooks: hook "${key}" events.${eventKey} "enabled" must be a boolean`
-            )
-          }
-          overrideEntry.enabled = enabledVal
-        }
-        rejectUnknownKeys(
-          eventOverride as Record<string, unknown>,
-          KNOWN_HOOK_EVENT_OVERRIDE_KEYS,
-          `hook "${key}" events.${eventKey}`
-        )
-        eventsMap[eventKey] = overrideEntry
-      }
-    }
-
-    rejectUnknownKeys(value, KNOWN_HOOK_ENTRY_KEYS, `hook "${key}"`)
-
-    // Boundary cast: key is a hook name (not an event name or reserved key).
+    // This is a hook entry
     const hookName = key as HookName
-    const resolvedPath = resolveHookPath(hookName, { uses })
+    const raw = value as z.infer<typeof HookEntrySchema>
+    const resolvedPath = resolveHookPath(hookName, { uses: raw.uses })
 
-    const entry: HookEntry = { resolvedPath, config, parallel, origin: "project" as HookOrigin }
-    if (uses !== undefined) entry.uses = uses
-    if (timeout !== undefined) entry.timeout = timeout
-    if (onError !== undefined) entry.onError = onError
-    if (maxFailures !== undefined) entry.maxFailures = maxFailures
-    if (maxFailuresMessage !== undefined) entry.maxFailuresMessage = maxFailuresMessage
-    if (hookEnabled !== undefined) entry.enabled = hookEnabled
-    if (eventsMap && Object.keys(eventsMap).length > 0) entry.events = eventsMap
+    const entry: HookEntry = {
+      resolvedPath,
+      config: (raw.config ?? {}) as Record<string, unknown>,
+      parallel: raw.parallel ?? false,
+      origin: "project" as HookOrigin,
+    }
+
+    if (raw.uses !== undefined) entry.uses = raw.uses
+    if (raw.timeout !== undefined) entry.timeout = raw.timeout as Milliseconds
+    if (raw.onError !== undefined) entry.onError = raw.onError as ErrorMode
+    if (raw.maxFailures !== undefined) entry.maxFailures = raw.maxFailures
+    if (raw.maxFailuresMessage !== undefined) entry.maxFailuresMessage = raw.maxFailuresMessage
+    if (raw.enabled !== undefined) entry.enabled = raw.enabled
+    if (raw.events) {
+      const eventsMap: Partial<Record<EventName, { onError?: ErrorMode; enabled?: boolean }>> = {}
+      for (const [ek, ev] of Object.entries(raw.events)) {
+        if (ev) eventsMap[ek as EventName] = ev as { onError?: ErrorMode; enabled?: boolean }
+      }
+      if (Object.keys(eventsMap).length > 0) entry.events = eventsMap
+    }
 
     hooks[hookName] = entry
   }
 
-  // Second pass: cross-reference event order entries against hooks map.
-  // Both maps must be fully built before this check runs.
-  for (const [eventKey, eventEntry] of Object.entries(events)) {
-    if (eventEntry?.order) {
-      for (const hookName of eventEntry.order) {
-        if (!(hookName in hooks)) {
-          throw new Error(
-            `clooks: event "${eventKey}" order references unknown hook "${hookName}"`,
-          )
-        }
+  // Event entries
+  for (const eventName of CLAUDE_CODE_EVENTS) {
+    const eventVal = validated[eventName]
+    if (eventVal) {
+      const entry: EventEntry = {}
+      if (eventVal.order) {
+        entry.order = eventVal.order as HookName[]
       }
+      events[eventName] = entry
     }
   }
 
-  // Third pass: detect alias chains.
-  // A `uses` value that references another YAML key which itself has `uses` is a chain.
-  // Only applies to hook-name references (not path-like values).
-  for (const [hookKey, hookEntry] of Object.entries(hooks)) {
-    if (hookEntry.uses === undefined) continue
-    // Path-like uses values reference files, not other YAML keys — skip
-    if (isPathLike(hookEntry.uses)) continue
-    // Self-reference is allowed (pointless but not a chain)
-    if (hookEntry.uses === hookKey) continue
+  return { version: validated.version, global, hooks, events }
+}
 
-    // Check if the uses target is a YAML key that also has uses (a chain)
-    const targetName = hookEntry.uses as HookName
-    const targetEntry = hooks[targetName]
-    if (targetEntry?.uses !== undefined) {
-      throw new Error(
-        `clooks: hook "${hookKey}" uses "${hookEntry.uses}" which itself has a uses field ` +
-        `("${targetEntry.uses}"). Alias chains are not allowed — uses must resolve to a ` +
-        `concrete hook implementation, not another alias.`
-      )
+// ── Error message translation ──
+
+function formatZodError(issues: z.ZodIssue[], raw: Record<string, unknown>): string {
+  const issue = issues[0]!
+  const path = issue.path
+
+  if (path.length === 0) {
+    return `clooks: ${issue.message}`
+  }
+
+  const topKey = String(path[0])
+  const eventNames = new Set<string>([...CLAUDE_CODE_EVENTS])
+
+  // Version field errors
+  if (topKey === "version") {
+    return formatVersionError(issue)
+  }
+
+  // Global config errors
+  if (topKey === "config") {
+    return formatGlobalConfigError(issue, raw)
+  }
+
+  // Event entry errors
+  if (eventNames.has(topKey)) {
+    return formatEventError(issue, topKey)
+  }
+
+  // Hook entry errors
+  return formatHookError(issue, topKey)
+}
+
+function formatVersionError(issue: z.ZodIssue): string {
+  if (issue.code === "invalid_type" && issue.message.includes("undefined")) {
+    return `clooks: clooks.yml missing required "version" field`
+  }
+  if (issue.code === "invalid_type") {
+    const match = issue.message.match(/received (\w+)/)
+    return `clooks: "version" must be a string, got ${match?.[1] ?? "unknown"}`
+  }
+  return `clooks: "version" error: ${issue.message}`
+}
+
+function formatGlobalConfigError(issue: z.ZodIssue, raw: Record<string, unknown>): string {
+  const field = issue.path[1] as string | undefined
+
+  if (issue.code === "unrecognized_keys") {
+    const keys = (issue as any).keys as string[]
+    return `clooks: global config has unknown key "${keys[0]}". Known keys: maxFailures, maxFailuresMessage, onError, timeout`
+  }
+
+  // Non-object config
+  if (issue.code === "invalid_type" && field === undefined) {
+    return `clooks: "config" must be an object`
+  }
+
+  if (field === "timeout") {
+    return `clooks: global config "timeout" must be a positive number`
+  }
+  if (field === "onError") {
+    const rawVal = (raw?.config as Record<string, unknown> | undefined)?.onError
+    if (rawVal === "trace") {
+      return `clooks: global config "onError" cannot be "trace" — trace is only allowed at hook or hook+event level`
+    }
+    return `clooks: global config "onError" must be "block", "continue", or "trace", got "${String(rawVal)}"`
+  }
+  if (field === "maxFailures") {
+    return `clooks: global config "maxFailures" must be a non-negative integer`
+  }
+  if (field === "maxFailuresMessage") {
+    return `clooks: global config "maxFailuresMessage" must be a string`
+  }
+
+  return `clooks: global config error: ${issue.message}`
+}
+
+function formatEventError(issue: z.ZodIssue, eventName: string): string {
+  // Non-object event entry
+  if (issue.code === "invalid_type" && issue.path.length === 1) {
+    return `clooks: entry "${eventName}" must be an object`
+  }
+
+  if (issue.code === "custom") {
+    return `clooks: ${issue.message}`
+  }
+
+  const field = issue.path[1]
+  if (field === "order") {
+    return `clooks: event "${eventName}" has invalid "order": must be an array of non-empty strings`
+  }
+
+  return `clooks: entry "${eventName}" error: ${issue.message}`
+}
+
+function formatHookError(issue: z.ZodIssue, hookName: string): string {
+  // Non-object hook entry
+  if (issue.code === "invalid_type" && issue.path.length === 1) {
+    return `clooks: entry "${hookName}" must be an object`
+  }
+
+  if (issue.code === "unrecognized_keys") {
+    const keys = (issue as any).keys as string[]
+    const depth = issue.path.length
+
+    // Root of hook entry
+    if (depth <= 1) {
+      return `clooks: hook "${hookName}" has unknown key "${keys[0]}". Known keys: config, enabled, events, maxFailures, maxFailuresMessage, onError, parallel, timeout, uses`
+    }
+
+    // Inside hook.events.EventName
+    if (issue.path[1] === "events" && issue.path.length >= 3) {
+      const eventKey = String(issue.path[2])
+      return `clooks: hook "${hookName}" events.${eventKey} has unknown key "${keys[0]}". Known keys: enabled, onError`
     }
   }
 
-  return { version, global, hooks, events }
+  if (issue.code === "custom") {
+    return `clooks: ${issue.message}`
+  }
+
+  const field = issue.path[1] as string | undefined
+
+  if (field === "uses") {
+    return `clooks: hook "${hookName}" has invalid "uses": must be a non-empty string`
+  }
+  if (field === "timeout") {
+    return `clooks: hook "${hookName}" "timeout" must be a positive number`
+  }
+  if (field === "onError") {
+    return `clooks: hook "${hookName}" "onError" must be "block", "continue", or "trace", got "${(issue as any).received ?? (issue as any).input}"`
+  }
+  if (field === "parallel") {
+    return `clooks: hook "${hookName}" has invalid "parallel": must be a boolean`
+  }
+  if (field === "maxFailures") {
+    return `clooks: hook "${hookName}" has invalid "maxFailures": must be a non-negative integer`
+  }
+  if (field === "maxFailuresMessage") {
+    return `clooks: hook "${hookName}" has invalid "maxFailuresMessage": must be a string`
+  }
+  if (field === "enabled") {
+    return `clooks: hook "${hookName}" has invalid "enabled": must be a boolean`
+  }
+  if (field === "config") {
+    return `clooks: hook "${hookName}" has invalid "config": must be an object`
+  }
+  if (field === "events") {
+    // Unknown event name in the events sub-map
+    if (issue.code === "unrecognized_keys") {
+      const keys = (issue as any).keys as string[]
+      return `clooks: hook "${hookName}" has unknown event "${keys[0]}" in events sub-map`
+    }
+    // Sub-map field errors
+    if (issue.path.length >= 3) {
+      const eventKey = String(issue.path[2])
+      const subField = issue.path[3]
+      if (subField === "onError") {
+        return `clooks: hook "${hookName}" events.${eventKey} "onError" must be "block", "continue", or "trace"`
+      }
+      if (subField === "enabled") {
+        return `clooks: hook "${hookName}" events.${eventKey} "enabled" must be a boolean`
+      }
+      return `clooks: hook "${hookName}" events.${eventKey} error: ${issue.message}`
+    }
+    return `clooks: hook "${hookName}" has invalid "events": must be an object`
+  }
+
+  return `clooks: hook "${hookName}" error: ${issue.message}`
 }
