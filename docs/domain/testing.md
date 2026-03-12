@@ -1,14 +1,13 @@
 # E2E Testing Architecture
 
-How Clooks validates its core safety invariant — fail-closed behavior — through a hermetic, Docker-based end-to-end test suite that exercises the compiled binary as a subprocess.
+How Clooks validates its core safety invariant — fail-closed behavior — through a hermetic end-to-end test suite that exercises the compiled binary as a subprocess. E2E tests run in a Docker container, but the `bun run test:e2e` command handles building and running the container automatically — no manual Docker setup required.
 
 ## Overview
 
 Clooks uses a three-layer testing strategy:
 
 1. **Unit tests** (`bun test src/`) — fast, module-level tests for individual functions and components.
-2. **E2E tests** (`bun run test:e2e`) — Docker-only tests that invoke the compiled binary as a subprocess, validating the full entrypoint-to-output pipeline.
-3. **Hermetic Docker container** — all E2E tests run inside a purpose-built Docker image to guarantee reproducibility and correct permission semantics.
+2. **E2E tests** (`bun run test:e2e`) — invoke the compiled binary as a subprocess inside a hermetic Docker container, validating the full entrypoint-to-output pipeline. The command builds the container and runs the tests automatically.
 
 The core invariant under test: **no code path where broken clooks silently allows an action through**. Every failure mode — crashes, timeouts, malformed output, missing config — must result in a blocked action, not a silent pass-through.
 
@@ -38,7 +37,7 @@ Every E2E test uses `createSandbox()` to get an isolated environment:
 
 This ensures every test starts from a clean state with no cross-test contamination.
 
-### Docker-only enforcement
+### Docker environment gate
 
 E2E tests are gated behind the `CLOOKS_E2E_DOCKER=true` environment variable, which is set in the Dockerfile. The `createSandbox()` helper checks for this variable and refuses to run if it is not set.
 
@@ -92,7 +91,7 @@ bun run test:e2e
 # Unit tests only
 bun test src/
 
-# Single E2E test file (inside Docker or with bypass)
+# Single E2E test file (with env bypass for local debugging)
 CLOOKS_E2E_DOCKER=true bun test test/e2e/fail-closed.e2e.test.ts
 ```
 

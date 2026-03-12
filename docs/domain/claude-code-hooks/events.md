@@ -69,7 +69,7 @@ Deprecated: top-level `decision`/`reason`. Legacy `"approve"` → `"allow"`, `"b
 
 ### PermissionRequest
 
-**Input:** `tool_name`, `tool_input` (no `tool_use_id`), `permission_suggestions` (array of "always allow" options).
+**Input:** `tool_name`, `tool_input` (no `tool_use_id`), optional `permission_suggestions` (array of "always allow" options).
 **Does NOT fire in non-interactive mode (`-p`).**
 **Output via `hookSpecificOutput.decision`:**
 - `behavior`: `"allow"` or `"deny"`
@@ -85,7 +85,7 @@ Deprecated: top-level `decision`/`reason`. Legacy `"approve"` → `"allow"`, `"b
 
 ### PostToolUseFailure
 
-**Input:** `tool_name`, `tool_input`, `tool_use_id`, `error` (string), `is_interrupt` (boolean).
+**Input:** `tool_name`, `tool_input`, `tool_use_id`, `error` (string), `is_interrupt` (optional boolean).
 **Output:** `additionalContext` only.
 
 ### Notification
@@ -116,7 +116,7 @@ Deprecated: top-level `decision`/`reason`. Legacy `"approve"` → `"allow"`, `"b
 
 ### TaskCompleted
 
-**Input:** `task_id`, `task_subject`, optional `task_description`, `teammate_name`, `team_name`.
+**Input:** `task_id`, `task_subject`, optional `task_description`, optional `teammate_name`, optional `team_name`.
 **Output:** Exit 2 → task not completed, stderr fed back to model. JSON `{"continue": false, "stopReason": "..."}` → stops teammate.
 
 ### ConfigChange

@@ -1,0 +1,5 @@
+{
+  "hook_event_name": "PreCompact",
+  "trigger": "auto",
+  "custom_instructions": null
+}

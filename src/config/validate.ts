@@ -69,7 +69,6 @@ const KNOWN_EVENT_ENTRY_KEYS = new Set<string>([
 
 const KNOWN_HOOK_ENTRY_KEYS = new Set<string>([
   "config",
-  "path", // deprecated — included so it won't be flagged as "unknown" if deprecation check ordering changes
   "uses",
   "timeout",
   "onError",
@@ -191,18 +190,6 @@ export function validateConfig(raw: Record<string, unknown>): ClooksConfig {
     if (!isPlainObject(value)) {
       throw new Error(
         `clooks: entry "${key}" must be an object`,
-      )
-    }
-
-    // Reject deprecated `path` field with migration guidance
-    if (value.path !== undefined) {
-      const suggestion = typeof value.path === "string" && !value.path.startsWith("./")
-        ? ` Try: uses: "./${value.path}"`
-        : typeof value.path === "string"
-          ? ` Try: uses: "${value.path}"`
-          : ""
-      throw new Error(
-        `clooks: hook "${key}" uses deprecated "path" field — use "uses" instead.${suggestion}`
       )
     }
 

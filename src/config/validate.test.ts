@@ -380,21 +380,13 @@ describe("validateConfig", () => {
     expect(result.hooks[hn("scanner")]!.events!["PostToolUse"]).toEqual({ onError: "trace" })
   })
 
-  // --- FEAT-0034: path-to-uses migration ---
-
-  test("path field rejected with migration error", () => {
+  test("path field rejected as unknown key", () => {
     expect(() =>
       validateConfig({
         version: "1.0.0",
         "my-hook": { path: "scripts/hook.ts" },
       }),
-    ).toThrow('uses deprecated "path" field')
-    expect(() =>
-      validateConfig({
-        version: "1.0.0",
-        "my-hook": { path: "scripts/hook.ts" },
-      }),
-    ).toThrow('uses: "./scripts/hook.ts"')
+    ).toThrow('unknown key "path"')
   })
 
   test("uses field accepted (path-like)", () => {

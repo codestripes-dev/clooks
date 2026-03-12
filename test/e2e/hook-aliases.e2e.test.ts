@@ -100,7 +100,7 @@ my-hook:
 // ---------------------------------------------------------------------------
 
 describe('hook aliases — migration & validation errors', () => {
-  test('deprecated path field produces migration error', () => {
+  test('path field rejected as unknown key', () => {
     sandbox = createSandbox()
     sandbox.writeConfig(`
 version: "1.0.0"
@@ -109,8 +109,7 @@ my-hook:
 `)
     const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
     expect(result.exitCode).toBe(2)
-    expect(result.stderr).toContain('deprecated')
-    expect(result.stderr).toContain('uses: "./scripts/hook.ts"')
+    expect(result.stderr).toContain('unknown key "path"')
   })
 
   test('alias chain produces validation error', () => {

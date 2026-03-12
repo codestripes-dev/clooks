@@ -4,5 +4,6 @@
   "tool_input": {
     "command": "ls -la"
   },
-  "tool_response": "file1.txt\nfile2.txt"
+  "tool_response": "file1.txt\nfile2.txt",
+  "tool_use_id": "toolu_456"
 }

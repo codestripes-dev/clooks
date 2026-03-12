@@ -130,6 +130,28 @@ describe("translateResult", () => {
     expect(out.output).toBe("/tmp/worktree-123");
   });
 
+  it("WorktreeCreate success with undefined path → exit 1 + stderr", () => {
+    const out = translateResult("WorktreeCreate", {
+      result: "success",
+      path: undefined as any,
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toBe(
+      "clooks: WorktreeCreate hook returned success but path is missing or empty",
+    );
+  });
+
+  it("WorktreeCreate success with empty path → exit 1 + stderr", () => {
+    const out = translateResult("WorktreeCreate", {
+      result: "success",
+      path: "",
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toBe(
+      "clooks: WorktreeCreate hook returned success but path is missing or empty",
+    );
+  });
+
   it("WorktreeCreate failure → exit 1 + stderr", () => {
     const out = translateResult("WorktreeCreate", {
       result: "failure",
@@ -176,6 +198,67 @@ describe("translateResult", () => {
     const parsed = JSON.parse(out.output!);
     expect(parsed.hookSpecificOutput.hookEventName).toBe("PermissionRequest");
     expect(parsed.hookSpecificOutput.decision.behavior).toBe("deny");
+  });
+
+  it("PermissionRequest block → decision includes message field mapped from reason", () => {
+    const out = translateResult("PermissionRequest", { result: "block", reason: "not allowed" });
+    expect(out.exitCode).toBe(0);
+    const parsed = JSON.parse(out.output!);
+    expect(parsed.hookSpecificOutput.decision.message).toBe("not allowed");
+  });
+
+  it("PermissionRequest block with interrupt → decision includes interrupt: true", () => {
+    const out = translateResult("PermissionRequest", { result: "block", reason: "stop now", interrupt: true });
+    expect(out.exitCode).toBe(0);
+    const parsed = JSON.parse(out.output!);
+    expect(parsed.hookSpecificOutput.decision.behavior).toBe("deny");
+    expect(parsed.hookSpecificOutput.decision.interrupt).toBe(true);
+    expect(parsed.hookSpecificOutput.decision.message).toBe("stop now");
+  });
+
+  it("PermissionRequest allow with updatedPermissions → hookSpecificOutput with decision containing updatedPermissions", () => {
+    const perms = [{ tool: "Bash", allowed: true }];
+    const out = translateResult("PermissionRequest", { result: "allow", updatedPermissions: perms });
+    expect(out.exitCode).toBe(0);
+    const parsed = JSON.parse(out.output!);
+    expect(parsed.hookSpecificOutput.hookEventName).toBe("PermissionRequest");
+    expect(parsed.hookSpecificOutput.decision.behavior).toBe("allow");
+    expect(parsed.hookSpecificOutput.decision.updatedPermissions).toEqual(perms);
+  });
+
+  it("PermissionRequest allow with updatedInput only → hookSpecificOutput with decision containing updatedInput", () => {
+    const input = { command: "echo hello" };
+    const out = translateResult("PermissionRequest", { result: "allow", updatedInput: input });
+    expect(out.exitCode).toBe(0);
+    const parsed = JSON.parse(out.output!);
+    expect(parsed.hookSpecificOutput.hookEventName).toBe("PermissionRequest");
+    expect(parsed.hookSpecificOutput.decision.behavior).toBe("allow");
+    expect(parsed.hookSpecificOutput.decision.updatedInput).toEqual(input);
+  });
+
+  it("PermissionRequest allow with no extra fields → still returns plain exit 0", () => {
+    const out = translateResult("PermissionRequest", { result: "allow" });
+    expect(out.exitCode).toBe(0);
+    expect(out.output).toBeUndefined();
+  });
+
+  it("PostToolUse skip with updatedMCPToolOutput → top-level updatedMCPToolOutput in output", () => {
+    const mcpOutput = { result: "transformed" };
+    const out = translateResult("PostToolUse", { result: "skip", updatedMCPToolOutput: mcpOutput });
+    expect(out.exitCode).toBe(0);
+    const parsed = JSON.parse(out.output!);
+    expect(parsed.updatedMCPToolOutput).toEqual(mcpOutput);
+    expect(parsed.hookSpecificOutput).toBeUndefined();
+  });
+
+  it("PostToolUse skip with updatedMCPToolOutput AND injectContext → both in output", () => {
+    const mcpOutput = { result: "transformed" };
+    const out = translateResult("PostToolUse", { result: "skip", updatedMCPToolOutput: mcpOutput, injectContext: "extra info" });
+    expect(out.exitCode).toBe(0);
+    const parsed = JSON.parse(out.output!);
+    expect(parsed.updatedMCPToolOutput).toEqual(mcpOutput);
+    expect(parsed.hookSpecificOutput.hookEventName).toBe("PostToolUse");
+    expect(parsed.hookSpecificOutput.additionalContext).toBe("extra info");
   });
 
   it("Stop block → exit 0 + JSON with decision block", () => {

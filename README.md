@@ -4,7 +4,7 @@ A hook runtime for AI coding agents. Write hooks in TypeScript, run them safely,
 
 Starting with [Claude Code](https://docs.anthropic.com/en/docs/claude-code), with cross-agent support planned for Cursor, Windsurf, and VS Code Copilot.
 
-> **Status:** Clooks is in active development. The core engine, CLI, and hook authoring model are functional. The marketplace, `clooks test`, and `clooks register` commands are planned but not yet implemented. Mac and Linux only.
+> **Status:** Clooks is in active development. The core engine, CLI, config system, and hook authoring model are functional with comprehensive test coverage. The marketplace ecosystem (`clooks add`, `clooks remove`, `clooks update`, etc.) is designed but not yet implemented. `clooks test` and `clooks register` are stubbed. Mac and Linux only.
 
 ## Why Clooks
 
@@ -14,7 +14,7 @@ Native hooks are raw and limited — bash scripts in JSON config, no error handl
 - **Programmability** — TypeScript with typed contexts and results, not bash.
 - **Composability** — Multiple hooks per event, parallel or sequential, with defined merge semantics.
 - **Portability** — Vendored into your repo. Clone and it works.
-- **Testability** — Co-located `.test.ts` files with `bun test`.
+- **Testability** — Co-located `.test.ts` files with `bun test`, plus a comprehensive E2E suite.
 
 ## Quick Start
 
@@ -42,6 +42,7 @@ After `clooks init`, your project looks like:
 project/
 ├── .clooks/
 │   ├── clooks.yml            # Config + hook registration
+│   ├── clooks.schema.json    # JSON Schema for editor validation
 │   ├── bin/entrypoint.sh     # Bash entrypoint (registered in settings.json)
 │   ├── hooks/
 │   │   └── types.d.ts        # TypeScript types for hook authoring
@@ -60,6 +61,7 @@ Claude Code event (JSON on stdin)
   → Bash entrypoint (~1ms, fail-closed wrapper)
     → Compiled Bun binary (~15ms startup)
       → Loads config (home + project + local YAML, merged)
+      → Validates config (rejects unknown keys with clear errors)
       → Imports all registered hook modules
       → Reads stdin JSON
       → Matches hooks for this event
@@ -306,6 +308,10 @@ PreToolUse:
     - domain-doc-size
 ```
 
+### Config Validation
+
+Clooks validates configuration at load time and rejects unknown keys with clear error messages. Invalid hook names, unknown config keys, invalid event names, and type errors are all caught before any hooks execute.
+
 ### Config Cascade
 
 There are two separate config systems:
@@ -469,6 +475,8 @@ my-flaky-hook:
   maxFailuresMessage: "Hook {hook} failed {count} times. Last: {error}"
 ```
 
+Hooks that fail to load (e.g., syntax errors, missing files) are tracked by the same circuit breaker and will degrade globally after reaching the failure threshold.
+
 ### Timeouts
 
 Two layers of timeout protection:
@@ -501,8 +509,9 @@ If the entire binary times out, the entrypoint **allows the action** rather than
 | `clooks config` | Show resolved configuration summary |
 | `clooks config --resolved` | Show full config with provenance annotations |
 | `clooks types` | Extract/refresh `types.d.ts` for hook authoring |
-| `clooks register` | Register a local hook *(not yet implemented)* |
-| `clooks test` | Test hooks with synthetic events *(not yet implemented)* |
+| `clooks types --global` | Extract types to `~/.clooks/hooks/` |
+| `clooks register` | Register a local hook *(stub, not yet implemented)* |
+| `clooks test` | Test hooks with synthetic events *(stub, not yet implemented)* |
 | `clooks --version` | Print version |
 
 All commands support `--json` for machine-readable output.
@@ -521,6 +530,36 @@ Global and project configs merge at load time:
 - **Hooks**: Project hooks shadow (replace) global hooks with the same name
 - **Event order**: Global order runs first, then project order. Each layer's order can only reference hooks defined in that layer.
 - **Config**: Deep-merged (project overrides global)
+
+## Development
+
+### Building
+
+```bash
+bun install
+bun run build                    # Compile to dist/clooks (current platform)
+bun run build:darwin-arm64       # Cross-compile for macOS ARM64
+bun run build:darwin-x64         # Cross-compile for macOS x64
+```
+
+### Testing
+
+```bash
+bun test                         # Unit tests (co-located .test.ts files)
+bun run test:e2e                 # E2E tests (auto-builds Docker container, runs full binary)
+```
+
+The E2E suite covers 25+ scenarios including fail-closed behavior, circuit breakers, config layering, timeouts, lifecycle hooks, event diversity, adversarial inputs, and pipeline edge cases.
+
+### Other Commands
+
+```bash
+bun run typecheck                # Type-check with tsc
+bun run lint                     # ESLint
+bun run lint:sh                  # Shell script linting
+bun run format                   # Prettier formatting
+bun run generate:types           # Regenerate types.d.ts from source
+```
 
 ## Environment Variables
 

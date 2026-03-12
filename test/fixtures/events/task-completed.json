@@ -1,3 +1,5 @@
 {
-  "hook_event_name": "TaskCompleted"
+  "hook_event_name": "TaskCompleted",
+  "task_id": "task_001",
+  "task_subject": "Write unit tests"
 }

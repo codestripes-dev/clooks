@@ -250,7 +250,7 @@ This aligns with Clooks' first-class testing requirement (D9).
 
 The compiled binary is tested end-to-end by invoking it as a subprocess via `Bun.spawnSync`. The sandbox helper (`test/e2e/helpers/sandbox.ts`) creates isolated temp directories, symlinks the compiled binary, and pipes JSON events on stdin. This pattern validates the full pipeline: binary startup → config loading → hook execution → JSON output.
 
-Tests run exclusively in Docker (`test/Dockerfile`) using a non-root user for filesystem permission testing. See `docs/domain/testing.md` for the full testing architecture.
+E2E tests run via `bun run test:e2e`, which automatically builds and runs a Docker container (`test/Dockerfile`) with a non-root user for filesystem permission testing. See `docs/domain/testing.md` for the full testing architecture.
 
 ## Related
 

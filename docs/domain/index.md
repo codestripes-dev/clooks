@@ -89,7 +89,7 @@ When creating or removing a domain doc, update the relevant table in this index.
 
 | Document | Path | Description |
 |----------|------|-------------|
-| E2E Testing Architecture | `testing.md` | Three-layer strategy, Docker-only E2E, sandbox pattern, fail-closed invariant, gotchas |
+| E2E Testing Architecture | `testing.md` | Three-layer strategy, hermetic E2E via `bun run test:e2e`, sandbox pattern, fail-closed invariant, gotchas |
 
 ## Tools & Recipes
 

@@ -113,4 +113,5 @@ export interface ClaudeCodeOutput {
   stopReason?: string;
   suppressOutput?: boolean;
   systemMessage?: string;
+  updatedMCPToolOutput?: unknown;
 }

@@ -54,12 +54,20 @@ The `ExitCode` type is `typeof EXIT_OK | typeof EXIT_HOOK_FAILURE | typeof EXIT_
 - `parallel: boolean` — True when the hook is running in a parallel batch, false for sequential execution. Hook authors can use this to guard against operations that are unsafe in parallel mode (e.g., mutating shared state).
 - `signal: AbortSignal` — Scoped to the current execution group. In parallel groups, this signal is aborted when a short-circuit condition is detected (block result, contract violation). In sequential groups, the signal is scoped per-group but never aborted in the current implementation. Hooks can check `signal.aborted` or listen for the `abort` event to clean up early.
 
-### PreToolUse pipeline fields
+### BaseContext field optionality
+
+Not all `BaseContext` fields are universally present across all events. The following field is optional because Claude Code omits it from certain event payloads:
+
+- `permissionMode?: PermissionMode` — Absent from SessionStart, PreCompact, and WorktreeCreate payloads. Events that always include permission mode (PreToolUse, PermissionRequest, etc.) receive it, but the base type is optional to reflect the runtime reality.
+
+### Tool event pipeline fields
 
 `PreToolUseContext` includes two fields for the tool input pipeline:
 
 - `toolInput: Record<string, unknown>` — The current tool input, which may differ from the original if a previous sequential hook returned `updatedInput`.
 - `originalToolInput: Record<string, unknown>` — The original tool input from Claude Code, before any hook modifications. Always reflects the unmodified input, even after multiple hooks have modified `toolInput`.
+
+`PostToolUseContext` and `PostToolUseFailureContext` also include `originalToolInput?: Record<string, unknown>`. The engine adds this field for all tool events (any event whose normalized payload contains `toolInput`). It is optional on post-tool events because it is engine-injected, not contractually guaranteed by Claude Code for these event types.
 
 `PreToolUseResult` (the `AllowResult` variant only) includes:
 
@@ -68,6 +76,17 @@ The `ExitCode` type is `typeof EXIT_OK | typeof EXIT_HOOK_FAILURE | typeof EXIT_
 ### InjectableContext
 
 `InjectableContext` (`injectContext?: string`) is intersected into per-event result types only where Claude Code's output contract supports `additionalContext`. Not all events support it.
+
+### PermissionRequest output fields
+
+`PermissionRequestResult` supports additional fields beyond the base guard result:
+
+- **Allow variant:** `updatedInput?: Record<string, unknown>` and `updatedPermissions?: unknown[]`. When present, the engine emits `hookSpecificOutput.decision` with `behavior: "allow"` and the extra fields. When absent, allow is a bare exit 0.
+- **Block variant:** `interrupt?: boolean`. When true, Claude Code stops entirely (not just denies the permission). The engine maps `reason` to `decision.message` in the output.
+
+### PostToolUse output fields
+
+`PostToolUseResult` includes `updatedMCPToolOutput?: unknown`. This field replaces the MCP tool output at the **top level** of the output JSON (not inside `hookSpecificOutput`). It is a passthrough field — PostToolUse is observe-only in Clooks, but this capability allows modifying what the agent sees from MCP tool calls.
 
 ### Branded strings and typed identifiers
 
