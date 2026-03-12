@@ -5,6 +5,7 @@ import { createSandbox, type Sandbox } from './helpers/sandbox'
 
 const FIXTURES = join(import.meta.dir, '../fixtures')
 const loadEvent = (name: string) => readFileSync(join(FIXTURES, 'events', name), 'utf8')
+const loadHook = (name: string) => readFileSync(join(FIXTURES, 'hooks', name), 'utf8')
 
 let sandbox: Sandbox
 
@@ -167,7 +168,28 @@ trace-bad:
     expect(result.stderr).toContain('does not support additionalContext')
   })
 
-  test('10. order list references hook not in config — exit 2', () => {
+  test('10. duplicate hook name in order list is rejected', () => {
+    sandbox = createSandbox()
+    sandbox.writeHook('allow-all.ts', loadHook('allow-all.ts'))
+    sandbox.writeConfig(`
+version: "1.0.0"
+hook-a:
+  uses: ./allow-all.ts
+hook-b:
+  uses: ./allow-all.ts
+PreToolUse:
+  order: ["hook-a", "hook-b", "hook-a"]
+`)
+
+    const stdin = loadEvent('pre-tool-use-bash.json')
+    const result = sandbox.run([], { stdin })
+
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stderr).toContain('hook-a')
+    expect(result.stdout.trim()).toBe('')
+  })
+
+  test('11. order list references hook not in config — exit 2', () => {
     sandbox = createSandbox()
     sandbox.writeHook('real-hook.ts', `
 export const hook = {

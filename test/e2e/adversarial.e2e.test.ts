@@ -133,6 +133,32 @@ allow-all:
     })
   })
 
+  test('Scenario 25: hook entry with absolute path is rejected', () => {
+    sandbox = createSandbox()
+    sandbox.writeHook('allow-all.ts', loadHook('allow-all.ts'))
+    sandbox.writeConfig(`
+version: "1.0.0"
+bad-path:
+  uses: /etc/passwd
+`)
+    const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stderr).toContain('must be a relative path')
+  })
+
+  test('Scenario 26: hook entry with path traversal sequence is rejected', () => {
+    sandbox = createSandbox()
+    sandbox.writeHook('allow-all.ts', loadHook('allow-all.ts'))
+    sandbox.writeConfig(`
+version: "1.0.0"
+bad-path:
+  uses: ../../outside.ts
+`)
+    const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stderr).toContain('path traversal')
+  })
+
   test('Scenario 24: performance regression tripwire — under 2000ms', () => {
     sandbox = createSandbox()
     sandbox.writeHook('allow-all.ts', loadHook('allow-all.ts'))
