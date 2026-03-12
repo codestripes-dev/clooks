@@ -122,7 +122,7 @@ function formatZodError(issues: z.ZodIssue[], raw: Record<string, unknown>): str
   }
 
   // Hook entry errors
-  return formatHookError(issue, topKey)
+  return formatHookError(issue, topKey, raw)
 }
 
 function formatVersionError(issue: z.ZodIssue): string {
@@ -187,7 +187,7 @@ function formatEventError(issue: z.ZodIssue, eventName: string): string {
   return `clooks: entry "${eventName}" error: ${issue.message}`
 }
 
-function formatHookError(issue: z.ZodIssue, hookName: string): string {
+function formatHookError(issue: z.ZodIssue, hookName: string, raw: Record<string, unknown>): string {
   // Non-object hook entry
   if (issue.code === "invalid_type" && issue.path.length === 1) {
     return `clooks: entry "${hookName}" must be an object`
@@ -222,7 +222,8 @@ function formatHookError(issue: z.ZodIssue, hookName: string): string {
     return `clooks: hook "${hookName}" "timeout" must be a positive number`
   }
   if (field === "onError") {
-    return `clooks: hook "${hookName}" "onError" must be "block", "continue", or "trace", got "${(issue as any).received ?? (issue as any).input}"`
+    const rawVal = (raw[hookName] as Record<string, unknown> | undefined)?.onError
+    return `clooks: hook "${hookName}" "onError" must be "block", "continue", or "trace", got "${String(rawVal)}"`
   }
   if (field === "parallel") {
     return `clooks: hook "${hookName}" has invalid "parallel": must be a boolean`
@@ -240,7 +241,7 @@ function formatHookError(issue: z.ZodIssue, hookName: string): string {
     return `clooks: hook "${hookName}" has invalid "config": must be an object`
   }
   if (field === "events") {
-    // Unknown event name in the events sub-map
+    // Unknown event name in the events sub-map (path depth 2: [hookName, "events"])
     if (issue.code === "unrecognized_keys") {
       const keys = (issue as any).keys as string[]
       return `clooks: hook "${hookName}" has unknown event "${keys[0]}" in events sub-map`

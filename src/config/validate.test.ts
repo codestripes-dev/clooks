@@ -715,7 +715,7 @@ describe("validateConfig", () => {
   test("non-object hook events sub-map throws", () => {
     expect(() =>
       validateConfig({ version: "1.0.0", scanner: { events: "string" } }),
-    ).toThrow("events")
+    ).toThrow('has invalid "events"')
   })
 
   test("non-object event override in events sub-map throws", () => {
@@ -724,7 +724,7 @@ describe("validateConfig", () => {
         version: "1.0.0",
         scanner: { events: { PreToolUse: "not-object" } },
       }),
-    ).toThrow("events.PreToolUse")
+    ).toThrow("expected object")
   })
 
   test("event order with empty string throws", () => {
