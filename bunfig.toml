@@ -1,2 +1,10 @@
 [test]
 root = "src/"
+coverage = true
+coverageReporter = ["text", "lcov"]
+coverageSkipTestFiles = true
+coveragePathIgnorePatterns = ["**/tmp/**"]
+
+[test.coverageThreshold]
+lines = 0.95
+functions = 1.0
