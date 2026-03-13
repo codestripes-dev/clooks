@@ -15,7 +15,7 @@
     "format:check": "prettier --check 'src/**/*.ts' '*.json' '*.mjs'",
     "test": "CLAUDECODE=1 bun test src/",
     "test:verbose": "bun test src/",
-    "test:coverage": "CLAUDECODE=1 bun test --coverage",
+    "test:coverage": "script -qc 'CLAUDECODE=1 bun test --coverage' /dev/null 2>&1 | awk '{plain=$0; gsub(/\\033\\[[0-9;]*m/,\"\",plain); if(plain !~ /\\|  100\\.00 \\|  100\\.00 \\|/) print}' && echo '' && echo 'Files that are 100% covered are omitted from coverage output here.'",
     "test:e2e:build": "docker build -q -t clooks-e2e -f test/Dockerfile .",
     "test:e2e:run": "docker run --rm -v ./src:/app/src:ro -v ./test:/app/test:ro -v ./schemas:/app/schemas:ro -v ./tsconfig.json:/app/tsconfig.json:ro clooks-e2e",
     "test:e2e": "bun run test:e2e:build && bun run test:e2e:run",
