@@ -2,9 +2,18 @@
 // bash $() command substitutions and ${} variable expansions.
 
 /** Shebang + strict mode, shared by both entrypoint variants. */
-const ENTRYPOINT_PREAMBLE =
-  '#!/usr/bin/env bash\n' +
-  'set -euo pipefail\n'
+const ENTRYPOINT_PREAMBLE = '#!/usr/bin/env bash\n' + 'set -euo pipefail\n'
+
+/** Type header identifying the script variant. Prevents silent misplacement. */
+const PROJECT_HEADER =
+  '\n' +
+  '# clooks entrypoint: project\n' +
+  '# Do not copy this file to ~/.clooks/bin/ — use `clooks init --global` instead.\n'
+
+const GLOBAL_HEADER =
+  '\n' +
+  '# clooks entrypoint: global\n' +
+  '# Do not copy this file to a project — use `clooks init` instead.\n'
 
 /** SKIP_CLOOKS bypass check, shared by both entrypoint variants. */
 const SKIP_CLOOKS_CHECK =
@@ -67,7 +76,7 @@ const ENTRYPOINT_BODY =
 
 /** Bash entrypoint script content for project init, embedded as a template for `clooks init`. */
 export const ENTRYPOINT_SCRIPT =
-  ENTRYPOINT_PREAMBLE + SKIP_CLOOKS_CHECK + DEDUP_CHECK + ENTRYPOINT_BODY
+  ENTRYPOINT_PREAMBLE + PROJECT_HEADER + SKIP_CLOOKS_CHECK + DEDUP_CHECK + ENTRYPOINT_BODY
 
 /**
  * Bash entrypoint script for global init (`clooks init --global`).
@@ -75,4 +84,4 @@ export const ENTRYPOINT_SCRIPT =
  * it IS the global entrypoint and is the authoritative one.
  */
 export const GLOBAL_ENTRYPOINT_SCRIPT =
-  ENTRYPOINT_PREAMBLE + SKIP_CLOOKS_CHECK + ENTRYPOINT_BODY
+  ENTRYPOINT_PREAMBLE + GLOBAL_HEADER + SKIP_CLOOKS_CHECK + ENTRYPOINT_BODY

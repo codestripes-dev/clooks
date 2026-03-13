@@ -668,6 +668,11 @@ describe('ENTRYPOINT_SCRIPT', () => {
     expect(ENTRYPOINT_SCRIPT.startsWith('#!/usr/bin/env bash')).toBe(true)
   })
 
+  test('contains project type header', () => {
+    expect(ENTRYPOINT_SCRIPT).toContain('# clooks entrypoint: project')
+    expect(ENTRYPOINT_SCRIPT).not.toContain('# clooks entrypoint: global')
+  })
+
   test('contains CLOOKS_BIN variable', () => {
     expect(ENTRYPOINT_SCRIPT).toContain('CLOOKS_BIN=')
   })
@@ -701,6 +706,11 @@ describe('ENTRYPOINT_SCRIPT', () => {
 describe('GLOBAL_ENTRYPOINT_SCRIPT', () => {
   test('starts with shebang', () => {
     expect(GLOBAL_ENTRYPOINT_SCRIPT.startsWith('#!/usr/bin/env bash')).toBe(true)
+  })
+
+  test('contains global type header', () => {
+    expect(GLOBAL_ENTRYPOINT_SCRIPT).toContain('# clooks entrypoint: global')
+    expect(GLOBAL_ENTRYPOINT_SCRIPT).not.toContain('# clooks entrypoint: project')
   })
 
   test('does NOT contain dedup check', () => {
