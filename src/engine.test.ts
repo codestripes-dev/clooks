@@ -12,7 +12,7 @@ import {
   formatDiagnostic,
   formatTraceMessage,
   assertCategoryCompleteness,
-} from './engine.js'
+} from './engine/index.js'
 import type { LoadedHook, HookLoadError } from './loader.js'
 import type { ClooksHook } from './types/hook.js'
 import type { ClooksConfig } from './config/schema.js'
@@ -330,7 +330,7 @@ describe('translateResult', () => {
   it('unknown result type → exit 2 + stderr', () => {
     const out = translateResult('PreToolUse', {
       result: 'bogus',
-    } as unknown as import('./engine.js').EngineResult)
+    } as unknown as import('./engine/index.js').EngineResult)
     expect(out.exitCode).toBe(2)
     expect(out.stderr).toContain('unknown result type')
   })

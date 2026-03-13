@@ -13,8 +13,9 @@ import { join } from 'path'
 import { tmpdir } from 'os'
 import type { HookName, Milliseconds } from './types/branded.js'
 import { DEFAULT_MAX_FAILURES_MESSAGE } from './config/constants.js'
-import { runEngine, defaultDeps } from './engine.js'
-import type { RunEngineDeps } from './engine.js'
+import { runEngine } from './engine'
+import type { RunEngineDeps } from './engine'
+import { defaultDeps } from './engine'
 
 const hn = (s: string) => s as HookName
 const ms = (n: number) => n as Milliseconds
@@ -709,6 +710,90 @@ describe('runEngine', () => {
     } finally {
       ;(Bun.stdin as any).json = origJson
     }
+  })
+
+  it('trace messages appended to existing lastResult on injectable event', async () => {
+    // Covers lines 216-218: trace messages + existing lastResult (else branch)
+    // Need two hooks: one succeeds (produces lastResult), one with onError: "trace" that throws
+    mockLoadConfig.mockResolvedValue({
+      config: makeConfig({ good: {}, tracer: { onError: 'trace' } }),
+      shadows: [],
+      hasProjectConfig: true,
+    })
+    mockLoadAllHooks.mockResolvedValue({
+      loaded: [
+        makeLoadedHook('good', { PreToolUse: () => ({ result: 'allow' }) }),
+        makeLoadedHook('tracer', {
+          PreToolUse: () => {
+            throw new Error('trace append')
+          },
+        }),
+      ],
+      loadErrors: [],
+    })
+    mockReadStdin.mockResolvedValue({ hook_event_name: 'PreToolUse' })
+    await runEngine(makeDeps()).catch(() => {})
+    const stdout = getStdout()
+    expect(stdout).toContain('trace append')
+  })
+
+  it('degraded messages appended to existing lastResult on injectable event', async () => {
+    // Covers lines 228-230: degraded messages + existing lastResult (else branch)
+    // Need a hook that succeeds + a hook degraded by circuit breaker on injectable event
+    const { writeFailures, recordFailure } = await import('./failures.js')
+    const failurePath = join(tempDir, '.clooks/.failures')
+    let state: any = {}
+    state = recordFailure(state, hn('failing'), 'PreToolUse' as any, 'err')
+    state = recordFailure(state, hn('failing'), 'PreToolUse' as any, 'err')
+    state = recordFailure(state, hn('failing'), 'PreToolUse' as any, 'err')
+    await writeFailures(failurePath, state)
+
+    mockLoadConfig.mockResolvedValue({
+      config: makeConfig({ good: {}, failing: {} }),
+      shadows: [],
+      hasProjectConfig: true,
+    })
+    mockLoadAllHooks.mockResolvedValue({
+      loaded: [
+        makeLoadedHook('good', { PreToolUse: () => ({ result: 'allow' }) }),
+        makeLoadedHook('failing', {
+          PreToolUse: () => {
+            throw new Error('degraded append')
+          },
+        }),
+      ],
+      loadErrors: [],
+    })
+    mockReadStdin.mockResolvedValue({ hook_event_name: 'PreToolUse' })
+    await runEngine(makeDeps()).catch(() => {})
+    const stdout = getStdout()
+    expect(stdout).toContain('degraded append')
+  })
+
+  it('debug lines injected into context when no hook result (lastResult undefined)', async () => {
+    // Covers line 252: debug mode with allDebug.length > 0 but lastResult === undefined
+    // Need a hook with onError: "continue" that throws, so lastResult stays undefined,
+    // but debug lines exist from the engine.
+    process.env.CLOOKS_DEBUG = 'true'
+    mockLoadConfig.mockResolvedValue({
+      config: makeConfig({ crasher: { onError: 'continue' } }),
+      shadows: [],
+      hasProjectConfig: true,
+    })
+    mockLoadAllHooks.mockResolvedValue({
+      loaded: [
+        makeLoadedHook('crasher', {
+          PreToolUse: () => {
+            throw new Error('debug inject test')
+          },
+        }),
+      ],
+      loadErrors: [],
+    })
+    mockReadStdin.mockResolvedValue({ hook_event_name: 'PreToolUse' })
+    await runEngine(makeDeps()).catch(() => {})
+    const stdout = getStdout()
+    expect(stdout).toContain('[clooks:debug]')
   })
 
   it('injectContext on guard event UserPromptSubmit', async () => {

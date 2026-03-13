@@ -107,7 +107,9 @@ describe('prompts', () => {
 
     test('promptText throws CancelError when user cancels', async () => {
       mockIsCancel.mockImplementation(() => true)
-      mockText.mockImplementation(() => Promise.resolve(Symbol('clack:cancel')))
+      mockText.mockImplementation(() =>
+        Promise.resolve(Symbol('clack:cancel') as unknown as string),
+      )
 
       await expect(promptText(ctx, { message: 'Name?' })).rejects.toThrow(CancelError)
       expect(mockCancel).toHaveBeenCalled()
@@ -115,7 +117,9 @@ describe('prompts', () => {
 
     test('promptSelect throws CancelError when user cancels', async () => {
       mockIsCancel.mockImplementation(() => true)
-      mockSelect.mockImplementation(() => Promise.resolve(Symbol('clack:cancel')))
+      mockSelect.mockImplementation(() =>
+        Promise.resolve(Symbol('clack:cancel') as unknown as string),
+      )
 
       await expect(
         promptSelect(ctx, {
@@ -127,7 +131,9 @@ describe('prompts', () => {
 
     test('promptConfirm throws CancelError when user cancels', async () => {
       mockIsCancel.mockImplementation(() => true)
-      mockConfirm.mockImplementation(() => Promise.resolve(Symbol('clack:cancel')))
+      mockConfirm.mockImplementation(() =>
+        Promise.resolve(Symbol('clack:cancel') as unknown as boolean),
+      )
 
       await expect(promptConfirm(ctx, { message: 'Sure?' })).rejects.toThrow(CancelError)
     })

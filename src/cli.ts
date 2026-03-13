@@ -1,5 +1,5 @@
 import { VERSION } from './version'
-import { runEngine, EXIT_OK, EXIT_STDERR } from './engine.js'
+import { runEngine, EXIT_OK, EXIT_STDERR } from './engine'
 import { KNOWN_COMMANDS } from './known-commands.js'
 
 export { KNOWN_COMMANDS } from './known-commands.js'
@@ -12,38 +12,36 @@ let currentMode: 'engine' | 'cli' = 'engine'
 // Global signal handlers — installed first, before any hook code runs.
 // These are the ONLY code paths that should produce exit 2 + stderr.
 // Everything else uses exit 0 + JSON.
-process.on("uncaughtException", (err) => {
-  const name = err?.constructor?.name ?? "Error";
-  const message = err?.message ?? String(err);
-  process.stderr.write(
-    `clooks: uncaught exception: ${name}: ${message}\n`
-  );
-  process.exit(EXIT_STDERR);
-});
+process.on('uncaughtException', (err) => {
+  const name = err?.constructor?.name ?? 'Error'
+  const message = err?.message ?? String(err)
+  process.stderr.write(`clooks: uncaught exception: ${name}: ${message}\n`)
+  process.exit(EXIT_STDERR)
+})
 
-process.on("unhandledRejection", (reason: unknown) => {
-  const msg = reason instanceof Error ? reason.message : String(reason);
-  process.stderr.write(`clooks: unhandled rejection: ${msg}\n`);
-  process.exit(EXIT_STDERR);
-});
+process.on('unhandledRejection', (reason: unknown) => {
+  const msg = reason instanceof Error ? reason.message : String(reason)
+  process.stderr.write(`clooks: unhandled rejection: ${msg}\n`)
+  process.exit(EXIT_STDERR)
+})
 
-process.on("SIGTERM", () => {
+process.on('SIGTERM', () => {
   if (currentMode === 'engine') {
-    process.stderr.write("clooks: killed by SIGTERM\n");
-    process.exit(EXIT_STDERR);
+    process.stderr.write('clooks: killed by SIGTERM\n')
+    process.exit(EXIT_STDERR)
   } else {
-    process.exit(0);
+    process.exit(0)
   }
-});
+})
 
-process.on("SIGINT", () => {
+process.on('SIGINT', () => {
   if (currentMode === 'engine') {
-    process.stderr.write("clooks: interrupted\n");
-    process.exit(EXIT_STDERR);
+    process.stderr.write('clooks: interrupted\n')
+    process.exit(EXIT_STDERR)
   } else {
-    process.exit(0);
+    process.exit(0)
   }
-});
+})
 
 const args = process.argv.slice(2)
 
@@ -54,7 +52,7 @@ if (args.includes('--version') || args.includes('-v')) {
 }
 
 // Find first positional arg (skips flags starting with -)
-const firstPositional = args.find(a => !a.startsWith('-'))
+const firstPositional = args.find((a) => !a.startsWith('-'))
 
 if (firstPositional !== undefined && KNOWN_COMMANDS.has(firstPositional)) {
   // CLI mode — recognized subcommand
