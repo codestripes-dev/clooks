@@ -109,6 +109,15 @@ Hook paths are resolved using a two-step process: first determine the **resoluti
 
 Resolution does not check file existence. That is a loading concern handled by the engine.
 
+**Vendored hook example** — `clooks add` writes path-like `uses:` values pointing into `.clooks/vendor/`:
+
+```yaml
+lint-guard:
+  uses: ./.clooks/vendor/github.com/someuser/hooks/lint-guard.ts
+```
+
+This is the convention written by `clooks add`. The `./` prefix makes the value path-like, routing it through `isPathLike` in `resolve.ts` and skipping `meta.name` validation. See `docs/domain/vendoring.md` for the full vendoring workflow.
+
 ## Hook Aliases
 
 A hook alias is a YAML entry whose `uses` field references a different hook implementation. This allows the same `.ts` file to run multiple times with different configs.

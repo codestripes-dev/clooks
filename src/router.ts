@@ -1,6 +1,7 @@
 import { Command, CommanderError } from 'commander'
 import { VERSION } from './version.js'
 import { CancelError } from './tui/prompts.js'
+import { createAddCommand } from './commands/add.js'
 import { createConfigCommand } from './commands/config.js'
 import { createInitCommand } from './commands/init.js'
 import { createTypesCommand } from './commands/types.js'
@@ -21,6 +22,7 @@ program
   .option('--json', 'Output results as JSON')
   .addHelpText('after', `\nRun clooks --version to print the version (v${VERSION}).`)
 
+program.addCommand(createAddCommand())
 program.addCommand(createConfigCommand())
 program.addCommand(createInitCommand())
 program.addCommand(createTypesCommand())

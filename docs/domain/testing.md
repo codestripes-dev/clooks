@@ -76,6 +76,7 @@ The 27 E2E test files are organized by the domain they exercise, not by implemen
 - `error-cascade-advanced` — cascading failure scenarios
 - `stdin-advanced` — stdin piping edge cases
 - `environment-edge-cases` — unusual environment configurations
+- `vendoring` — `clooks add` pipeline: URL parsing, download, vendor directory layout, validation, `clooks.yml` registration, conflict detection
 
 ### Inline vs fixture hooks
 

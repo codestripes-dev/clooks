@@ -4,6 +4,7 @@ import { program } from './router.js'
 
 describe('KNOWN_COMMANDS', () => {
   test('contains the initial set of commands', () => {
+    expect(KNOWN_COMMANDS.has('add')).toBe(true)
     expect(KNOWN_COMMANDS.has('config')).toBe(true)
     expect(KNOWN_COMMANDS.has('init')).toBe(true)
     expect(KNOWN_COMMANDS.has('register')).toBe(true)
@@ -11,7 +12,6 @@ describe('KNOWN_COMMANDS', () => {
   })
 
   test('does not contain deferred commands', () => {
-    expect(KNOWN_COMMANDS.has('add')).toBe(false)
     expect(KNOWN_COMMANDS.has('manage')).toBe(false)
     expect(KNOWN_COMMANDS.has('remove')).toBe(false)
     expect(KNOWN_COMMANDS.has('update')).toBe(false)
@@ -20,7 +20,7 @@ describe('KNOWN_COMMANDS', () => {
   })
 
   test('matches registered commands in router', () => {
-    const registeredNames = new Set(program.commands.map(c => c.name()))
+    const registeredNames = new Set(program.commands.map((c) => c.name()))
     expect(registeredNames).toEqual(KNOWN_COMMANDS)
   })
 })
