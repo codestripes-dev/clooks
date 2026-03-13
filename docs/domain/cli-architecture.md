@@ -151,6 +151,28 @@ Extracts the embedded `.d.ts` type declarations to `.clooks/hooks/types.d.ts`. T
 
 Always overwrites unconditionally (no version check). With `--global`, writes to `~/.clooks/hooks/types.d.ts` instead. Supports `--json` for structured output.
 
+### `clooks add <url>`
+
+Downloads a single hook file from a GitHub blob URL and registers it in the project. Requires one positional argument: a GitHub blob URL of the form `https://github.com/<owner>/<repo>/blob/<ref>/<filename>`. Only `.ts` and `.js` files are accepted.
+
+**Pipeline:**
+
+1. Parse the GitHub blob URL via `parseGitHubBlobUrl()` — validates format, extracts `owner`, `repo`, `ref`, `filename`, and `filenameStem`.
+2. Load the project config via `loadConfig(cwd)` — verifies a `clooks init` has been run.
+3. Check for conflicts — if a hook with the same name (filename stem) already exists in `clooks.yml`, the command exits with an error.
+4. Fetch the raw file content from `raw.githubusercontent.com` via `fetch()`.
+5. Write the file to `.clooks/vendor/github.com/<owner>/<repo>/<filename>`.
+6. Import and validate the file via `validateHookExport()` — if validation fails, the file is deleted.
+7. Append the hook entry to `clooks.yml` with a path-like `uses:` value.
+
+**Error cases:** invalid URL, unsupported file extension, no project (not initialized), hook name conflict, HTTP 404 (file not found or private repo), other fetch failure, validation failure (missing `hook` export or `meta`).
+
+**TUI output:** spinner during download ("Downloading hook..."), success messages listing the hook name, vendor path, and confirmation that `clooks.yml` was updated, then an outro.
+
+**`--json` support:** On success, writes `{ ok: true, command: "add", data: { name, path, url } }`. On error, writes `{ ok: false, command: "add", error: "<message>" }`.
+
+**Key design choice:** writes a path-like `uses:` value (e.g., `./.clooks/vendor/github.com/owner/repo/hook.ts`) rather than a hook name. This routes through `isPathLike` in `resolve.ts`, which skips convention rules and `meta.name` validation.
+
 ### `clooks new-hook`
 
 Interactive scaffolding command. Prompts for a hook name (kebab-case validated) and scope (project/global), then generates a ready-to-edit `.ts` hook file with the correct `import type { ClooksHook } from './types'` and a typed `ClooksHook<Config>` export.
@@ -167,6 +189,7 @@ Refuses to overwrite an existing file (safe by default). Does NOT auto-register 
 - `src/settings.ts` — Settings.json management utility (register/unregister Clooks in `.claude/settings.json`).
 - `src/commands/types.ts` — `createTypesCommand()` — extracts embedded .d.ts type declarations (`clooks types`, `clooks types --global`).
 - `src/commands/new-hook.ts` — `createNewHookCommand()` — interactive hook scaffolding (`clooks new-hook`).
+- `src/commands/add.ts` — `createAddCommand()` — GitHub URL download and registration (`clooks add`).
 - `src/commands/stubs.ts` — `registerStubs()` — placeholder commands for register, test.
 - `src/tui/context.ts` — `OutputContext` type and `getCtx(cmd)` helper.
 - `src/tui/json-envelope.ts` — `JsonEnvelope` type, `jsonSuccess()`, `jsonError()`.

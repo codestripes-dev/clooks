@@ -79,6 +79,7 @@ When creating or removing a domain doc, update the relevant table in this index.
 | Cross-Agent Hooks | `cross-agent-hooks.md` | Hook systems across Claude Code, Cursor, Windsurf, VS Code Copilot with event mapping |
 | Global Hooks | `global-hooks.md` | User-wide hooks architecture: directory structure, config scoping, merge semantics, failure state, shadow warnings |
 | Hook Type System | `hook-type-system.md` | ClooksHook contract, per-event context/result types, branded strings, file organization |
+| Vendoring | `vendoring.md` | `clooks add` workflow, vendor directory layout, supported formats, registration, V0 limitations |
 
 ## Patterns & Conventions
 
