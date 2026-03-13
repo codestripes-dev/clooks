@@ -1,13 +1,6 @@
 import { describe, test, expect, spyOn, beforeEach, afterEach, mock } from 'bun:test'
 import { Command } from 'commander'
-import {
-  mkdtempSync,
-  rmSync,
-  writeFileSync,
-  readFileSync,
-  existsSync,
-  mkdirSync,
-} from 'fs'
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, mkdirSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 
@@ -102,9 +95,7 @@ describe('clooks types', () => {
     const program = createTestProgram()
     await program.parseAsync(['--json', 'types'], { from: 'user' })
 
-    const output = stdoutSpy.mock.calls
-      .map((c: unknown[]) => String(c[0]))
-      .join('')
+    const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
     const parsed = JSON.parse(output.trim())
 
     expect(parsed.ok).toBe(true)
@@ -152,13 +143,23 @@ describe('clooks types --global', () => {
     const program = createTestProgram()
     await program.parseAsync(['--json', 'types', '--global'], { from: 'user' })
 
-    const output = stdoutSpy.mock.calls
-      .map((c: unknown[]) => String(c[0]))
-      .join('')
+    const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
     const parsed = JSON.parse(output.trim())
 
     expect(parsed.ok).toBe(true)
     expect(parsed.command).toBe('types')
     expect(parsed.data.path).toBe('~/.clooks/hooks/types.d.ts')
+  })
+})
+
+describe('clooks types error handling', () => {
+  test('catches write errors and calls process.exit(1)', async () => {
+    // Point cwd to a path that will cause writeFileSync to fail
+    process.cwd = () => '/dev/null/impossible'
+
+    const program = createTestProgram()
+    await program.parseAsync(['types'], { from: 'user' }).catch(() => {})
+
+    expect(exitSpy).toHaveBeenCalledWith(1)
   })
 })

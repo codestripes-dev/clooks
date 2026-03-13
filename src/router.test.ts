@@ -25,9 +25,7 @@ describe('runCLI', () => {
 
     expect(exitSpy).toHaveBeenCalledWith(0)
 
-    const output = stdoutSpy.mock.calls
-      .map((c: unknown[]) => String(c[0]))
-      .join('')
+    const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
     expect(output).toContain('clooks')
     expect(output).toContain('A hook runtime for AI coding agents.')
   })
@@ -38,20 +36,47 @@ describe('runCLI', () => {
     const exitCode = exitSpy.mock.calls[0]?.[0] as number
     expect(exitCode).toBeGreaterThan(0)
 
-    const errOutput = stderrSpy.mock.calls
-      .map((c: unknown[]) => String(c[0]))
-      .join('')
+    const errOutput = stderrSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
     expect(errOutput).toContain('error')
+  })
+
+  test('CancelError results in clean exit(0)', async () => {
+    const { CancelError } = await import('./tui/prompts.js')
+
+    const testCmd = program.command('_test-cancel-error').action(() => {
+      throw new CancelError()
+    })
+
+    try {
+      await runCLI(['_test-cancel-error']).catch(() => {})
+      expect(exitSpy).toHaveBeenCalledWith(0)
+    } finally {
+      const cmds = program.commands as import('commander').Command[]
+      const idx = cmds.indexOf(testCmd)
+      if (idx !== -1) cmds.splice(idx, 1)
+    }
+  })
+
+  test('unknown errors are re-thrown', async () => {
+    const testCmd = program.command('_test-unknown-error').action(() => {
+      throw new Error('unexpected boom')
+    })
+
+    try {
+      await expect(runCLI(['_test-unknown-error'])).rejects.toThrow('unexpected boom')
+    } finally {
+      const cmds = program.commands as import('commander').Command[]
+      const idx = cmds.indexOf(testCmd)
+      if (idx !== -1) cmds.splice(idx, 1)
+    }
   })
 
   test('--json global flag is accessible in command action', async () => {
     let jsonFlag: boolean | undefined
 
-    const testCmd = program
-      .command('_test-json-flag')
-      .action((_opts, cmd) => {
-        jsonFlag = cmd.optsWithGlobals().json === true
-      })
+    const testCmd = program.command('_test-json-flag').action((_opts, cmd) => {
+      jsonFlag = cmd.optsWithGlobals().json === true
+    })
 
     try {
       await runCLI(['--json', '_test-json-flag'])
