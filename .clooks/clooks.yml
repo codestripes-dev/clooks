@@ -7,3 +7,5 @@ log-bash-commands:
 domain-doc-size: {}
 
 debug-payload:  {}
+
+no-bare-mv: {}
