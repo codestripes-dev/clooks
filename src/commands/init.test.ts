@@ -201,9 +201,7 @@ describe('clooks init', () => {
     const program = createTestProgram()
     await program.parseAsync(['--json', 'init'], { from: 'user' })
 
-    const output = stdoutSpy.mock.calls
-      .map((c: unknown[]) => String(c[0]))
-      .join('')
+    const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
     const parsed = JSON.parse(output.trim())
 
     expect(parsed.ok).toBe(true)
@@ -262,6 +260,48 @@ describe('clooks init', () => {
     expect(exitSpy).toHaveBeenCalledWith(1)
   })
 
+  test('guardrail: homedir detection with interactive confirm decline aborts', async () => {
+    const { confirm } = await import('@clack/prompts')
+    const confirmMock = confirm as unknown as ReturnType<typeof mock>
+    confirmMock.mockImplementationOnce(() => false)
+
+    // Use a fresh subdir as fake home, set cwd to it
+    const fakeHome = join(tempDir, 'guardtest-home')
+    mkdirSync(fakeHome, { recursive: true })
+    // Create .git to bypass the no-git guard
+    mkdirSync(join(fakeHome, '.git'), { recursive: true })
+    process.cwd = () => fakeHome
+    // Override homedir to match cwd — triggers the "cwd === home" guard
+    const origHomedir = os.homedir
+    os.homedir = () => fakeHome
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, writable: true })
+
+    const program = createTestProgram()
+    await program.parseAsync(['init'], { from: 'user' }).catch(() => {})
+
+    os.homedir = origHomedir
+    // User declined — no clooks.yml should be created
+    expect(existsSync(join(fakeHome, '.clooks', 'clooks.yml'))).toBe(false)
+  })
+
+  test('guardrail: no-git with interactive confirm decline aborts', async () => {
+    const { confirm } = await import('@clack/prompts')
+    const confirmMock = confirm as unknown as ReturnType<typeof mock>
+    confirmMock.mockImplementationOnce(() => false)
+
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, writable: true })
+    // Fresh dir with no .git/
+    const noGitDir = join(tempDir, 'no-git-decline')
+    mkdirSync(noGitDir, { recursive: true })
+    process.cwd = () => noGitDir
+
+    const program = createTestProgram()
+    await program.parseAsync(['init'], { from: 'user' }).catch(() => {})
+
+    // User declined — no clooks.yml should be created
+    expect(existsSync(join(noGitDir, '.clooks', 'clooks.yml'))).toBe(false)
+  })
+
   test('guardrail: no-git detection proceeds in non-interactive mode', async () => {
     // tempDir has no .git/ — should proceed with warning, not abort
     const program = createTestProgram()
@@ -309,9 +349,7 @@ describe('clooks init', () => {
     expect(content).toContain('ClooksHook')
 
     // Verify JSON output reports it as updated
-    const output = stdoutSpy.mock.calls
-      .map((c: unknown[]) => String(c[0]))
-      .join('')
+    const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
     const parsed = JSON.parse(output.trim())
     expect(parsed.data.updated).toContain('.clooks/hooks/types.d.ts')
   })
@@ -337,11 +375,31 @@ describe('clooks init', () => {
     const program = createTestProgram()
     await program.parseAsync(['--json', 'init'], { from: 'user' })
 
-    const output = stdoutSpy.mock.calls
-      .map((c: unknown[]) => String(c[0]))
-      .join('')
+    const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
     const parsed = JSON.parse(output.trim())
     expect(parsed.data.updated).toContain('.clooks/clooks.schema.json')
+  })
+
+  test('project init with pre-existing settings.json reports settings updated', async () => {
+    // Pre-create settings.json with existing hooks from a different path
+    mkdirSync(join(tempDir, '.claude'), { recursive: true })
+    const oldSettings = {
+      hooks: {
+        PreToolUse: [
+          { hooks: [{ type: 'command', command: '/old/path/.clooks/bin/entrypoint.sh' }] },
+        ],
+      },
+    }
+    writeFileSync(join(tempDir, '.claude', 'settings.json'), JSON.stringify(oldSettings))
+
+    const program = createTestProgram()
+    await program.parseAsync(['--json', 'init'], { from: 'user' })
+
+    const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
+    const parsed = JSON.parse(output.trim())
+    expect(parsed.ok).toBe(true)
+    // Settings should be updated (not created), so should appear in updated list
+    expect(parsed.data.updated.some((item: string) => item.includes('settings.json'))).toBe(true)
   })
 
   test('clooks.schema.json skipped on idempotent re-run', async () => {
@@ -353,9 +411,7 @@ describe('clooks init', () => {
     const program2 = createTestProgram()
     await program2.parseAsync(['--json', 'init'], { from: 'user' })
 
-    const output = stdoutSpy.mock.calls
-      .map((c: unknown[]) => String(c[0]))
-      .join('')
+    const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
     const parsed = JSON.parse(output.trim())
     expect(parsed.data.skipped).toContain('.clooks/clooks.schema.json')
   })
@@ -372,9 +428,7 @@ describe('clooks init', () => {
     const program2 = createTestProgram()
     await program2.parseAsync(['--json', 'init'], { from: 'user' })
 
-    const output = stdoutSpy.mock.calls
-      .map((c: unknown[]) => String(c[0]))
-      .join('')
+    const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
     const parsed = JSON.parse(output.trim())
     expect(parsed.data.skipped).toContain('.clooks/hooks/types.d.ts')
   })
@@ -523,9 +577,7 @@ describe('clooks init --global', () => {
     const program = createTestProgram()
     await program.parseAsync(['--json', 'init', '--global'], { from: 'user' })
 
-    const output = stdoutSpy.mock.calls
-      .map((c: unknown[]) => String(c[0]))
-      .join('')
+    const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
     const parsed = JSON.parse(output.trim())
 
     expect(parsed.ok).toBe(true)
@@ -549,6 +601,65 @@ describe('clooks init --global', () => {
 
     // Files should be created
     expect(existsSync(join(fakeHome, '.clooks', 'clooks.yml'))).toBe(true)
+  })
+
+  test('global init with pre-existing files reports updated items in TUI mode', async () => {
+    // First run creates everything
+    const program1 = createTestProgram()
+    await program1.parseAsync(['init', '--global'], { from: 'user' })
+
+    // Modify types.d.ts so it triggers an update
+    writeFileSync(join(fakeHome, '.clooks', 'hooks', 'types.d.ts'), '// old content\n')
+    // Modify entrypoint so it triggers an update
+    writeFileSync(join(fakeHome, '.clooks', 'bin', 'entrypoint.sh'), '#!/bin/bash\nold\n')
+    // Modify schema so it triggers an update
+    writeFileSync(join(fakeHome, '.clooks', 'clooks.schema.json'), '{}')
+
+    // Second run (non-json TUI mode) should report updates
+    const program2 = createTestProgram()
+    await program2.parseAsync(['init', '--global'], { from: 'user' })
+
+    // Should complete without error
+    expect(exitSpy).not.toHaveBeenCalled()
+  })
+
+  test('global init JSON mode with pre-existing files reports updated items', async () => {
+    // First run creates everything
+    const program1 = createTestProgram()
+    await program1.parseAsync(['init', '--global'], { from: 'user' })
+
+    // Modify types.d.ts, entrypoint, and schema
+    writeFileSync(join(fakeHome, '.clooks', 'hooks', 'types.d.ts'), '// old content\n')
+    writeFileSync(join(fakeHome, '.clooks', 'bin', 'entrypoint.sh'), '#!/bin/bash\nold\n')
+    writeFileSync(join(fakeHome, '.clooks', 'clooks.schema.json'), '{}')
+
+    stdoutSpy.mockClear()
+    const program2 = createTestProgram()
+    await program2.parseAsync(['--json', 'init', '--global'], { from: 'user' })
+
+    const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
+    const parsed = JSON.parse(output.trim())
+    expect(parsed.ok).toBe(true)
+    expect(parsed.data.updated.length).toBeGreaterThan(0)
+  })
+
+  test('global init with pre-existing settings.json reports settings updated', async () => {
+    // Pre-create settings.json with existing hooks from a different path
+    mkdirSync(join(fakeHome, '.claude'), { recursive: true })
+    const oldSettings = {
+      hooks: {
+        PreToolUse: [
+          { hooks: [{ type: 'command', command: '/old/path/.clooks/bin/entrypoint.sh' }] },
+        ],
+      },
+    }
+    writeFileSync(join(fakeHome, '.claude', 'settings.json'), JSON.stringify(oldSettings))
+
+    const program = createTestProgram()
+    await program.parseAsync(['init', '--global'], { from: 'user' })
+
+    // Should complete successfully
+    expect(exitSpy).not.toHaveBeenCalled()
   })
 })
 
