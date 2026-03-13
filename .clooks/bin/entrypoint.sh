@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# clooks entrypoint: project
+# Do not copy this file to ~/.clooks/bin/ — use `clooks init --global` instead.
+
 # Bypass: allow disabling all Clooks processing via environment variable.
 if [ "${SKIP_CLOOKS:-}" = "true" ]; then
   exit 0
