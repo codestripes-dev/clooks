@@ -1,3 +1,8 @@
+output:
+  - meta
+  - summary
+  - failure
+
 pre-commit:
   parallel: true
   commands:
@@ -9,5 +14,11 @@ pre-commit:
       glob: "*.{ts,json,mjs}"
       run: bunx prettier --write {staged_files}
       stage_fixed: true
+    typecheck:
+      run: bun run typecheck
     coverage:
-      run: bun test --coverage src/
+      run: bun run test:coverage
+    e2e:
+      run: bun run test:e2e
+    lockfile-up-to-date:
+      run: bun install --frozen-lockfile --ignore-scripts
