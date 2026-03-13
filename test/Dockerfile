@@ -15,7 +15,7 @@ WORKDIR /app
 # Copy package files and install deps as testuser (so node_modules is owned by them)
 COPY --chown=testuser:testuser package.json bun.lock ./
 USER testuser
-RUN bun install --frozen-lockfile
+RUN bun install --frozen-lockfile --ignore-scripts
 
 # Copy entrypoint script
 USER root
