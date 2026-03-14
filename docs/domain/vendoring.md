@@ -80,8 +80,11 @@ A **multi-hook pack** is a GitHub repository that contains a `clooks-pack.json` 
 
 ### `clooks-pack.json` manifest format
 
+The JSON Schema is at `clooks-pack.schema.json` in the repo root. Hook authors can reference it with `"$schema": "https://clooks.cc/clooks-pack.schema.json"` for editor validation.
+
 ```json
 {
+  "$schema": "https://clooks.cc/clooks-pack.schema.json",
   "version": 1,
   "name": "security-hooks",
   "description": "Safety and compliance hooks for AI coding agents",

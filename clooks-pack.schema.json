@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://clooks.cc/clooks-pack.schema.json",
+  "title": "clooks-pack.json",
+  "description": "Manifest file for a Clooks multi-hook pack. Place at the root of a GitHub repository to enable `clooks add <repo-url>`.",
+  "type": "object",
+  "required": ["version", "name", "hooks"],
+  "additionalProperties": true,
+  "properties": {
+    "version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version. Must be 1."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Display name for the hook pack."
+    },
+    "description": {
+      "type": "string",
+      "description": "Short description of the pack."
+    },
+    "author": {
+      "type": "string",
+      "description": "Pack author (e.g., GitHub username)."
+    },
+    "license": {
+      "type": "string",
+      "description": "SPDX license identifier."
+    },
+    "repository": {
+      "type": "string",
+      "description": "Repository URL."
+    },
+    "hooks": {
+      "type": "object",
+      "minProperties": 1,
+      "description": "Map of hook names to hook descriptors. At least one hook is required.",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9-]*$",
+        "not": {
+          "enum": [
+            "PreToolUse",
+            "PostToolUse",
+            "UserPromptSubmit",
+            "SessionStart",
+            "SessionEnd",
+            "Stop",
+            "SubagentStop",
+            "SubagentStart",
+            "InstructionsLoaded",
+            "PostToolUseFailure",
+            "Notification",
+            "PermissionRequest",
+            "ConfigChange",
+            "WorktreeCreate",
+            "WorktreeRemove",
+            "PreCompact",
+            "TeammateIdle",
+            "TaskCompleted"
+          ]
+        }
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/hook"
+      }
+    }
+  },
+  "$defs": {
+    "hook": {
+      "type": "object",
+      "required": ["path", "description"],
+      "additionalProperties": true,
+      "properties": {
+        "path": {
+          "type": "string",
+          "pattern": "\\.(ts|js)$",
+          "description": "Relative path to the hook file within the repository. Must end with .ts or .js."
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Short description shown in the TUI picker during install."
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "PreToolUse",
+              "PostToolUse",
+              "UserPromptSubmit",
+              "SessionStart",
+              "SessionEnd",
+              "Stop",
+              "SubagentStop",
+              "SubagentStart",
+              "InstructionsLoaded",
+              "PostToolUseFailure",
+              "Notification",
+              "PermissionRequest",
+              "ConfigChange",
+              "WorktreeCreate",
+              "WorktreeRemove",
+              "PreCompact",
+              "TeammateIdle",
+              "TaskCompleted"
+            ]
+          },
+          "description": "Events this hook handles. Used for display; not enforced at runtime."
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "description": "Lowercase tags for categorization."
+        },
+        "configDefaults": {
+          "type": "object",
+          "description": "Default configuration values. Shown during install; the hook's own meta.config is authoritative at runtime."
+        }
+      }
+    }
+  }
+}
