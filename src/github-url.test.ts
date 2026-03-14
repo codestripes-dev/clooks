@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test'
-import { parseGitHubBlobUrl, toRawUrl } from './github-url.js'
+import { parseGitHubBlobUrl, toRawUrl, classifyGitHubInput } from './github-url.js'
 import type { GitHubBlobInfo } from './github-url.js'
 
 describe('parseGitHubBlobUrl', () => {
@@ -212,5 +212,76 @@ describe('toRawUrl', () => {
     expect(toRawUrl(info)).toBe(
       'https://raw.githubusercontent.com/someuser/hooks/main/lint-guard.ts',
     )
+  })
+})
+
+describe('classifyGitHubInput', () => {
+  test('blob URL is classified as blob with correct GitHubBlobInfo', () => {
+    const result = classifyGitHubInput('https://github.com/someuser/hooks/blob/main/lint-guard.ts')
+    expect(result.type).toBe('blob')
+    if (result.type === 'blob') {
+      expect(result.info.owner).toBe('someuser')
+      expect(result.info.repo).toBe('hooks')
+      expect(result.info.ref).toBe('main')
+      expect(result.info.path).toBe('lint-guard.ts')
+      expect(result.info.filename).toBe('lint-guard.ts')
+      expect(result.info.filenameStem).toBe('lint-guard')
+    }
+  })
+
+  test('repo URL is classified as repo with correct owner/repo', () => {
+    const result = classifyGitHubInput('https://github.com/someuser/security-hooks')
+    expect(result.type).toBe('repo')
+    if (result.type === 'repo') {
+      expect(result.info.owner).toBe('someuser')
+      expect(result.info.repo).toBe('security-hooks')
+    }
+  })
+
+  test('repo URL with trailing path is classified as repo', () => {
+    const result = classifyGitHubInput('https://github.com/someuser/security-hooks/tree/main')
+    expect(result.type).toBe('repo')
+    if (result.type === 'repo') {
+      expect(result.info.owner).toBe('someuser')
+      expect(result.info.repo).toBe('security-hooks')
+    }
+  })
+
+  test('shorthand owner/repo is classified as repo with expanded URL', () => {
+    const result = classifyGitHubInput('someuser/security-hooks')
+    expect(result.type).toBe('repo')
+    if (result.type === 'repo') {
+      expect(result.info.owner).toBe('someuser')
+      expect(result.info.repo).toBe('security-hooks')
+      expect(result.info.url).toBe('https://github.com/someuser/security-hooks')
+    }
+  })
+
+  test('invalid input (not a URL, not a shorthand) throws', () => {
+    expect(() => classifyGitHubInput('not-valid-at-all')).toThrow(
+      'Expected a GitHub URL or owner/repo shorthand',
+    )
+  })
+
+  test('non-GitHub URL throws', () => {
+    expect(() => classifyGitHubInput('https://gitlab.com/someuser/security-hooks')).toThrow(
+      'Expected a GitHub URL or owner/repo shorthand',
+    )
+  })
+
+  test('shorthand with leading dot throws', () => {
+    expect(() => classifyGitHubInput('./local/path')).toThrow(
+      'Expected a GitHub URL or owner/repo shorthand',
+    )
+  })
+
+  test('repo URL with trailing slash is handled correctly', () => {
+    const result = classifyGitHubInput('https://github.com/someuser/security-hooks/')
+    expect(result.type).toBe('repo')
+    if (result.type === 'repo') {
+      expect(result.info.owner).toBe('someuser')
+      expect(result.info.repo).toBe('security-hooks')
+      expect(result.info.url).toBe('https://github.com/someuser/security-hooks')
+    }
   })
 })
