@@ -1,6 +1,7 @@
 import { Command } from 'commander'
-import { mkdirSync, writeFileSync, readFileSync, unlinkSync } from 'fs'
+import { mkdirSync, writeFileSync, readFileSync, unlinkSync, existsSync } from 'fs'
 import { join, extname } from 'path'
+import { getHomeDir } from '../platform.js'
 import { getCtx } from '../tui/context.js'
 import { jsonSuccess } from '../tui/json-envelope.js'
 import {
@@ -15,9 +16,10 @@ import { withSpinner } from '../tui/spinner.js'
 import { classifyGitHubInput, toRawUrl } from '../github-url.js'
 import type { GitHubBlobInfo, GitHubRepoInfo } from '../github-url.js'
 import { loadConfig } from '../config/index.js'
+import type { LoadConfigResult } from '../config/index.js'
 import { validateHookExport } from '../loader.js'
 import { fetchManifest } from '../manifest.js'
-import { promptMultiSelect } from '../tui/prompts.js'
+import { promptMultiSelect, promptSelect } from '../tui/prompts.js'
 import { isNonInteractive } from '../tui/prompts.js'
 import type { HookName } from '../types/branded.js'
 import type { OutputContext } from '../tui/context.js'
@@ -27,17 +29,20 @@ export function createAddCommand(): Command {
     .description('Download and install a hook from a GitHub URL')
     .argument('<url>', 'GitHub URL (blob URL for single file, repo URL for hook pack)')
     .option('--all', 'Install all hooks from a pack without prompting')
+    .option('--global', 'Install hooks globally (~/.clooks/)')
+    .option('--project', 'Install hooks for this project (.clooks/)')
     .action(async (url: string, opts: Record<string, unknown>, cmd: Command) => {
       const ctx = getCtx(cmd)
       printIntro(ctx, 'clooks add')
 
       try {
         const input = classifyGitHubInput(url)
+        const scopeRoot = await resolveScopeRoot(ctx, opts)
 
         if (input.type === 'blob') {
-          await handleBlobUrl(ctx, input.info, opts)
+          await handleBlobUrl(ctx, input.info, opts, scopeRoot)
         } else {
-          await handleRepoUrl(ctx, input.info, opts)
+          await handleRepoUrl(ctx, input.info, opts, scopeRoot)
         }
 
         printOutro(ctx, 'Done.')
@@ -49,18 +54,72 @@ export function createAddCommand(): Command {
     })
 }
 
+async function resolveScopeRoot(
+  ctx: OutputContext,
+  opts: Record<string, unknown>,
+): Promise<string> {
+  if (opts.global && opts.project) {
+    throw new Error('Cannot use both --global and --project flags.')
+  }
+  if (opts.global) {
+    return getHomeDir()
+  }
+  if (opts.project) {
+    return process.cwd()
+  }
+
+  // No explicit flag — check if project config exists
+  const projectConfigPath = join(process.cwd(), '.clooks', 'clooks.yml')
+  if (existsSync(projectConfigPath)) {
+    // Prompt the user
+    const scope = await promptSelect(ctx, {
+      message: 'Install scope:',
+      options: [
+        { value: 'project' as const, label: 'This project (.clooks/)', hint: 'Committed to git' },
+        {
+          value: 'global' as const,
+          label: 'Global (~/.clooks/)',
+          hint: 'Available to all projects',
+        },
+      ],
+      defaultValue: 'project' as const,
+    })
+    return scope === 'global' ? getHomeDir() : process.cwd()
+  }
+
+  // No project config — default to global
+  return getHomeDir()
+}
+
+async function loadOrCreateConfig(
+  ctx: OutputContext,
+  scopeRoot: string,
+): Promise<LoadConfigResult> {
+  const homeRoot = getHomeDir()
+  let configResult = await loadConfig(scopeRoot, { homeRoot })
+
+  if (configResult === null) {
+    const configDir = join(scopeRoot, '.clooks')
+    mkdirSync(configDir, { recursive: true })
+    writeFileSync(join(configDir, 'clooks.yml'), 'version: "1.0.0"\n')
+    configResult = await loadConfig(scopeRoot, { homeRoot })
+    if (configResult === null) {
+      printError(ctx, 'add', 'Failed to initialize config.')
+      process.exit(1)
+    }
+  }
+
+  return configResult
+}
+
 async function handleBlobUrl(
   ctx: OutputContext,
   info: GitHubBlobInfo,
   _opts: Record<string, unknown>,
+  scopeRoot: string,
 ): Promise<void> {
   // Step 1 — Load config
-  const configResult = await loadConfig(process.cwd())
-  if (configResult === null || !configResult.hasProjectConfig) {
-    printError(ctx, 'add', 'No clooks project found. Run `clooks init` first.')
-    process.exit(1)
-  }
-  const { config } = configResult
+  const { config } = await loadOrCreateConfig(ctx, scopeRoot)
 
   // Step 2 — Check conflicts
   const hookKey = info.filenameStem
@@ -89,7 +148,7 @@ async function handleBlobUrl(
   })
 
   // Step 4 — Write to vendor directory
-  const vendorDir = join(process.cwd(), '.clooks', 'vendor', 'github.com', info.owner, info.repo)
+  const vendorDir = join(scopeRoot, '.clooks', 'vendor', 'github.com', info.owner, info.repo)
   mkdirSync(vendorDir, { recursive: true })
   const absolutePath = join(vendorDir, info.filename)
   writeFileSync(absolutePath, content)
@@ -108,7 +167,7 @@ async function handleBlobUrl(
   }
 
   // Step 6 — Register in clooks.yml with SHORT ADDRESS
-  const configPath = join(process.cwd(), '.clooks', 'clooks.yml')
+  const configPath = join(scopeRoot, '.clooks', 'clooks.yml')
   const shortAddress = `${info.owner}/${info.repo}:${info.filenameStem}`
   const existingConfig = readFileSync(configPath, 'utf-8')
   const appendContent = `\n${hookKey}:\n  uses: ${shortAddress}\n`
@@ -134,14 +193,10 @@ async function handleRepoUrl(
   ctx: OutputContext,
   info: GitHubRepoInfo,
   opts: Record<string, unknown>,
+  scopeRoot: string,
 ): Promise<void> {
   // Step 1 — Load config
-  const configResult = await loadConfig(process.cwd())
-  if (configResult === null || !configResult.hasProjectConfig) {
-    printError(ctx, 'add', 'No clooks project found. Run `clooks init` first.')
-    process.exit(1)
-  }
-  const { config } = configResult
+  const { config } = await loadOrCreateConfig(ctx, scopeRoot)
 
   // Step 2 — Fetch manifest
   const manifest = await withSpinner(ctx, { start: 'Fetching pack manifest...' }, async () => {
@@ -239,7 +294,7 @@ async function handleRepoUrl(
   }
 
   // Step 5 — Write vendor files
-  const vendorDir = join(process.cwd(), '.clooks', 'vendor', 'github.com', info.owner, info.repo)
+  const vendorDir = join(scopeRoot, '.clooks', 'vendor', 'github.com', info.owner, info.repo)
   mkdirSync(vendorDir, { recursive: true })
 
   for (const d of downloaded) {
@@ -263,7 +318,7 @@ async function handleRepoUrl(
   }
 
   // Step 7 — Resolve name conflicts and register
-  const configPath = join(process.cwd(), '.clooks', 'clooks.yml')
+  const configPath = join(scopeRoot, '.clooks', 'clooks.yml')
   let configContent = readFileSync(configPath, 'utf-8')
   const installed: { name: string; address: string }[] = []
   const skipped: string[] = []

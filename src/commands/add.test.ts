@@ -29,6 +29,18 @@ mock.module('@clack/prompts', () => ({
   cancel: mock(),
 }))
 
+// Mock platform.js so tests can control what getHomeDir() returns
+// without touching the real home directory.
+let _mockHomeDirValue: string | null = null
+mock.module('../platform.js', () => ({
+  getHomeDir: () => {
+    if (_mockHomeDirValue === null) {
+      throw new Error('Test error: _mockHomeDirValue not set. Call setMockHomeDir() first.')
+    }
+    return _mockHomeDirValue
+  },
+}))
+
 // Import after mocking
 import { createAddCommand } from './add.js'
 
@@ -56,11 +68,16 @@ const VALID_MANIFEST = {
 }
 
 let tempDir: string
+let fakeHomeDir: string
 let originalCwd: () => string
 let exitSpy: ReturnType<typeof spyOn>
 let stdoutSpy: ReturnType<typeof spyOn>
 let originalFetch: typeof globalThis.fetch
 let originalIsTTY: boolean | undefined
+
+function setMockHomeDir(dir: string) {
+  _mockHomeDirValue = dir
+}
 
 function createTestProgram() {
   const program = new Command()
@@ -161,6 +178,12 @@ function buildPackFetchMap(
 
 beforeEach(() => {
   tempDir = mkdtempSync(join(tmpdir(), 'clooks-add-test-'))
+  // Set up a fake home dir inside the isolated tempDir so getHomeDir() never
+  // touches the real ~/.clooks directory.
+  fakeHomeDir = join(tempDir, 'home')
+  mkdirSync(fakeHomeDir, { recursive: true })
+  setMockHomeDir(fakeHomeDir)
+
   originalCwd = process.cwd
   process.cwd = () => tempDir
   exitSpy = spyOn(process, 'exit').mockImplementation((() => {
@@ -176,6 +199,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  _mockHomeDirValue = null
   process.cwd = originalCwd
   exitSpy.mockRestore()
   stdoutSpy.mockRestore()
@@ -297,27 +321,148 @@ describe('clooks add (blob URL)', () => {
     expect(configContent).toBe('version: "1.0.0"\n')
   })
 
-  test('no project: missing project clooks.yml causes error (no home config either)', async () => {
-    // Don't set up clooks.yml; also ensure process.cwd is an isolated dir with no parent config
-    // The tempDir has no .clooks/clooks.yml, so hasProjectConfig will be false
-    // We also need to ensure no home config bleeds in — patch homedir via env
-    const origHome = process.env.HOME
-    process.env.HOME = join(tempDir, 'fakehome')
-    mkdirSync(join(tempDir, 'fakehome'), { recursive: true })
-
+  test('no project config: defaults to global, creates config and installs hook', async () => {
+    // Don't set up project clooks.yml — no project config means default to global.
+    // getHomeDir() is mocked to return fakeHomeDir (set in beforeEach).
     mockFetchOk(VALID_HOOK_CONTENT)
 
     const program = createTestProgram()
-    try {
-      await program.parseAsync(['add', TEST_GITHUB_URL], { from: 'user' }).catch(() => {})
-      expect(exitSpy).toHaveBeenCalledWith(1)
-    } finally {
-      if (origHome === undefined) {
-        delete process.env.HOME
-      } else {
-        process.env.HOME = origHome
-      }
-    }
+    await program.parseAsync(['add', TEST_GITHUB_URL], { from: 'user' })
+
+    // Config should have been auto-created at global (fakeHomeDir) location
+    const globalConfigPath = join(fakeHomeDir, '.clooks', 'clooks.yml')
+    expect(existsSync(globalConfigPath)).toBe(true)
+    const configContent = readFileSync(globalConfigPath, 'utf-8')
+    expect(configContent).toContain('my-hook:')
+    expect(configContent).toContain('uses: testowner/testrepo:my-hook')
+
+    // Vendor file should be at global location
+    const vendorPath = join(
+      fakeHomeDir,
+      '.clooks',
+      'vendor',
+      'github.com',
+      'testowner',
+      'testrepo',
+      'my-hook.ts',
+    )
+    expect(existsSync(vendorPath)).toBe(true)
+  })
+
+  test('--global flag: vendor file written to ~/.clooks/vendor/, config updated at ~/.clooks/clooks.yml', async () => {
+    // Pre-create a global config so we can verify --global targets it
+    mkdirSync(join(fakeHomeDir, '.clooks'), { recursive: true })
+    writeFileSync(join(fakeHomeDir, '.clooks', 'clooks.yml'), 'version: "1.0.0"\n')
+
+    // Also set up a project config to confirm --global overrides it
+    setupClooksYml()
+    mockFetchOk(VALID_HOOK_CONTENT)
+
+    const program = createTestProgram()
+    await program.parseAsync(['add', '--global', TEST_GITHUB_URL], { from: 'user' })
+
+    // Vendor file should be at global location (fakeHomeDir)
+    const vendorPath = join(
+      fakeHomeDir,
+      '.clooks',
+      'vendor',
+      'github.com',
+      'testowner',
+      'testrepo',
+      'my-hook.ts',
+    )
+    expect(existsSync(vendorPath)).toBe(true)
+
+    // Config at global location should have the hook
+    const globalConfigContent = readFileSync(join(fakeHomeDir, '.clooks', 'clooks.yml'), 'utf-8')
+    expect(globalConfigContent).toContain('my-hook:')
+    expect(globalConfigContent).toContain('uses: testowner/testrepo:my-hook')
+
+    // Project config should be unchanged
+    const projectConfigContent = readFileSync(join(tempDir, '.clooks', 'clooks.yml'), 'utf-8')
+    expect(projectConfigContent).toBe('version: "1.0.0"\n')
+  })
+
+  test('--global creates config if it does not exist', async () => {
+    // No ~/.clooks/clooks.yml created — getHomeDir() mocked to fakeHomeDir
+    mockFetchOk(VALID_HOOK_CONTENT)
+
+    const program = createTestProgram()
+    await program.parseAsync(['add', '--global', TEST_GITHUB_URL], { from: 'user' })
+
+    const globalConfigPath = join(fakeHomeDir, '.clooks', 'clooks.yml')
+    expect(existsSync(globalConfigPath)).toBe(true)
+    const configContent = readFileSync(globalConfigPath, 'utf-8')
+    expect(configContent).toContain('my-hook:')
+    expect(configContent).toContain('uses: testowner/testrepo:my-hook')
+  })
+
+  test('--project flag: vendor file written to .clooks/vendor/, config updated at .clooks/clooks.yml', async () => {
+    setupClooksYml()
+    mockFetchOk(VALID_HOOK_CONTENT)
+
+    const program = createTestProgram()
+    await program.parseAsync(['add', '--project', TEST_GITHUB_URL], { from: 'user' })
+
+    const vendorPath = join(
+      tempDir,
+      '.clooks',
+      'vendor',
+      'github.com',
+      'testowner',
+      'testrepo',
+      'my-hook.ts',
+    )
+    expect(existsSync(vendorPath)).toBe(true)
+
+    const configContent = readFileSync(join(tempDir, '.clooks', 'clooks.yml'), 'utf-8')
+    expect(configContent).toContain('my-hook:')
+    expect(configContent).toContain('uses: testowner/testrepo:my-hook')
+  })
+
+  test('--global and --project together: error (mutually exclusive)', async () => {
+    setupClooksYml()
+    mockFetchOk(VALID_HOOK_CONTENT)
+
+    // Use JSON mode so the error message is captured via stdout
+    const program = createTestProgram()
+    await program
+      .parseAsync(['--json', 'add', '--global', '--project', TEST_GITHUB_URL], { from: 'user' })
+      .catch(() => {})
+
+    expect(exitSpy).toHaveBeenCalledWith(1)
+    const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
+    expect(output).toContain('Cannot use both')
+  })
+
+  test('neither flag with existing project config: non-interactive defaults to project', async () => {
+    // isTTY=false from beforeEach — non-interactive mode
+    // promptSelect will use defaultValue='project' and return 'project'
+    setupClooksYml()
+    mockFetchOk(VALID_HOOK_CONTENT)
+
+    const program = createTestProgram()
+    await program.parseAsync(['add', TEST_GITHUB_URL], { from: 'user' })
+
+    // Should install to project (tempDir), not global (fakeHomeDir)
+    const vendorPath = join(
+      tempDir,
+      '.clooks',
+      'vendor',
+      'github.com',
+      'testowner',
+      'testrepo',
+      'my-hook.ts',
+    )
+    expect(existsSync(vendorPath)).toBe(true)
+
+    const configContent = readFileSync(join(tempDir, '.clooks', 'clooks.yml'), 'utf-8')
+    expect(configContent).toContain('my-hook:')
+    expect(configContent).toContain('uses: testowner/testrepo:my-hook')
+
+    // Global config should NOT have the hook
+    const globalConfigPath = join(fakeHomeDir, '.clooks', 'clooks.yml')
+    expect(existsSync(globalConfigPath)).toBe(false)
   })
 
   test('JSON mode success: correct envelope structure with address field', async () => {
