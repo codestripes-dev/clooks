@@ -4,7 +4,7 @@ A hook runtime for AI coding agents. Write hooks in TypeScript, run them safely,
 
 Starting with [Claude Code](https://docs.anthropic.com/en/docs/claude-code), with cross-agent support planned for Cursor, Windsurf, and VS Code Copilot.
 
-> **Status:** Clooks is in active development. The core engine, CLI, config system, and hook authoring model are functional with comprehensive test coverage. The marketplace ecosystem (`clooks add`, `clooks remove`, `clooks update`, etc.) is designed but not yet implemented. `clooks test` and `clooks register` are stubbed. Mac and Linux only.
+> **Status:** Clooks is in active development. The core engine, CLI, config system, and hook authoring model are functional with comprehensive test coverage. `clooks add` is functional — install single hooks from blob URLs or multiple hooks from a pack repo. `clooks remove`, `clooks update`, and the marketplace registry are not yet implemented. `clooks test` and `clooks register` are stubbed. Mac and Linux only.
 
 ## Why Clooks
 
@@ -33,6 +33,12 @@ clooks new-hook --name my-hook
 # Edit .clooks/hooks/my-hook.ts, then register it:
 # Add "my-hook: {}" to .clooks/clooks.yml
 
+# Install a hook from GitHub
+clooks add https://github.com/someuser/hooks/blob/main/lint-guard.ts
+
+# Install multiple hooks from a pack
+clooks add https://github.com/someuser/security-hooks
+
 # Restart Claude Code for hooks to take effect
 ```
 
@@ -46,7 +52,7 @@ project/
 │   ├── bin/entrypoint.sh     # Bash entrypoint (registered in settings.json)
 │   ├── hooks/
 │   │   └── types.d.ts        # TypeScript types for hook authoring
-│   └── vendor/               # Marketplace hooks (future)
+│   └── vendor/               # Vendored hooks (installed via `clooks add`)
 ├── .claude/
 │   └── settings.json         # Claude Code hook registration (auto-managed)
 └── .gitignore                # Updated with Clooks entries
@@ -534,6 +540,10 @@ If the entire binary times out, the entrypoint **allows the action** rather than
 | `clooks config --resolved` | Show full config with provenance annotations |
 | `clooks types` | Extract/refresh `types.d.ts` for hook authoring |
 | `clooks types --global` | Extract types to `~/.clooks/hooks/` |
+| `clooks add <url>` | Install hooks from GitHub (blob URL for single file, repo URL for pack) |
+| `clooks add <url> --all` | Install all hooks from a pack without prompting |
+| `clooks add <url> --global` | Install hooks globally to `~/.clooks/` |
+| `clooks add <url> --project` | Install hooks to project `.clooks/` (default) |
 | `clooks register` | Register a local hook *(stub, not yet implemented)* |
 | `clooks test` | Test hooks with synthetic events *(stub, not yet implemented)* |
 | `clooks --version` | Print version |

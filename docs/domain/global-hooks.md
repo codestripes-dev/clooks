@@ -12,13 +12,15 @@ Global hooks live in `~/.clooks/` and are loaded by the engine alongside project
 ~/.clooks/
   clooks.yml          # home config — hooks, events, global settings
   hooks/              # home hook source files
-  vendor/             # home vendor hooks (marketplace)
+  vendor/             # home vendor hooks (installed via clooks add --global)
   bin/
     clooks            # compiled binary (shared across all projects)
   failures/           # failure state for home-only projects
     <hash>.json       # SHA-256(projectRoot)[0:12] → failure state
   .global-entrypoint-active   # flag file for entrypoint dedup
 ```
+
+Global hooks installed via `clooks add --global` use the same short address `uses:` format as project hooks (e.g., `uses: someuser/security-hooks:secret-scanner`). They resolve relative to `~/.clooks/` via origin-aware path construction in `resolveHookPath()`.
 
 ## Config Scoping Rules
 

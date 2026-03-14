@@ -114,6 +114,10 @@ Two suppression mechanisms with different scope:
 
 Commands that need custom cleanup on cancellation can catch `CancelError` in their own try/catch before it reaches the router.
 
+### `promptMultiSelect`
+
+`promptMultiSelect(ctx, options)` wraps `@clack/prompts`' `multiselect()`. In non-interactive mode (`isNonInteractive(ctx)`), returns all options (full list as the default). Callers that need different non-interactive behavior (e.g., `clooks add` requiring `--all` in CI) must add their own guard before calling the picker.
+
 ## JSON Output Envelope
 
 Commands that support `--json` write a single JSON line to stdout:
@@ -153,25 +157,38 @@ Always overwrites unconditionally (no version check). With `--global`, writes to
 
 ### `clooks add <url>`
 
-Downloads a single hook file from a GitHub blob URL and registers it in the project. Requires one positional argument: a GitHub blob URL of the form `https://github.com/<owner>/<repo>/blob/<ref>/<filename>`. Only `.ts` and `.js` files are accepted.
+Installs hooks from GitHub and registers them in the project. Accepts two URL forms:
 
-**Pipeline:**
+- **Blob URL** (`https://github.com/<owner>/<repo>/blob/<ref>/<filename>`) — single-file install. Only `.ts` and `.js` files are accepted.
+- **Repo URL** (`https://github.com/<owner>/<repo>`) — multi-hook pack install. Fetches `clooks-pack.json` manifest, presents a TUI multi-select picker, downloads selected hooks.
 
-1. Parse the GitHub blob URL via `parseGitHubBlobUrl()` — validates format, extracts `owner`, `repo`, `ref`, `filename`, and `filenameStem`.
-2. Load the project config via `loadConfig(cwd)` — verifies a `clooks init` has been run.
-3. Check for conflicts — if a hook with the same name (filename stem) already exists in `clooks.yml`, the command exits with an error.
-4. Fetch the raw file content from `raw.githubusercontent.com` via `fetch()`.
-5. Write the file to `.clooks/vendor/github.com/<owner>/<repo>/<filename>`.
-6. Import and validate the file via `validateHookExport()` — if validation fails, the file is deleted.
-7. Append the hook entry to `clooks.yml` with a path-like `uses:` value.
+**Flags:** `--all` (install all pack hooks without prompting), `--global` (install to `~/.clooks/`), `--project` (install to project `.clooks/`, default).
 
-**Error cases:** invalid URL, unsupported file extension, no project (not initialized), hook name conflict, HTTP 404 (file not found or private repo), other fetch failure, validation failure (missing `hook` export or `meta`).
+**Blob URL pipeline:**
 
-**TUI output:** spinner during download ("Downloading hook..."), success messages listing the hook name, vendor path, and confirmation that `clooks.yml` was updated, then an outro.
+1. Parse via `parseGitHubBlobUrl()` — extracts `owner`, `repo`, `ref`, `filename`, `filenameStem`.
+2. Load config via `loadConfig(scope.root)` — verifies `clooks init` has been run.
+3. Check for name conflicts — exits with error if the stem already exists in `clooks.yml`.
+4. Fetch raw file from `raw.githubusercontent.com`.
+5. Write to `.clooks/vendor/github.com/<owner>/<repo>/<filename>`.
+6. Validate via `validateHookExport()` — deletes file on failure.
+7. Append hook entry to `clooks.yml` with short address `uses:` value (`owner/repo:hook-name`).
 
-**`--json` support:** On success, writes `{ ok: true, command: "add", data: { name, path, url } }`. On error, writes `{ ok: false, command: "add", error: "<message>" }`.
+**Repo URL (pack) pipeline:**
 
-**Key design choice:** writes a path-like `uses:` value (e.g., `./.clooks/vendor/github.com/owner/repo/hook.ts`) rather than a hook name. This routes through `isPathLike` in `resolve.ts`, which skips convention rules and `meta.name` validation.
+1. Detect repo URL via `isGitHubRepoUrl()`.
+2. Fetch `clooks-pack.json` manifest from `raw.githubusercontent.com/<owner>/<repo>/HEAD/clooks-pack.json`.
+3. Validate manifest via `validateManifest()` in `src/manifest.ts`.
+4. Non-interactive guard: if stdin is not a TTY and `--all` is not set, list available hooks and exit 0.
+5. Present `promptMultiSelect` picker (or select all if `--all`).
+6. For each selected hook: fetch, write, validate (soft — warns but continues on failure), register.
+7. Append each installed hook to `clooks.yml` with short address `uses:` value.
+
+**Error cases:** invalid/unrecognized URL, unsupported file extension, not initialized, HTTP 404, fetch failure, manifest missing or invalid, all hooks skipped due to conflicts.
+
+**TUI output:** spinner during fetch, multi-select picker for packs, per-hook success/warning messages, outro with summary.
+
+**`--json` support:** On success, `{ ok: true, command: "add", data: { name, address, url } }` (blob) or `{ ok: true, command: "add", data: { installed: string[] } }` (pack). On error, `{ ok: false, command: "add", error: "<message>" }`.
 
 ### `clooks new-hook`
 
@@ -189,11 +206,13 @@ Refuses to overwrite an existing file (safe by default). Does NOT auto-register 
 - `src/settings.ts` — Settings.json management utility (register/unregister Clooks in `.claude/settings.json`).
 - `src/commands/types.ts` — `createTypesCommand()` — extracts embedded .d.ts type declarations (`clooks types`, `clooks types --global`).
 - `src/commands/new-hook.ts` — `createNewHookCommand()` — interactive hook scaffolding (`clooks new-hook`).
-- `src/commands/add.ts` — `createAddCommand()` — GitHub URL download and registration (`clooks add`).
+- `src/commands/add.ts` — `createAddCommand()` — GitHub URL download and registration (`clooks add`), both blob URL and repo URL flows.
+- `src/manifest.ts` — `validateManifest()`, `ClooksPackManifest` type — pack manifest validation.
+- `src/platform.ts` — platform/scope helpers used by `clooks add` (`--global`/`--project`).
 - `src/commands/stubs.ts` — `registerStubs()` — placeholder commands for register, test.
 - `src/tui/context.ts` — `OutputContext` type and `getCtx(cmd)` helper.
 - `src/tui/json-envelope.ts` — `JsonEnvelope` type, `jsonSuccess()`, `jsonError()`.
-- `src/tui/prompts.ts` — `CancelError`, `withCancel`, `promptText`, `promptSelect`, `promptConfirm`.
+- `src/tui/prompts.ts` — `CancelError`, `withCancel`, `promptText`, `promptSelect`, `promptConfirm`, `promptMultiSelect`.
 - `src/tui/output.ts` — `@clack/prompts` log wrappers with JSON suppression.
 - `src/tui/spinner.ts` — `withSpinner` wrapper with JSON suppression.
 - `src/cli.test.ts` — KNOWN_COMMANDS sync test.

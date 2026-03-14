@@ -77,6 +77,7 @@ The 27 E2E test files are organized by the domain they exercise, not by implemen
 - `stdin-advanced` — stdin piping edge cases
 - `environment-edge-cases` — unusual environment configurations
 - `vendoring` — `clooks add` pipeline: URL parsing, download, vendor directory layout, validation, `clooks.yml` registration, conflict detection
+- `short-address` — short address resolution, backward compatibility with path-like hooks
 
 ### Inline vs fixture hooks
 

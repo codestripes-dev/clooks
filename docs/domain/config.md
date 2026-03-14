@@ -99,6 +99,7 @@ Hook paths are resolved using a two-step process: first determine the **resoluti
 **Step 1 — Resolution key:**
 
 - If `uses` is set and path-like (`./`, `../`, `/`, or bare `..`) — use `uses` as a direct file path (relative to the origin root). The path must be relative — absolute paths and path traversal sequences (`..`) are rejected at resolution time with a descriptive error.
+- If `uses` is set and is a short address (`owner/repo:hook-name`) — resolve deterministically to the vendor file path (see below).
 - If `uses` is set and is a hook name — resolve using convention rules with `uses` as the key.
 - If `uses` is not set — resolve using convention rules with the YAML key as the key.
 
@@ -109,14 +110,21 @@ Hook paths are resolved using a two-step process: first determine the **resoluti
 
 Resolution does not check file existence. That is a loading concern handled by the engine.
 
-**Vendored hook example** — `clooks add` writes path-like `uses:` values pointing into `.clooks/vendor/`:
+**Short address resolution** — `isShortAddress(value)` in `resolve.ts` detects values matching `owner/repo:hook-name` (contains `:`, not path-like). The resolver splits on `:`, constructs `.clooks/vendor/github.com/<owner>/<repo>/<hook-name>.{ts,js}`, and uses `existsSync` to detect the extension. No cache needed — resolution is a pure function of the address string.
+
+**Vendored hook example** — `clooks add` writes short address `uses:` values (FEAT-0040+). Path-like values written by FEAT-0039 V0 remain fully supported via `isPathLike`.
 
 ```yaml
+# Short address (current — FEAT-0040+)
+lint-guard:
+  uses: someuser/hooks:lint-guard
+
+# Path-like (V0 legacy — still supported)
 lint-guard:
   uses: ./.clooks/vendor/github.com/someuser/hooks/lint-guard.ts
 ```
 
-This is the convention written by `clooks add`. The `./` prefix makes the value path-like, routing it through `isPathLike` in `resolve.ts` and skipping `meta.name` validation. See `docs/domain/vendoring.md` for the full vendoring workflow.
+Both formats skip `meta.name` validation (routed through `isShortAddress` or `isPathLike` before the convention rules are reached). See `docs/domain/vendoring.md` for the full vendoring workflow.
 
 ## Hook Aliases
 
