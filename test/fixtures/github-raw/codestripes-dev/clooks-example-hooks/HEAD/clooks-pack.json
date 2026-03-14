@@ -1,0 +1,65 @@
+{
+  "$schema": "https://clooks.cc/clooks-pack.schema.json",
+  "version": 1,
+  "name": "clooks-example-hooks",
+  "description": "Example hooks demonstrating Clooks patterns: guards, logging, input rewriting, and multi-event observers.",
+  "author": "joedegler",
+  "license": "MIT",
+  "hooks": {
+    "log-bash-commands": {
+      "path": "hooks/log-bash-commands.ts",
+      "description": "Logs every Bash command to .clooks/hook.log and allows it",
+      "events": ["PreToolUse"],
+      "tags": ["logging", "observability"]
+    },
+    "no-compound-commands": {
+      "path": "hooks/no-compound-commands.ts",
+      "description": "Blocks compound bash commands (&&, ||, ;) unless prefixed with ALLOW_COMPOUND=true",
+      "events": ["PreToolUse"],
+      "tags": ["guard", "safety"]
+    },
+    "no-bare-mv": {
+      "path": "hooks/no-bare-mv.ts",
+      "description": "Rewrites bare mv commands to git mv when git mv would succeed",
+      "events": ["PreToolUse"],
+      "tags": ["guard", "git", "rewrite"]
+    },
+    "debug-payload": {
+      "path": "hooks/debug-payload.ts",
+      "description": "Echoes hook payload into conversation context when CLOOKS_DEBUG=true",
+      "events": [
+        "PreToolUse",
+        "PostToolUse",
+        "UserPromptSubmit",
+        "SessionStart",
+        "SessionEnd",
+        "Stop",
+        "SubagentStop",
+        "SubagentStart",
+        "InstructionsLoaded",
+        "PostToolUseFailure",
+        "Notification",
+        "PermissionRequest",
+        "ConfigChange",
+        "WorktreeRemove",
+        "PreCompact",
+        "TeammateIdle",
+        "TaskCompleted"
+      ],
+      "tags": ["debug", "development"]
+    },
+    "tmux-notifications": {
+      "path": "hooks/tmux-notifications.ts",
+      "description": "Visual tmux indicators: red for attention, flash for prompts, reset on activity",
+      "events": [
+        "Notification",
+        "UserPromptSubmit",
+        "PostToolUse",
+        "PostToolUseFailure",
+        "SessionStart",
+        "SessionEnd"
+      ],
+      "tags": ["tmux", "notifications", "ui"]
+    }
+  }
+}

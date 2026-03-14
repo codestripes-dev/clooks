@@ -1,4 +1,5 @@
 import { isEventName } from './config/constants.js'
+import { getRawBaseUrl } from './github-url.js'
 
 const HOOK_NAME_PATTERN = /^[a-z][a-z0-9-]*$/
 
@@ -175,7 +176,7 @@ export function validateManifest(raw: unknown): Manifest {
 }
 
 export async function fetchManifest(owner: string, repo: string): Promise<Manifest> {
-  const url = `https://raw.githubusercontent.com/${owner}/${repo}/HEAD/clooks-pack.json`
+  const url = `${getRawBaseUrl()}/${owner}/${repo}/HEAD/clooks-pack.json`
   const res = await fetch(url)
 
   if (!res.ok) {
