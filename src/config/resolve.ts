@@ -14,6 +14,11 @@ export function isShortAddress(value: string): boolean {
   return /^[^/:]+\/[^/:]+:[^/:]+$/.test(value)
 }
 
+/** Extracts the hook-name portion from a short address (after the `:`). */
+export function shortAddressHookName(address: string): string {
+  return address.split(':')[1] ?? ''
+}
+
 export function resolveHookPath(
   hookName: HookName,
   entry: { uses?: string },

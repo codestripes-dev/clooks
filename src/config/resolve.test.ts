@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { resolveHookPath, isShortAddress } from './resolve.js'
+import { resolveHookPath, isShortAddress, shortAddressHookName } from './resolve.js'
 import { hn } from '../test-utils.js'
 import { join } from 'path'
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'fs'
@@ -112,6 +112,16 @@ describe('isShortAddress', () => {
 
   test('rejects colon without slash: noSlash:hook', () => {
     expect(isShortAddress('noSlash:hook')).toBe(false)
+  })
+})
+
+describe('shortAddressHookName', () => {
+  test('extracts hook name from valid short address', () => {
+    expect(shortAddressHookName('owner/repo:hook-name')).toBe('hook-name')
+  })
+
+  test('returns empty string for address without colon', () => {
+    expect(shortAddressHookName('no-colon')).toBe('')
   })
 })
 
