@@ -13,7 +13,7 @@ import {
   printInfo,
 } from '../tui/output.js'
 import { withSpinner } from '../tui/spinner.js'
-import { classifyGitHubInput, toRawUrl } from '../github-url.js'
+import { classifyGitHubInput, toRawUrl, getRawBaseUrl } from '../github-url.js'
 import type { GitHubBlobInfo, GitHubRepoInfo } from '../github-url.js'
 import { loadConfig } from '../config/index.js'
 import type { LoadConfigResult } from '../config/index.js'
@@ -260,7 +260,7 @@ async function handleRepoUrl(
       selectedNames.map(async (name): Promise<DownloadResult> => {
         const hook = manifest.hooks[name]
         if (!hook) return { ok: false, name, error: 'Hook not found in manifest' }
-        const rawUrl = `https://raw.githubusercontent.com/${info.owner}/${info.repo}/HEAD/${hook.path}`
+        const rawUrl = `${getRawBaseUrl()}/${info.owner}/${info.repo}/HEAD/${hook.path}`
         try {
           const res = await fetch(rawUrl)
           if (!res.ok) {

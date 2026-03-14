@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test'
-import { parseGitHubBlobUrl, toRawUrl, classifyGitHubInput } from './github-url.js'
+import { parseGitHubBlobUrl, toRawUrl, getRawBaseUrl, classifyGitHubInput } from './github-url.js'
 import type { GitHubBlobInfo } from './github-url.js'
 
 describe('parseGitHubBlobUrl', () => {
@@ -212,6 +212,32 @@ describe('toRawUrl', () => {
     expect(toRawUrl(info)).toBe(
       'https://raw.githubusercontent.com/someuser/hooks/main/lint-guard.ts',
     )
+  })
+})
+
+describe('getRawBaseUrl', () => {
+  test('returns default when CLOOKS_GITHUB_RAW_URL is not set', () => {
+    const prev = process.env.CLOOKS_GITHUB_RAW_URL
+    delete process.env.CLOOKS_GITHUB_RAW_URL
+    try {
+      expect(getRawBaseUrl()).toBe('https://raw.githubusercontent.com')
+    } finally {
+      if (prev !== undefined) process.env.CLOOKS_GITHUB_RAW_URL = prev
+    }
+  })
+
+  test('returns override when CLOOKS_GITHUB_RAW_URL is set', () => {
+    const prev = process.env.CLOOKS_GITHUB_RAW_URL
+    process.env.CLOOKS_GITHUB_RAW_URL = 'http://localhost:9999'
+    try {
+      expect(getRawBaseUrl()).toBe('http://localhost:9999')
+    } finally {
+      if (prev !== undefined) {
+        process.env.CLOOKS_GITHUB_RAW_URL = prev
+      } else {
+        delete process.env.CLOOKS_GITHUB_RAW_URL
+      }
+    }
   })
 })
 

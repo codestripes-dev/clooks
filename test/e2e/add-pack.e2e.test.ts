@@ -1,5 +1,6 @@
-import { describe, test, expect, afterEach } from 'bun:test'
+import { describe, test, expect, afterEach, beforeAll, afterAll } from 'bun:test'
 import { createSandbox, type Sandbox } from './helpers/sandbox'
+import { startFixtureServer, type FixtureServer } from './helpers/fixture-server'
 
 const REPO_URL = 'https://github.com/codestripes-dev/clooks-example-hooks'
 const SHORTHAND = 'codestripes-dev/clooks-example-hooks'
@@ -20,6 +21,15 @@ const HOOK_NAMES = [
 const NETWORK_TIMEOUT = 30_000
 
 let sandbox: Sandbox
+let fixtureServer: FixtureServer
+
+beforeAll(async () => {
+  fixtureServer = await startFixtureServer()
+})
+
+afterAll(() => {
+  fixtureServer?.stop()
+})
 
 afterEach(() => {
   sandbox?.cleanup()
@@ -32,6 +42,7 @@ describe('clooks add — pack from real GitHub repo', () => {
 
     const result = sandbox.run(['add', '--all', '--project', REPO_URL], {
       timeout: NETWORK_TIMEOUT,
+      env: { CLOOKS_GITHUB_RAW_URL: fixtureServer.url },
     })
     expect(result.exitCode).toBe(0)
 
@@ -53,6 +64,7 @@ describe('clooks add — pack from real GitHub repo', () => {
 
     const result = sandbox.run(['add', '--all', '--project', SHORTHAND], {
       timeout: NETWORK_TIMEOUT,
+      env: { CLOOKS_GITHUB_RAW_URL: fixtureServer.url },
     })
     expect(result.exitCode).toBe(0)
 
@@ -69,6 +81,7 @@ describe('clooks add — pack from real GitHub repo', () => {
 
     const result = sandbox.run(['add', '--all', '--global', REPO_URL], {
       timeout: NETWORK_TIMEOUT,
+      env: { CLOOKS_GITHUB_RAW_URL: fixtureServer.url },
     })
     expect(result.exitCode).toBe(0)
 
@@ -96,6 +109,7 @@ describe('clooks add — pack from real GitHub repo', () => {
     // First install
     const first = sandbox.run(['add', '--all', '--project', REPO_URL], {
       timeout: NETWORK_TIMEOUT,
+      env: { CLOOKS_GITHUB_RAW_URL: fixtureServer.url },
     })
     expect(first.exitCode).toBe(0)
 
@@ -103,6 +117,7 @@ describe('clooks add — pack from real GitHub repo', () => {
     // so it falls back to full address keys. Those should succeed.
     const second = sandbox.run(['add', '--all', '--project', REPO_URL], {
       timeout: NETWORK_TIMEOUT,
+      env: { CLOOKS_GITHUB_RAW_URL: fixtureServer.url },
     })
     expect(second.exitCode).toBe(0)
 
@@ -122,6 +137,7 @@ describe('clooks add — pack from real GitHub repo', () => {
 
     const result = sandbox.run(['--json', 'add', '--all', '--project', REPO_URL], {
       timeout: NETWORK_TIMEOUT,
+      env: { CLOOKS_GITHUB_RAW_URL: fixtureServer.url },
     })
     expect(result.exitCode).toBe(0)
 
@@ -141,6 +157,7 @@ describe('clooks add — single blob URL from real GitHub repo', () => {
 
     const result = sandbox.run(['add', '--project', BLOB_URL], {
       timeout: NETWORK_TIMEOUT,
+      env: { CLOOKS_GITHUB_RAW_URL: fixtureServer.url },
     })
     expect(result.exitCode).toBe(0)
 
@@ -162,6 +179,7 @@ describe('clooks add → engine run — installed hooks execute', () => {
     // Install the pack
     const addResult = sandbox.run(['add', '--all', '--project', REPO_URL], {
       timeout: NETWORK_TIMEOUT,
+      env: { CLOOKS_GITHUB_RAW_URL: fixtureServer.url },
     })
     expect(addResult.exitCode).toBe(0)
 
@@ -186,6 +204,7 @@ describe('clooks add → engine run — installed hooks execute', () => {
     // Install the pack
     const addResult = sandbox.run(['add', '--all', '--project', REPO_URL], {
       timeout: NETWORK_TIMEOUT,
+      env: { CLOOKS_GITHUB_RAW_URL: fixtureServer.url },
     })
     expect(addResult.exitCode).toBe(0)
 
@@ -208,6 +227,7 @@ describe('clooks add → engine run — installed hooks execute', () => {
 
     const addResult = sandbox.run(['add', '--all', '--project', REPO_URL], {
       timeout: NETWORK_TIMEOUT,
+      env: { CLOOKS_GITHUB_RAW_URL: fixtureServer.url },
     })
     expect(addResult.exitCode).toBe(0)
 
@@ -229,6 +249,7 @@ describe('clooks add → engine run — installed hooks execute', () => {
 
     const addResult = sandbox.run(['add', '--all', '--project', REPO_URL], {
       timeout: NETWORK_TIMEOUT,
+      env: { CLOOKS_GITHUB_RAW_URL: fixtureServer.url },
     })
     expect(addResult.exitCode).toBe(0)
 
@@ -244,5 +265,22 @@ describe('clooks add → engine run — installed hooks execute', () => {
     expect(engineResult.exitCode).toBe(0)
     // Empty stdout means all hooks skipped — tool use proceeds unmodified
     expect(engineResult.stdout.trim()).toBe('')
+  })
+})
+
+describe('clooks add — smoke test against real GitHub', () => {
+  test('--all --project works against real GitHub (network)', () => {
+    sandbox = createSandbox()
+    sandbox.writeConfig('version: "1.0.0"\n')
+
+    // No CLOOKS_GITHUB_RAW_URL override — hits real GitHub
+    const result = sandbox.run(['add', '--all', '--project', REPO_URL], {
+      timeout: NETWORK_TIMEOUT,
+    })
+    expect(result.exitCode).toBe(0)
+
+    for (const name of HOOK_NAMES) {
+      expect(sandbox.fileExists(`${VENDOR_BASE}/${name}.ts`)).toBe(true)
+    }
   })
 })

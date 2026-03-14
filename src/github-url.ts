@@ -177,8 +177,16 @@ export function classifyGitHubInput(input: string): GitHubInputType {
 }
 
 /**
+ * Returns the base URL for raw GitHub content.
+ * Reads `CLOOKS_GITHUB_RAW_URL` env var, defaulting to `https://raw.githubusercontent.com`.
+ */
+export function getRawBaseUrl(): string {
+  return process.env.CLOOKS_GITHUB_RAW_URL || 'https://raw.githubusercontent.com'
+}
+
+/**
  * Converts a GitHubBlobInfo to a raw.githubusercontent.com download URL.
  */
 export function toRawUrl(info: GitHubBlobInfo): string {
-  return `https://raw.githubusercontent.com/${info.owner}/${info.repo}/${info.ref}/${info.path}`
+  return `${getRawBaseUrl()}/${info.owner}/${info.repo}/${info.ref}/${info.path}`
 }
