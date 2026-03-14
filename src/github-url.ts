@@ -1,4 +1,4 @@
-// Utilities for parsing and converting GitHub blob URLs.
+// Utilities for parsing and converting GitHub blob URLs and repo URLs.
 
 export interface GitHubBlobInfo {
   owner: string // e.g., "someuser"
@@ -93,6 +93,87 @@ export function parseGitHubBlobUrl(url: string): GitHubBlobInfo {
   const filenameStem = dotIndex !== -1 ? filename.slice(0, dotIndex) : filename
 
   return { owner, repo, ref, path, filename, filenameStem }
+}
+
+export interface GitHubRepoInfo {
+  owner: string
+  repo: string
+  url: string // the full GitHub URL (expanded from shorthand if applicable)
+}
+
+export type GitHubInputType =
+  | { type: 'blob'; info: GitHubBlobInfo }
+  | { type: 'repo'; info: GitHubRepoInfo }
+
+/**
+ * Classifies a GitHub input string as either a blob URL or a repo URL.
+ *
+ * Accepts:
+ *   - Blob URLs: https://github.com/<owner>/<repo>/blob/<ref>/<path>
+ *   - Repo URLs: https://github.com/<owner>/<repo>[/...]
+ *   - Shorthand: owner/repo (no https://, exactly one slash, no leading dot, no colon)
+ *
+ * Throws a descriptive error if the input cannot be classified.
+ */
+export function classifyGitHubInput(input: string): GitHubInputType {
+  if (!input || typeof input !== 'string') {
+    throw new Error('Expected a GitHub URL or owner/repo shorthand')
+  }
+
+  // Check for owner/repo shorthand: no https://, exactly one slash, no leading dot, no colon
+  if (!input.startsWith('https://') && !input.startsWith('http://')) {
+    // Must match shorthand pattern: no leading dot, exactly one slash, no colon
+    if (input.startsWith('.')) {
+      throw new Error('Expected a GitHub URL or owner/repo shorthand')
+    }
+    if (input.includes(':')) {
+      throw new Error('Expected a GitHub URL or owner/repo shorthand')
+    }
+    const slashCount = (input.match(/\//g) || []).length
+    if (slashCount === 1) {
+      const [owner, repo] = input.split('/')
+      if (owner && repo) {
+        const url = `https://github.com/${owner}/${repo}`
+        return { type: 'repo', info: { owner, repo, url } }
+      }
+    }
+    throw new Error('Expected a GitHub URL or owner/repo shorthand')
+  }
+
+  // It's a URL — validate it's a GitHub HTTPS URL
+  let parsed: URL
+  try {
+    parsed = new URL(input)
+  } catch {
+    throw new Error('Expected a GitHub URL or owner/repo shorthand')
+  }
+
+  if (parsed.protocol !== 'https:') {
+    throw new Error('Only HTTPS GitHub URLs are supported')
+  }
+
+  if (parsed.hostname !== 'github.com') {
+    throw new Error('Expected a GitHub URL or owner/repo shorthand')
+  }
+
+  // Check for blob URL
+  if (parsed.pathname.includes('/blob/')) {
+    const info = parseGitHubBlobUrl(input)
+    return { type: 'blob', info }
+  }
+
+  // Repo URL: extract owner and repo from pathname
+  const segments = parsed.pathname.split('/').filter((s) => s !== '')
+  const owner = segments[0] ?? ''
+  const repo = segments[1] ?? ''
+
+  if (!owner || !repo) {
+    throw new Error('Expected a GitHub URL or owner/repo shorthand')
+  }
+
+  const url = `https://github.com/${owner}/${repo}`
+
+  return { type: 'repo', info: { owner, repo, url } }
 }
 
 /**

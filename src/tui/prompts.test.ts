@@ -4,6 +4,7 @@ import { describe, test, expect, mock, beforeEach, afterEach } from 'bun:test'
 const mockText = mock(() => Promise.resolve('typed-value'))
 const mockSelect = mock(() => Promise.resolve('selected'))
 const mockConfirm = mock(() => Promise.resolve(true))
+const mockMultiselect = mock(() => Promise.resolve(['a', 'b']))
 const mockIsCancel = mock(() => false)
 const mockCancel = mock()
 
@@ -11,6 +12,7 @@ mock.module('@clack/prompts', () => ({
   text: mockText,
   select: mockSelect,
   confirm: mockConfirm,
+  multiselect: mockMultiselect,
   isCancel: mockIsCancel,
   cancel: mockCancel,
 }))
@@ -20,6 +22,7 @@ import {
   promptText,
   promptConfirm,
   promptSelect,
+  promptMultiSelect,
   isNonInteractive,
 } from './prompts.js'
 
@@ -31,6 +34,7 @@ describe('prompts', () => {
     mockText.mockImplementation(() => Promise.resolve('typed-value'))
     mockSelect.mockImplementation(() => Promise.resolve('selected'))
     mockConfirm.mockImplementation(() => Promise.resolve(true))
+    mockMultiselect.mockImplementation(() => Promise.resolve(['a', 'b']))
     mockIsCancel.mockImplementation(() => false)
   })
 
@@ -161,6 +165,62 @@ describe('prompts', () => {
       expect(err).toBeInstanceOf(Error)
       expect(err.name).toBe('CancelError')
       expect(err.message).toBe('Operation cancelled.')
+    })
+  })
+
+  describe('promptMultiSelect', () => {
+    const options = [
+      { value: 'a' as const, label: 'Option A' },
+      { value: 'b' as const, label: 'Option B' },
+      { value: 'c' as const, label: 'Option C' },
+    ]
+
+    test('in non-interactive mode returns all option values', async () => {
+      const jsonCtx = { json: true }
+      const result = await promptMultiSelect(jsonCtx, {
+        message: 'Pick options',
+        options,
+      })
+      expect(result).toEqual(['a', 'b', 'c'])
+    })
+
+    test('in non-interactive mode with initialValues returns only initialValues', async () => {
+      const jsonCtx = { json: true }
+      const result = await promptMultiSelect(jsonCtx, {
+        message: 'Pick options',
+        options,
+        initialValues: ['a'] as ('a' | 'b' | 'c')[],
+      })
+      expect(result).toEqual(['a'])
+    })
+
+    test('with cancel throws CancelError in interactive mode', async () => {
+      const ctx = { json: false }
+      Object.defineProperty(process.stdin, 'isTTY', { value: true, writable: true })
+      mockIsCancel.mockImplementation(() => true)
+      mockMultiselect.mockImplementation(() =>
+        Promise.resolve(Symbol('clack:cancel') as unknown as string[]),
+      )
+
+      await expect(
+        promptMultiSelect(ctx, {
+          message: 'Pick options',
+          options,
+        }),
+      ).rejects.toThrow(CancelError)
+    })
+
+    test('in interactive mode calls multiselect and returns result', async () => {
+      const ctx = { json: false }
+      Object.defineProperty(process.stdin, 'isTTY', { value: true, writable: true })
+      mockMultiselect.mockImplementation(() => Promise.resolve(['a', 'b']))
+
+      const result = await promptMultiSelect(ctx, {
+        message: 'Pick options',
+        options,
+      })
+      expect(result).toEqual(['a', 'b'])
+      expect(mockMultiselect).toHaveBeenCalled()
     })
   })
 })
