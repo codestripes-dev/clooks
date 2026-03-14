@@ -33,18 +33,36 @@ Vendored hooks must be single-file. Two formats are supported:
 
 For `.js` bundles, the recommended format is ESM (`export { hook }`). CJS (`module.exports = { hook }`) also works. See `docs/research/bundled-js-dist-in-bun-compiled.md` for full format compatibility details, bundler settings, and gotchas.
 
-## Hook Registration
+## Short Address Format
 
-`clooks add` writes a path-like `uses:` entry to `clooks.yml`:
+`clooks add` writes a **short address** `uses:` entry to `clooks.yml`:
 
 ```yaml
+lint-guard:
+  uses: someuser/hooks:lint-guard
+```
+
+The short address format is `owner/repo:hook-name`. It is the primary user-facing format for all vendored hooks going forward (FEAT-0040+).
+
+**Resolution** is deterministic: `isShortAddress()` in `src/config/resolve.ts` detects values matching `owner/repo:hook-name` (contains `:`, not path-like). The resolver splits on `:`, constructs `.clooks/vendor/github.com/<owner>/<repo>/<hook-name>.{ts,js}`, and uses `existsSync` to detect the extension. No cache or lookup table needed — the address contains all the information required to derive the file path.
+
+**Backward compatibility:** Path-like `uses:` values written by FEAT-0039 V0 (e.g., `uses: ./.clooks/vendor/github.com/someuser/hooks/lint-guard.ts`) continue to resolve correctly via `isPathLike()`. No migration is needed or performed automatically.
+
+## Hook Registration
+
+`clooks add` writes a short address `uses:` entry to `clooks.yml` (short address format is primary; path-like is V0 legacy):
+
+```yaml
+# Short address (current — FEAT-0040+)
+lint-guard:
+  uses: someuser/hooks:lint-guard
+
+# Path-like (V0 legacy — FEAT-0039, still supported)
 lint-guard:
   uses: ./.clooks/vendor/github.com/someuser/hooks/lint-guard.ts
 ```
 
-The YAML key is the filename stem (e.g., `lint-guard` from `lint-guard.ts`). The `uses:` value starts with `./`, making it path-like.
-
-In `src/config/resolve.ts`, `isPathLike()` detects values starting with `./`, `../`, `/`, or bare `..` and routes them to direct file path resolution — bypassing convention rules and `meta.name` matching. This means the vendored hook's `meta.name` can be any value; it is never checked against the YAML key.
+The YAML key is the hook's short name (e.g., `lint-guard`). In `src/config/resolve.ts`, `isShortAddress()` detects the short address format; `isPathLike()` detects path-like values. Both bypass convention rules and `meta.name` matching, so the vendored hook's `meta.name` is not validated against the YAML key.
 
 ## Validation
 
@@ -56,7 +74,54 @@ Because validation requires importing the module, the hook code is executed duri
 
 Vendored files in `.clooks/vendor/` are committed to git. Clooks has no install step. When a team member clones the repository and runs the agent, the compiled binary reads `clooks.yml`, resolves the `uses:` path to the committed vendor file, and loads it. No network access, no download command.
 
+## Multi-Hook Packs
+
+A **multi-hook pack** is a GitHub repository that contains a `clooks-pack.json` manifest at its root, listing available hooks for bulk install.
+
+### `clooks-pack.json` manifest format
+
+```json
+{
+  "version": 1,
+  "name": "security-hooks",
+  "description": "Safety and compliance hooks for AI coding agents",
+  "hooks": {
+    "no-bare-mv": {
+      "path": "hooks/no-bare-mv.ts",
+      "description": "Rewrites bare mv commands to git mv",
+      "events": ["PreToolUse"],
+      "tags": ["git", "safety"]
+    },
+    "secret-scanner": {
+      "path": "dist/secret-scanner.js",
+      "description": "Blocks commits containing API keys",
+      "events": ["PreToolUse"],
+      "tags": ["security"]
+    }
+  }
+}
+```
+
+Top-level fields: `version` (integer, must be `1`, required), `name` (string, required), `hooks` (object mapping hook names to hook descriptors, required), `description`/`author`/`license`/`repository` (optional). Per-hook fields: `path` (string, relative path to hook file, required), `description` (string, required), `events` (string[], optional), `tags` (string[], optional), `configDefaults` (object, optional). Additional unknown fields are ignored for forward compatibility.
+
+### Pack install workflow (`clooks add <repo-url>`)
+
+1. **Detect URL type** — `isGitHubRepoUrl()` distinguishes repo URLs (`https://github.com/owner/repo`) from blob URLs (`https://github.com/owner/repo/blob/…`).
+2. **Fetch manifest** — Downloads `https://raw.githubusercontent.com/<owner>/<repo>/HEAD/clooks-pack.json`. HTTP 404 produces a "no clooks-pack.json found" message; non-2xx produces a generic error.
+3. **Validate manifest** — `validateManifest()` in `src/manifest.ts` checks required fields with explicit error messages. Unknown fields are ignored.
+4. **TUI multi-select picker** — `promptMultiSelect` presents the hook list. The user selects which hooks to install. `--all` selects all without prompting.
+5. **Non-interactive guard** — In non-interactive mode (piped stdin, CI), `--all` is required. Without it, clooks lists available hooks and exits 0 without installing.
+6. **Download and validate** — For each selected hook, fetch the file, write to vendor, validate via `validateHookExport()`. Validation failures warn but continue (soft validation at install time; runtime remains fail-closed).
+7. **Name conflict resolution** — If a hook name already exists in `clooks.yml`, clooks first tries the full address as the key (e.g., `someuser/security-hooks:no-bare-mv`). If that is also taken, the hook is skipped with a warning. No interactive prompt.
+8. **Register** — Each successfully installed hook is appended to `clooks.yml` with a short address `uses:` value (`owner/repo:hook-name`).
+
+### `--all` flag
+
+`clooks add <repo-url> --all` installs all hooks from the pack without presenting the picker. In non-interactive mode, `--all` is required for pack installs.
+
 ## `clooks add` Workflow
+
+### Single-file blob URL flow
 
 1. **Parse URL** — `parseGitHubBlobUrl()` in `src/github-url.ts` parses a GitHub blob URL (`https://github.com/<owner>/<repo>/blob/<ref>/<path>`) into `{ owner, repo, ref, path, filename, filenameStem }`. Only `.ts` and `.js` files are accepted.
 2. **Load config** — `loadConfig(cwd)` checks that the project has been initialized. If no project config is found, `clooks add` exits with an error and suggests running `clooks init` first.
@@ -64,7 +129,11 @@ Vendored files in `.clooks/vendor/` are committed to git. Clooks has no install 
 4. **Fetch** — `toRawUrl()` converts the blob URL to a `raw.githubusercontent.com` download URL. `fetch()` retrieves the content. HTTP 404 produces a specific "file not found" message; other non-2xx statuses produce a generic HTTP error.
 5. **Write** — The vendor directory is created (`mkdirSync` with `recursive: true`) and the file is written.
 6. **Validate** — The file is imported and checked via `validateHookExport()`. On failure, the file is deleted.
-7. **Register** — `clooks.yml` is updated by appending the new hook entry.
+7. **Register** — `clooks.yml` is updated by appending the new hook entry with a short address `uses:` value.
+
+### Repo URL (pack) flow
+
+See [Multi-Hook Packs](#multi-hook-packs) above.
 
 ## V0 Limitations
 
@@ -83,9 +152,10 @@ Vendored files in `.clooks/vendor/` are committed to git. Clooks has no install 
 
 ## Key Files
 
-- `src/github-url.ts` — `parseGitHubBlobUrl()`, `toRawUrl()`, `GitHubBlobInfo` interface
-- `src/commands/add.ts` — `createAddCommand()` — full `clooks add` pipeline
-- `src/config/resolve.ts` — `isPathLike()` — routes path-like `uses:` values to direct file path resolution
+- `src/github-url.ts` — `parseGitHubBlobUrl()`, `toRawUrl()`, `isGitHubRepoUrl()`, `GitHubBlobInfo` interface
+- `src/manifest.ts` — `validateManifest()` — hand-written manifest validation, `Manifest` and `ManifestHook` types
+- `src/commands/add.ts` — `createAddCommand()` — full `clooks add` pipeline (both blob URL and repo URL flows)
+- `src/config/resolve.ts` — `isPathLike()`, `isShortAddress()` — format detectors for `uses:` values
 - `src/loader.ts` — `validateHookExport()` — validates that an imported module exports a compliant `hook` object
 
 ## Related
