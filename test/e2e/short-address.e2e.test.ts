@@ -227,4 +227,30 @@ js-hook:
     const ctx = output.hookSpecificOutput.additionalContext ?? ''
     expect(ctx).toContain('js-short-addr-ran')
   })
+
+  // Test 8: Short address as hookName (no uses: field) loads and executes
+  test('short address as hookName (no uses: field) loads and executes', () => {
+    sandbox = createSandbox()
+    sandbox.writeFile(
+      '.clooks/vendor/github.com/testuser/hooks/allow-all.ts',
+      `
+export const hook = {
+  meta: { name: "allow-all" },
+  PreToolUse() {
+    return { result: "allow" as const, injectContext: "full-address-key-ran" }
+  },
+}
+`,
+    )
+    sandbox.writeConfig(`
+version: "1.0.0"
+"testuser/hooks:allow-all": {}
+`)
+    const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
+    expect(result.exitCode).toBe(0)
+    const output = JSON.parse(result.stdout)
+    expect(output.hookSpecificOutput.permissionDecision).toBe('allow')
+    const ctx = output.hookSpecificOutput.additionalContext ?? ''
+    expect(ctx).toContain('full-address-key-ran')
+  })
 })

@@ -129,6 +129,22 @@ describe('clooks add — pack from real GitHub repo', () => {
       // Full address key from second install (quoted because it contains : and /)
       expect(config).toContain(`"codestripes-dev/clooks-example-hooks:${name}"`)
     }
+
+    // Full-address entries should NOT have redundant uses: field
+    for (const name of HOOK_NAMES) {
+      const fullAddressKey = `"codestripes-dev/clooks-example-hooks:${name}"`
+      // Find the line with the full address key and check the next line is NOT uses:
+      const lines = config.split('\n')
+      const keyLineIdx = lines.findIndex((l) => l.includes(fullAddressKey))
+      expect(keyLineIdx).toBeGreaterThan(-1)
+      const nextLine = lines[keyLineIdx + 1] ?? ''
+      expect(nextLine.trim()).not.toMatch(/^uses:/)
+    }
+
+    // Info messages should appear in stdout (clack log.info writes to stdout) for each conflict
+    for (const name of HOOK_NAMES) {
+      expect(second.stdout).toContain(`"${name}" conflicts with an existing hook`)
+    }
   })
 
   test('JSON mode returns structured envelope', () => {
