@@ -101,7 +101,8 @@ Hook paths are resolved using a two-step process: first determine the **resoluti
 - If `uses` is set and path-like (`./`, `../`, `/`, or bare `..`) — use `uses` as a direct file path (relative to the origin root). The path must be relative — absolute paths and path traversal sequences (`..`) are rejected at resolution time with a descriptive error.
 - If `uses` is set and is a short address (`owner/repo:hook-name`) — resolve deterministically to the vendor file path (see below).
 - If `uses` is set and is a hook name — resolve using convention rules with `uses` as the key.
-- If `uses` is not set — resolve using convention rules with the YAML key as the key.
+- If `uses` is not set and the YAML key is a short address (`owner/repo:hook-name`) — resolve deterministically to the vendor file path, same as the short address `uses` branch above.
+- If `uses` is not set and the YAML key is not a short address — resolve using convention rules with the YAML key as the key.
 
 **Step 2 — Convention rules (applied to the resolution key):**
 

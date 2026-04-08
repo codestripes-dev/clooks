@@ -22,6 +22,49 @@ describe('resolveHookPath', () => {
     )
   })
 
+  // --- No uses, hookName is a short address ---
+
+  test('No uses, hookName is short address → vendor path (.ts default)', () => {
+    expect(resolveHookPath(hn('someuser/hooks:lint-guard'), {})).toBe(
+      '.clooks/vendor/github.com/someuser/hooks/lint-guard.ts',
+    )
+  })
+
+  test('No uses, hookName is short address with basePath → vendor path with base', () => {
+    expect(resolveHookPath(hn('someuser/hooks:lint-guard'), {}, '/home/user')).toBe(
+      join('/home/user', '.clooks/vendor/github.com/someuser/hooks/lint-guard.ts'),
+    )
+  })
+
+  test('No uses, hookName is short address, only .js exists → .js path', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'clooks-resolve-'))
+    try {
+      const jsDir = join(tmp, '.clooks', 'vendor', 'github.com', 'someuser', 'hooks')
+      mkdirSync(jsDir, { recursive: true })
+      writeFileSync(join(jsDir, 'lint-guard.js'), '// js hook')
+
+      const result = resolveHookPath(hn('someuser/hooks:lint-guard'), {}, tmp)
+      expect(result).toBe(join(tmp, '.clooks/vendor/github.com/someuser/hooks/lint-guard.js'))
+    } finally {
+      rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+
+  test('No uses, hookName is short address, both exist → .ts preferred', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'clooks-resolve-'))
+    try {
+      const dir = join(tmp, '.clooks', 'vendor', 'github.com', 'someuser', 'hooks')
+      mkdirSync(dir, { recursive: true })
+      writeFileSync(join(dir, 'lint-guard.ts'), '// ts hook')
+      writeFileSync(join(dir, 'lint-guard.js'), '// js hook')
+
+      const result = resolveHookPath(hn('someuser/hooks:lint-guard'), {}, tmp)
+      expect(result).toBe(join(tmp, '.clooks/vendor/github.com/someuser/hooks/lint-guard.ts'))
+    } finally {
+      rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+
   // --- Uses: path-like values ---
 
   test('Uses: path-like (./)', () => {

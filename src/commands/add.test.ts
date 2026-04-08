@@ -630,6 +630,10 @@ describe('clooks add (pack/repo URL)', () => {
     const configContent = readFileSync(join(tempDir, '.clooks', 'clooks.yml'), 'utf-8')
     // hook-a's short name conflicts, so it uses full address as key
     expect(configContent).toContain('"testowner/test-pack:hook-a":')
+    // Full-address key should NOT have redundant uses:
+    expect(configContent).not.toMatch(/"testowner\/test-pack:hook-a":\s*\n\s*uses:/)
+    // Full-address entry should be empty object (no uses:)
+    expect(configContent).toContain('"testowner/test-pack:hook-a": {}')
     // hook-b has no conflict, uses short name
     expect(configContent).toContain('hook-b:')
     expect(configContent).toContain('uses: testowner/test-pack:hook-b')

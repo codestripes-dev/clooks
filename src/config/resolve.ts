@@ -58,6 +58,13 @@ export function resolveHookPath(
   }
 
   // No uses: resolve from hookName via conventions
+  if (isShortAddress(hookName)) {
+    const [repoPath, shortName] = hookName.split(':')
+    const tsPath = join(base, `.clooks/vendor/github.com/${repoPath}/${shortName}.ts`)
+    const jsPath = join(base, `.clooks/vendor/github.com/${repoPath}/${shortName}.js`)
+    if (!existsSync(tsPath) && existsSync(jsPath)) return jsPath
+    return tsPath
+  }
   if (hookName.includes('/')) {
     return join(base, `.clooks/vendor/${hookName}/index.ts`)
   }

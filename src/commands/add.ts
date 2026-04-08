@@ -337,6 +337,10 @@ async function handleRepoUrl(
     if (config.hooks[hookKey as HookName] !== undefined || registeredKeys.has(hookKey)) {
       // Try full address as key
       hookKey = shortAddress
+      printInfo(
+        ctx,
+        `"${d.name}" conflicts with an existing hook — registering as "${shortAddress}"`,
+      )
       if (config.hooks[hookKey as HookName] !== undefined || registeredKeys.has(hookKey)) {
         // Both taken — skip
         printWarning(ctx, `Skipping "${d.name}" — name conflicts with existing hook.`)
@@ -347,7 +351,8 @@ async function handleRepoUrl(
 
     // Quote YAML keys containing special characters (: or /)
     const yamlKey = hookKey.includes(':') || hookKey.includes('/') ? `"${hookKey}"` : hookKey
-    const appendContent = `\n${yamlKey}:\n  uses: ${shortAddress}\n`
+    const appendContent =
+      hookKey === shortAddress ? `\n${yamlKey}: {}\n` : `\n${yamlKey}:\n  uses: ${shortAddress}\n`
     configContent += appendContent
     installed.push({ name: hookKey, address: shortAddress })
     registeredKeys.add(hookKey)

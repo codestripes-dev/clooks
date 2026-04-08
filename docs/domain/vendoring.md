@@ -62,6 +62,17 @@ lint-guard:
   uses: ./.clooks/vendor/github.com/someuser/hooks/lint-guard.ts
 ```
 
+When a pack install encounters a name conflict and falls back to the full short address as the YAML key (see "Name conflict resolution" below), the `uses:` field is omitted because it would be identical to the key. The resolver handles short address keys without `uses:` the same way it handles short address `uses:` values — both produce the same vendor file path.
+
+```yaml
+# No conflict — short name key, uses: carries provenance
+lint-guard:
+  uses: someuser/hooks:lint-guard
+
+# Conflict — full address key, no uses: needed
+"someuser/hooks:lint-guard": {}
+```
+
 The YAML key is the hook's short name (e.g., `lint-guard`). In `src/config/resolve.ts`, `isShortAddress()` detects the short address format; `isPathLike()` detects path-like values. Both bypass convention rules and `meta.name` matching, so the vendored hook's `meta.name` is not validated against the YAML key.
 
 ## Validation
@@ -115,7 +126,7 @@ Top-level fields: `version` (integer, must be `1`, required), `name` (string, re
 4. **TUI multi-select picker** — `promptMultiSelect` presents the hook list. The user selects which hooks to install. `--all` selects all without prompting.
 5. **Non-interactive guard** — In non-interactive mode (piped stdin, CI), `--all` is required. Without it, clooks lists available hooks and exits 0 without installing.
 6. **Download and validate** — For each selected hook, fetch the file, write to vendor, validate via `validateHookExport()`. Validation failures warn but continue (soft validation at install time; runtime remains fail-closed).
-7. **Name conflict resolution** — If a hook name already exists in `clooks.yml`, clooks first tries the full address as the key (e.g., `someuser/security-hooks:no-bare-mv`). If that is also taken, the hook is skipped with a warning. No interactive prompt.
+7. **Name conflict resolution** — If a hook name already exists in `clooks.yml`, clooks first tries the full address as the key (e.g., `someuser/security-hooks:no-bare-mv`), printing an info message explaining the conflict. If the full address key is also taken, the hook is skipped with a warning. No interactive prompt.
 8. **Register** — Each successfully installed hook is appended to `clooks.yml` with a short address `uses:` value (`owner/repo:hook-name`).
 
 ### `--all` flag

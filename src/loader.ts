@@ -115,6 +115,17 @@ export async function loadHook(
           `meta.name must match the hook name in the short address ("${hookNamePart}")`,
       )
     }
+  } else if (entry.uses === undefined && isShortAddress(hookName)) {
+    // No uses + hookName IS a short address (e.g., "owner/repo:hook-name"):
+    // meta.name must match the hook-name portion (after ":").
+    const hookNamePart = shortAddressHookName(hookName)
+    if (hook.meta.name !== hookNamePart) {
+      throw new Error(
+        `clooks: hook at ${entry.resolvedPath} declares meta.name "${hook.meta.name}" ` +
+          `but is registered as "${hookName}" in clooks.yml — ` +
+          `meta.name must match the hook name in the short address ("${hookNamePart}")`,
+      )
+    }
   } else {
     // Hook-name uses or no uses: meta.name must match
     const expectedName = entry.uses ?? hookName

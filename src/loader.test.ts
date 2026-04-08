@@ -616,4 +616,54 @@ describe('loadHook with aliases', () => {
       /meta\.name must match the hook name in the short address \("lint-guard"\)/,
     )
   })
+
+  // --- No uses, hookName is a short address ---
+
+  test('no uses, hookName is short address → loads when meta.name matches hook-name portion', async () => {
+    const dir = makeTempDir()
+    const hookFile = join(dir, 'lint-guard.ts')
+    writeFileSync(
+      hookFile,
+      `export const hook = {
+        meta: { name: "lint-guard" },
+        PreToolUse() { return { result: "allow" } },
+      }`,
+    )
+    const entry = makeHookEntry(hookFile)
+    const result = await loadHook(hn('someuser/hooks:lint-guard'), entry, dir)
+    expect(result.name).toBe(hn('someuser/hooks:lint-guard'))
+    expect(result.hook.meta.name).toBe('lint-guard')
+  })
+
+  test('no uses, hookName is short address → throws when meta.name mismatches hook-name portion', async () => {
+    const dir = makeTempDir()
+    const hookFile = join(dir, 'wrong.ts')
+    writeFileSync(
+      hookFile,
+      `export const hook = {
+        meta: { name: "wrong-name" },
+        PreToolUse() { return { result: "allow" } },
+      }`,
+    )
+    const entry = makeHookEntry(hookFile)
+    await expect(loadHook(hn('someuser/hooks:lint-guard'), entry, dir)).rejects.toThrow(
+      /meta\.name must match the hook name in the short address \("lint-guard"\)/,
+    )
+  })
+
+  test('no uses, hookName is short address → throws when meta.name matches full hookName but not hook-name portion', async () => {
+    const dir = makeTempDir()
+    const hookFile = join(dir, 'full-match.ts')
+    writeFileSync(
+      hookFile,
+      `export const hook = {
+        meta: { name: "someuser/hooks:lint-guard" },
+        PreToolUse() { return { result: "allow" } },
+      }`,
+    )
+    const entry = makeHookEntry(hookFile)
+    await expect(loadHook(hn('someuser/hooks:lint-guard'), entry, dir)).rejects.toThrow(
+      /meta\.name must match the hook name in the short address \("lint-guard"\)/,
+    )
+  })
 })
