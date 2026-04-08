@@ -1,10 +1,10 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs"
-import { join } from "path"
-import { CLAUDE_CODE_EVENTS } from "./config/constants.js"
-import type { EventName } from "./types/branded.js"
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
+import { join } from 'path'
+import { CLAUDE_CODE_EVENTS } from './config/constants.js'
+import type { EventName } from './types/branded.js'
 
-/** Canonical relative path to the Clooks bash entrypoint. */
-export const CLOOKS_ENTRYPOINT_PATH = ".clooks/bin/entrypoint.sh"
+/** Canonical path to the Clooks bash entrypoint. Uses $CLAUDE_PROJECT_DIR so it resolves correctly regardless of cwd. */
+export const CLOOKS_ENTRYPOINT_PATH = '"$CLAUDE_PROJECT_DIR"/.clooks/bin/entrypoint.sh'
 
 export interface RegisterResult {
   added: EventName[]
@@ -19,35 +19,39 @@ export interface UnregisterResult {
 
 /**
  * Checks if a hook entry's command field ends with `.clooks/bin/entrypoint.sh`.
- * This handles both relative project paths (`.clooks/bin/entrypoint.sh`) and
+ * This handles project paths (`"$CLAUDE_PROJECT_DIR"/.clooks/bin/entrypoint.sh`),
+ * legacy relative paths (`.clooks/bin/entrypoint.sh`), and
  * absolute global paths (`/home/joe/.clooks/bin/entrypoint.sh`).
  */
 export function isClooksHook(hook: unknown): boolean {
   if (
-    typeof hook !== "object" ||
+    typeof hook !== 'object' ||
     hook === null ||
-    typeof (hook as Record<string, unknown>).command !== "string"
+    typeof (hook as Record<string, unknown>).command !== 'string'
   ) {
     return false
   }
   const cmd = (hook as Record<string, string>).command!
-  return cmd.endsWith(".clooks/bin/entrypoint.sh")
+  return cmd.endsWith('.clooks/bin/entrypoint.sh')
 }
 
 /** Checks if a matcher group contains any Clooks hook. */
 function isClooksMatcherGroup(mg: unknown): boolean {
-  if (typeof mg !== "object" || mg === null) return false
+  if (typeof mg !== 'object' || mg === null) return false
   const hooks = (mg as Record<string, unknown>).hooks
   if (!Array.isArray(hooks)) return false
   return hooks.some(isClooksHook)
 }
 
-function readSettings(settingsPath: string): { settings: Record<string, unknown>; fileExisted: boolean } {
+function readSettings(settingsPath: string): {
+  settings: Record<string, unknown>
+  fileExisted: boolean
+} {
   if (!existsSync(settingsPath)) {
     return { settings: {}, fileExisted: false }
   }
-  const text = readFileSync(settingsPath, "utf-8")
-  if (text.trim() === "") {
+  const text = readFileSync(settingsPath, 'utf-8')
+  if (text.trim() === '') {
     return { settings: {}, fileExisted: true }
   }
   try {
@@ -61,7 +65,7 @@ function readSettings(settingsPath: string): { settings: Record<string, unknown>
 
 function makeClooksMatcherGroup(entrypointCommand: string): Record<string, unknown> {
   return {
-    hooks: [{ type: "command", command: entrypointCommand }],
+    hooks: [{ type: 'command', command: entrypointCommand }],
   }
 }
 
@@ -70,10 +74,10 @@ function makeClooksMatcherGroup(entrypointCommand: string): Record<string, unkno
  * Creates the settings directory and file if missing.
  *
  * @param settingsDir - Directory containing settings.json (e.g., `join(projectRoot, ".claude")` or `join(homeRoot, ".claude")`)
- * @param entrypointCommand - The command to register (e.g., `.clooks/bin/entrypoint.sh` for project, `/home/joe/.clooks/bin/entrypoint.sh` for global)
+ * @param entrypointCommand - The command to register (e.g., `"$CLAUDE_PROJECT_DIR"/.clooks/bin/entrypoint.sh` for project, `/home/joe/.clooks/bin/entrypoint.sh` for global)
  */
 export function registerClooks(settingsDir: string, entrypointCommand: string): RegisterResult {
-  const settingsPath = join(settingsDir, "settings.json")
+  const settingsPath = join(settingsDir, 'settings.json')
 
   const { settings, fileExisted } = readSettings(settingsPath)
 
@@ -114,7 +118,7 @@ export function registerClooks(settingsDir: string, entrypointCommand: string): 
   // Only write if something changed
   if (added.length > 0 || updated.length > 0) {
     mkdirSync(settingsDir, { recursive: true })
-    writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n")
+    writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n')
   }
 
   return {
@@ -132,7 +136,7 @@ export function registerClooks(settingsDir: string, entrypointCommand: string): 
  * @param settingsDir - Directory containing settings.json
  */
 export function unregisterClooks(settingsDir: string): UnregisterResult {
-  const settingsPath = join(settingsDir, "settings.json")
+  const settingsPath = join(settingsDir, 'settings.json')
 
   if (!existsSync(settingsPath)) {
     return { removed: [] }
@@ -167,7 +171,7 @@ export function unregisterClooks(settingsDir: string): UnregisterResult {
     if (Object.keys(hooks).length === 0) {
       delete settings.hooks
     }
-    writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n")
+    writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n')
   }
 
   return { removed }
@@ -179,7 +183,7 @@ export function unregisterClooks(settingsDir: string): UnregisterResult {
  * @param settingsDir - Directory containing settings.json
  */
 export function isClooksRegistered(settingsDir: string): boolean {
-  const settingsPath = join(settingsDir, "settings.json")
+  const settingsPath = join(settingsDir, 'settings.json')
 
   if (!existsSync(settingsPath)) return false
 
