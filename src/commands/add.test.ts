@@ -41,6 +41,12 @@ mock.module('../platform.js', () => ({
   },
 }))
 
+// Mock git.js so getGitRoot() returns null (temp dirs are not git repos).
+// This prevents resolveScopeRoot from finding the real repo's .clooks/clooks.yml.
+mock.module('../git.js', () => ({
+  getGitRoot: () => Promise.resolve(null),
+}))
+
 // Import after mocking
 import { createAddCommand } from './add.js'
 
@@ -666,22 +672,18 @@ describe('clooks add (pack/repo URL)', () => {
     expect(configContent).toBe('version: "1.0.0"\n')
   })
 
-  test('non-interactive without --all: lists hooks and returns without installing', async () => {
+  test('non-interactive without --all: lists hooks and exits non-zero', async () => {
     setupClooksYml()
-    // isTTY=false is set in beforeEach — non-interactive mode
-    // But promptMultiSelect in non-interactive mode returns all options (from real prompts.ts)
-    // To get "list and exit" behavior, we need isNonInteractive to return true
-    // and opts.all to be false. But the real prompts.ts isNonInteractive checks ctx.json || !isTTY.
-    // Since isTTY=false, isNonInteractive returns true. But then handleRepoUrl calls
-    // promptMultiSelect which auto-selects all (that's the real behavior in non-interactive mode).
-    // The "list and exit" branch only fires when isNonInteractive(ctx) && !opts.all.
-    // This is covered: isTTY=false, no --all, so it lists hooks and returns.
+    // isTTY=false from beforeEach — non-interactive mode, no --all flag
     mockFetchByUrl(buildPackFetchMap({}))
 
     const program = createTestProgram()
-    await program.parseAsync(['add', TEST_REPO_URL], { from: 'user' })
+    await program.parseAsync(['add', TEST_REPO_URL], { from: 'user' }).catch(() => {}) // process.exit(1) throws in tests
 
-    // Nothing should be installed — the non-interactive/no-all path lists and exits
+    // Should have called process.exit(1) — non-zero to signal no hooks were installed
+    expect(exitSpy).toHaveBeenCalledWith(1)
+
+    // Nothing should be installed
     const configContent = readFileSync(join(tempDir, '.clooks', 'clooks.yml'), 'utf-8')
     expect(configContent).toBe('version: "1.0.0"\n')
   })

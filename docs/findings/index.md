@@ -106,3 +106,11 @@ Findings are not permanent. Remove entries when:
 | `stale-docs.md` | Documentation that was wrong, outdated, or missing when needed |
 | `tooling-friction.md` | Build issues, slow commands, flaky CI, broken toolchain steps |
 | `process-feedback.md` | Issues with process docs themselves — unclear instructions, rigid templates, missing procedures, counterproductive steps |
+
+## Standalone Findings
+
+Findings that span multiple categories or represent compound bugs with broad impact get their own file rather than being split across category files.
+
+| File | Severity | Summary |
+|------|----------|---------|
+| `config-validation-deadlock.md` | blocker | Config validation errors cause unrecoverable agent deadlock — two bugs combine to brick the session with no in-session recovery |

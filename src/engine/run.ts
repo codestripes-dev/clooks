@@ -1,4 +1,5 @@
 import { homedir } from 'os'
+import { join } from 'path'
 import type { EventName, HookName } from '../types/branded.js'
 import type { ClaudeCodeOutput } from '../types/claude-code.js'
 import { normalizeKeys } from '../normalize.js'
@@ -6,12 +7,28 @@ import { loadConfig } from '../config/index.js'
 import type { LoadConfigResult } from '../config/index.js'
 import { loadAllHooks } from '../loader.js'
 import { INJECTABLE_EVENTS, isEventName } from '../config/constants.js'
-import { getFailurePath } from '../failures.js'
+import { DEFAULT_MAX_FAILURES } from '../config/constants.js'
+import {
+  getFailurePath,
+  readFailures,
+  writeFailures,
+  recordFailure,
+  clearFailure,
+  getFailureCount,
+} from '../failures.js'
 import type { RunEngineDeps } from './types.js'
 import { EXIT_OK, EXIT_STDERR } from './types.js'
 import { matchHooksForEvent, buildShadowWarnings } from './match.js'
 import { executeHooks } from './execute.js'
 import { translateResult } from './translate.js'
+
+/**
+ * Sentinel keys for config-error circuit breaker.
+ * Config errors have no hook identity, so we use synthetic keys
+ * in the same FailureState structure that hook failures use.
+ */
+const CONFIG_ERROR_HOOK = '__config__' as HookName
+const CONFIG_ERROR_EVENT = '__parse__' as EventName
 
 export const defaultDeps: RunEngineDeps = {
   loadConfig,
@@ -29,17 +46,50 @@ export async function runEngine(deps: RunEngineDeps = defaultDeps): Promise<void
     const homeRoot = process.env.CLOOKS_HOME_ROOT ?? homedir()
 
     // --- Load config (optional — no config = no hooks) ---
+    // Config errors use a circuit breaker: block the first N invocations so
+    // the agent sees the error, then degrade to warn-only to prevent deadlock.
+    // Config errors are stored in the project's .clooks/.failures (if .clooks/ exists)
+    // or in the home failures directory. Since a config error means .clooks/clooks.yml
+    // exists but is invalid, .clooks/ is guaranteed to exist.
+    const configFailurePath = join(projectRoot, '.clooks/.failures')
     let result: LoadConfigResult | null
     try {
       result = await deps.loadConfig(projectRoot, { homeRoot })
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e)
-      process.stderr.write(`clooks: ${message}\n`)
-      process.exit(EXIT_STDERR)
+      let state = await readFailures(configFailurePath)
+      state = recordFailure(state, CONFIG_ERROR_HOOK, CONFIG_ERROR_EVENT, message)
+      await writeFailures(configFailurePath, state)
+      const failCount = getFailureCount(state, CONFIG_ERROR_HOOK, CONFIG_ERROR_EVENT)
+
+      if (failCount < DEFAULT_MAX_FAILURES) {
+        // Under threshold — block so the agent sees the error
+        process.stderr.write(`clooks: ${message}\n`)
+        process.exit(EXIT_STDERR)
+      }
+
+      // Over threshold — degrade to warn-only to break deadlock
+      process.stderr.write(
+        `clooks: config error (degraded after ${failCount} consecutive failures): ${message}\n`,
+      )
+      const output: ClaudeCodeOutput = {
+        systemMessage:
+          `[clooks] Config validation failed ${failCount} consecutive times. ` +
+          `Hooks are disabled to prevent deadlock. Fix .clooks/clooks.yml: ${message}`,
+      }
+      process.stdout.write(JSON.stringify(output) + '\n')
+      process.exit(EXIT_OK)
     }
 
     if (result === null) {
       process.exit(EXIT_OK)
+    }
+
+    // Config loaded successfully — clear any config-error circuit breaker state
+    const configState = await readFailures(configFailurePath)
+    if (getFailureCount(configState, CONFIG_ERROR_HOOK, CONFIG_ERROR_EVENT) > 0) {
+      const cleared = clearFailure(configState, CONFIG_ERROR_HOOK, CONFIG_ERROR_EVENT)
+      await writeFailures(configFailurePath, cleared)
     }
 
     const config = result!.config
