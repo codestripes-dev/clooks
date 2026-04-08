@@ -52,7 +52,7 @@ See `src/config/types.ts` for the `HookOrigin` type and `src/config/index.ts` fo
 
 ## Entrypoint Dedup
 
-When both a global entrypoint (`~/.clooks/bin/entrypoint.sh` registered in `~/.claude/settings.json`) and a project entrypoint (`.clooks/bin/entrypoint.sh` registered in `.claude/settings.json`) exist, the global entrypoint handles everything. The project entrypoint checks for the flag file `~/.clooks/.global-entrypoint-active` and exits early if present.
+When both a global entrypoint (`~/.clooks/bin/entrypoint.sh` registered in `~/.claude/settings.json`) and a project entrypoint (`"$CLAUDE_PROJECT_DIR"/.clooks/bin/entrypoint.sh` registered in `.claude/settings.json`) exist, the global entrypoint handles everything. The project entrypoint checks for the flag file `~/.clooks/.global-entrypoint-active` and exits early if present.
 
 See `docs/domain/bash-entrypoint.md` for details.
 

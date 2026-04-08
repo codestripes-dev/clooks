@@ -107,6 +107,10 @@ PostToolUse hooks are observational — they cannot modify tool output before th
 
 It's all-or-nothing via `disableAllHooks`. You can't toggle individual hooks on/off.
 
+### Working Directory Not Guaranteed
+
+Hook commands run in the "current directory" which is not guaranteed to be the project root for all events. Stop/SessionEnd hooks in particular may run from a different cwd. Use `$CLAUDE_PROJECT_DIR` (set by Claude Code for all hook commands) when referencing project-relative paths in `settings.json`.
+
 ### Full User Privileges
 
 Hooks run with the user's full system permissions. No sandboxing. A malicious hook has the same access as the user.
