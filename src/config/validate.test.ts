@@ -461,6 +461,23 @@ describe('validateConfig', () => {
     ).toThrow('Alias chains are not allowed')
   })
 
+  test('short address uses skipped in chain check', () => {
+    const result = validateConfig({
+      version: '1.0.0',
+      'my-hook': { uses: 'owner/repo:my-hook' },
+      'owner/repo:my-hook': { uses: 'owner/repo:my-hook' },
+    })
+    expect(result.hooks[hn('my-hook')]!.uses).toBe('owner/repo:my-hook')
+  })
+
+  test('alias pointing to short address is not flagged as chain', () => {
+    const result = validateConfig({
+      version: '1.0.0',
+      alias: { uses: 'owner/repo:target' },
+    })
+    expect(result.hooks[hn('alias')]!.uses).toBe('owner/repo:target')
+  })
+
   test('path-like uses skipped in chain check', () => {
     const result = validateConfig({
       version: '1.0.0',

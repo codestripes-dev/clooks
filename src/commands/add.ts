@@ -15,6 +15,7 @@ import {
 import { withSpinner } from '../tui/spinner.js'
 import { classifyGitHubInput, toRawUrl, getRawBaseUrl } from '../github-url.js'
 import type { GitHubBlobInfo, GitHubRepoInfo } from '../github-url.js'
+import { getGitRoot } from '../git.js'
 import { loadConfig } from '../config/index.js'
 import type { LoadConfigResult } from '../config/index.js'
 import { validateHookExport } from '../loader.js'
@@ -64,12 +65,16 @@ async function resolveScopeRoot(
   if (opts.global) {
     return getHomeDir()
   }
+  // Resolve project root from git root (falls back to cwd if not in a git repo)
+  const gitRoot = await getGitRoot()
+  const projectRoot = gitRoot ?? process.cwd()
+
   if (opts.project) {
-    return process.cwd()
+    return projectRoot
   }
 
-  // No explicit flag — check if project config exists
-  const projectConfigPath = join(process.cwd(), '.clooks', 'clooks.yml')
+  // No explicit flag — check if project config exists at git root
+  const projectConfigPath = join(projectRoot, '.clooks', 'clooks.yml')
   if (existsSync(projectConfigPath)) {
     // Prompt the user
     const scope = await promptSelect(ctx, {
@@ -84,7 +89,7 @@ async function resolveScopeRoot(
       ],
       defaultValue: 'project' as const,
     })
-    return scope === 'global' ? getHomeDir() : process.cwd()
+    return scope === 'global' ? getHomeDir() : projectRoot
   }
 
   // No project config — default to global
@@ -229,7 +234,7 @@ async function handleRepoUrl(
       }
       printInfo(ctx, 'Use --all to install all hooks in non-interactive mode.')
     }
-    return
+    process.exit(1)
   } else {
     const options = Object.entries(manifest.hooks).map(([name, hook]) => ({
       value: name,

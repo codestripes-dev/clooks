@@ -796,6 +796,53 @@ describe('runEngine', () => {
     expect(stdout).toContain('[clooks:debug]')
   })
 
+  it('config error degrades after threshold', async () => {
+    // Pre-seed .failures with 2 consecutive config errors so the next (3rd) triggers degradation
+    const { writeFailures, recordFailure } = await import('./failures.js')
+    const failurePath = join(tempDir, '.clooks/.failures')
+    let state: any = {}
+    state = recordFailure(state, '__config__' as HookName, '__parse__' as any, 'bad yaml')
+    state = recordFailure(state, '__config__' as HookName, '__parse__' as any, 'bad yaml')
+    await writeFailures(failurePath, state)
+
+    mockLoadConfig.mockRejectedValue(new Error('config parse failed'))
+    await runEngine(makeDeps()).catch(() => {})
+
+    // Should degrade: exit 0 (not 2)
+    expect(exitSpy).toHaveBeenCalledWith(0)
+
+    // stdout should contain JSON with systemMessage mentioning "degraded"
+    const stdout = getStdout()
+    const parsed = JSON.parse(stdout.trim().split('\n')[0]!)
+    expect(parsed.systemMessage).toContain('disabled to prevent deadlock')
+
+    // stderr should contain "degraded after" message
+    const stderr = getStderr()
+    expect(stderr).toContain('degraded after')
+  })
+
+  it('config error clears on successful load', async () => {
+    // Pre-seed .failures with config error entries
+    const { writeFailures, recordFailure, readFailures } = await import('./failures.js')
+    const failurePath = join(tempDir, '.clooks/.failures')
+    let state: any = {}
+    state = recordFailure(state, '__config__' as HookName, '__parse__' as any, 'bad yaml')
+    await writeFailures(failurePath, state)
+
+    // loadConfig succeeds
+    mockLoadConfig.mockResolvedValue({
+      config: makeConfig(),
+      shadows: [],
+      hasProjectConfig: true,
+    })
+    mockLoadAllHooks.mockResolvedValue({ loaded: [], loadErrors: [] })
+    await runEngine(makeDeps()).catch(() => {})
+
+    // After successful load, the __config__ entry should be cleared from .failures
+    const afterState = await readFailures(failurePath)
+    expect(afterState['__config__' as HookName]).toBeUndefined()
+  })
+
   it('injectContext on guard event UserPromptSubmit', async () => {
     mockLoadConfig.mockResolvedValue({
       config: makeConfig({ injector: {} }),
