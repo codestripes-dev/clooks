@@ -9,7 +9,3 @@ domain-doc-size: {}
 debug-payload:  {}
 
 no-bare-mv: {}
-
-"codestripes-dev/clooks-example-hooks:no-compound-commands": {}
-
-"codestripes-dev/clooks-example-hooks:debug-payload": {}
