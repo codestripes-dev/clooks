@@ -51,6 +51,7 @@ project/
 ## Project Navigation
 
 - `PRODUCT_EXPLORATION.md` — full product vision, problem space, use cases, decisions, and research
+- `docs/epics/EPICS.md` — how to write and manage epics (coordination docs for multi-plan initiatives)
 - `docs/plans/PLANS.md` — how to write and manage execution plans (ExecPlans)
 - `docs/planned/FEATURES.md` — how to write and manage features
 - `docs/planned/index.md` — feature index with status tracking
