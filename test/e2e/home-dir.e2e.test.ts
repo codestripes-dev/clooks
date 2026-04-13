@@ -115,14 +115,17 @@ describe('home-only circuit breaker', () => {
   test('6. hash-based .failures path persists across invocations (3 invocations, threshold reached)', () => {
     sandbox = createSandbox()
 
-    sandbox.writeHomeHook('crash-hook.ts', `
+    sandbox.writeHomeHook(
+      'crash-hook.ts',
+      `
 export const hook = {
   meta: { name: "crash-hook" },
   PreToolUse() {
     throw new Error("intentional crash")
   },
 }
-`)
+`,
+    )
     sandbox.writeHomeConfig(`
 version: "1.0.0"
 crash-hook:
@@ -153,14 +156,17 @@ crash-hook:
   test('7. recovery from home-only degradation clears hash-based failures file', () => {
     sandbox = createSandbox()
 
-    sandbox.writeHomeHook('crash-hook.ts', `
+    sandbox.writeHomeHook(
+      'crash-hook.ts',
+      `
 export const hook = {
   meta: { name: "crash-hook" },
   PreToolUse() {
     throw new Error("intentional crash")
   },
 }
-`)
+`,
+    )
     sandbox.writeHomeConfig(`
 version: "1.0.0"
 crash-hook:
@@ -175,14 +181,17 @@ crash-hook:
     expect(existsSync(failPath)).toBe(true)
 
     // Fix the hook
-    sandbox.writeHomeHook('crash-hook.ts', `
+    sandbox.writeHomeHook(
+      'crash-hook.ts',
+      `
 export const hook = {
   meta: { name: "crash-hook" },
   PreToolUse() {
     return { result: "allow" as const }
   },
 }
-`)
+`,
+    )
 
     // Invocation 2: success -> failure counter clears, file removed
     const r2 = sandbox.run([], { stdin })
@@ -251,15 +260,20 @@ describe('multi-hook home configs', () => {
   test('9. two home hooks on same event, one blocks — pipeline blocks, second never runs', () => {
     sandbox = createSandbox()
 
-    sandbox.writeHomeHook('blocker.ts', `
+    sandbox.writeHomeHook(
+      'blocker.ts',
+      `
 export const hook = {
   meta: { name: "blocker" },
   PreToolUse() {
     return { result: "block" as const, reason: "blocked-by-home" }
   },
 }
-`)
-    sandbox.writeHomeHook('observer.ts', `
+`,
+    )
+    sandbox.writeHomeHook(
+      'observer.ts',
+      `
 import { writeFileSync } from "fs"
 export const hook = {
   meta: { name: "observer" },
@@ -268,7 +282,8 @@ export const hook = {
     return { result: "allow" as const, injectContext: "observer-ran" }
   },
 }
-`)
+`,
+    )
     sandbox.writeHomeConfig(`
 version: "1.0.0"
 blocker: {}
@@ -290,22 +305,28 @@ PreToolUse:
   test('10. home config with explicit event order — ordering respected', () => {
     sandbox = createSandbox()
 
-    sandbox.writeHomeHook('first.ts', `
+    sandbox.writeHomeHook(
+      'first.ts',
+      `
 export const hook = {
   meta: { name: "first" },
   PreToolUse() {
     return { result: "allow" as const, injectContext: "FIRST" }
   },
 }
-`)
-    sandbox.writeHomeHook('second.ts', `
+`,
+    )
+    sandbox.writeHomeHook(
+      'second.ts',
+      `
 export const hook = {
   meta: { name: "second" },
   PreToolUse() {
     return { result: "allow" as const, injectContext: "SECOND" }
   },
 }
-`)
+`,
+    )
     sandbox.writeHomeConfig(`
 version: "1.0.0"
 first: {}
@@ -328,7 +349,9 @@ PreToolUse:
     sandbox = createSandbox()
 
     // Home hook: handles both SessionStart and PreToolUse
-    sandbox.writeHomeHook('multi-event.ts', `
+    sandbox.writeHomeHook(
+      'multi-event.ts',
+      `
 export const hook = {
   meta: { name: "multi-event" },
   SessionStart() {
@@ -338,21 +361,25 @@ export const hook = {
     return { result: "allow" as const, injectContext: "home-pre-tool-use" }
   },
 }
-`)
+`,
+    )
     sandbox.writeHomeConfig(`
 version: "1.0.0"
 multi-event: {}
 `)
 
     // Project hook: handles PreToolUse only (different name, no shadow)
-    sandbox.writeHook('project-only.ts', `
+    sandbox.writeHook(
+      'project-only.ts',
+      `
 export const hook = {
   meta: { name: "project-only" },
   PreToolUse() {
     return { result: "allow" as const, injectContext: "project-pre-tool-use" }
   },
 }
-`)
+`,
+    )
     sandbox.writeConfig(`
 version: "1.0.0"
 project-only: {}
@@ -377,7 +404,9 @@ project-only: {}
     sandbox = createSandbox()
 
     // Home hook: handles SessionStart and PreToolUse
-    sandbox.writeHomeHook('shared-hook.ts', `
+    sandbox.writeHomeHook(
+      'shared-hook.ts',
+      `
 export const hook = {
   meta: { name: "shared-hook" },
   SessionStart() {
@@ -387,7 +416,8 @@ export const hook = {
     return { result: "allow" as const, injectContext: "home-pretool-handler" }
   },
 }
-`)
+`,
+    )
     sandbox.writeHomeConfig(`
 version: "1.0.0"
 shared-hook: {}
@@ -395,14 +425,17 @@ shared-hook: {}
 
     // Project hook: same name, only handles PreToolUse
     // This shadows the ENTIRE home hook — including its SessionStart handler
-    sandbox.writeHook('shared-hook.ts', `
+    sandbox.writeHook(
+      'shared-hook.ts',
+      `
 export const hook = {
   meta: { name: "shared-hook" },
   PreToolUse() {
     return { result: "allow" as const, injectContext: "project-pretool-handler" }
   },
 }
-`)
+`,
+    )
     sandbox.writeConfig(`
 version: "1.0.0"
 shared-hook: {}
@@ -443,14 +476,17 @@ config:
   onError: continue
 `)
 
-    sandbox.writeHook('crash-hook.ts', `
+    sandbox.writeHook(
+      'crash-hook.ts',
+      `
 export const hook = {
   meta: { name: "crash-hook" },
   PreToolUse() {
     throw new Error("intentional crash")
   },
 }
-`)
+`,
+    )
     sandbox.writeConfig(`
 version: "1.0.0"
 crash-hook: {}
@@ -475,14 +511,17 @@ config:
 `)
 
     // Use a never-resolving promise (no timers) so the process can exit after timeout
-    sandbox.writeHook('hang-hook.ts', `
+    sandbox.writeHook(
+      'hang-hook.ts',
+      `
 export const hook = {
   meta: { name: "hang-hook" },
   PreToolUse() {
     return new Promise(() => {})
   },
 }
-`)
+`,
+    )
     sandbox.writeConfig(`
 version: "1.0.0"
 config:
@@ -513,14 +552,17 @@ config:
   maxFailures: 1
 `)
 
-    sandbox.writeHook('crash-hook.ts', `
+    sandbox.writeHook(
+      'crash-hook.ts',
+      `
 export const hook = {
   meta: { name: "crash-hook" },
   PreToolUse() {
     throw new Error("intentional crash")
   },
 }
-`)
+`,
+    )
     sandbox.writeConfig(`
 version: "1.0.0"
 crash-hook: {}
@@ -545,14 +587,17 @@ config:
   onError: continue
 `)
 
-    sandbox.writeHook('crash-hook.ts', `
+    sandbox.writeHook(
+      'crash-hook.ts',
+      `
 export const hook = {
   meta: { name: "crash-hook" },
   PreToolUse() {
     throw new Error("intentional crash")
   },
 }
-`)
+`,
+    )
     sandbox.writeConfig(`
 version: "1.0.0"
 crash-hook: {}
@@ -580,7 +625,9 @@ describe('shadow edge cases', () => {
   test('17. shadow warning only on SessionStart, absent on PreToolUse', () => {
     sandbox = createSandbox()
 
-    sandbox.writeHomeHook('shared-hook.ts', `
+    sandbox.writeHomeHook(
+      'shared-hook.ts',
+      `
 export const hook = {
   meta: { name: "shared-hook" },
   SessionStart() { return null },
@@ -588,13 +635,16 @@ export const hook = {
     return { result: "allow" as const, injectContext: "from-home" }
   },
 }
-`)
+`,
+    )
     sandbox.writeHomeConfig(`
 version: "1.0.0"
 shared-hook: {}
 `)
 
-    sandbox.writeHook('shared-hook.ts', `
+    sandbox.writeHook(
+      'shared-hook.ts',
+      `
 export const hook = {
   meta: { name: "shared-hook" },
   SessionStart() { return null },
@@ -602,7 +652,8 @@ export const hook = {
     return { result: "allow" as const, injectContext: "from-project" }
   },
 }
-`)
+`,
+    )
     sandbox.writeConfig(`
 version: "1.0.0"
 shared-hook: {}
@@ -625,18 +676,24 @@ shared-hook: {}
     sandbox = createSandbox()
 
     // Home hooks
-    sandbox.writeHomeHook('hook-a.ts', `
+    sandbox.writeHomeHook(
+      'hook-a.ts',
+      `
 export const hook = {
   meta: { name: "hook-a" },
   SessionStart() { return null },
 }
-`)
-    sandbox.writeHomeHook('hook-b.ts', `
+`,
+    )
+    sandbox.writeHomeHook(
+      'hook-b.ts',
+      `
 export const hook = {
   meta: { name: "hook-b" },
   SessionStart() { return null },
 }
-`)
+`,
+    )
     sandbox.writeHomeConfig(`
 version: "1.0.0"
 hook-a: {}
@@ -644,18 +701,24 @@ hook-b: {}
 `)
 
     // Project hooks with same names
-    sandbox.writeHook('hook-a.ts', `
+    sandbox.writeHook(
+      'hook-a.ts',
+      `
 export const hook = {
   meta: { name: "hook-a" },
   SessionStart() { return null },
 }
-`)
-    sandbox.writeHook('hook-b.ts', `
+`,
+    )
+    sandbox.writeHook(
+      'hook-b.ts',
+      `
 export const hook = {
   meta: { name: "hook-b" },
   SessionStart() { return null },
 }
-`)
+`,
+    )
     sandbox.writeConfig(`
 version: "1.0.0"
 hook-a: {}
@@ -679,7 +742,9 @@ describe('local override + home interactions', () => {
   test('19. local modifies home hook config — hook runs with overridden config, path stays home', () => {
     sandbox = createSandbox()
 
-    sandbox.writeHomeHook('config-hook.ts', `
+    sandbox.writeHomeHook(
+      'config-hook.ts',
+      `
 export const hook = {
   meta: { name: "config-hook", config: { greeting: "default-hello" } },
   PreToolUse(_ctx: Record<string, unknown>, config: Record<string, unknown>) {
@@ -689,7 +754,8 @@ export const hook = {
     }
   },
 }
-`)
+`,
+    )
     sandbox.writeHomeConfig(`
 version: "1.0.0"
 config-hook: {}
@@ -710,7 +776,7 @@ config-hook:
     expect(ctx).toContain('config-hook received: {"greeting":"local-override"}')
   })
 
-  test('20. local defines new hook not in home or project — exit 2', () => {
+  test('20. local defines new hook not in home or project — succeeds', () => {
     sandbox = createSandbox()
 
     sandbox.writeHomeConfig(`
@@ -721,14 +787,13 @@ version: "1.0.0"
 version: "1.0.0"
 `)
 
-    // Local tries to define a new hook that doesn't exist in home or project
+    // Local defines a new hook that doesn't exist in home or project
     sandbox.writeLocalConfig(`
 new-hook: {}
 `)
 
     const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
-    expect(result.exitCode).toBe(2)
-    expect(result.stderr).toContain('not defined in home or project config')
+    expect(result.exitCode).toBe(0)
   })
 })
 
@@ -741,7 +806,9 @@ describe('special cases', () => {
     sandbox = createSandbox()
 
     // Write config in the home dir's .clooks
-    sandbox.writeHomeHook('home-hook.ts', `
+    sandbox.writeHomeHook(
+      'home-hook.ts',
+      `
 export const hook = {
   meta: { name: "home-hook" },
   SessionStart() { return null },
@@ -749,7 +816,8 @@ export const hook = {
     return { result: "allow" as const, injectContext: "home-hook-works" }
   },
 }
-`)
+`,
+    )
     sandbox.writeHomeConfig(`
 version: "1.0.0"
 home-hook: {}
@@ -776,7 +844,9 @@ home-hook: {}
     sandbox = createSandbox()
 
     // The imported value must be used (Bun tree-shakes unused imports)
-    sandbox.writeHomeHook('npm-hook.ts', `
+    sandbox.writeHomeHook(
+      'npm-hook.ts',
+      `
 import { foo } from "@nonexistent-clooks-test-pkg-xyz123"
 export const hook = {
   meta: { name: "npm-hook" },
@@ -784,7 +854,8 @@ export const hook = {
     return { result: "allow" as const, injectContext: String(foo) }
   },
 }
-`)
+`,
+    )
     sandbox.writeHomeConfig(`
 version: "1.0.0"
 npm-hook: {}
@@ -806,22 +877,28 @@ describe('event ordering across layers', () => {
   test('23. home order + project order concatenate — home hooks run first', () => {
     sandbox = createSandbox()
 
-    sandbox.writeHomeHook('home-first.ts', `
+    sandbox.writeHomeHook(
+      'home-first.ts',
+      `
 export const hook = {
   meta: { name: "home-first" },
   PreToolUse() {
     return { result: "allow" as const, injectContext: "HOME-FIRST" }
   },
 }
-`)
-    sandbox.writeHomeHook('home-second.ts', `
+`,
+    )
+    sandbox.writeHomeHook(
+      'home-second.ts',
+      `
 export const hook = {
   meta: { name: "home-second" },
   PreToolUse() {
     return { result: "allow" as const, injectContext: "HOME-SECOND" }
   },
 }
-`)
+`,
+    )
     sandbox.writeHomeConfig(`
 version: "1.0.0"
 home-first: {}
@@ -830,22 +907,28 @@ PreToolUse:
   order: [home-first, home-second]
 `)
 
-    sandbox.writeHook('project-first.ts', `
+    sandbox.writeHook(
+      'project-first.ts',
+      `
 export const hook = {
   meta: { name: "project-first" },
   PreToolUse() {
     return { result: "allow" as const, injectContext: "PROJECT-FIRST" }
   },
 }
-`)
-    sandbox.writeHook('project-second.ts', `
+`,
+    )
+    sandbox.writeHook(
+      'project-second.ts',
+      `
 export const hook = {
   meta: { name: "project-second" },
   PreToolUse() {
     return { result: "allow" as const, injectContext: "PROJECT-SECOND" }
   },
 }
-`)
+`,
+    )
     sandbox.writeConfig(`
 version: "1.0.0"
 project-first: {}
@@ -871,14 +954,17 @@ PreToolUse:
   test('24. local order replaces concatenated home+project order', () => {
     sandbox = createSandbox()
 
-    sandbox.writeHomeHook('home-hook.ts', `
+    sandbox.writeHomeHook(
+      'home-hook.ts',
+      `
 export const hook = {
   meta: { name: "home-hook" },
   PreToolUse() {
     return { result: "allow" as const, injectContext: "HOME" }
   },
 }
-`)
+`,
+    )
     sandbox.writeHomeConfig(`
 version: "1.0.0"
 home-hook: {}
@@ -886,14 +972,17 @@ PreToolUse:
   order: [home-hook]
 `)
 
-    sandbox.writeHook('project-hook.ts', `
+    sandbox.writeHook(
+      'project-hook.ts',
+      `
 export const hook = {
   meta: { name: "project-hook" },
   PreToolUse() {
     return { result: "allow" as const, injectContext: "PROJECT" }
   },
 }
-`)
+`,
+    )
     sandbox.writeConfig(`
 version: "1.0.0"
 project-hook: {}

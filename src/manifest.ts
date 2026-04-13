@@ -1,3 +1,4 @@
+import { readFileSync } from 'fs'
 import { isEventName } from './config/constants.js'
 import { getRawBaseUrl } from './github-url.js'
 
@@ -173,6 +174,11 @@ export function validateManifest(raw: unknown): Manifest {
   }
 
   return manifest
+}
+
+export function loadManifestFromFile(filePath: string): Manifest {
+  const raw = JSON.parse(readFileSync(filePath, 'utf-8'))
+  return validateManifest(raw)
 }
 
 export async function fetchManifest(owner: string, repo: string): Promise<Manifest> {

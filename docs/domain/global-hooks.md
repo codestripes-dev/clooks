@@ -12,7 +12,9 @@ Global hooks live in `~/.clooks/` and are loaded by the engine alongside project
 ~/.clooks/
   clooks.yml          # home config — hooks, events, global settings
   hooks/              # home hook source files
-  vendor/             # home vendor hooks (installed via clooks add --global)
+  vendor/             # home vendor hooks
+    github.com/       # manually added hooks (clooks add --global)
+    plugin/           # plugin-delivered hooks (auto-vendored from plugin cache)
   bin/
     clooks            # compiled binary (shared across all projects)
   failures/           # failure state for home-only projects
@@ -21,6 +23,10 @@ Global hooks live in `~/.clooks/` and are loaded by the engine alongside project
 ```
 
 Global hooks installed via `clooks add --global` use the same short address `uses:` format as project hooks (e.g., `uses: someuser/security-hooks:secret-scanner`). They resolve relative to `~/.clooks/` via origin-aware path construction in `resolveHookPath()`.
+
+### Plugin Hooks in Home Config
+
+User-scoped plugins (scope `"user"` in `installed_plugins.json`) are automatically vendored to `~/.clooks/vendor/plugin/<pack-name>/` and registered in `~/.clooks/clooks.yml` with path-like `uses` values. This happens during the engine's plugin discovery step — no manual setup required. See `docs/domain/vendoring/plugin-vendoring.md` for the full discovery and vendoring workflow.
 
 ## Config Scoping Rules
 
@@ -38,7 +44,7 @@ If neither home nor project config exists, the engine exits cleanly (no hooks to
 
 - **`version`** — Last-writer-wins (project > home, local > both).
 - **`config`** — Deep merge across all layers. Nested objects merge recursively; scalars and arrays replace.
-- **Hooks** — **Atomic replacement.** A project hook with the same name as a home hook replaces the home hook entirely. Local hooks can only modify existing hooks (cannot introduce new ones).
+- **Hooks** — **Atomic replacement.** A project hook with the same name as a home hook replaces the home hook entirely. Local hooks can modify existing hooks or introduce new ones (new hooks get origin `"project"`).
 - **Events** — Home order + project order are concatenated (home first). Local replaces the event entry entirely.
 
 ### Hook Origin Tracking
@@ -92,6 +98,7 @@ Shadow detection is performed during config merge (`mergeThreeLayerConfig()` in 
 ## Related
 
 - `docs/domain/config.md` — Config system details, merge rules, cascade rules.
+- `docs/domain/vendoring/plugin-vendoring.md` — Plugin cache discovery, plugin hook vendoring, scope-based routing.
 - `docs/domain/bash-entrypoint.md` — Entrypoint script and dedup mechanism.
 - `docs/domain/hook-type-system.md` — `HookOrigin` type documentation.
 - `docs/domain/cli-architecture.md` — CLI commands including `config --resolved`.

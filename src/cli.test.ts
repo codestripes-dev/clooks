@@ -14,7 +14,6 @@ describe('KNOWN_COMMANDS', () => {
   test('does not contain deferred commands', () => {
     expect(KNOWN_COMMANDS.has('manage')).toBe(false)
     expect(KNOWN_COMMANDS.has('remove')).toBe(false)
-    expect(KNOWN_COMMANDS.has('update')).toBe(false)
     expect(KNOWN_COMMANDS.has('verify')).toBe(false)
     expect(KNOWN_COMMANDS.has('install')).toBe(false)
   })

@@ -367,7 +367,7 @@ Clooks supports three overlapping config files, merged at load time:
 | Project | `.clooks/clooks.yml` | Yes | Project-specific hooks |
 | Local | `.clooks/clooks.local.yml` | No (gitignored) | Personal overrides |
 
-Project hooks with the same name as home hooks **shadow** (replace) them. Local overrides can only modify existing hooks — they cannot define new ones.
+Project hooks with the same name as home hooks **shadow** (replace) them. Local overrides can modify existing hooks or introduce new ones (new hooks get origin `"project"`).
 
 ## Execution Model
 

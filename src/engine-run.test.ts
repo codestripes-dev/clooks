@@ -30,12 +30,16 @@ let originalCwd: () => string
 let mockLoadConfig: ReturnType<typeof mock>
 let mockLoadAllHooks: ReturnType<typeof mock>
 let mockReadStdin: ReturnType<typeof mock>
+let mockDiscoverPluginPacks: ReturnType<typeof mock>
+let mockVendorAndRegisterPack: ReturnType<typeof mock>
 
 function makeDeps(): RunEngineDeps {
   return {
     loadConfig: mockLoadConfig as any,
     loadAllHooks: mockLoadAllHooks as any,
     readStdin: mockReadStdin as any,
+    discoverPluginPacks: mockDiscoverPluginPacks as any,
+    vendorAndRegisterPack: mockVendorAndRegisterPack as any,
   }
 }
 
@@ -52,8 +56,12 @@ beforeEach(() => {
   stdoutSpy = spyOn(process.stdout, 'write').mockImplementation(() => true)
   stderrSpy = spyOn(process.stderr, 'write').mockImplementation(() => true)
   mockLoadConfig = mock(() => Promise.resolve(null))
-  mockLoadAllHooks = mock(() => Promise.resolve({ loaded: [], loadErrors: [] }))
+  mockLoadAllHooks = mock(() => Promise.resolve({ loaded: [], loadErrors: [], dangling: [] }))
   mockReadStdin = mock(() => Promise.resolve({}))
+  mockDiscoverPluginPacks = mock(() => [])
+  mockVendorAndRegisterPack = mock(() =>
+    Promise.resolve({ registered: [], skipped: [], collisions: [], errors: [] }),
+  )
 })
 
 afterEach(() => {
@@ -861,5 +869,492 @@ describe('runEngine', () => {
     await runEngine(makeDeps()).catch(() => {})
     const stdout = getStdout()
     expect(stdout).toContain('extra')
+  })
+
+  // --- Plugin discovery integration tests ---
+
+  it('discovery finds new plugin → hooks registered → re-load → hooks execute', async () => {
+    const pack = {
+      pluginName: 'test-pack@marketplace',
+      scope: 'user' as const,
+      installPath: '/fake/path',
+      manifest: {
+        version: 1,
+        name: 'test-pack',
+        hooks: {
+          'new-hook': { path: 'hooks/new-hook.ts', description: 'Test hook' },
+        },
+      },
+    }
+
+    mockDiscoverPluginPacks.mockImplementation(() => [pack])
+    mockVendorAndRegisterPack.mockImplementation(() =>
+      Promise.resolve({ registered: ['new-hook'], skipped: [], collisions: [], errors: [] }),
+    )
+
+    // First call: original config (no new-hook). Second call: reloaded config (with new-hook).
+    const configWithoutNewHook = makeConfig({ existing: {} })
+    const configWithNewHook = makeConfig({ existing: {}, 'new-hook': {} })
+    let loadConfigCallCount = 0
+    mockLoadConfig.mockImplementation(() => {
+      loadConfigCallCount++
+      if (loadConfigCallCount === 1) {
+        return Promise.resolve({
+          config: configWithoutNewHook,
+          shadows: [],
+          hasProjectConfig: true,
+        })
+      }
+      return Promise.resolve({ config: configWithNewHook, shadows: [], hasProjectConfig: true })
+    })
+
+    mockLoadAllHooks.mockResolvedValue({
+      loaded: [makeLoadedHook('new-hook', { PreToolUse: () => ({ result: 'allow' }) })],
+      loadErrors: [],
+    })
+    mockReadStdin.mockResolvedValue({ hook_event_name: 'PreToolUse' })
+
+    await runEngine(makeDeps()).catch(() => {})
+
+    // loadConfig should have been called twice (initial + reload after registration)
+    expect(loadConfigCallCount).toBe(2)
+    const stdout = getStdout()
+    expect(stdout).toContain('Registered 1 hook')
+  })
+
+  it('discovery finds no new plugins → no re-load', async () => {
+    const pack = {
+      pluginName: 'test-pack@marketplace',
+      scope: 'user' as const,
+      installPath: '/fake/path',
+      manifest: {
+        version: 1,
+        name: 'test-pack',
+        hooks: {
+          existing: { path: 'hooks/existing.ts', description: 'Already exists' },
+        },
+      },
+    }
+
+    mockDiscoverPluginPacks.mockImplementation(() => [pack])
+    mockVendorAndRegisterPack.mockImplementation(() =>
+      Promise.resolve({ registered: [], skipped: ['existing'], collisions: [], errors: [] }),
+    )
+
+    const config = makeConfig({ existing: {} })
+    mockLoadConfig.mockResolvedValue({ config, shadows: [], hasProjectConfig: true })
+    mockLoadAllHooks.mockResolvedValue({
+      loaded: [makeLoadedHook('existing', { PostToolUse: () => ({ result: 'skip' }) })],
+      loadErrors: [],
+    })
+    mockReadStdin.mockResolvedValue({ hook_event_name: 'PreToolUse' })
+
+    await runEngine(makeDeps()).catch(() => {})
+
+    // loadConfig should have been called exactly once (no reload needed)
+    expect(mockLoadConfig).toHaveBeenCalledTimes(1)
+  })
+
+  it('discovery finds collision → systemMessage emitted', async () => {
+    const pack = {
+      pluginName: 'test-pack@marketplace',
+      scope: 'user' as const,
+      installPath: '/fake/path',
+      manifest: {
+        version: 1,
+        name: 'test-pack',
+        hooks: {
+          'test-hook': { path: 'hooks/test-hook.ts', description: 'Collides' },
+        },
+      },
+    }
+
+    mockDiscoverPluginPacks.mockImplementation(() => [pack])
+    mockVendorAndRegisterPack.mockImplementation(() =>
+      Promise.resolve({
+        registered: [],
+        skipped: [],
+        collisions: ['test-hook: conflicts with existing hook (from plugin test-pack)'],
+        errors: [],
+      }),
+    )
+
+    mockLoadConfig.mockResolvedValue({
+      config: makeConfig({ 'test-hook': {} }),
+      shadows: [],
+      hasProjectConfig: true,
+    })
+    mockLoadAllHooks.mockResolvedValue({
+      loaded: [makeLoadedHook('test-hook', { SessionStart: () => ({ result: 'allow' }) })],
+      loadErrors: [],
+    })
+    mockReadStdin.mockResolvedValue({ hook_event_name: 'SessionStart' })
+
+    await runEngine(makeDeps()).catch(() => {})
+
+    const stdout = getStdout()
+    expect(stdout).toContain('conflicts with existing hook')
+  })
+
+  it('discovery config reload failure falls back to original config', async () => {
+    const pack = {
+      pluginName: 'test-pack@marketplace',
+      scope: 'user' as const,
+      installPath: '/fake/path',
+      manifest: {
+        version: 1,
+        name: 'test-pack',
+        hooks: {
+          'new-hook': { path: 'hooks/new-hook.ts', description: 'Test hook' },
+        },
+      },
+    }
+
+    mockDiscoverPluginPacks.mockImplementation(() => [pack])
+    mockVendorAndRegisterPack.mockImplementation(() =>
+      Promise.resolve({ registered: ['new-hook'], skipped: [], collisions: [], errors: [] }),
+    )
+
+    // First call succeeds, second call (reload) throws
+    let loadConfigCallCount = 0
+    const originalConfig = makeConfig({ existing: {} })
+    mockLoadConfig.mockImplementation(() => {
+      loadConfigCallCount++
+      if (loadConfigCallCount === 1) {
+        return Promise.resolve({ config: originalConfig, shadows: [], hasProjectConfig: true })
+      }
+      return Promise.reject(new Error('reload failed'))
+    })
+
+    mockLoadAllHooks.mockResolvedValue({
+      loaded: [makeLoadedHook('existing', { PreToolUse: () => ({ result: 'allow' }) })],
+      loadErrors: [],
+    })
+    mockReadStdin.mockResolvedValue({ hook_event_name: 'PreToolUse' })
+
+    await runEngine(makeDeps()).catch(() => {})
+
+    // Engine should not crash, reload failure message in stdout
+    const stdout = getStdout()
+    expect(stdout).toContain('Config reload after plugin registration failed')
+    expect(stdout).toContain('reload failed')
+    // Original config hooks still execute
+    expect(stdout).toContain('hookSpecificOutput')
+  })
+
+  it('pluginSystemMessages emitted on no-match early exit', async () => {
+    const pack = {
+      pluginName: 'test-pack@marketplace',
+      scope: 'user' as const,
+      installPath: '/fake/path',
+      manifest: {
+        version: 1,
+        name: 'test-pack',
+        hooks: {
+          'new-hook': { path: 'hooks/new-hook.ts', description: 'Test hook' },
+        },
+      },
+    }
+
+    mockDiscoverPluginPacks.mockImplementation(() => [pack])
+    mockVendorAndRegisterPack.mockImplementation(() =>
+      Promise.resolve({ registered: ['new-hook'], skipped: [], collisions: [], errors: [] }),
+    )
+
+    const config = makeConfig({ existing: {} })
+    mockLoadConfig.mockResolvedValue({ config, shadows: [], hasProjectConfig: true })
+    // Hook loaded but doesn't match the event
+    mockLoadAllHooks.mockResolvedValue({
+      loaded: [makeLoadedHook('existing', { PostToolUse: () => ({ result: 'skip' }) })],
+      loadErrors: [],
+    })
+    mockReadStdin.mockResolvedValue({ hook_event_name: 'PreToolUse' })
+
+    await runEngine(makeDeps()).catch(() => {})
+
+    // Plugin messages should be emitted even on no-match early exit
+    const stdout = getStdout()
+    expect(stdout).toContain('Registered 1 hook')
+  })
+
+  it('discovery disabled when deps not provided', async () => {
+    const depsWithoutPlugins: RunEngineDeps = {
+      loadConfig: mockLoadConfig as any,
+      loadAllHooks: mockLoadAllHooks as any,
+      readStdin: mockReadStdin as any,
+      discoverPluginPacks: undefined,
+      vendorAndRegisterPack: undefined,
+    }
+
+    mockLoadConfig.mockResolvedValue({
+      config: makeConfig({ 'my-hook': {} }),
+      shadows: [],
+      hasProjectConfig: true,
+    })
+    mockLoadAllHooks.mockResolvedValue({
+      loaded: [makeLoadedHook('my-hook', { PreToolUse: () => ({ result: 'allow' }) })],
+      loadErrors: [],
+    })
+    mockReadStdin.mockResolvedValue({ hook_event_name: 'PreToolUse' })
+
+    await runEngine(depsWithoutPlugins).catch(() => {})
+
+    // Should run normally — no crash, output produced
+    const stdout = getStdout()
+    expect(stdout).toContain('hookSpecificOutput')
+    // discoverPluginPacks should never have been called
+    expect(mockDiscoverPluginPacks).not.toHaveBeenCalled()
+  })
+
+  describe('dangling hook handling', () => {
+    it('dangling hook produces systemMessage warning at early exit', async () => {
+      mockLoadConfig.mockResolvedValue({
+        config: makeConfig(),
+        shadows: [],
+        hasProjectConfig: true,
+      })
+      mockLoadAllHooks.mockResolvedValue({
+        loaded: [],
+        loadErrors: [],
+        dangling: [
+          {
+            name: hn('missing-hook'),
+            resolvedPath: '.clooks/vendor/plugin/test-pack/missing-hook.ts',
+            origin: 'project' as const,
+          },
+        ],
+      })
+      await runEngine(makeDeps()).catch(() => {})
+
+      expect(exitSpy).toHaveBeenCalledWith(0)
+      const stdout = getStdout()
+      const parsed = JSON.parse(stdout.trim().split('\n')[0]!)
+      expect(parsed.systemMessage).toContain('skipped')
+      expect(parsed.systemMessage).toContain('missing-hook')
+      expect(parsed.systemMessage).toContain('file not found')
+      expect(parsed.systemMessage).toContain('.clooks/clooks.yml')
+    })
+
+    it('dangling hook with home origin shows home config path', async () => {
+      mockLoadConfig.mockResolvedValue({
+        config: makeConfig(),
+        shadows: [],
+        hasProjectConfig: true,
+      })
+      mockLoadAllHooks.mockResolvedValue({
+        loaded: [],
+        loadErrors: [],
+        dangling: [
+          {
+            name: hn('home-hook'),
+            resolvedPath: '.clooks/vendor/plugin/test-pack/home-hook.ts',
+            origin: 'home' as const,
+          },
+        ],
+      })
+      await runEngine(makeDeps()).catch(() => {})
+
+      const stdout = getStdout()
+      const parsed = JSON.parse(stdout.trim().split('\n')[0]!)
+      expect(parsed.systemMessage).toContain('~/.clooks/clooks.yml')
+    })
+
+    it('dangling hook coexists with loaded hooks', async () => {
+      mockLoadConfig.mockResolvedValue({
+        config: makeConfig({ 'good-hook': {} }),
+        shadows: [],
+        hasProjectConfig: true,
+      })
+      mockLoadAllHooks.mockResolvedValue({
+        loaded: [makeLoadedHook('good-hook', { PreToolUse: () => ({ result: 'allow' }) })],
+        loadErrors: [],
+        dangling: [
+          {
+            name: hn('missing-hook'),
+            resolvedPath: '.clooks/vendor/plugin/test-pack/missing-hook.ts',
+            origin: 'project' as const,
+          },
+        ],
+      })
+      mockReadStdin.mockResolvedValue({ hook_event_name: 'PreToolUse' })
+      await runEngine(makeDeps()).catch(() => {})
+
+      // Action is allowed (not blocked)
+      const stdout = getStdout()
+      expect(stdout).toContain('hookSpecificOutput')
+      // Dangling warning is included in systemMessage
+      const parsed = JSON.parse(stdout.trim().split('\n')[0]!)
+      expect(parsed.systemMessage).toContain('missing-hook')
+      expect(parsed.systemMessage).toContain('skipped')
+    })
+
+    it('dangling hook does not trigger circuit breaker', async () => {
+      const { readFailures } = await import('./failures.js')
+      const failurePath = join(tempDir, '.clooks/.failures')
+
+      mockLoadConfig.mockResolvedValue({
+        config: makeConfig(),
+        shadows: [],
+        hasProjectConfig: true,
+      })
+      mockLoadAllHooks.mockResolvedValue({
+        loaded: [],
+        loadErrors: [],
+        dangling: [
+          {
+            name: hn('missing-hook'),
+            resolvedPath: '.clooks/vendor/plugin/test-pack/missing-hook.ts',
+            origin: 'project' as const,
+          },
+        ],
+      })
+      await runEngine(makeDeps()).catch(() => {})
+
+      // No failure state should be written for dangling hooks
+      const state = await readFailures(failurePath)
+      expect(state[hn('missing-hook')]).toBeUndefined()
+    })
+
+    it('dangling hook clears stale failure state', async () => {
+      // Pre-seed .failures with LOAD_ERROR_EVENT for the hook (simulating pre-fix state)
+      const {
+        writeFailures,
+        recordFailure,
+        readFailures,
+        LOAD_ERROR_EVENT: loadEvent,
+      } = await import('./failures.js')
+      const failurePath = join(tempDir, '.clooks/.failures')
+      let state: any = {}
+      state = recordFailure(state, hn('stale-hook'), loadEvent, 'Cannot find module')
+      state = recordFailure(state, hn('stale-hook'), loadEvent, 'Cannot find module')
+      await writeFailures(failurePath, state)
+
+      mockLoadConfig.mockResolvedValue({
+        config: makeConfig(),
+        shadows: [],
+        hasProjectConfig: true,
+      })
+      mockLoadAllHooks.mockResolvedValue({
+        loaded: [],
+        loadErrors: [],
+        dangling: [
+          {
+            name: hn('stale-hook'),
+            resolvedPath: '.clooks/vendor/plugin/test-pack/stale-hook.ts',
+            origin: 'project' as const,
+          },
+        ],
+      })
+      await runEngine(makeDeps()).catch(() => {})
+
+      // Stale failure state should be cleared
+      const afterState = await readFailures(failurePath)
+      expect(afterState[hn('stale-hook')]).toBeUndefined()
+    })
+
+    it('debug mode logs dangling hooks', async () => {
+      process.env.CLOOKS_DEBUG = 'true'
+      mockLoadConfig.mockResolvedValue({
+        config: makeConfig(),
+        shadows: [],
+        hasProjectConfig: true,
+      })
+      mockLoadAllHooks.mockResolvedValue({
+        loaded: [],
+        loadErrors: [],
+        dangling: [
+          {
+            name: hn('debug-hook'),
+            resolvedPath: '.clooks/vendor/plugin/test-pack/debug-hook.ts',
+            origin: 'project' as const,
+          },
+        ],
+      })
+      await runEngine(makeDeps()).catch(() => {})
+
+      const stderr = getStderr()
+      expect(stderr).toContain(
+        '[clooks:debug] dangling: debug-hook — .clooks/vendor/plugin/test-pack/debug-hook.ts',
+      )
+    })
+
+    it('dangling warning emitted on no-match early exit (Site 2)', async () => {
+      mockLoadConfig.mockResolvedValue({
+        config: makeConfig({ 'other-hook': {} }),
+        shadows: [],
+        hasProjectConfig: true,
+      })
+      mockLoadAllHooks.mockResolvedValue({
+        loaded: [makeLoadedHook('other-hook', { PostToolUse: () => ({ result: 'skip' }) })],
+        loadErrors: [],
+        dangling: [
+          {
+            name: hn('missing-hook'),
+            resolvedPath: '.clooks/vendor/plugin/test-pack/missing-hook.ts',
+            origin: 'project' as const,
+          },
+        ],
+      })
+      // Event doesn't match the loaded hook
+      mockReadStdin.mockResolvedValue({ hook_event_name: 'PreToolUse' })
+      await runEngine(makeDeps()).catch(() => {})
+
+      expect(exitSpy).toHaveBeenCalledWith(0)
+      const stdout = getStdout()
+      const parsed = JSON.parse(stdout.trim().split('\n')[0]!)
+      expect(parsed.systemMessage).toContain('missing-hook')
+      expect(parsed.systemMessage).toContain('skipped')
+    })
+
+    it('dangling warning emitted when lastResult is undefined (Site 3)', async () => {
+      mockLoadConfig.mockResolvedValue({
+        config: makeConfig({ skipper: { onError: 'continue' } }),
+        shadows: [],
+        hasProjectConfig: true,
+      })
+      mockLoadAllHooks.mockResolvedValue({
+        loaded: [
+          makeLoadedHook('skipper', {
+            PreToolUse: () => {
+              throw new Error('hook crashed')
+            },
+          }),
+        ],
+        loadErrors: [],
+        dangling: [
+          {
+            name: hn('missing-hook'),
+            resolvedPath: '.clooks/vendor/plugin/test-pack/missing-hook.ts',
+            origin: 'project' as const,
+          },
+        ],
+      })
+      mockReadStdin.mockResolvedValue({ hook_event_name: 'PreToolUse' })
+      await runEngine(makeDeps()).catch(() => {})
+
+      const stdout = getStdout()
+      const parsed = JSON.parse(stdout.trim().split('\n')[0]!)
+      expect(parsed.systemMessage).toContain('missing-hook')
+      expect(parsed.systemMessage).toContain('skipped')
+    })
+
+    it('existing mocks without dangling field still work (backward compat)', async () => {
+      mockLoadConfig.mockResolvedValue({
+        config: makeConfig({ 'my-hook': {} }),
+        shadows: [],
+        hasProjectConfig: true,
+      })
+      // Intentionally omit dangling field — simulates old mock shape
+      mockLoadAllHooks.mockResolvedValue({
+        loaded: [makeLoadedHook('my-hook', { PreToolUse: () => ({ result: 'allow' }) })],
+        loadErrors: [],
+      })
+      mockReadStdin.mockResolvedValue({ hook_event_name: 'PreToolUse' })
+      await runEngine(makeDeps()).catch(() => {})
+
+      // Should work normally — no crash from missing dangling
+      const stdout = getStdout()
+      expect(stdout).toContain('hookSpecificOutput')
+    })
   })
 })

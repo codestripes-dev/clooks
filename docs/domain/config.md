@@ -125,7 +125,9 @@ lint-guard:
   uses: ./.clooks/vendor/github.com/someuser/hooks/lint-guard.ts
 ```
 
-Both formats skip `meta.name` validation (routed through `isShortAddress` or `isPathLike` before the convention rules are reached). See `docs/domain/vendoring.md` for the full vendoring workflow.
+Both formats skip `meta.name` validation (routed through `isShortAddress` or `isPathLike` before the convention rules are reached). See `docs/domain/vendoring/overview.md` for the full vendoring workflow.
+
+**Plugin-delivered hooks** use path-like `uses` values (e.g., `uses: ./.clooks/vendor/plugin/<pack>/<hook>.ts`). They resolve through the same `isPathLike` path as manually vendored hooks. See `docs/domain/vendoring/plugin-vendoring.md` for discovery, vendoring, and scope-based routing.
 
 ## Hook Aliases
 
@@ -163,7 +165,7 @@ Merge rules differ by field type (implemented in `mergeThreeLayerConfig()`):
 
 - **`version`** — Last-writer-wins (project overrides home, local overrides both).
 - **`config`** — Deep merge across all layers. Plain objects merge recursively; scalars and arrays replace.
-- **Hooks** — **Atomic replacement.** A project hook with the same name as a home hook replaces it entirely (this is a "shadow"). Local hooks can modify existing hooks but cannot introduce new ones.
+- **Hooks** — **Atomic replacement.** A project hook with the same name as a home hook replaces it entirely (this is a "shadow"). Local hooks can modify existing hooks or introduce new ones (new hooks get origin `"project"`).
 - **Events** — Home order + project order are concatenated (home hooks first). Local replaces the event entry entirely.
 
 ### Scoping Rules
@@ -265,7 +267,9 @@ A hook+event pair that fails N consecutive times (default 3) enters "degraded mo
 
 **Disabling:** Set `maxFailures: 0` on a hook entry to disable the circuit breaker for that hook. It will always fail-closed regardless of how many times it fails.
 
-**Load errors:** Hooks that fail to import (missing file, broken dependency) are also routed through the circuit breaker. `loadAllHooks` is fault-tolerant — it uses `Promise.allSettled` and returns load errors alongside successfully loaded hooks. The engine processes load errors through the same threshold logic as execution errors. Note: load error counters are currently tracked per hook+event (same as execution errors), which means a load failure must independently reach the threshold on each event type. See FEAT-0015 for a planned improvement to degrade load errors globally across all events.
+**Load errors:** Hooks that fail to import (file exists but has syntax errors, missing dependencies, etc.) are routed through the circuit breaker. `loadAllHooks` is fault-tolerant — it uses `Promise.allSettled` and returns load errors alongside successfully loaded hooks. The engine processes load errors through the same threshold logic as execution errors. Note: "load error" specifically means the source file exists but could not be imported. A missing source file for a plugin-vendored hook is a "dangling hook" — see below.
+
+**Dangling hooks:** Plugin-vendored hooks whose source file does not exist on disk (detected by `existsSync()` before import) are classified as "dangling" and bypass the circuit breaker entirely. They produce a `systemMessage` warning on every invocation but never block the action. This satisfies DP-2 from FEAT-0041: dangling registrations are an expected lifecycle state (e.g., plugin uninstall deletes the vendor file), not a runtime error. Dangling detection applies only to plugin-vendored hooks (paths containing `vendor/plugin/`); non-plugin hooks with missing files still go through the normal load error → circuit breaker path. The loader returns dangling hooks as a separate `DanglingHook[]` array in `LoadAllHooksResult`, distinct from `loadErrors`. The engine clears any stale circuit breaker state for newly-dangling hooks.
 
 ## Performance
 
