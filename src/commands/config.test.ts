@@ -51,7 +51,9 @@ function makeResult(overrides?: Partial<LoadConfigResult>): LoadConfigResult {
   }
 }
 
-function createTestProgram(loadConfig: (root: string, options?: LoadConfigOptions) => Promise<LoadConfigResult | null>) {
+function createTestProgram(
+  loadConfig: (root: string, options?: LoadConfigOptions) => Promise<LoadConfigResult | null>,
+) {
   const program = new Command()
   program.exitOverride()
   program.option('--json', 'JSON output')
@@ -100,9 +102,7 @@ describe('config command', () => {
     const program = createTestProgram(loadConfig)
     await program.parseAsync(['--json', 'config'], { from: 'user' })
 
-    const output = stdoutSpy.mock.calls
-      .map((c: unknown[]) => String(c[0]))
-      .join('')
+    const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
     const parsed = JSON.parse(output.trim())
 
     expect(parsed.ok).toBe(true)
@@ -158,9 +158,7 @@ describe('config command', () => {
 
     expect(exitSpy).toHaveBeenCalledWith(1)
 
-    const output = stdoutSpy.mock.calls
-      .map((c: unknown[]) => String(c[0]))
-      .join('')
+    const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
     const parsed = JSON.parse(output.trim())
 
     expect(parsed.ok).toBe(false)
@@ -210,13 +208,22 @@ describe('config --resolved', () => {
     mkdirSync(join(projectDir, '.clooks'), { recursive: true })
 
     // Home config
-    writeFileSync(join(homeDir, '.clooks/clooks.yml'), `version: "1.0.0"\nconfig:\n  timeout: 5000\nsecurity-audit:\n  config:\n    blocked:\n      - "rm -rf"\nPreToolUse:\n  order: [security-audit]\n`)
+    writeFileSync(
+      join(homeDir, '.clooks/clooks.yml'),
+      `version: "1.0.0"\nconfig:\n  timeout: 5000\nsecurity-audit:\n  config:\n    blocked:\n      - "rm -rf"\nPreToolUse:\n  order: [security-audit]\n`,
+    )
 
     // Project config
-    writeFileSync(join(projectDir, '.clooks/clooks.yml'), `version: "1.0.0"\nconfig:\n  timeout: 10000\n  onError: block\nlint-guard:\n  config:\n    strict: true\nPreToolUse:\n  order: [lint-guard]\n`)
+    writeFileSync(
+      join(projectDir, '.clooks/clooks.yml'),
+      `version: "1.0.0"\nconfig:\n  timeout: 10000\n  onError: block\nlint-guard:\n  config:\n    strict: true\nPreToolUse:\n  order: [lint-guard]\n`,
+    )
 
     // Local config
-    writeFileSync(join(projectDir, '.clooks/clooks.local.yml'), `security-audit:\n  config:\n    blocked:\n      - "rm -rf"\n      - "curl | sh"\n`)
+    writeFileSync(
+      join(projectDir, '.clooks/clooks.local.yml'),
+      `security-audit:\n  config:\n    blocked:\n      - "rm -rf"\n      - "curl | sh"\n`,
+    )
 
     return { homeDir, projectDir }
   }
@@ -230,13 +237,16 @@ describe('config --resolved', () => {
     mkdirSync(projectDir, { recursive: true })
 
     // Home config only
-    writeFileSync(join(homeDir, '.clooks/clooks.yml'), `version: "1.0.0"\nconfig:\n  timeout: 5000\nsecurity-audit:\n  config:\n    blocked:\n      - "rm -rf"\n`)
+    writeFileSync(
+      join(homeDir, '.clooks/clooks.yml'),
+      `version: "1.0.0"\nconfig:\n  timeout: 5000\nsecurity-audit:\n  config:\n    blocked:\n      - "rm -rf"\n`,
+    )
 
     return { homeDir, projectDir }
   }
 
   function createResolvedProgram() {
-    const loadConfig = mock().mockResolvedValue(null)  // not used in --resolved mode
+    const loadConfig = mock().mockResolvedValue(null) // not used in --resolved mode
     const program = new Command()
     program.exitOverride()
     program.option('--json', 'JSON output')
@@ -252,9 +262,7 @@ describe('config --resolved', () => {
     const program = createResolvedProgram()
     await program.parseAsync(['config', '--resolved'], { from: 'user' })
 
-    const output = stdoutSpy.mock.calls
-      .map((c: unknown[]) => String(c[0]))
-      .join('')
+    const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
 
     // Should show version from both layers
     expect(output).toContain('version:')
@@ -283,9 +291,7 @@ describe('config --resolved', () => {
     const program = createResolvedProgram()
     await program.parseAsync(['--json', 'config', '--resolved'], { from: 'user' })
 
-    const output = stdoutSpy.mock.calls
-      .map((c: unknown[]) => String(c[0]))
-      .join('')
+    const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
     const parsed = JSON.parse(output.trim())
 
     expect(parsed.ok).toBe(true)
@@ -319,9 +325,7 @@ describe('config --resolved', () => {
     const program = createResolvedProgram()
     await program.parseAsync(['config', '--resolved'], { from: 'user' })
 
-    const output = stdoutSpy.mock.calls
-      .map((c: unknown[]) => String(c[0]))
-      .join('')
+    const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
 
     expect(output).toContain('version:')
     expect(output).toContain('[home]')
@@ -339,10 +343,16 @@ describe('config --resolved', () => {
     mkdirSync(join(projectDir, '.clooks'), { recursive: true })
 
     // Home defines security-audit
-    writeFileSync(join(homeDir, '.clooks/clooks.yml'), `version: "1.0.0"\nsecurity-audit:\n  config:\n    blocked:\n      - "rm -rf"\n`)
+    writeFileSync(
+      join(homeDir, '.clooks/clooks.yml'),
+      `version: "1.0.0"\nsecurity-audit:\n  config:\n    blocked:\n      - "rm -rf"\n`,
+    )
 
     // Project also defines security-audit (shadows home)
-    writeFileSync(join(projectDir, '.clooks/clooks.yml'), `version: "1.0.0"\nsecurity-audit:\n  config:\n    blocked:\n      - "rm -rf"\n      - "curl | sh"\n`)
+    writeFileSync(
+      join(projectDir, '.clooks/clooks.yml'),
+      `version: "1.0.0"\nsecurity-audit:\n  config:\n    blocked:\n      - "rm -rf"\n      - "curl | sh"\n`,
+    )
 
     process.chdir(projectDir)
     process.env.CLOOKS_HOME_ROOT = homeDir
@@ -350,9 +360,7 @@ describe('config --resolved', () => {
     const program = createResolvedProgram()
     await program.parseAsync(['config', '--resolved'], { from: 'user' })
 
-    const output = stdoutSpy.mock.calls
-      .map((c: unknown[]) => String(c[0]))
-      .join('')
+    const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
 
     // Should show home entry marked as shadowed
     expect(output).toContain('hook: security-audit  [home]  (shadowed by project)')
@@ -371,8 +379,14 @@ describe('config --resolved', () => {
     mkdirSync(join(homeDir, '.clooks'), { recursive: true })
     mkdirSync(join(projectDir, '.clooks'), { recursive: true })
 
-    writeFileSync(join(homeDir, '.clooks/clooks.yml'), `version: "1.0.0"\nsecurity-audit:\n  config:\n    blocked:\n      - "rm -rf"\n`)
-    writeFileSync(join(projectDir, '.clooks/clooks.yml'), `version: "1.0.0"\nsecurity-audit:\n  config:\n    strict: true\n`)
+    writeFileSync(
+      join(homeDir, '.clooks/clooks.yml'),
+      `version: "1.0.0"\nsecurity-audit:\n  config:\n    blocked:\n      - "rm -rf"\n`,
+    )
+    writeFileSync(
+      join(projectDir, '.clooks/clooks.yml'),
+      `version: "1.0.0"\nsecurity-audit:\n  config:\n    strict: true\n`,
+    )
 
     process.chdir(projectDir)
     process.env.CLOOKS_HOME_ROOT = homeDir
@@ -380,20 +394,22 @@ describe('config --resolved', () => {
     const program = createResolvedProgram()
     await program.parseAsync(['--json', 'config', '--resolved'], { from: 'user' })
 
-    const output = stdoutSpy.mock.calls
-      .map((c: unknown[]) => String(c[0]))
-      .join('')
+    const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
     const parsed = JSON.parse(output.trim())
 
     expect(parsed.ok).toBe(true)
-    const details = parsed.data.hookDetails as { name: string; origin: string; shadowed?: boolean }[]
+    const details = parsed.data.hookDetails as {
+      name: string
+      origin: string
+      shadowed?: boolean
+    }[]
     expect(details).toBeArray()
 
-    const homeEntry = details.find(d => d.origin === 'home' && d.name === 'security-audit')
+    const homeEntry = details.find((d) => d.origin === 'home' && d.name === 'security-audit')
     expect(homeEntry).toBeDefined()
     expect(homeEntry!.shadowed).toBe(true)
 
-    const projectEntry = details.find(d => d.origin === 'project' && d.name === 'security-audit')
+    const projectEntry = details.find((d) => d.origin === 'project' && d.name === 'security-audit')
     expect(projectEntry).toBeDefined()
     expect(projectEntry!.shadowed).toBeUndefined()
 
@@ -425,7 +441,10 @@ describe('config --resolved', () => {
     mkdirSync(join(homeDir, '.clooks'), { recursive: true })
     mkdirSync(join(projectDir, '.clooks'), { recursive: true })
 
-    writeFileSync(join(projectDir, '.clooks/clooks.yml'), `version: "1.0.0"\nverbose-logger:\n  uses: log-bash\n  config:\n    verbose: true\n`)
+    writeFileSync(
+      join(projectDir, '.clooks/clooks.yml'),
+      `version: "1.0.0"\nverbose-logger:\n  uses: log-bash\n  config:\n    verbose: true\n`,
+    )
 
     process.chdir(projectDir)
     process.env.CLOOKS_HOME_ROOT = homeDir
@@ -433,9 +452,7 @@ describe('config --resolved', () => {
     const program = createResolvedProgram()
     await program.parseAsync(['config', '--resolved'], { from: 'user' })
 
-    const output = stdoutSpy.mock.calls
-      .map((c: unknown[]) => String(c[0]))
-      .join('')
+    const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
 
     expect(output).toContain('hook: verbose-logger  [project]')
     expect(output).toContain('  uses: log-bash')
@@ -461,9 +478,7 @@ describe('config --resolved', () => {
     const program = createResolvedProgram()
     await program.parseAsync(['config', '--resolved'], { from: 'user' })
 
-    const output = stdoutSpy.mock.calls
-      .map((c: unknown[]) => String(c[0]))
-      .join('')
+    const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
 
     expect(output).toContain('hook: log-bash  [project]')
     expect(output).toContain('  source: .clooks/hooks/log-bash.ts')
@@ -479,7 +494,10 @@ describe('config --resolved', () => {
     mkdirSync(join(homeDir, '.clooks'), { recursive: true })
     mkdirSync(join(projectDir, '.clooks'), { recursive: true })
 
-    writeFileSync(join(projectDir, '.clooks/clooks.yml'), `version: "1.0.0"\nverbose-logger:\n  uses: log-bash\n  config:\n    verbose: true\n`)
+    writeFileSync(
+      join(projectDir, '.clooks/clooks.yml'),
+      `version: "1.0.0"\nverbose-logger:\n  uses: log-bash\n  config:\n    verbose: true\n`,
+    )
 
     process.chdir(projectDir)
     process.env.CLOOKS_HOME_ROOT = homeDir
@@ -487,9 +505,7 @@ describe('config --resolved', () => {
     const program = createResolvedProgram()
     await program.parseAsync(['--json', 'config', '--resolved'], { from: 'user' })
 
-    const output = stdoutSpy.mock.calls
-      .map((c: unknown[]) => String(c[0]))
-      .join('')
+    const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
     const parsed = JSON.parse(output.trim())
 
     expect(parsed.ok).toBe(true)
@@ -497,7 +513,9 @@ describe('config --resolved', () => {
     expect(hookKeyed.uses).toBe('log-bash')
     expect(hookKeyed.resolved).toBe('.clooks/hooks/log-bash.ts')
 
-    const hookDetail = parsed.data.hookDetails.find((d: { name: string }) => d.name === 'verbose-logger')
+    const hookDetail = parsed.data.hookDetails.find(
+      (d: { name: string }) => d.name === 'verbose-logger',
+    )
     expect(hookDetail.uses).toBe('log-bash')
     expect(hookDetail.resolved).toBe('.clooks/hooks/log-bash.ts')
   })
@@ -518,9 +536,7 @@ describe('config --resolved', () => {
     const program = createResolvedProgram()
     await program.parseAsync(['--json', 'config', '--resolved'], { from: 'user' })
 
-    const output = stdoutSpy.mock.calls
-      .map((c: unknown[]) => String(c[0]))
-      .join('')
+    const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
     const parsed = JSON.parse(output.trim())
 
     expect(parsed.ok).toBe(true)
@@ -538,7 +554,10 @@ describe('config --resolved', () => {
     mkdirSync(join(homeDir, '.clooks'), { recursive: true })
     mkdirSync(join(projectDir, '.clooks'), { recursive: true })
 
-    writeFileSync(join(projectDir, '.clooks/clooks.yml'), `version: "1.0.0"\ncustom-hook:\n  uses: "./lib/hook.ts"\n`)
+    writeFileSync(
+      join(projectDir, '.clooks/clooks.yml'),
+      `version: "1.0.0"\ncustom-hook:\n  uses: "./lib/hook.ts"\n`,
+    )
 
     process.chdir(projectDir)
     process.env.CLOOKS_HOME_ROOT = homeDir
@@ -546,9 +565,7 @@ describe('config --resolved', () => {
     const program = createResolvedProgram()
     await program.parseAsync(['config', '--resolved'], { from: 'user' })
 
-    const output = stdoutSpy.mock.calls
-      .map((c: unknown[]) => String(c[0]))
-      .join('')
+    const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
 
     expect(output).toContain('  uses: ./lib/hook.ts')
     expect(output).toContain('  resolved: ./lib/hook.ts')
@@ -562,7 +579,10 @@ describe('config --resolved', () => {
     mkdirSync(join(homeDir, '.clooks'), { recursive: true })
     mkdirSync(join(projectDir, '.clooks'), { recursive: true })
 
-    writeFileSync(join(projectDir, '.clooks/clooks.yml'), `version: "1.0.0"\nverbose:\n  uses: base\nquiet:\n  uses: base\n`)
+    writeFileSync(
+      join(projectDir, '.clooks/clooks.yml'),
+      `version: "1.0.0"\nverbose:\n  uses: base\nquiet:\n  uses: base\n`,
+    )
 
     process.chdir(projectDir)
     process.env.CLOOKS_HOME_ROOT = homeDir
@@ -570,16 +590,270 @@ describe('config --resolved', () => {
     const program = createResolvedProgram()
     await program.parseAsync(['config', '--resolved'], { from: 'user' })
 
-    const output = stdoutSpy.mock.calls
-      .map((c: unknown[]) => String(c[0]))
-      .join('')
+    const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
 
     expect(output).toContain('hook: verbose  [project]')
     expect(output).toContain('hook: quiet  [project]')
     // Both should show uses: base and resolve to the same path
-    const usesMatches = output.match(/  uses: base/g)
+    const usesMatches = output.match(/ {2}uses: base/g)
     expect(usesMatches).toHaveLength(2)
-    const resolvedMatches = output.match(/  resolved: .clooks\/hooks\/base\.ts/g)
+    const resolvedMatches = output.match(/ {2}resolved: .clooks\/hooks\/base\.ts/g)
     expect(resolvedMatches).toHaveLength(2)
+  })
+
+  test('--resolved shows dangling tag for missing hook file', async () => {
+    tempDir = mkdtempSync(join(tmpdir(), 'clooks-config-resolved-'))
+    const homeDir = join(tempDir, 'home')
+    const projectDir = join(tempDir, 'project')
+
+    mkdirSync(join(homeDir, '.clooks'), { recursive: true })
+    mkdirSync(join(projectDir, '.clooks'), { recursive: true })
+
+    // Hook registered in YAML but no .ts file on disk
+    writeFileSync(join(projectDir, '.clooks/clooks.yml'), `version: "1.0.0"\nphantom-hook: {}\n`)
+
+    process.chdir(projectDir)
+    process.env.CLOOKS_HOME_ROOT = homeDir
+
+    const program = createResolvedProgram()
+    await program.parseAsync(['config', '--resolved'], { from: 'user' })
+
+    const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
+
+    expect(output).toContain('(dangling)')
+    expect(output).toContain('(file not found)')
+  })
+
+  test('--resolved JSON includes dangling field for missing hook file', async () => {
+    tempDir = mkdtempSync(join(tmpdir(), 'clooks-config-resolved-'))
+    const homeDir = join(tempDir, 'home')
+    const projectDir = join(tempDir, 'project')
+
+    mkdirSync(join(homeDir, '.clooks'), { recursive: true })
+    mkdirSync(join(projectDir, '.clooks'), { recursive: true })
+
+    writeFileSync(join(projectDir, '.clooks/clooks.yml'), `version: "1.0.0"\nphantom-hook: {}\n`)
+
+    process.chdir(projectDir)
+    process.env.CLOOKS_HOME_ROOT = homeDir
+
+    const program = createResolvedProgram()
+    await program.parseAsync(['--json', 'config', '--resolved'], { from: 'user' })
+
+    const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
+    const parsed = JSON.parse(output.trim())
+
+    expect(parsed.ok).toBe(true)
+    expect(parsed.data.hooks['phantom-hook'].dangling).toBe(true)
+    expect(parsed.data.hooks['phantom-hook'].status).toBe('dangling')
+
+    const hookDetail = parsed.data.hookDetails.find(
+      (d: { name: string }) => d.name === 'phantom-hook',
+    )
+    expect(hookDetail).toBeDefined()
+    expect(hookDetail!.dangling).toBe(true)
+    expect(hookDetail!.status).toBe('dangling')
+  })
+
+  test('--resolved does not show dangling for existing hook file', async () => {
+    tempDir = mkdtempSync(join(tmpdir(), 'clooks-config-resolved-'))
+    const homeDir = join(tempDir, 'home')
+    const projectDir = join(tempDir, 'project')
+
+    mkdirSync(join(homeDir, '.clooks'), { recursive: true })
+    mkdirSync(join(projectDir, '.clooks/hooks'), { recursive: true })
+
+    writeFileSync(join(projectDir, '.clooks/clooks.yml'), `version: "1.0.0"\nreal-hook: {}\n`)
+    // Create the actual hook file so it is NOT dangling
+    writeFileSync(join(projectDir, '.clooks/hooks/real-hook.ts'), 'export const hook = {}')
+
+    process.chdir(projectDir)
+    process.env.CLOOKS_HOME_ROOT = homeDir
+
+    const program = createResolvedProgram()
+    await program.parseAsync(['config', '--resolved'], { from: 'user' })
+
+    const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
+
+    expect(output).not.toContain('(dangling)')
+    expect(output).not.toContain('(file not found)')
+  })
+
+  test('--resolved checks both home and project hooks for dangling', async () => {
+    tempDir = mkdtempSync(join(tmpdir(), 'clooks-config-resolved-'))
+    const homeDir = join(tempDir, 'home')
+    const projectDir = join(tempDir, 'project')
+
+    mkdirSync(join(homeDir, '.clooks'), { recursive: true })
+    mkdirSync(join(projectDir, '.clooks/hooks'), { recursive: true })
+
+    // Home config: hook with no file → dangling
+    writeFileSync(join(homeDir, '.clooks/clooks.yml'), `version: "1.0.0"\nhome-phantom: {}\n`)
+
+    // Project config: hook with file on disk → not dangling
+    writeFileSync(join(projectDir, '.clooks/clooks.yml'), `version: "1.0.0"\nproject-real: {}\n`)
+    writeFileSync(join(projectDir, '.clooks/hooks/project-real.ts'), 'export const hook = {}')
+
+    process.chdir(projectDir)
+    process.env.CLOOKS_HOME_ROOT = homeDir
+
+    const program = createResolvedProgram()
+    await program.parseAsync(['config', '--resolved'], { from: 'user' })
+
+    const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
+
+    // home-phantom should be dangling
+    expect(output).toContain('hook: home-phantom')
+    expect(output).toContain('(dangling)')
+
+    // project-real should NOT be dangling
+    // Verify project-real line does not have dangling tag
+    const lines = output.split('\n')
+    const projectRealLine = lines.find((l: string) => l.includes('hook: project-real'))
+    expect(projectRealLine).toBeDefined()
+    expect(projectRealLine).not.toContain('(dangling)')
+  })
+
+  test('--resolved shows local-only hook', async () => {
+    tempDir = mkdtempSync(join(tmpdir(), 'clooks-config-resolved-'))
+    const homeDir = join(tempDir, 'home')
+    const projectDir = join(tempDir, 'project')
+
+    mkdirSync(join(homeDir, '.clooks'), { recursive: true })
+    mkdirSync(join(projectDir, '.clooks/hooks'), { recursive: true })
+
+    // Project config with no hooks
+    writeFileSync(join(projectDir, '.clooks/clooks.yml'), `version: "1.0.0"\n`)
+
+    // Local config with a hook that only exists locally
+    writeFileSync(
+      join(projectDir, '.clooks/clooks.local.yml'),
+      `local-only-hook:\n  config:\n    verbose: true\n`,
+    )
+
+    // Create the hook file so it is NOT dangling
+    writeFileSync(join(projectDir, '.clooks/hooks/local-only-hook.ts'), 'export const hook = {}')
+
+    process.chdir(projectDir)
+    process.env.CLOOKS_HOME_ROOT = homeDir
+
+    const program = createResolvedProgram()
+    await program.parseAsync(['config', '--resolved'], { from: 'user' })
+
+    const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
+
+    expect(output).toContain('hook: local-only-hook  [local]')
+    expect(output).not.toContain('(dangling)')
+  })
+
+  test('--resolved JSON shows local-only hook', async () => {
+    tempDir = mkdtempSync(join(tmpdir(), 'clooks-config-resolved-'))
+    const homeDir = join(tempDir, 'home')
+    const projectDir = join(tempDir, 'project')
+
+    mkdirSync(join(homeDir, '.clooks'), { recursive: true })
+    mkdirSync(join(projectDir, '.clooks/hooks'), { recursive: true })
+
+    // Project config with no hooks
+    writeFileSync(join(projectDir, '.clooks/clooks.yml'), `version: "1.0.0"\n`)
+
+    // Local config with a hook that only exists locally
+    writeFileSync(
+      join(projectDir, '.clooks/clooks.local.yml'),
+      `local-only-hook:\n  config:\n    verbose: true\n`,
+    )
+
+    // Create the hook file so it is NOT dangling
+    writeFileSync(join(projectDir, '.clooks/hooks/local-only-hook.ts'), 'export const hook = {}')
+
+    process.chdir(projectDir)
+    process.env.CLOOKS_HOME_ROOT = homeDir
+
+    const program = createResolvedProgram()
+    await program.parseAsync(['--json', 'config', '--resolved'], { from: 'user' })
+
+    const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
+    const parsed = JSON.parse(output.trim())
+
+    expect(parsed.ok).toBe(true)
+    expect(parsed.data.hooks['local-only-hook']).toBeDefined()
+    expect(parsed.data.hooks['local-only-hook'].origin).toBe('local')
+    expect(parsed.data.hooks['local-only-hook'].dangling).toBeUndefined()
+  })
+
+  test('--resolved shows local-only hook as dangling when file missing', async () => {
+    tempDir = mkdtempSync(join(tmpdir(), 'clooks-config-resolved-'))
+    const homeDir = join(tempDir, 'home')
+    const projectDir = join(tempDir, 'project')
+
+    mkdirSync(join(homeDir, '.clooks'), { recursive: true })
+    mkdirSync(join(projectDir, '.clooks'), { recursive: true })
+
+    // Project config with no hooks
+    writeFileSync(join(projectDir, '.clooks/clooks.yml'), `version: "1.0.0"\n`)
+
+    // Local config with a hook that only exists locally
+    writeFileSync(
+      join(projectDir, '.clooks/clooks.local.yml'),
+      `local-only-hook:\n  config:\n    verbose: true\n`,
+    )
+
+    // Do NOT create the hook file — it should be dangling
+
+    process.chdir(projectDir)
+    process.env.CLOOKS_HOME_ROOT = homeDir
+
+    const program = createResolvedProgram()
+    await program.parseAsync(['config', '--resolved'], { from: 'user' })
+
+    const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
+
+    expect(output).toContain('hook: local-only-hook  [local]  (dangling)')
+    expect(output).toContain('(file not found)')
+  })
+
+  test('--resolved distinguishes local-only from project hook with local override', async () => {
+    tempDir = mkdtempSync(join(tmpdir(), 'clooks-config-resolved-'))
+    const homeDir = join(tempDir, 'home')
+    const projectDir = join(tempDir, 'project')
+
+    mkdirSync(join(homeDir, '.clooks'), { recursive: true })
+    mkdirSync(join(projectDir, '.clooks/hooks'), { recursive: true })
+
+    // Project config with one hook
+    writeFileSync(join(projectDir, '.clooks/clooks.yml'), `version: "1.0.0"\nproject-hook: {}\n`)
+
+    // Local config: overrides project-hook AND adds a local-only hook
+    writeFileSync(
+      join(projectDir, '.clooks/clooks.local.yml'),
+      `project-hook:\n  config:\n    strict: true\nlocal-only-hook: {}\n`,
+    )
+
+    // Create both hook files
+    writeFileSync(join(projectDir, '.clooks/hooks/project-hook.ts'), 'export const hook = {}')
+    writeFileSync(join(projectDir, '.clooks/hooks/local-only-hook.ts'), 'export const hook = {}')
+
+    process.chdir(projectDir)
+    process.env.CLOOKS_HOME_ROOT = homeDir
+
+    const program = createResolvedProgram()
+    await program.parseAsync(['config', '--resolved'], { from: 'user' })
+
+    const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
+
+    // project-hook should show as [project] origin (not [local])
+    expect(output).toContain('hook: project-hook  [project]')
+    // project-hook should also have a local override section
+    expect(output).toContain('hook: project-hook  [local override]')
+    // local-only-hook should show as [local] origin
+    expect(output).toContain('hook: local-only-hook  [local]')
+
+    // project-hook line should NOT have [local] as its origin
+    const lines = output.split('\n')
+    const projectHookOriginLine = lines.find(
+      (l: string) => l.includes('hook: project-hook') && !l.includes('[local override]'),
+    )
+    expect(projectHookOriginLine).toBeDefined()
+    expect(projectHookOriginLine).not.toContain('[local]')
   })
 })

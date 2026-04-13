@@ -1,4 +1,5 @@
 import { Command } from 'commander'
+import { existsSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
 import { loadConfig as defaultLoadConfig } from '../config/index.js'
@@ -12,12 +13,13 @@ import { getCtx } from '../tui/context.js'
 import { jsonSuccess } from '../tui/json-envelope.js'
 import { printIntro, printSuccess, printInfo, printError, printOutro } from '../tui/output.js'
 
-type LoadConfigFn = (projectRoot: string, options?: LoadConfigOptions) => Promise<LoadConfigResult | null>
+type LoadConfigFn = (
+  projectRoot: string,
+  options?: LoadConfigOptions,
+) => Promise<LoadConfigResult | null>
 
 /** Try to parse a YAML file, returning undefined if it does not exist. */
-async function tryParseYaml(
-  filePath: string,
-): Promise<Record<string, unknown> | undefined> {
+async function tryParseYaml(filePath: string): Promise<Record<string, unknown> | undefined> {
   if (!(await Bun.file(filePath).exists())) {
     return undefined
   }
@@ -25,13 +27,13 @@ async function tryParseYaml(
 }
 
 function isPlainObject(val: unknown): val is Record<string, unknown> {
-  return val !== null && typeof val === "object" && !Array.isArray(val)
+  return val !== null && typeof val === 'object' && !Array.isArray(val)
 }
 
 interface LayerValue {
-  layer: string  // "home" | "project" | "local"
+  layer: string // "home" | "project" | "local"
   value: unknown
-  path: string   // file path
+  path: string // file path
   active: boolean
 }
 
@@ -43,7 +45,7 @@ interface ResolvedField {
 
 interface ResolvedHook {
   name: string
-  origin: HookOrigin | "local override"
+  origin: HookOrigin | 'local override' | 'local'
   fields: Record<string, unknown>
   sourcePath: string
   localOverride?: Record<string, unknown>
@@ -51,6 +53,8 @@ interface ResolvedHook {
   shadowed?: boolean
   /** Raw `uses` value from YAML, if this hook is an alias. */
   usesTarget?: string
+  /** True when the hook's source file does not exist on disk. */
+  dangling?: boolean
 }
 
 interface ResolvedEvent {
@@ -73,9 +77,9 @@ async function buildResolved(
   projectRoot: string,
   homeRoot: string,
 ): Promise<ResolvedOutput | null> {
-  const homePath = join(homeRoot, ".clooks", "clooks.yml")
-  const projectPath = join(projectRoot, ".clooks", "clooks.yml")
-  const localPath = join(projectRoot, ".clooks", "clooks.local.yml")
+  const homePath = join(homeRoot, '.clooks', 'clooks.yml')
+  const projectPath = join(projectRoot, '.clooks', 'clooks.yml')
+  const localPath = join(projectRoot, '.clooks', 'clooks.local.yml')
 
   const homeRaw = await tryParseYaml(homePath)
   const projectRaw = await tryParseYaml(projectPath)
@@ -93,42 +97,70 @@ async function buildResolved(
   const versionLayers: LayerValue[] = []
   let effectiveVersion: unknown
   if (homeClassified?.version !== undefined) {
-    versionLayers.push({ layer: "home", value: homeClassified.version, path: homePath, active: false })
+    versionLayers.push({
+      layer: 'home',
+      value: homeClassified.version,
+      path: homePath,
+      active: false,
+    })
     effectiveVersion = homeClassified.version
   }
   if (projectClassified?.version !== undefined) {
-    versionLayers.push({ layer: "project", value: projectClassified.version, path: projectPath, active: false })
+    versionLayers.push({
+      layer: 'project',
+      value: projectClassified.version,
+      path: projectPath,
+      active: false,
+    })
     effectiveVersion = projectClassified.version
   }
   if (localClassified?.version !== undefined) {
-    versionLayers.push({ layer: "local", value: localClassified.version, path: localPath, active: false })
+    versionLayers.push({
+      layer: 'local',
+      value: localClassified.version,
+      path: localPath,
+      active: false,
+    })
     effectiveVersion = localClassified.version
   }
   // Mark the last layer as active
   if (versionLayers.length > 0) {
     versionLayers[versionLayers.length - 1]!.active = true
-    fields.push({ key: "version", effectiveValue: effectiveVersion, layers: versionLayers })
+    fields.push({ key: 'version', effectiveValue: effectiveVersion, layers: versionLayers })
   }
 
   // --- config fields ---
-  const homeConfig = homeClassified?.config && isPlainObject(homeClassified.config) ? homeClassified.config as Record<string, unknown> : {}
-  const projectConfig = projectClassified?.config && isPlainObject(projectClassified.config) ? projectClassified.config as Record<string, unknown> : {}
-  const localConfig = localClassified?.config && isPlainObject(localClassified.config) ? localClassified.config as Record<string, unknown> : {}
+  const homeConfig =
+    homeClassified?.config && isPlainObject(homeClassified.config)
+      ? (homeClassified.config as Record<string, unknown>)
+      : {}
+  const projectConfig =
+    projectClassified?.config && isPlainObject(projectClassified.config)
+      ? (projectClassified.config as Record<string, unknown>)
+      : {}
+  const localConfig =
+    localClassified?.config && isPlainObject(localClassified.config)
+      ? (localClassified.config as Record<string, unknown>)
+      : {}
 
-  const allConfigKeys = new Set([...Object.keys(homeConfig), ...Object.keys(projectConfig), ...Object.keys(localConfig)])
+  const allConfigKeys = new Set([
+    ...Object.keys(homeConfig),
+    ...Object.keys(projectConfig),
+    ...Object.keys(localConfig),
+  ])
   for (const key of allConfigKeys) {
     const layers: LayerValue[] = []
     let effective: unknown
     if (key in homeConfig) {
-      layers.push({ layer: "home", value: homeConfig[key], path: homePath, active: false })
+      layers.push({ layer: 'home', value: homeConfig[key], path: homePath, active: false })
       effective = homeConfig[key]
     }
     if (key in projectConfig) {
-      layers.push({ layer: "project", value: projectConfig[key], path: projectPath, active: false })
+      layers.push({ layer: 'project', value: projectConfig[key], path: projectPath, active: false })
       effective = projectConfig[key]
     }
     if (key in localConfig) {
-      layers.push({ layer: "local", value: localConfig[key], path: localPath, active: false })
+      layers.push({ layer: 'local', value: localConfig[key], path: localPath, active: false })
       effective = localConfig[key]
     }
     if (layers.length > 0) {
@@ -146,8 +178,8 @@ async function buildResolved(
   /** Compute the display source path for a hook. */
   function computeSourcePath(hookName: string, hookData: unknown, origin: HookOrigin): string {
     const hookFields = isPlainObject(hookData) ? hookData : {}
-    const entry = { uses: typeof hookFields.uses === "string" ? hookFields.uses : undefined }
-    if (origin === "home") {
+    const entry = { uses: typeof hookFields.uses === 'string' ? hookFields.uses : undefined }
+    if (origin === 'home') {
       const resolved = resolveHookPath(hookName as HookName, entry, homeRoot)
       // Display as relative to home: ~/.clooks/...
       const relPart = resolved.slice(homeRoot.length + 1)
@@ -160,11 +192,29 @@ async function buildResolved(
   function extractUsesTarget(hookData: unknown): string | undefined {
     if (!isPlainObject(hookData)) return undefined
     const uses = (hookData as Record<string, unknown>).uses
-    return typeof uses === "string" ? uses : undefined
+    return typeof uses === 'string' ? uses : undefined
+  }
+
+  function checkFileExists(
+    hookName: string,
+    hookData: unknown,
+    origin: HookOrigin,
+    projectRoot: string,
+    homeRoot: string,
+  ): boolean {
+    const hookFields = isPlainObject(hookData) ? hookData : {}
+    const entry = { uses: typeof hookFields.uses === 'string' ? hookFields.uses : undefined }
+    const basePath = origin === 'home' ? homeRoot : projectRoot
+    const resolved = resolveHookPath(hookName as HookName, entry, basePath)
+    return existsSync(resolved)
   }
 
   // Collect all unique hook names preserving order
-  const allHookNames = new Set([...Object.keys(homeHooks), ...Object.keys(projectHooks)])
+  const allHookNames = new Set([
+    ...Object.keys(homeHooks),
+    ...Object.keys(projectHooks),
+    ...Object.keys(localHooks),
+  ])
 
   for (const name of allHookNames) {
     const inHome = name in homeHooks
@@ -177,9 +227,9 @@ async function buildResolved(
       const homeFields = isPlainObject(homeData) ? homeData : {}
       hooks.push({
         name,
-        origin: "home",
+        origin: 'home',
         fields: homeFields,
-        sourcePath: computeSourcePath(name, homeData, "home"),
+        sourcePath: computeSourcePath(name, homeData, 'home'),
         shadowed: true,
         usesTarget: extractUsesTarget(homeData),
       })
@@ -191,13 +241,18 @@ async function buildResolved(
       const projectFields = isPlainObject(projectData) ? projectData : {}
       const hook: ResolvedHook = {
         name,
-        origin: "project",
+        origin: 'project',
         fields: projectFields,
-        sourcePath: computeSourcePath(name, projectData, "project"),
+        sourcePath: computeSourcePath(name, projectData, 'project'),
         usesTarget: extractUsesTarget(projectData),
       }
+      if (!checkFileExists(name, projectData, 'project', projectRoot, homeRoot)) {
+        hook.dangling = true
+      }
       if (name in localHooks) {
-        hook.localOverride = isPlainObject(localHooks[name]) ? localHooks[name] as Record<string, unknown> : {}
+        hook.localOverride = isPlainObject(localHooks[name])
+          ? (localHooks[name] as Record<string, unknown>)
+          : {}
         hook.localPath = localPath
       }
       hooks.push(hook)
@@ -206,14 +261,34 @@ async function buildResolved(
       const homeFields = isPlainObject(homeData) ? homeData : {}
       const hook: ResolvedHook = {
         name,
-        origin: "home",
+        origin: 'home',
         fields: homeFields,
-        sourcePath: computeSourcePath(name, homeData, "home"),
+        sourcePath: computeSourcePath(name, homeData, 'home'),
         usesTarget: extractUsesTarget(homeData),
       }
+      if (!checkFileExists(name, homeData, 'home', projectRoot, homeRoot)) {
+        hook.dangling = true
+      }
       if (name in localHooks) {
-        hook.localOverride = isPlainObject(localHooks[name]) ? localHooks[name] as Record<string, unknown> : {}
+        hook.localOverride = isPlainObject(localHooks[name])
+          ? (localHooks[name] as Record<string, unknown>)
+          : {}
         hook.localPath = localPath
+      }
+      hooks.push(hook)
+    } else if (name in localHooks) {
+      // Hook exists only in local config (e.g., local-scoped plugin registration)
+      const localData = localHooks[name]
+      const localFields = isPlainObject(localData) ? localData : {}
+      const hook: ResolvedHook = {
+        name,
+        origin: 'local',
+        fields: localFields,
+        sourcePath: computeSourcePath(name, localData, 'project'),
+        usesTarget: extractUsesTarget(localData),
+      }
+      if (!checkFileExists(name, localData, 'project', projectRoot, homeRoot)) {
+        hook.dangling = true
       }
       hooks.push(hook)
     }
@@ -225,37 +300,44 @@ async function buildResolved(
   const projectEvents = projectClassified?.events ?? {}
   const localEvents = localClassified?.events ?? {}
 
-  const allEventKeys = new Set([...Object.keys(homeEvents), ...Object.keys(projectEvents), ...Object.keys(localEvents)])
+  const allEventKeys = new Set([
+    ...Object.keys(homeEvents),
+    ...Object.keys(projectEvents),
+    ...Object.keys(localEvents),
+  ])
   for (const eventName of allEventKeys) {
     const layers: LayerValue[] = []
     const homeEvent = homeEvents[eventName]
     const projectEvent = projectEvents[eventName]
     const localEvent = localEvents[eventName]
 
-    const homeOrder = isPlainObject(homeEvent) && Array.isArray((homeEvent as Record<string, unknown>).order)
-      ? (homeEvent as Record<string, unknown>).order as string[]
-      : []
-    const projectOrder = isPlainObject(projectEvent) && Array.isArray((projectEvent as Record<string, unknown>).order)
-      ? (projectEvent as Record<string, unknown>).order as string[]
-      : []
+    const homeOrder =
+      isPlainObject(homeEvent) && Array.isArray((homeEvent as Record<string, unknown>).order)
+        ? ((homeEvent as Record<string, unknown>).order as string[])
+        : []
+    const projectOrder =
+      isPlainObject(projectEvent) && Array.isArray((projectEvent as Record<string, unknown>).order)
+        ? ((projectEvent as Record<string, unknown>).order as string[])
+        : []
 
     if (homeOrder.length > 0) {
-      layers.push({ layer: "home", value: homeOrder, path: homePath, active: false })
+      layers.push({ layer: 'home', value: homeOrder, path: homePath, active: false })
     }
     if (projectOrder.length > 0) {
-      layers.push({ layer: "project", value: projectOrder, path: projectPath, active: false })
+      layers.push({ layer: 'project', value: projectOrder, path: projectPath, active: false })
     }
 
     let effectiveOrder: string[]
     if (localEvent !== undefined) {
-      const localOrder = isPlainObject(localEvent) && Array.isArray((localEvent as Record<string, unknown>).order)
-        ? (localEvent as Record<string, unknown>).order as string[]
-        : []
-      layers.push({ layer: "local", value: localOrder, path: localPath, active: true })
+      const localOrder =
+        isPlainObject(localEvent) && Array.isArray((localEvent as Record<string, unknown>).order)
+          ? ((localEvent as Record<string, unknown>).order as string[])
+          : []
+      layers.push({ layer: 'local', value: localOrder, path: localPath, active: true })
       effectiveOrder = localOrder
       // Mark non-local layers as inactive when local override exists
       for (const layer of layers) {
-        if (layer.layer !== "local") layer.active = false
+        if (layer.layer !== 'local') layer.active = false
       }
     } else {
       effectiveOrder = [...homeOrder, ...projectOrder]
@@ -272,8 +354,9 @@ async function buildResolved(
 }
 
 function formatValue(val: unknown): string {
-  if (typeof val === "string") return `"${val}"`
-  if (Array.isArray(val)) return `[${val.map(v => typeof v === "string" ? v : String(v)).join(", ")}]`
+  if (typeof val === 'string') return `"${val}"`
+  if (Array.isArray(val))
+    return `[${val.map((v) => (typeof v === 'string' ? v : String(v))).join(', ')}]`
   return String(val)
 }
 
@@ -283,27 +366,29 @@ function formatHumanResolved(resolved: ResolvedOutput): string {
   for (const field of resolved.fields) {
     lines.push(`${field.key}: ${formatValue(field.effectiveValue)}`)
     for (const layer of field.layers) {
-      const activeTag = layer.active ? "  (active)" : ""
+      const activeTag = layer.active ? '  (active)' : ''
       lines.push(`  [${layer.layer}]    ${formatValue(layer.value)}${activeTag}    ${layer.path}`)
     }
-    lines.push("")
+    lines.push('')
   }
 
   for (const hook of resolved.hooks) {
-    const shadowTag = hook.shadowed ? "  (shadowed by project)" : ""
-    lines.push(`hook: ${hook.name}  [${hook.origin}]${shadowTag}`)
+    const shadowTag = hook.shadowed ? '  (shadowed by project)' : ''
+    const danglingTag = hook.dangling ? '  (dangling)' : ''
+    lines.push(`hook: ${hook.name}  [${hook.origin}]${shadowTag}${danglingTag}`)
 
     // Show alias info if this is an aliased hook
     if (hook.usesTarget) {
       lines.push(`  uses: ${hook.usesTarget}`)
-      lines.push(`  resolved: ${hook.sourcePath}`)
+      const fileNotFound = hook.dangling ? '  (file not found)' : ''
+      lines.push(`  resolved: ${hook.sourcePath}${fileNotFound}`)
     }
 
     const fields = hook.fields as Record<string, unknown>
     for (const [key, val] of Object.entries(fields)) {
       // Skip 'uses' in fields — already shown above
-      if (key === "uses") continue
-      if (key === "config" && isPlainObject(val)) {
+      if (key === 'uses') continue
+      if (key === 'config' && isPlainObject(val)) {
         for (const [ck, cv] of Object.entries(val as Record<string, unknown>)) {
           lines.push(`  config.${ck}: ${formatValue(cv)}`)
         }
@@ -313,14 +398,15 @@ function formatHumanResolved(resolved: ResolvedOutput): string {
     }
     // Suppress source: line for aliases (resolved: already shows the same path)
     if (!hook.usesTarget) {
-      lines.push(`  source: ${hook.sourcePath}`)
+      const fileNotFound = hook.dangling ? '  (file not found)' : ''
+      lines.push(`  source: ${hook.sourcePath}${fileNotFound}`)
     }
 
     if (hook.localOverride) {
-      lines.push("")
+      lines.push('')
       lines.push(`hook: ${hook.name}  [local override]`)
       for (const [key, val] of Object.entries(hook.localOverride)) {
-        if (key === "config" && isPlainObject(val)) {
+        if (key === 'config' && isPlainObject(val)) {
           for (const [ck, cv] of Object.entries(val as Record<string, unknown>)) {
             lines.push(`  config.${ck}: ${formatValue(cv)}    ${hook.localPath}`)
           }
@@ -329,26 +415,26 @@ function formatHumanResolved(resolved: ResolvedOutput): string {
         }
       }
     }
-    lines.push("")
+    lines.push('')
   }
 
   for (const event of resolved.events) {
     lines.push(`${event.eventName}.order: ${formatValue(event.effectiveOrder)}`)
-    const hasLocalOverride = event.layers.some(l => l.layer === "local")
+    const hasLocalOverride = event.layers.some((l) => l.layer === 'local')
     for (const layer of event.layers) {
-      let tag = ""
+      let tag = ''
       if (hasLocalOverride) {
-        tag = layer.active ? "  (active)" : ""
+        tag = layer.active ? '  (active)' : ''
       }
       lines.push(`  [${layer.layer}]    ${formatValue(layer.value)}${tag}    ${layer.path}`)
     }
     if (!hasLocalOverride && event.layers.length > 1) {
       lines.push(`  merged: ${formatValue(event.effectiveOrder)}`)
     }
-    lines.push("")
+    lines.push('')
   }
 
-  return lines.join("\n")
+  return lines.join('\n')
 }
 
 function buildJsonResolved(resolved: ResolvedOutput): Record<string, unknown> {
@@ -359,7 +445,7 @@ function buildJsonResolved(resolved: ResolvedOutput): Record<string, unknown> {
   for (const field of resolved.fields) {
     fieldEntries[field.key] = {
       value: field.effectiveValue,
-      layers: field.layers.map(l => ({
+      layers: field.layers.map((l) => ({
         layer: l.layer,
         value: l.value,
         path: l.path,
@@ -376,8 +462,8 @@ function buildJsonResolved(resolved: ResolvedOutput): Record<string, unknown> {
 
   const configEntries: Record<string, unknown> = {}
   for (const [key, val] of Object.entries(fieldEntries)) {
-    if (key.startsWith("config.")) {
-      configEntries[key.slice("config.".length)] = val
+    if (key.startsWith('config.')) {
+      configEntries[key.slice('config.'.length)] = val
     }
   }
   if (Object.keys(configEntries).length > 0) {
@@ -404,6 +490,10 @@ function buildJsonResolved(resolved: ResolvedOutput): Record<string, unknown> {
       hookData.localOverride = hook.localOverride
       hookData.localPath = hook.localPath
     }
+    if (hook.dangling) {
+      hookData.dangling = true
+      hookData.status = 'dangling'
+    }
     hooksArr.push(hookData)
   }
   // Also build a keyed object for backward compat (active entries only)
@@ -423,6 +513,10 @@ function buildJsonResolved(resolved: ResolvedOutput): Record<string, unknown> {
       hookData.localOverride = hook.localOverride
       hookData.localPath = hook.localPath
     }
+    if (hook.dangling) {
+      hookData.dangling = true
+      hookData.status = 'dangling'
+    }
     hooksObj[hook.name] = hookData
   }
   result.hooks = hooksObj
@@ -433,7 +527,7 @@ function buildJsonResolved(resolved: ResolvedOutput): Record<string, unknown> {
   for (const event of resolved.events) {
     eventsObj[event.eventName] = {
       order: event.effectiveOrder,
-      layers: event.layers.map(l => ({
+      layers: event.layers.map((l) => ({
         layer: l.layer,
         value: l.value,
         path: l.path,
@@ -484,20 +578,22 @@ export function createConfigCommand(loadConfig: LoadConfigFn = defaultLoadConfig
         if (result === null) {
           printError(ctx, 'config', 'No clooks.yml found. Run `clooks init` to get started.')
           process.exit(1)
-          return  // unreachable in production, but needed when process.exit is mocked in tests
+          return // unreachable in production, but needed when process.exit is mocked in tests
         }
 
         const config = result.config
         const hookCount = Object.keys(config.hooks).length
 
         if (ctx.json) {
-          process.stdout.write(jsonSuccess('config', {
-            version: config.version,
-            hooks: hookCount,
-            timeout: config.global.timeout,
-            onError: config.global.onError,
-            maxFailures: config.global.maxFailures,
-          }) + '\n')
+          process.stdout.write(
+            jsonSuccess('config', {
+              version: config.version,
+              hooks: hookCount,
+              timeout: config.global.timeout,
+              onError: config.global.onError,
+              maxFailures: config.global.maxFailures,
+            }) + '\n',
+          )
           return
         }
 
