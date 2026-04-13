@@ -1,8 +1,9 @@
 import type { HookName } from './types/branded.js'
 import type { ClooksHook } from './types/hook.js'
-import type { HookEntry, ClooksConfig } from './config/schema.js'
+import type { HookEntry, HookOrigin, ClooksConfig } from './config/schema.js'
 import { CLAUDE_CODE_EVENTS } from './config/constants.js'
 import { isPathLike, isShortAddress, shortAddressHookName } from './config/resolve.js'
+import { existsSync } from 'fs'
 import { resolve } from 'path'
 
 export interface LoadedHook {
@@ -163,9 +164,16 @@ export interface HookLoadError {
   error: string
 }
 
+export interface DanglingHook {
+  name: HookName
+  resolvedPath: string
+  origin: HookOrigin
+}
+
 export interface LoadAllHooksResult {
   loaded: LoadedHook[]
   loadErrors: HookLoadError[]
+  dangling: DanglingHook[]
 }
 
 export async function loadAllHooks(
@@ -176,10 +184,29 @@ export async function loadAllHooks(
   // Object.entries() erases Record key types to string (TypeScript#35101).
   // Safe boundary cast: keys originate from validated config parsing.
   const entries = Object.entries(config.hooks) as [HookName, HookEntry][]
-  if (entries.length === 0) return { loaded: [], loadErrors: [] }
+  if (entries.length === 0) return { loaded: [], loadErrors: [], dangling: [] }
+
+  const dangling: DanglingHook[] = []
+  const loadableEntries: [HookName, HookEntry][] = []
+
+  for (const [name, entry] of entries) {
+    const basePath = entry.origin === 'home' ? homeRoot : projectRoot
+    const absolutePath = resolve(basePath, entry.resolvedPath)
+    // Only plugin-vendored hooks get dangling detection (warn, not block).
+    // All other hooks (hand-written, GitHub-vendored) still go through
+    // the normal import path and circuit breaker on failure.
+    const isPluginHook = entry.resolvedPath.includes('vendor/plugin/')
+    if (isPluginHook && !existsSync(absolutePath)) {
+      dangling.push({ name, resolvedPath: entry.resolvedPath, origin: entry.origin })
+    } else {
+      loadableEntries.push([name, entry])
+    }
+  }
+
+  if (loadableEntries.length === 0) return { loaded: [], loadErrors: [], dangling }
 
   const results = await Promise.allSettled(
-    entries.map(([name, entry]) => loadHook(name, entry, projectRoot, homeRoot)),
+    loadableEntries.map(([name, entry]) => loadHook(name, entry, projectRoot, homeRoot)),
   )
 
   const loaded: LoadedHook[] = []
@@ -191,9 +218,9 @@ export async function loadAllHooks(
       loaded.push(result.value)
     } else {
       const message = result.reason instanceof Error ? result.reason.message : String(result.reason)
-      loadErrors.push({ name: entries[i]![0], error: message })
+      loadErrors.push({ name: loadableEntries[i]![0], error: message })
     }
   }
 
-  return { loaded, loadErrors }
+  return { loaded, loadErrors, dangling }
 }

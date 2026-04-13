@@ -310,6 +310,155 @@ describe('loadAllHooks', () => {
     expect(loadErrors[0]!.name).toBe(hn('hook-b'))
     expect(loadErrors[0]!.error).toContain('failed to import')
   })
+  describe('dangling detection', () => {
+    test('detects dangling plugin hook when file does not exist', async () => {
+      const dir = makeTempDir()
+      const hookA = join(dir, 'hook-a.ts')
+      writeFileSync(
+        hookA,
+        `export const hook = { meta: { name: "hook-a" }, PreToolUse() { return { result: "skip" } } }`,
+      )
+      // Plugin-vendored hook path — only these get dangling detection
+      const pluginPath = '.clooks/vendor/plugin/my-pack/missing-hook.ts'
+      const config = makeConfig({
+        'hook-a': makeHookEntry(hookA),
+        'hook-b': makeHookEntry(pluginPath),
+      })
+      const { loaded, loadErrors, dangling } = await loadAllHooks(config, dir)
+      expect(loaded).toHaveLength(1)
+      expect(loaded[0]!.name).toBe(hn('hook-a'))
+      expect(loadErrors).toHaveLength(0)
+      expect(dangling).toHaveLength(1)
+      expect(dangling[0]!.name).toBe(hn('hook-b'))
+      expect(dangling[0]!.resolvedPath).toContain('vendor/plugin/')
+      expect(dangling[0]!.origin).toBe('project')
+    })
+
+    test('dangling plugin hook with home origin uses homeRoot for path resolution', async () => {
+      const homeDir = makeTempDir()
+      const projectDir = mkdtempSync(join(tmpdir(), 'clooks-loader-project-'))
+      const config = makeConfig({
+        'home-hook': {
+          resolvedPath: '.clooks/vendor/plugin/security-pack/nonexistent.ts',
+          config: {},
+          parallel: false,
+          origin: 'home' as const,
+        },
+      })
+      const { loaded, loadErrors, dangling } = await loadAllHooks(config, projectDir, homeDir)
+      expect(loaded).toHaveLength(0)
+      expect(loadErrors).toHaveLength(0)
+      expect(dangling).toHaveLength(1)
+      expect(dangling[0]!.origin).toBe('home')
+
+      rmSync(projectDir, { recursive: true, force: true })
+    })
+
+    test('all plugin hooks dangling produces empty loaded and loadErrors', async () => {
+      const dir = makeTempDir()
+      const config = makeConfig({
+        'hook-a': makeHookEntry('.clooks/vendor/plugin/pack-a/missing-a.ts'),
+        'hook-b': makeHookEntry('.clooks/vendor/plugin/pack-b/missing-b.ts'),
+      })
+      const { loaded, loadErrors, dangling } = await loadAllHooks(config, dir)
+      expect(loaded).toHaveLength(0)
+      expect(loadErrors).toHaveLength(0)
+      expect(dangling).toHaveLength(2)
+    })
+
+    test('non-plugin missing hook is a loadError, not dangling', async () => {
+      const dir = makeTempDir()
+      const config = makeConfig({
+        'my-hook': makeHookEntry(join(dir, 'nonexistent.ts')),
+      })
+      const { loaded, loadErrors, dangling } = await loadAllHooks(config, dir)
+      expect(loaded).toHaveLength(0)
+      expect(dangling).toHaveLength(0)
+      expect(loadErrors).toHaveLength(1)
+      expect(loadErrors[0]!.name).toBe(hn('my-hook'))
+    })
+
+    test('missing github-vendored hook is a loadError, not dangling', async () => {
+      const dir = makeTempDir()
+      const config = makeConfig({
+        'gh-hook': makeHookEntry('.clooks/vendor/github.com/user/repo/hook.ts'),
+      })
+      const { loaded, loadErrors, dangling } = await loadAllHooks(config, dir)
+      expect(loaded).toHaveLength(0)
+      expect(dangling).toHaveLength(0)
+      expect(loadErrors).toHaveLength(1)
+      expect(loadErrors[0]!.name).toBe(hn('gh-hook'))
+    })
+
+    test('no hooks dangling when all files exist', async () => {
+      const dir = makeTempDir()
+      const hookA = join(dir, 'hook-a.ts')
+      const hookB = join(dir, 'hook-b.ts')
+      writeFileSync(
+        hookA,
+        `export const hook = { meta: { name: "hook-a" }, PreToolUse() { return { result: "skip" } } }`,
+      )
+      writeFileSync(
+        hookB,
+        `export const hook = { meta: { name: "hook-b" }, PostToolUse() { return { result: "skip" } } }`,
+      )
+      const config = makeConfig({
+        'hook-a': makeHookEntry(hookA),
+        'hook-b': makeHookEntry(hookB),
+      })
+      const { loaded, loadErrors, dangling } = await loadAllHooks(config, dir)
+      expect(loaded).toHaveLength(2)
+      expect(loadErrors).toHaveLength(0)
+      expect(dangling).toHaveLength(0)
+    })
+
+    test('plugin hook that exists loads normally, not dangling', async () => {
+      const dir = makeTempDir()
+      mkdirSync(join(dir, '.clooks', 'vendor', 'plugin', 'my-pack'), { recursive: true })
+      const hookFile = join(dir, '.clooks', 'vendor', 'plugin', 'my-pack', 'my-hook.ts')
+      writeFileSync(
+        hookFile,
+        `export const hook = { meta: { name: "my-hook" }, PreToolUse() { return { result: "skip" } } }`,
+      )
+      const config = makeConfig({
+        'my-hook': makeHookEntry('.clooks/vendor/plugin/my-pack/my-hook.ts'),
+      })
+      const { loaded, loadErrors, dangling } = await loadAllHooks(config, dir)
+      expect(loaded).toHaveLength(1)
+      expect(loaded[0]!.name).toBe(hn('my-hook'))
+      expect(loadErrors).toHaveLength(0)
+      expect(dangling).toHaveLength(0)
+    })
+
+    test('file exists but import fails is still a loadError, not dangling', async () => {
+      const dir = makeTempDir()
+      const badHook = join(dir, 'bad-hook.ts')
+      writeFileSync(badHook, `export const hook = "not-an-object"`)
+      const config = makeConfig({
+        'bad-hook': makeHookEntry(badHook),
+      })
+      const { loaded, loadErrors, dangling } = await loadAllHooks(config, dir)
+      expect(loaded).toHaveLength(0)
+      expect(dangling).toHaveLength(0)
+      expect(loadErrors).toHaveLength(1)
+      expect(loadErrors[0]!.name).toBe(hn('bad-hook'))
+    })
+
+    test('plugin hook file exists but import fails is a loadError, not dangling', async () => {
+      const dir = makeTempDir()
+      mkdirSync(join(dir, '.clooks', 'vendor', 'plugin', 'bad-pack'), { recursive: true })
+      const hookFile = join(dir, '.clooks', 'vendor', 'plugin', 'bad-pack', 'bad-hook.ts')
+      writeFileSync(hookFile, `export const hook = "not-an-object"`)
+      const config = makeConfig({
+        'bad-hook': makeHookEntry('.clooks/vendor/plugin/bad-pack/bad-hook.ts'),
+      })
+      const { loaded, loadErrors, dangling } = await loadAllHooks(config, dir)
+      expect(loaded).toHaveLength(0)
+      expect(dangling).toHaveLength(0)
+      expect(loadErrors).toHaveLength(1)
+      expect(loadErrors[0]!.name).toBe(hn('bad-hook'))
+    })
+  })
 })
 
 // --- Origin-aware loading (M2) ---

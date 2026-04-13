@@ -22,7 +22,7 @@ E2E tests never import modules directly. They invoke the compiled binary as a su
 | `test/docker-entrypoint.sh` | Container entrypoint. Compiles the binary from mounted source, then runs tests. |
 | `test/fixtures/hooks/` | Shared hook fixtures used across multiple test files (e.g., allow-all, crash-on-run, hang-forever). |
 | `test/fixtures/events/` | Event JSON fixtures representing Claude Code hook payloads. |
-| `test/e2e/*.e2e.test.ts` | 27 E2E test files containing 193 tests, organized by domain. |
+| `test/e2e/*.e2e.test.ts` | E2E test files organized by domain. |
 
 ## Patterns
 
@@ -56,7 +56,7 @@ The Dockerfile creates a `testuser` with non-root privileges. This is essential 
 
 ### Test organization by domain
 
-The 27 E2E test files are organized by the domain they exercise, not by implementation module:
+E2E test files are organized by the domain they exercise, not by implementation module:
 
 - `smoke` — basic binary invocation and output format
 - `hook-execution` — standard hook running and result aggregation
@@ -77,6 +77,7 @@ The 27 E2E test files are organized by the domain they exercise, not by implemen
 - `stdin-advanced` — stdin piping edge cases
 - `environment-edge-cases` — unusual environment configurations
 - `vendoring` — `clooks add` pipeline: URL parsing, download, vendor directory layout, validation, `clooks.yml` registration, conflict detection
+- `plugin-vendoring` — plugin discovery, vendoring from plugin cache, registration, idempotency, collision detection, `clooks update` command, coexistence with manual hooks, local-scoped plugin registration
 - `short-address` — short address resolution, backward compatibility with path-like hooks
 
 ### Inline vs fixture hooks

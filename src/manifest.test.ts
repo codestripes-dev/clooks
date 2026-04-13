@@ -1,5 +1,8 @@
 import { describe, test, expect, mock, beforeEach, afterEach } from 'bun:test'
-import { validateManifest, fetchManifest } from './manifest.js'
+import { mkdtempSync, writeFileSync, rmSync } from 'fs'
+import { join } from 'path'
+import { tmpdir } from 'os'
+import { validateManifest, fetchManifest, loadManifestFromFile } from './manifest.js'
 
 const validManifest = {
   version: 1,
@@ -288,5 +291,55 @@ describe('fetchManifest', () => {
     await expect(fetchManifest('someuser', 'bad-json-repo')).rejects.toThrow(
       'Failed to parse clooks-pack.json',
     )
+  })
+})
+
+describe('loadManifestFromFile', () => {
+  let tempDir: string
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'clooks-manifest-file-test-'))
+  })
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true })
+  })
+
+  test('reads a valid JSON file and returns a Manifest', () => {
+    const filePath = join(tempDir, 'clooks-pack.json')
+    writeFileSync(
+      filePath,
+      JSON.stringify({
+        version: 1,
+        name: 'file-pack',
+        hooks: {
+          'file-hook': {
+            path: 'hooks/file-hook.ts',
+            description: 'A hook loaded from file',
+          },
+        },
+      }),
+    )
+
+    const result = loadManifestFromFile(filePath)
+    expect(result.version).toBe(1)
+    expect(result.name).toBe('file-pack')
+    expect(result.hooks['file-hook']!.description).toBe('A hook loaded from file')
+  })
+
+  test('throws on non-existent file', () => {
+    expect(() => loadManifestFromFile(join(tempDir, 'does-not-exist.json'))).toThrow()
+  })
+
+  test('throws on invalid JSON content', () => {
+    const filePath = join(tempDir, 'bad.json')
+    writeFileSync(filePath, 'not valid json {{{{')
+    expect(() => loadManifestFromFile(filePath)).toThrow()
+  })
+
+  test('throws on valid JSON but invalid manifest (missing required fields)', () => {
+    const filePath = join(tempDir, 'incomplete.json')
+    writeFileSync(filePath, JSON.stringify({ version: 1 }))
+    expect(() => loadManifestFromFile(filePath)).toThrow(/name/)
   })
 })

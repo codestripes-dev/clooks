@@ -1,20 +1,20 @@
-import type { HookOrigin } from "./schema.js"
-import { classifyConfigKeys } from "./classify.js"
+import type { HookOrigin } from './schema.js'
+import { classifyConfigKeys } from './classify.js'
 
 function isPlainObject(val: unknown): val is Record<string, unknown> {
-  return val !== null && typeof val === "object" && !Array.isArray(val)
+  return val !== null && typeof val === 'object' && !Array.isArray(val)
 }
 
 function assertOrderElementIsString(
   element: unknown,
   index: number,
   eventKey: string,
-  layer: "home" | "project",
+  layer: 'home' | 'project',
 ): void {
-  if (typeof element !== "string" || element.length === 0) {
+  if (typeof element !== 'string' || element.length === 0) {
     throw new Error(
       `clooks: ${layer} config event "${eventKey}" order contains invalid element at index ${index}: ` +
-      `expected a non-empty string, got ${element === null ? "null" : element === "" ? "empty string" : typeof element}`
+        `expected a non-empty string, got ${element === null ? 'null' : element === '' ? 'empty string' : typeof element}`,
     )
   }
 }
@@ -52,8 +52,8 @@ export function mergeConfigFiles(
 export interface ThreeLayerMergeResult {
   merged: Record<string, unknown>
   originMap: Map<string, HookOrigin>
-  shadows: string[]  // hook names where project shadowed home
-  homeHookUses: Map<string, string | undefined>  // raw uses field from home hooks (before local override)
+  shadows: string[] // hook names where project shadowed home
+  homeHookUses: Map<string, string | undefined> // raw uses field from home hooks (before local override)
 }
 
 /**
@@ -64,7 +64,7 @@ export interface ThreeLayerMergeResult {
  * - version: last-writer-wins (project > home, local > both)
  * - config: deep merge across all layers (home → project → local)
  * - hooks: ATOMIC replacement — project hooks with same name replace home hooks entirely;
- *   local hooks replace whatever is there (but cannot define new hooks)
+ *   local hooks replace whatever is there (or define new hooks with origin "project")
  * - events: home order + project order concatenated (home first); local replaces entirely
  * - Scoping: home event order lists can only reference home hooks;
  *   project event order lists can only reference project hooks
@@ -94,12 +94,12 @@ export function mergeThreeLayerConfig(
       if (isPlainObject(eventVal) && Array.isArray((eventVal as Record<string, unknown>).order)) {
         const rawOrder = (eventVal as Record<string, unknown>).order as unknown[]
         for (let i = 0; i < rawOrder.length; i++) {
-          assertOrderElementIsString(rawOrder[i], i, eventKey, "home")
+          assertOrderElementIsString(rawOrder[i], i, eventKey, 'home')
           const hookRef = rawOrder[i] as string
           if (!homeHookNames.has(hookRef)) {
             throw new Error(
               `clooks: home config event "${eventKey}" order references hook "${hookRef}" which is not defined in the home config. ` +
-              `Home event order lists can only reference hooks defined in ~/.clooks/clooks.yml.`
+                `Home event order lists can only reference hooks defined in ~/.clooks/clooks.yml.`,
             )
           }
         }
@@ -113,12 +113,12 @@ export function mergeThreeLayerConfig(
       if (isPlainObject(eventVal) && Array.isArray((eventVal as Record<string, unknown>).order)) {
         const rawOrder = (eventVal as Record<string, unknown>).order as unknown[]
         for (let i = 0; i < rawOrder.length; i++) {
-          assertOrderElementIsString(rawOrder[i], i, eventKey, "project")
+          assertOrderElementIsString(rawOrder[i], i, eventKey, 'project')
           const hookRef = rawOrder[i] as string
           if (!projectHookNames.has(hookRef)) {
             throw new Error(
               `clooks: project config event "${eventKey}" order references hook "${hookRef}" which is not defined in the project config. ` +
-              `Project event order lists can only reference hooks defined in .clooks/clooks.yml.`
+                `Project event order lists can only reference hooks defined in .clooks/clooks.yml.`,
             )
           }
         }
@@ -155,10 +155,10 @@ export function mergeThreeLayerConfig(
   if (homeClassified) {
     for (const [name, value] of Object.entries(homeClassified.hooks)) {
       mergedHooks[name] = value
-      originMap.set(name, "home")
+      originMap.set(name, 'home')
       // Track the raw uses field from the home hook entry before any local override
       const rawUses = isPlainObject(value)
-        ? (value as Record<string, unknown>).uses as string | undefined
+        ? ((value as Record<string, unknown>).uses as string | undefined)
         : undefined
       homeHookUses.set(name, rawUses)
     }
@@ -171,20 +171,18 @@ export function mergeThreeLayerConfig(
         shadows.push(name)
       }
       mergedHooks[name] = value
-      originMap.set(name, "project")
+      originMap.set(name, 'project')
     }
   }
 
-  // Local hooks replace whatever is there — but cannot define new hooks
+  // Local hooks replace whatever is there; new hooks get origin "project"
   if (localClassified) {
     for (const [name, value] of Object.entries(localClassified.hooks)) {
       if (!originMap.has(name)) {
-        throw new Error(
-          `local config defines hook "${name}" which is not defined in home or project config. ` +
-          `Local overrides can only modify existing hooks.`
-        )
+        // New hook from local config (e.g., local-scoped plugin registration).
+        // Origin is "project" because the hook lives in the project directory.
+        originMap.set(name, 'project')
       }
-      // Origin stays what the replaced entry had
       mergedHooks[name] = value
     }
   }
@@ -195,7 +193,8 @@ export function mergeThreeLayerConfig(
   // Collect all event keys across layers
   const allEventKeys = new Set<string>()
   if (homeClassified) for (const key of Object.keys(homeClassified.events)) allEventKeys.add(key)
-  if (projectClassified) for (const key of Object.keys(projectClassified.events)) allEventKeys.add(key)
+  if (projectClassified)
+    for (const key of Object.keys(projectClassified.events)) allEventKeys.add(key)
   if (localClassified) for (const key of Object.keys(localClassified.events)) allEventKeys.add(key)
 
   for (const eventKey of allEventKeys) {
@@ -208,18 +207,21 @@ export function mergeThreeLayerConfig(
       mergedEvents[eventKey] = localEvent
     } else {
       // Concatenate home order + project order
-      const rawHomeOrder = isPlainObject(homeEvent) && Array.isArray((homeEvent as Record<string, unknown>).order)
-        ? (homeEvent as Record<string, unknown>).order as unknown[]
-        : []
+      const rawHomeOrder =
+        isPlainObject(homeEvent) && Array.isArray((homeEvent as Record<string, unknown>).order)
+          ? ((homeEvent as Record<string, unknown>).order as unknown[])
+          : []
       for (let i = 0; i < rawHomeOrder.length; i++) {
-        assertOrderElementIsString(rawHomeOrder[i], i, eventKey, "home")
+        assertOrderElementIsString(rawHomeOrder[i], i, eventKey, 'home')
       }
       const homeOrder = rawHomeOrder as string[]
-      const rawProjectOrder = isPlainObject(projectEvent) && Array.isArray((projectEvent as Record<string, unknown>).order)
-        ? (projectEvent as Record<string, unknown>).order as unknown[]
-        : []
+      const rawProjectOrder =
+        isPlainObject(projectEvent) &&
+        Array.isArray((projectEvent as Record<string, unknown>).order)
+          ? ((projectEvent as Record<string, unknown>).order as unknown[])
+          : []
       for (let i = 0; i < rawProjectOrder.length; i++) {
-        assertOrderElementIsString(rawProjectOrder[i], i, eventKey, "project")
+        assertOrderElementIsString(rawProjectOrder[i], i, eventKey, 'project')
       }
       const projectOrder = rawProjectOrder as string[]
 

@@ -6,4 +6,5 @@ export const KNOWN_COMMANDS = new Set([
   'register',
   'test',
   'types',
+  'update',
 ])

@@ -15,7 +15,10 @@ import {
   recordFailure,
   clearFailure,
   getFailureCount,
+  LOAD_ERROR_EVENT,
 } from '../failures.js'
+import { discoverPluginPacks as defaultDiscoverPluginPacks } from '../plugin-discovery.js'
+import { vendorAndRegisterPack as defaultVendorAndRegisterPack } from '../plugin-vendor.js'
 import type { RunEngineDeps } from './types.js'
 import { EXIT_OK, EXIT_STDERR } from './types.js'
 import { matchHooksForEvent, buildShadowWarnings } from './match.js'
@@ -34,6 +37,8 @@ export const defaultDeps: RunEngineDeps = {
   loadConfig,
   loadAllHooks,
   readStdin: () => Bun.stdin.json(),
+  discoverPluginPacks: defaultDiscoverPluginPacks,
+  vendorAndRegisterPack: defaultVendorAndRegisterPack,
 }
 
 /**
@@ -92,17 +97,81 @@ export async function runEngine(deps: RunEngineDeps = defaultDeps): Promise<void
       await writeFailures(configFailurePath, cleared)
     }
 
-    const config = result!.config
-    const shadows = result!.shadows
+    let config = result!.config
+    let shadows = result!.shadows
     const hasProjectConfig = result!.hasProjectConfig
 
     // --- Compute failure path once ---
     const failurePath = getFailurePath(projectRoot, homeRoot, hasProjectConfig)
 
+    // --- Discover and vendor plugin hooks ---
+    const pluginSystemMessages: string[] = []
+    const danglingWarnings: string[] = []
+    if (deps.discoverPluginPacks && deps.vendorAndRegisterPack) {
+      const packs = deps.discoverPluginPacks()
+      if (packs.length > 0) {
+        const existingHookNames = new Set(Object.keys(config.hooks))
+        let needsReload = false
+
+        for (const pack of packs) {
+          const vendorResult = await deps.vendorAndRegisterPack(
+            pack,
+            projectRoot,
+            homeRoot,
+            existingHookNames,
+          )
+
+          // Track newly registered hooks for collision detection with next packs
+          for (const name of vendorResult.registered) {
+            existingHookNames.add(name)
+          }
+
+          if (vendorResult.registered.length > 0) {
+            needsReload = true
+            pluginSystemMessages.push(
+              `clooks: Registered ${vendorResult.registered.length} hook(s) from ${pack.manifest.name} (plugin)`,
+            )
+          }
+
+          for (const collision of vendorResult.collisions) {
+            pluginSystemMessages.push(`clooks: ${collision}`)
+          }
+
+          for (const error of vendorResult.errors) {
+            pluginSystemMessages.push(`clooks: ${error}`)
+          }
+        }
+
+        if (needsReload) {
+          try {
+            const reloaded = await deps.loadConfig(projectRoot, { homeRoot })
+            if (reloaded !== null) {
+              config = reloaded.config
+              shadows = reloaded.shadows
+              // hasProjectConfig not updated: plugin registration only appends
+              // entries to existing config files, it cannot change whether a
+              // project config exists.
+            }
+          } catch (e) {
+            // Config reload failed — continue with original config.
+            // The newly registered hooks won't be active until next invocation.
+            const msg = e instanceof Error ? e.message : String(e)
+            pluginSystemMessages.push(
+              `clooks: Config reload after plugin registration failed: ${msg}`,
+            )
+          }
+        }
+      }
+    }
+
     // --- Load all hooks (fault-tolerant — load errors go through circuit breaker) ---
     const debug = process.env.CLOOKS_DEBUG === 'true'
     const engineDebugLines: string[] = []
-    const { loaded: hooks, loadErrors } = await deps.loadAllHooks(config, projectRoot, homeRoot)
+    const {
+      loaded: hooks,
+      loadErrors,
+      dangling = [],
+    } = await deps.loadAllHooks(config, projectRoot, homeRoot)
 
     if (debug) {
       engineDebugLines.push(
@@ -111,9 +180,41 @@ export async function runEngine(deps: RunEngineDeps = defaultDeps): Promise<void
       for (const err of loadErrors) {
         engineDebugLines.push(`load error: ${err.name} — ${err.error}`)
       }
+      for (const d of dangling) {
+        engineDebugLines.push(`dangling: ${d.name} — ${d.resolvedPath}`)
+      }
+    }
+
+    // --- Build dangling hook warnings ---
+    for (const d of dangling) {
+      const configFile = d.origin === 'home' ? '~/.clooks/clooks.yml' : '.clooks/clooks.yml'
+      danglingWarnings.push(
+        `[clooks] Hook "${d.name}" skipped — file not found: ${d.resolvedPath}. ` +
+          `Remove from ${configFile} or reinstall. Run \`clooks config --resolved\` for details.`,
+      )
+    }
+
+    // Clear stale circuit breaker state for dangling hooks (from before this fix)
+    if (dangling.length > 0) {
+      let failureState = await readFailures(failurePath)
+      let cleared = false
+      for (const d of dangling) {
+        if (getFailureCount(failureState, d.name, LOAD_ERROR_EVENT) > 0) {
+          failureState = clearFailure(failureState, d.name, LOAD_ERROR_EVENT)
+          cleared = true
+        }
+      }
+      if (cleared) {
+        await writeFailures(failurePath, failureState)
+      }
     }
 
     if (hooks.length === 0 && loadErrors.length === 0) {
+      const earlyMessages = [...pluginSystemMessages, ...danglingWarnings]
+      if (earlyMessages.length > 0) {
+        const output: ClaudeCodeOutput = { systemMessage: earlyMessages.join('\n') }
+        process.stdout.write(JSON.stringify(output) + '\n')
+      }
       if (debug) {
         for (const line of engineDebugLines) {
           process.stderr.write(`[clooks:debug] ${line}\n`)
@@ -200,8 +301,9 @@ export async function runEngine(deps: RunEngineDeps = defaultDeps): Promise<void
     }
 
     if (matched.length === 0 && loadErrors.length === 0) {
-      if (startupWarnings.length > 0) {
-        const output: ClaudeCodeOutput = { systemMessage: startupWarnings.join('\n') }
+      const earlyMessages = [...pluginSystemMessages, ...danglingWarnings, ...startupWarnings]
+      if (earlyMessages.length > 0) {
+        const output: ClaudeCodeOutput = { systemMessage: earlyMessages.join('\n') }
         process.stdout.write(JSON.stringify(output) + '\n')
       }
       if (debug) {
@@ -308,7 +410,12 @@ export async function runEngine(deps: RunEngineDeps = defaultDeps): Promise<void
     // --- Translate and output ---
     if (lastResult === undefined) {
       // Even with no hook results, we may have system messages to deliver
-      const allSystemMessages = [...startupWarnings, ...systemMessages]
+      const allSystemMessages = [
+        ...pluginSystemMessages,
+        ...danglingWarnings,
+        ...startupWarnings,
+        ...systemMessages,
+      ]
       if (allSystemMessages.length > 0) {
         const output: ClaudeCodeOutput = { systemMessage: allSystemMessages.join('\n') }
         process.stdout.write(JSON.stringify(output) + '\n')
@@ -319,7 +426,12 @@ export async function runEngine(deps: RunEngineDeps = defaultDeps): Promise<void
     const translated = translateResult(eventName, lastResult)
 
     // --- Inject systemMessage into translated output ---
-    const allSystemMessages = [...startupWarnings, ...systemMessages]
+    const allSystemMessages = [
+      ...pluginSystemMessages,
+      ...danglingWarnings,
+      ...startupWarnings,
+      ...systemMessages,
+    ]
     if (allSystemMessages.length > 0) {
       const systemMessage = allSystemMessages.join('\n')
       if (translated.output) {

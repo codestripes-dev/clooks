@@ -24,6 +24,8 @@ Example: `clooks add https://github.com/someuser/hooks/blob/main/lint-guard.ts` 
 
 This layout avoids name collisions, mirrors the source provenance, and matches FEAT-0025's planned multi-file hook convention (which will add per-hook directories for multi-file installs).
 
+Plugin-delivered hooks use a separate prefix: `.clooks/vendor/plugin/<pack-name>/<hook-name>.ts`. See `vendoring/plugin-vendoring.md` for details.
+
 ## Supported File Formats
 
 Vendored hooks must be single-file. Two formats are supported:
@@ -75,6 +77,8 @@ lint-guard:
 
 The YAML key is the hook's short name (e.g., `lint-guard`). In `src/config/resolve.ts`, `isShortAddress()` detects the short address format; `isPathLike()` detects path-like values. Both bypass convention rules and `meta.name` matching, so the vendored hook's `meta.name` is not validated against the YAML key.
 
+Plugin-delivered hooks use path-like `uses:` values (`./.clooks/vendor/plugin/<pack>/<hook>.ts`). See `vendoring/plugin-vendoring.md` for their registration format.
+
 ## Validation
 
 After downloading, the file is dynamically imported and validated via `validateHookExport()` in `src/loader.ts`. The function checks that the module exports a `hook` object with a `meta.name` field. If validation fails (missing export, missing `meta`, import error), the file is deleted and `clooks.yml` is not updated. The error is reported to the user.
@@ -84,70 +88,6 @@ Because validation requires importing the module, the hook code is executed duri
 ## What Happens on Clone
 
 Vendored files in `.clooks/vendor/` are committed to git. Clooks has no install step. When a team member clones the repository and runs the agent, the compiled binary reads `clooks.yml`, resolves the `uses:` path to the committed vendor file, and loads it. No network access, no download command.
-
-## Multi-Hook Packs
-
-A **multi-hook pack** is a GitHub repository that contains a `clooks-pack.json` manifest at its root, listing available hooks for bulk install.
-
-### `clooks-pack.json` manifest format
-
-The JSON Schema is at `schemas/clooks-pack.schema.json`. Hook authors can reference it with `"$schema": "https://clooks.cc/clooks-pack.schema.json"` for editor validation.
-
-```json
-{
-  "$schema": "https://clooks.cc/clooks-pack.schema.json",
-  "version": 1,
-  "name": "security-hooks",
-  "description": "Safety and compliance hooks for AI coding agents",
-  "hooks": {
-    "no-bare-mv": {
-      "path": "hooks/no-bare-mv.ts",
-      "description": "Rewrites bare mv commands to git mv",
-      "events": ["PreToolUse"],
-      "tags": ["git", "safety"]
-    },
-    "secret-scanner": {
-      "path": "dist/secret-scanner.js",
-      "description": "Blocks commits containing API keys",
-      "events": ["PreToolUse"],
-      "tags": ["security"]
-    }
-  }
-}
-```
-
-Top-level fields: `version` (integer, must be `1`, required), `name` (string, required), `hooks` (object mapping hook names to hook descriptors, required), `description`/`author`/`license`/`repository` (optional). Per-hook fields: `path` (string, relative path to hook file, required), `description` (string, required), `events` (string[], optional), `tags` (string[], optional), `configDefaults` (object, optional). Additional unknown fields are ignored for forward compatibility.
-
-### Pack install workflow (`clooks add <repo-url>`)
-
-1. **Detect URL type** — `isGitHubRepoUrl()` distinguishes repo URLs (`https://github.com/owner/repo`) from blob URLs (`https://github.com/owner/repo/blob/…`).
-2. **Fetch manifest** — Downloads `https://raw.githubusercontent.com/<owner>/<repo>/HEAD/clooks-pack.json`. HTTP 404 produces a "no clooks-pack.json found" message; non-2xx produces a generic error.
-3. **Validate manifest** — `validateManifest()` in `src/manifest.ts` checks required fields with explicit error messages. Unknown fields are ignored.
-4. **TUI multi-select picker** — `promptMultiSelect` presents the hook list. The user selects which hooks to install. `--all` selects all without prompting.
-5. **Non-interactive guard** — In non-interactive mode (piped stdin, CI), `--all` is required. Without it, clooks lists available hooks and exits 0 without installing.
-6. **Download and validate** — For each selected hook, fetch the file, write to vendor, validate via `validateHookExport()`. Validation failures warn but continue (soft validation at install time; runtime remains fail-closed).
-7. **Name conflict resolution** — If a hook name already exists in `clooks.yml`, clooks first tries the full address as the key (e.g., `someuser/security-hooks:no-bare-mv`), printing an info message explaining the conflict. If the full address key is also taken, the hook is skipped with a warning. No interactive prompt.
-8. **Register** — Each successfully installed hook is appended to `clooks.yml` with a short address `uses:` value (`owner/repo:hook-name`).
-
-### `--all` flag
-
-`clooks add <repo-url> --all` installs all hooks from the pack without presenting the picker. In non-interactive mode, `--all` is required for pack installs.
-
-## `clooks add` Workflow
-
-### Single-file blob URL flow
-
-1. **Parse URL** — `parseGitHubBlobUrl()` in `src/github-url.ts` parses a GitHub blob URL (`https://github.com/<owner>/<repo>/blob/<ref>/<path>`) into `{ owner, repo, ref, path, filename, filenameStem }`. Only `.ts` and `.js` files are accepted.
-2. **Load config** — `loadConfig(cwd)` checks that the project has been initialized. If no project config is found, `clooks add` exits with an error and suggests running `clooks init` first.
-3. **Check conflicts** — If a hook with the same name (filename stem) already exists in `clooks.yml`, `clooks add` exits with an error. Users must remove the existing entry first.
-4. **Fetch** — `toRawUrl()` converts the blob URL to a `raw.githubusercontent.com` download URL. `fetch()` retrieves the content. HTTP 404 produces a specific "file not found" message; other non-2xx statuses produce a generic HTTP error.
-5. **Write** — The vendor directory is created (`mkdirSync` with `recursive: true`) and the file is written.
-6. **Validate** — The file is imported and checked via `validateHookExport()`. On failure, the file is deleted.
-7. **Register** — `clooks.yml` is updated by appending the new hook entry with a short address `uses:` value.
-
-### Repo URL (pack) flow
-
-See [Multi-Hook Packs](#multi-hook-packs) above.
 
 ## V0 Limitations
 
@@ -167,13 +107,17 @@ See [Multi-Hook Packs](#multi-hook-packs) above.
 ## Key Files
 
 - `src/github-url.ts` — `parseGitHubBlobUrl()`, `toRawUrl()`, `isGitHubRepoUrl()`, `GitHubBlobInfo` interface
-- `src/manifest.ts` — `validateManifest()` — hand-written manifest validation, `Manifest` and `ManifestHook` types
+- `src/manifest.ts` — `validateManifest()`, `loadManifestFromFile()`, `fetchManifest()` — manifest validation and loading (local disk and HTTP)
+- `src/plugin-discovery.ts` — `discoverPluginPacks()` — scans Claude Code plugin cache for installed hook packs
+- `src/plugin-vendor.ts` — `vendorAndRegisterPack()` — copies hook files from plugin cache to vendor directory and registers in config
 - `src/commands/add.ts` — `createAddCommand()` — full `clooks add` pipeline (both blob URL and repo URL flows)
 - `src/config/resolve.ts` — `isPathLike()`, `isShortAddress()` — format detectors for `uses:` values
 - `src/loader.ts` — `validateHookExport()` — validates that an imported module exports a compliant `hook` object
 
 ## Related
 
+- `docs/domain/vendoring/clooks-add.md` — `clooks add` workflow details, multi-hook packs
+- `docs/domain/vendoring/plugin-vendoring.md` — Plugin cache discovery and plugin hook vendoring
 - `docs/domain/config.md` — Hook path resolution, `uses:` field, path-like values
 - `docs/domain/cli-architecture.md` — Command patterns, TUI output, JSON mode
 - `docs/research/bundled-js-dist-in-bun-compiled.md` — Full format compatibility for pre-bundled `.js` hooks
