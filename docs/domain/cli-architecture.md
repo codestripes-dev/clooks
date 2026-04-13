@@ -147,7 +147,7 @@ Shows the resolved clooks configuration. In default mode, displays hook count, t
 
 With `--resolved`, outputs the fully merged config with **provenance annotations** — showing each value's source layer (home/project/local) and file path. This is useful for debugging three-layer config merge behavior. Supports `--json` for structured output.
 
-The resolved command loads all three config files independently (does not reuse `loadConfig()`) to track per-value provenance.
+The resolved command loads all three config files independently (does not reuse `loadConfig()`) to track per-value provenance. It also performs a live `existsSync()` check on each hook's source file — hooks whose files are missing are tagged `(dangling)` in human output and include `"dangling": true` / `"status": "dangling"` in JSON output. Shadowed hooks are not checked (they are inactive).
 
 ### `clooks types` / `clooks types --global`
 
@@ -196,6 +196,14 @@ Interactive scaffolding command. Prompts for a hook name (kebab-case validated) 
 
 Refuses to overwrite an existing file (safe by default). Does NOT auto-register the hook in `clooks.yml` — users must add it manually. Supports `--name` and `--json` flags for non-interactive use.
 
+### `clooks update plugin:<pack-name>`
+
+Re-vendors hooks from the plugin cache for a specific pack. Overwrites existing vendor files with updated content from the cache. New hooks (added in the plugin update) are validated and registered. Existing config entries are never modified — only new entries are appended.
+
+Exits with code 1 when all hooks fail (errors only, no successes). Supports `--json` for structured output.
+
+See `docs/domain/vendoring/plugin-vendoring.md` for the full update algorithm.
+
 ## Key Files
 
 - `src/cli.ts` — Dual-mode dispatch, signal handlers, version check.
@@ -207,6 +215,7 @@ Refuses to overwrite an existing file (safe by default). Does NOT auto-register 
 - `src/commands/types.ts` — `createTypesCommand()` — extracts embedded .d.ts type declarations (`clooks types`, `clooks types --global`).
 - `src/commands/new-hook.ts` — `createNewHookCommand()` — interactive hook scaffolding (`clooks new-hook`).
 - `src/commands/add.ts` — `createAddCommand()` — GitHub URL download and registration (`clooks add`), both blob URL and repo URL flows.
+- `src/commands/update.ts` — `createUpdateCommand()` — re-vendor plugin hooks (`clooks update plugin:<pack>`).
 - `src/manifest.ts` — `validateManifest()`, `ClooksPackManifest` type — pack manifest validation.
 - `src/platform.ts` — platform/scope helpers used by `clooks add` (`--global`/`--project`).
 - `src/commands/stubs.ts` — `registerStubs()` — placeholder commands for register, test.
