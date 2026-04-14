@@ -40,7 +40,7 @@ Clooks is a JSON-producing intermediary — it aggregates results from multiple 
 | `ConfigChange` | Blocks change (except `policy_settings`) |
 | `WorktreeCreate` | Any non-zero exit fails creation |
 | `PostToolUse` / `PostToolUseFailure` | Shows stderr to Claude |
-| `Notification` / `SubagentStart` / `SessionStart` / `SessionEnd` / `PreCompact` | Shows stderr to user only |
+| `Notification` / `SubagentStart` / `SessionStart` / `SessionEnd` / `PreCompact` | **Blocking errors are ignored.** Stderr shown to user only |
 | `WorktreeRemove` | Logged in debug mode only |
 | `InstructionsLoaded` | Exit code ignored |
 
