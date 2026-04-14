@@ -468,4 +468,115 @@ export const hook = {
     const ctx = output.hookSpecificOutput?.additionalContext ?? ''
     expect(ctx).toContain('local-plugin-ran')
   })
+
+  test('(h) session-banner hook is discovered, vendored, and executes on SessionStart', () => {
+    sandbox = createSandbox()
+    sandbox.writeHomeConfig('version: "1.0.0"\n')
+
+    setupMockPluginCache(sandbox.home, {
+      pluginKey: 'clooks-example-hooks@clooks-marketplace',
+      scope: 'user',
+      packName: 'clooks-example-hooks',
+      hooks: {
+        'session-banner': {
+          path: 'hooks/session-banner.ts',
+          description: 'Emits a configurable banner message on session start',
+          code: `
+export const hook = {
+  meta: {
+    name: "session-banner",
+    description: "Emits a configurable banner message on session start",
+    config: {
+      message: "clooks is active. Hooks are running.",
+    },
+  },
+  SessionStart(_ctx: unknown, config: { message: string }) {
+    return {
+      result: "skip" as const,
+      injectContext: config.message,
+    }
+  },
+}
+`,
+        },
+      },
+    })
+
+    const result = sandbox.run([], { stdin: loadEvent('session-start.json') })
+    expect(result.exitCode).toBe(0)
+
+    // Vendor file created
+    expect(
+      sandbox.homeFileExists('.clooks/vendor/plugin/clooks-example-hooks/session-banner.ts'),
+    ).toBe(true)
+
+    // Config updated
+    const config = sandbox.readHomeFile('.clooks/clooks.yml')
+    expect(config).toContain('session-banner:')
+    expect(config).toContain('uses: ./.clooks/vendor/plugin/clooks-example-hooks/session-banner.ts')
+
+    // Registration announced
+    const output = JSON.parse(result.stdout)
+    expect(output.systemMessage).toContain('Registered')
+    expect(output.systemMessage).toContain('clooks-example-hooks')
+
+    // Hook executed — banner message in additionalContext
+    expect(output.hookSpecificOutput.additionalContext).toContain(
+      'clooks is active. Hooks are running.',
+    )
+  })
+
+  test('(i) session-banner is idempotent — no re-registration on second SessionStart', () => {
+    sandbox = createSandbox()
+    sandbox.writeHomeConfig('version: "1.0.0"\n')
+
+    setupMockPluginCache(sandbox.home, {
+      pluginKey: 'clooks-example-hooks@clooks-marketplace',
+      scope: 'user',
+      packName: 'clooks-example-hooks',
+      hooks: {
+        'session-banner': {
+          path: 'hooks/session-banner.ts',
+          description: 'Emits a configurable banner message on session start',
+          code: `
+export const hook = {
+  meta: {
+    name: "session-banner",
+    description: "Emits a configurable banner message on session start",
+    config: {
+      message: "clooks is active. Hooks are running.",
+    },
+  },
+  SessionStart(_ctx: unknown, config: { message: string }) {
+    return {
+      result: "skip" as const,
+      injectContext: config.message,
+    }
+  },
+}
+`,
+        },
+      },
+    })
+
+    const stdin = loadEvent('session-start.json')
+
+    // First run: registers
+    const r1 = sandbox.run([], { stdin })
+    expect(r1.exitCode).toBe(0)
+    const o1 = JSON.parse(r1.stdout)
+    expect(o1.systemMessage).toContain('Registered')
+
+    // Second run: no re-registration, but hook still executes
+    const r2 = sandbox.run([], { stdin })
+    expect(r2.exitCode).toBe(0)
+    const o2 = JSON.parse(r2.stdout)
+    const sysMsg2 = o2.systemMessage ?? ''
+    expect(sysMsg2).not.toContain('Registered')
+
+    // Banner still emitted
+    expect(o2.hookSpecificOutput.additionalContext).toContain(
+      'clooks is active. Hooks are running.',
+    )
+  })
 })

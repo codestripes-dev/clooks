@@ -4,7 +4,7 @@ The bash entrypoint is the bridge between Claude Code's native hook system and t
 
 ## Overview
 
-The entrypoint lives at `.clooks/bin/entrypoint.sh` in the project root. It is registered in `.claude/settings.json` for all 18 Claude Code lifecycle events. No positional arguments are passed — the event name comes from the `hook_event_name` field in the stdin JSON payload. The script is written by `clooks init` from an embedded template in `src/commands/init-entrypoint.ts`.
+The entrypoint lives at `.clooks/bin/entrypoint.sh` in the project root. It is registered in `.claude/settings.json` for all Claude Code lifecycle events. No positional arguments are passed — the event name comes from the `hook_event_name` field in the stdin JSON payload. The script is written by `clooks init` from an embedded template in `src/commands/init-entrypoint.ts`.
 
 The script performs six steps in order:
 
@@ -19,7 +19,7 @@ The script performs six steps in order:
 
 - `.clooks/bin/entrypoint.sh` — The bash entrypoint script (machine-generated, do not edit).
 - `src/commands/init-entrypoint.ts` — Canonical source of the script content (embedded template).
-- `.claude/settings.json` — Hook registration for all 18 events.
+- `.claude/settings.json` — Hook registration for all events.
 - `tmp/stub-binary/` — Test stubs (main, crash, block, output). Gitignored.
 - `tmp/test-entrypoint/run-tests.sh` — Entrypoint test suite. Gitignored.
 
@@ -55,7 +55,7 @@ This is an escape hatch for when the binary is broken and blocking all Claude Co
 
 ## Hook Registration
 
-The entrypoint is registered in `.claude/settings.json` for all 18 events with a single matcher group containing the Clooks entrypoint (no matchers, no timeout — Clooks handles event routing and timeouts internally).
+The entrypoint is registered in `.claude/settings.json` for all events with a single matcher group containing the Clooks entrypoint (no matchers, no timeout — Clooks handles event routing and timeouts internally).
 
 Two registration scopes exist:
 
@@ -75,6 +75,39 @@ fi
 
 The flag file is a simple empty file created by `clooks init --global`. Its presence signals that the global entrypoint is active and project entrypoints should defer to it.
 
+## Plugin Entrypoint (Bootstrap)
+
+A third entrypoint variant exists for the plugin distribution model. It lives at `clooks-marketplace/clooks/hooks/install-entrypoint.sh` in the plugin source, and at runtime resides in the Claude Code plugin cache (read-only).
+
+**What it does:** Fires on SessionStart only. Checks if the clooks binary exists at `~/bin/clooks` or on PATH. If found, exits 0 silently. If missing, exits 0 with JSON output containing `hookSpecificOutput` — a `systemMessage` shown to the user and `additionalContext` injected into Claude's context directing it to suggest `/clooks:setup`.
+
+**Why exit 0 + JSON, not exit 2:** SessionStart ignores blocking errors (exit 2). The hooks config screen explicitly says "Blocking errors are ignored" for SessionStart. To surface a message, the hook must exit 0 and put the message in `hookSpecificOutput.systemMessage` (shown to user) and `hookSpecificOutput.additionalContext` (injected into Claude's context).
+
+**How it differs from project/global entrypoints:**
+
+- No binary invocation — only checks file existence
+- SessionStart only (not all events)
+- No dedup checks needed (no binary invocation = no double-execution risk)
+- No fail-closed exit code translation (no binary exit code to translate)
+- No stdin capture/replay (consumes stdin immediately via `cat >/dev/null`)
+- Uses exit 0 + JSON (not exit 2 + stderr like project/global entrypoints)
+
+**Relationship:** The plugin entrypoint bootstraps the user. After `/clooks:setup` runs `clooks init`, the project entrypoint takes over for all events. The plugin's SessionStart hook becomes a silent no-op (binary found -> exit 0).
+
+**Created by:** Plugin installation (`claude plugin install clooks@clooks-marketplace`), not `clooks init`.
+
+### Comparison Table
+
+| Aspect              | Project entrypoint              | Global entrypoint                | Plugin install-entrypoint       |
+|---------------------|---------------------------------|----------------------------------|---------------------------------|
+| Location            | .clooks/bin/entrypoint.sh       | ~/.clooks/bin/entrypoint.sh      | plugin cache (read-only)        |
+| Events              | All                             | All                              | SessionStart only               |
+| Invokes binary?     | Yes                             | Yes                              | No                              |
+| Dedup checks        | Global flag file                | None (authoritative)             | None (no binary invocation)     |
+| Missing binary      | Exit 2 + install instructions   | Exit 2 + install instructions    | Exit 0 + JSON hookSpecificOutput |
+| Created by          | clooks init                     | clooks init --global             | Plugin install                  |
+| Purpose             | Event dispatch                  | Event dispatch (all projects)    | Bootstrap check                 |
+
 ## Gotchas
 
 - **Claude Code cwd is not guaranteed to be project root.** Some hook events (notably Stop, SessionEnd) may run with a different cwd. This means relative paths in `settings.json` (e.g., `.clooks/bin/entrypoint.sh`) can fail with `/bin/sh: .clooks/bin/entrypoint.sh: not found`. Project-level registration must use `$CLAUDE_PROJECT_DIR` to resolve the entrypoint path reliably. Global-level registration uses absolute paths and is unaffected.
@@ -87,7 +120,8 @@ The flag file is a simple empty file created by `clooks init --global`. Its pres
 ## Related
 
 - `docs/domain/claude-code-hooks/overview.md` — Hook configuration schema and handler types
-- `docs/domain/claude-code-hooks/events.md` — All 18 lifecycle events
+- `docs/domain/claude-code-hooks/events.md` — All lifecycle events
 - `docs/domain/claude-code-hooks/io-contract.md` — Exit code semantics
 - `docs/research/bash-entrypoint-overhead.md` — Performance measurements (~2ms bash overhead)
 - `docs/domain/testing.md` — E2E test patterns for entrypoint verification
+- `docs/plans/plugin-distribution/PLAN-FEAT-0041-D-plugin-packaging.md` — Plugin packaging plan
