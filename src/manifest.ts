@@ -20,6 +20,7 @@ export interface ManifestHook {
   events?: string[]
   tags?: string[]
   configDefaults?: Record<string, unknown>
+  autoEnable?: boolean
 }
 
 export function validateManifest(raw: unknown): Manifest {
@@ -152,12 +153,24 @@ export function validateManifest(raw: unknown): Manifest {
       configDefaults = hook.configDefaults as Record<string, unknown>
     }
 
+    // autoEnable if present must be a boolean
+    let autoEnable: boolean | undefined
+    if ('autoEnable' in hook) {
+      if (typeof hook.autoEnable !== 'boolean') {
+        throw new Error(
+          `Invalid clooks-pack.json: hook "${hookName}" "autoEnable" must be a boolean`,
+        )
+      }
+      autoEnable = hook.autoEnable
+    }
+
     const manifestHook: ManifestHook = {
       path: hook.path,
       description: hook.description,
       ...(events !== undefined ? { events } : {}),
       ...(tags !== undefined ? { tags } : {}),
       ...(configDefaults !== undefined ? { configDefaults } : {}),
+      ...(autoEnable !== undefined ? { autoEnable } : {}),
     }
 
     hooks[hookName] = manifestHook

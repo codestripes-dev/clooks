@@ -128,9 +128,17 @@ export async function runEngine(deps: RunEngineDeps = defaultDeps): Promise<void
 
           if (vendorResult.registered.length > 0) {
             needsReload = true
-            pluginSystemMessages.push(
-              `clooks: Registered ${vendorResult.registered.length} hook(s) from ${pack.manifest.name} (plugin)`,
+            const enabledHooks = vendorResult.registered.filter(
+              (h) => !vendorResult.disabledHooks.includes(h),
             )
+            const disabledHooks = vendorResult.disabledHooks
+            let msg = `clooks: Registered ${vendorResult.registered.length} hook(s) from ${pack.manifest.name} (plugin)`
+            if (disabledHooks.length > 0 && enabledHooks.length > 0) {
+              msg += `: ${enabledHooks.join(', ')} (enabled); ${disabledHooks.join(', ')} (disabled -- enable in clooks.yml)`
+            } else if (disabledHooks.length > 0) {
+              msg += `: ${disabledHooks.join(', ')} (disabled -- enable in clooks.yml)`
+            }
+            pluginSystemMessages.push(msg)
           }
 
           for (const collision of vendorResult.collisions) {

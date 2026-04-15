@@ -121,6 +121,10 @@
         "configDefaults": {
           "type": "object",
           "description": "Default configuration values. Shown during install; the hook's own meta.config is authoritative at runtime."
+        },
+        "autoEnable": {
+          "type": "boolean",
+          "description": "Whether this hook is enabled by default when auto-registered from a plugin install. Defaults to true. Set to false for opinionated or experimental hooks that users should opt into."
         }
       }
     }

@@ -380,4 +380,134 @@ describe('vendorAndRegisterPack', () => {
     expect(result2.skipped).toEqual(['test-hook'])
     expect(result2.registered).toEqual([])
   })
+
+  test('registers hook with enabled: false when autoEnable is false', async () => {
+    writeValidHook(installPath, 'hooks/test-hook.ts', 'test-hook')
+
+    const manifest = makeManifest({
+      hooks: {
+        'test-hook': {
+          path: 'hooks/test-hook.ts',
+          description: 'A test hook',
+          autoEnable: false,
+        },
+      },
+    })
+
+    const pack = makePack({ installPath, manifest })
+    const result = await vendorAndRegisterPack(pack, projectRoot, homeRoot, new Set())
+
+    expect(result.registered).toEqual(['test-hook'])
+    expect(result.disabledHooks).toEqual(['test-hook'])
+
+    const configPath = join(projectRoot, '.clooks', 'clooks.yml')
+    const configContent = readFileSync(configPath, 'utf-8')
+    expect(configContent).toContain('enabled: false')
+  })
+
+  test('registers hook without enabled field when autoEnable is true', async () => {
+    writeValidHook(installPath, 'hooks/test-hook.ts', 'test-hook')
+
+    const manifest = makeManifest({
+      hooks: {
+        'test-hook': {
+          path: 'hooks/test-hook.ts',
+          description: 'A test hook',
+          autoEnable: true,
+        },
+      },
+    })
+
+    const pack = makePack({ installPath, manifest })
+    const result = await vendorAndRegisterPack(pack, projectRoot, homeRoot, new Set())
+
+    expect(result.registered).toEqual(['test-hook'])
+    expect(result.disabledHooks).toEqual([])
+
+    const configPath = join(projectRoot, '.clooks', 'clooks.yml')
+    const configContent = readFileSync(configPath, 'utf-8')
+    expect(configContent).not.toContain('enabled:')
+  })
+
+  test('registers hook without enabled field when autoEnable is omitted', async () => {
+    writeValidHook(installPath, 'hooks/test-hook.ts', 'test-hook')
+
+    const pack = makePack({ installPath, scope: 'project' })
+    const result = await vendorAndRegisterPack(pack, projectRoot, homeRoot, new Set())
+
+    expect(result.registered).toEqual(['test-hook'])
+    expect(result.disabledHooks).toEqual([])
+
+    const configPath = join(projectRoot, '.clooks', 'clooks.yml')
+    const configContent = readFileSync(configPath, 'utf-8')
+    expect(configContent).not.toContain('enabled:')
+  })
+
+  test('mixed pack: some hooks enabled, some disabled', async () => {
+    writeValidHook(installPath, 'hooks/hook-a.ts', 'hook-a')
+    writeValidHook(installPath, 'hooks/hook-b.ts', 'hook-b')
+
+    const manifest = makeManifest({
+      hooks: {
+        'hook-a': {
+          path: 'hooks/hook-a.ts',
+          description: 'Enabled hook',
+        },
+        'hook-b': {
+          path: 'hooks/hook-b.ts',
+          description: 'Disabled hook',
+          autoEnable: false,
+        },
+      },
+    })
+
+    const pack = makePack({ installPath, manifest })
+    const result = await vendorAndRegisterPack(pack, projectRoot, homeRoot, new Set())
+
+    expect(result.registered.sort()).toEqual(['hook-a', 'hook-b'])
+    expect(result.disabledHooks).toEqual(['hook-b'])
+
+    const configPath = join(projectRoot, '.clooks', 'clooks.yml')
+    const configContent = readFileSync(configPath, 'utf-8')
+
+    // hook-a should NOT have enabled: false
+    const hookABlock = configContent.split('hook-a:')[1]!.split('hook-b:')[0]!
+    expect(hookABlock).not.toContain('enabled:')
+
+    // hook-b SHOULD have enabled: false
+    const hookBBlock = configContent.split('hook-b:')[1]!
+    expect(hookBBlock).toContain('enabled: false')
+  })
+
+  test('disabledHooks array populated correctly', async () => {
+    writeValidHook(installPath, 'hooks/hook-a.ts', 'hook-a')
+    writeValidHook(installPath, 'hooks/hook-b.ts', 'hook-b')
+    writeValidHook(installPath, 'hooks/hook-c.ts', 'hook-c')
+
+    const manifest = makeManifest({
+      hooks: {
+        'hook-a': {
+          path: 'hooks/hook-a.ts',
+          description: 'Enabled hook',
+        },
+        'hook-b': {
+          path: 'hooks/hook-b.ts',
+          description: 'Disabled hook',
+          autoEnable: false,
+        },
+        'hook-c': {
+          path: 'hooks/hook-c.ts',
+          description: 'Another disabled hook',
+          autoEnable: false,
+        },
+      },
+    })
+
+    const pack = makePack({ installPath, manifest })
+    const result = await vendorAndRegisterPack(pack, projectRoot, homeRoot, new Set())
+
+    expect(result.disabledHooks.sort()).toEqual(['hook-b', 'hook-c'])
+    // Only disabled hooks appear in disabledHooks
+    expect(result.disabledHooks).not.toContain('hook-a')
+  })
 })

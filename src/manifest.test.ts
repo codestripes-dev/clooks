@@ -224,6 +224,78 @@ describe('validateManifest', () => {
     }
     expect(() => validateManifest(manifest)).not.toThrow()
   })
+
+  test('autoEnable: true is accepted and returned', () => {
+    const manifest = {
+      ...validManifest,
+      hooks: {
+        'my-hook': {
+          path: 'hooks/my-hook.ts',
+          description: 'A hook',
+          autoEnable: true,
+        },
+      },
+    }
+    const result = validateManifest(manifest)
+    expect(result.hooks['my-hook']!.autoEnable).toBe(true)
+  })
+
+  test('autoEnable: false is accepted and returned', () => {
+    const manifest = {
+      ...validManifest,
+      hooks: {
+        'my-hook': {
+          path: 'hooks/my-hook.ts',
+          description: 'A hook',
+          autoEnable: false,
+        },
+      },
+    }
+    const result = validateManifest(manifest)
+    expect(result.hooks['my-hook']!.autoEnable).toBe(false)
+  })
+
+  test('autoEnable omitted returns undefined', () => {
+    const manifest = {
+      ...validManifest,
+      hooks: {
+        'my-hook': {
+          path: 'hooks/my-hook.ts',
+          description: 'A hook',
+        },
+      },
+    }
+    const result = validateManifest(manifest)
+    expect(result.hooks['my-hook']!.autoEnable).toBeUndefined()
+  })
+
+  test('autoEnable with non-boolean string value throws error', () => {
+    const manifest = {
+      ...validManifest,
+      hooks: {
+        'my-hook': {
+          path: 'hooks/my-hook.ts',
+          description: 'A hook',
+          autoEnable: 'yes',
+        },
+      },
+    }
+    expect(() => validateManifest(manifest)).toThrow(/autoEnable.*boolean/)
+  })
+
+  test('autoEnable with number value throws error', () => {
+    const manifest = {
+      ...validManifest,
+      hooks: {
+        'my-hook': {
+          path: 'hooks/my-hook.ts',
+          description: 'A hook',
+          autoEnable: 1,
+        },
+      },
+    }
+    expect(() => validateManifest(manifest)).toThrow(/autoEnable.*boolean/)
+  })
 })
 
 describe('fetchManifest', () => {

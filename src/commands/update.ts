@@ -136,7 +136,10 @@ export async function updatePluginPack(
 
         // Append YAML entry
         const vendorRelPath = `./.clooks/vendor/plugin/${packName}/${hookName}${ext}`
-        const appendContent = `\n${hookName}:\n  uses: ${vendorRelPath}\n`
+        const appendContent =
+          hookDef.autoEnable === false
+            ? `\n${hookName}:\n  uses: ${vendorRelPath}\n  enabled: false\n`
+            : `\n${hookName}:\n  uses: ${vendorRelPath}\n`
         writeFileSync(configPath, configContent + appendContent)
         result.registered.push(hookName)
       }
