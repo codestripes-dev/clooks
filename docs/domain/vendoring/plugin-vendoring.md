@@ -66,12 +66,22 @@ secret-scanner:
 
 This follows the same string-concatenation model as `clooks add`. The config file is auto-created with `version: "1.0.0"` if absent.
 
+When a hook has `autoEnable: false` in the manifest, it is registered with `enabled: false`:
+
+```yaml
+enforce-commits:
+  uses: ./.clooks/vendor/plugin/security-hooks/enforce-commits.ts
+  enabled: false
+```
+
+Hooks with `autoEnable: true` or `autoEnable` omitted produce the standard format (no `enabled` field). Explicitly writing `autoEnable: true` is a no-op — it does not produce `enabled: true` in the YAML.
+
 ### Algorithm
 
 The function operates in two phases:
 
 1. **Vendor**: For each hook in the manifest: check if already vendored (skip if file exists), check for name collisions against existing config hooks (skip if taken), copy the source file from the plugin cache to the vendor path, validate via `validateHookExport()` (dynamic import + shape check). Validation failures delete the vendored file and record an error.
-2. **Register**: Append YAML entries for all successfully vendored hooks. The config file is written once after all entries are accumulated.
+2. **Register**: Append YAML entries for all successfully vendored hooks. The config file is written once after all entries are accumulated. If a hook has `autoEnable: false` in the manifest, the appended entry includes `enabled: false`. The hook name is also added to `disabledHooks` in the `VendorResult`.
 
 Returns a `VendorResult` with arrays of `registered`, `skipped`, `collisions`, and `errors` for the caller to build systemMessages from.
 
@@ -100,6 +110,10 @@ Plugin discovery runs inside `runEngine()` in `src/engine/run.ts`, inserted betw
 
 The engine builds systemMessage lines from vendor results:
 - **Registrations:** `"clooks: Registered N hook(s) from <pack> (plugin)"` — only on first discovery, not on idempotent skips.
+
+When a pack contains disabled hooks (`autoEnable: false`), the message distinguishes enabled and disabled hooks:
+- **Mixed pack:** `"clooks: Registered 5 hook(s) from security-hooks (plugin): no-rm-rf, no-secrets (enabled); enforce-commits (disabled -- enable in clooks.yml)"`
+- **All disabled:** `"clooks: Registered 2 hook(s) from style-hooks (plugin): lint-check, format-check (disabled -- enable in clooks.yml)"`
 - **Collisions:** Passed through from `vendorAndRegisterPack()` with `clooks:` prefix.
 - **Errors:** Passed through from `vendorAndRegisterPack()` with `clooks:` prefix.
 
@@ -123,7 +137,7 @@ The discovery step adds ~5ms per invocation when `installed_plugins.json` exists
 2. Calls `discoverPluginPacks()` to find matching packs (by `manifest.name`). A pack may appear at multiple scopes.
 3. For each matching pack and each hook in its manifest:
    - **Existing hook** (vendor file exists): Overwrites the vendor file from the cache. Does NOT modify the `clooks.yml` entry (the `uses` path is stable).
-   - **New hook** (vendor file absent): Copies from cache, validates via `validateHookExport()`, registers in the appropriate config file. Validation failures delete the file (no orphan).
+   - **New hook** (vendor file absent): Copies from cache, validates via `validateHookExport()`, registers in the appropriate config file. Validation failures delete the file (no orphan). If the new hook has `autoEnable: false` in the manifest, it is registered with `enabled: false`, same as initial discovery.
    - **Name collision** (new hook whose name already exists in config): Skipped with warning.
 4. Prints a summary of updated, registered, skipped, and errored hooks.
 

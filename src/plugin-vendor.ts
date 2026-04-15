@@ -5,6 +5,7 @@ import type { DiscoveredPack } from './plugin-discovery.js'
 
 export interface VendorResult {
   registered: string[]
+  disabledHooks: string[]
   skipped: string[]
   collisions: string[]
   errors: string[]
@@ -20,6 +21,7 @@ export async function vendorAndRegisterPack(
 ): Promise<VendorResult> {
   const result: VendorResult = {
     registered: [],
+    disabledHooks: [],
     skipped: [],
     collisions: [],
     errors: [],
@@ -53,7 +55,7 @@ export async function vendorAndRegisterPack(
   }
 
   // Phase 1: Check collisions, then vendor (copy) hook files
-  const vendored: { hookName: string; usesPath: string }[] = []
+  const vendored: { hookName: string; usesPath: string; autoEnable?: boolean }[] = []
   const registeredInBatch = new Set<string>()
 
   for (const [hookName, hookDef] of Object.entries(pack.manifest.hooks)) {
@@ -107,7 +109,7 @@ export async function vendorAndRegisterPack(
       continue
     }
 
-    vendored.push({ hookName, usesPath: vendorRelPath })
+    vendored.push({ hookName, usesPath: vendorRelPath, autoEnable: hookDef.autoEnable })
     registeredInBatch.add(hookName)
   }
 
@@ -124,9 +126,16 @@ export async function vendorAndRegisterPack(
 
   let configContent = readFileSync(configPath, 'utf-8')
 
-  for (const { hookName, usesPath } of vendored) {
-    configContent += `\n${hookName}:\n  uses: ${usesPath}\n`
+  for (const { hookName, usesPath, autoEnable } of vendored) {
+    if (autoEnable === false) {
+      configContent += `\n${hookName}:\n  uses: ${usesPath}\n  enabled: false\n`
+    } else {
+      configContent += `\n${hookName}:\n  uses: ${usesPath}\n`
+    }
     result.registered.push(hookName)
+    if (autoEnable === false) {
+      result.disabledHooks.push(hookName)
+    }
   }
 
   // Write config file once with all accumulated entries

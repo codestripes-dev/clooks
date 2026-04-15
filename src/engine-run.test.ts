@@ -60,7 +60,7 @@ beforeEach(() => {
   mockReadStdin = mock(() => Promise.resolve({}))
   mockDiscoverPluginPacks = mock(() => [])
   mockVendorAndRegisterPack = mock(() =>
-    Promise.resolve({ registered: [], skipped: [], collisions: [], errors: [] }),
+    Promise.resolve({ registered: [], disabledHooks: [], skipped: [], collisions: [], errors: [] }),
   )
 })
 
@@ -889,7 +889,13 @@ describe('runEngine', () => {
 
     mockDiscoverPluginPacks.mockImplementation(() => [pack])
     mockVendorAndRegisterPack.mockImplementation(() =>
-      Promise.resolve({ registered: ['new-hook'], skipped: [], collisions: [], errors: [] }),
+      Promise.resolve({
+        registered: ['new-hook'],
+        disabledHooks: [],
+        skipped: [],
+        collisions: [],
+        errors: [],
+      }),
     )
 
     // First call: original config (no new-hook). Second call: reloaded config (with new-hook).
@@ -938,7 +944,13 @@ describe('runEngine', () => {
 
     mockDiscoverPluginPacks.mockImplementation(() => [pack])
     mockVendorAndRegisterPack.mockImplementation(() =>
-      Promise.resolve({ registered: [], skipped: ['existing'], collisions: [], errors: [] }),
+      Promise.resolve({
+        registered: [],
+        disabledHooks: [],
+        skipped: ['existing'],
+        collisions: [],
+        errors: [],
+      }),
     )
 
     const config = makeConfig({ existing: {} })
@@ -973,6 +985,7 @@ describe('runEngine', () => {
     mockVendorAndRegisterPack.mockImplementation(() =>
       Promise.resolve({
         registered: [],
+        disabledHooks: [],
         skipped: [],
         collisions: ['test-hook: conflicts with existing hook (from plugin test-pack)'],
         errors: [],
@@ -1012,7 +1025,13 @@ describe('runEngine', () => {
 
     mockDiscoverPluginPacks.mockImplementation(() => [pack])
     mockVendorAndRegisterPack.mockImplementation(() =>
-      Promise.resolve({ registered: ['new-hook'], skipped: [], collisions: [], errors: [] }),
+      Promise.resolve({
+        registered: ['new-hook'],
+        disabledHooks: [],
+        skipped: [],
+        collisions: [],
+        errors: [],
+      }),
     )
 
     // First call succeeds, second call (reload) throws
@@ -1058,7 +1077,13 @@ describe('runEngine', () => {
 
     mockDiscoverPluginPacks.mockImplementation(() => [pack])
     mockVendorAndRegisterPack.mockImplementation(() =>
-      Promise.resolve({ registered: ['new-hook'], skipped: [], collisions: [], errors: [] }),
+      Promise.resolve({
+        registered: ['new-hook'],
+        disabledHooks: [],
+        skipped: [],
+        collisions: [],
+        errors: [],
+      }),
     )
 
     const config = makeConfig({ existing: {} })

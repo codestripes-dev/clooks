@@ -371,4 +371,96 @@ describe('updatePluginPack', () => {
     expect(configContent).toContain('hook-c:')
     expect(configContent).toContain('uses: ./.clooks/vendor/plugin/test-pack/hook-c.ts')
   })
+
+  test('update registers new hook with enabled: false when autoEnable is false', async () => {
+    // Write both hook sources in cache
+    writeValidHook(installPath, 'hooks/test-hook.ts', 'test-hook')
+    writeValidHook(installPath, 'hooks/new-disabled-hook.ts', 'new-disabled-hook')
+
+    // Pre-vendor only the original hook
+    const vendorDir = join(projectRoot, '.clooks', 'vendor', 'plugin', 'test-pack')
+    mkdirSync(vendorDir, { recursive: true })
+    writeFileSync(join(vendorDir, 'test-hook.ts'), 'old content')
+
+    // Pre-create config with only the original hook
+    const configDir = join(projectRoot, '.clooks')
+    writeFileSync(
+      join(configDir, 'clooks.yml'),
+      'version: "1.0.0"\n\ntest-hook:\n  uses: ./.clooks/vendor/plugin/test-pack/test-hook.ts\n',
+    )
+
+    // Manifest now has both hooks, with the new one disabled
+    const manifest = makeManifest({
+      hooks: {
+        'test-hook': {
+          path: 'hooks/test-hook.ts',
+          description: 'Original hook',
+        },
+        'new-disabled-hook': {
+          path: 'hooks/new-disabled-hook.ts',
+          description: 'New disabled hook',
+          autoEnable: false,
+        },
+      },
+    })
+
+    const pack = makePack({ installPath, manifest, scope: 'project' })
+    const discoverFn = () => [pack]
+
+    const result = await updatePluginPack('test-pack', projectRoot, homeRoot, discoverFn)
+
+    expect(result.updated).toEqual(['test-hook'])
+    expect(result.registered).toEqual(['new-disabled-hook'])
+
+    // New hook should have enabled: false in config
+    const configContent = readFileSync(join(configDir, 'clooks.yml'), 'utf-8')
+    expect(configContent).toContain('new-disabled-hook:')
+    const hookBlock = configContent.split('new-disabled-hook:')[1]!
+    expect(hookBlock).toContain('enabled: false')
+  })
+
+  test('update registers new hook without enabled when autoEnable is omitted', async () => {
+    // Write both hook sources in cache
+    writeValidHook(installPath, 'hooks/test-hook.ts', 'test-hook')
+    writeValidHook(installPath, 'hooks/new-hook.ts', 'new-hook')
+
+    // Pre-vendor only the original hook
+    const vendorDir = join(projectRoot, '.clooks', 'vendor', 'plugin', 'test-pack')
+    mkdirSync(vendorDir, { recursive: true })
+    writeFileSync(join(vendorDir, 'test-hook.ts'), 'old content')
+
+    // Pre-create config with only the original hook
+    const configDir = join(projectRoot, '.clooks')
+    writeFileSync(
+      join(configDir, 'clooks.yml'),
+      'version: "1.0.0"\n\ntest-hook:\n  uses: ./.clooks/vendor/plugin/test-pack/test-hook.ts\n',
+    )
+
+    // Manifest now has both hooks, new one has no autoEnable
+    const manifest = makeManifest({
+      hooks: {
+        'test-hook': {
+          path: 'hooks/test-hook.ts',
+          description: 'Original hook',
+        },
+        'new-hook': {
+          path: 'hooks/new-hook.ts',
+          description: 'New hook without autoEnable',
+        },
+      },
+    })
+
+    const pack = makePack({ installPath, manifest, scope: 'project' })
+    const discoverFn = () => [pack]
+
+    const result = await updatePluginPack('test-pack', projectRoot, homeRoot, discoverFn)
+
+    expect(result.updated).toEqual(['test-hook'])
+    expect(result.registered).toEqual(['new-hook'])
+
+    // New hook should NOT have enabled: in its config block
+    const configContent = readFileSync(join(configDir, 'clooks.yml'), 'utf-8')
+    const hookBlock = configContent.split('new-hook:')[1]!
+    expect(hookBlock).not.toContain('enabled:')
+  })
 })

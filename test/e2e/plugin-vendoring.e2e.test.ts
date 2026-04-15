@@ -22,7 +22,7 @@ function setupMockPluginCache(
     pluginKey: string
     scope: 'user' | 'project' | 'local'
     packName: string
-    hooks: Record<string, { path: string; code: string; description: string }>
+    hooks: Record<string, { path: string; code: string; description: string; autoEnable?: boolean }>
   },
 ): string {
   // Create cache dir under sandbox home
@@ -51,7 +51,11 @@ function setupMockPluginCache(
     hooks: Object.fromEntries(
       Object.entries(opts.hooks).map(([name, def]) => [
         name,
-        { path: def.path, description: def.description },
+        {
+          path: def.path,
+          description: def.description,
+          ...(def.autoEnable !== undefined ? { autoEnable: def.autoEnable } : {}),
+        },
       ]),
     ),
   }
@@ -578,5 +582,205 @@ export const hook = {
     expect(o2.hookSpecificOutput.additionalContext).toContain(
       'clooks is active. Hooks are running.',
     )
+  })
+
+  test('(j) autoEnable: false hook is registered but does not execute', () => {
+    sandbox = createSandbox()
+    sandbox.writeHomeConfig('version: "1.0.0"\n')
+
+    setupMockPluginCache(sandbox.home, {
+      pluginKey: 'auto-enable-pack@test-marketplace',
+      scope: 'user',
+      packName: 'auto-enable-pack',
+      hooks: {
+        'enabled-hook': {
+          path: 'hooks/enabled-hook.ts',
+          description: 'An enabled hook',
+          code: `
+export const hook = {
+  meta: { name: "enabled-hook" },
+  PreToolUse() {
+    return { result: "allow" as const, injectContext: "enabled-hook-ran" }
+  },
+}
+`,
+        },
+        'disabled-hook': {
+          path: 'hooks/disabled-hook.ts',
+          description: 'A disabled hook',
+          autoEnable: false,
+          code: `
+export const hook = {
+  meta: { name: "disabled-hook" },
+  PreToolUse() {
+    return { result: "allow" as const, injectContext: "disabled-hook-ran" }
+  },
+}
+`,
+        },
+      },
+    })
+
+    const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
+    expect(result.exitCode).toBe(0)
+
+    // Both hooks vendored
+    expect(sandbox.homeFileExists('.clooks/vendor/plugin/auto-enable-pack/enabled-hook.ts')).toBe(
+      true,
+    )
+    expect(sandbox.homeFileExists('.clooks/vendor/plugin/auto-enable-pack/disabled-hook.ts')).toBe(
+      true,
+    )
+
+    // Both appear in config
+    const config = sandbox.readHomeFile('.clooks/clooks.yml')
+    expect(config).toContain('enabled-hook:')
+    expect(config).toContain('disabled-hook:')
+
+    // disabled-hook has enabled: false in config
+    const disabledBlock = config.split('disabled-hook:')[1]!
+    expect(disabledBlock).toContain('enabled: false')
+
+    // enabled-hook block does NOT have enabled:
+    const enabledBlock = config.split('enabled-hook:')[1]!.split('disabled-hook:')[0]!
+    expect(enabledBlock).not.toContain('enabled:')
+
+    const output = JSON.parse(result.stdout)
+
+    // Only enabled hook ran
+    const ctx = output.hookSpecificOutput?.additionalContext ?? ''
+    expect(ctx).toContain('enabled-hook-ran')
+    expect(ctx).not.toContain('disabled-hook-ran')
+
+    // System message distinguishes enabled and disabled hooks
+    expect(output.systemMessage).toContain('enabled-hook')
+    expect(output.systemMessage).toContain('disabled-hook')
+    expect(output.systemMessage).toContain('(enabled)')
+    expect(output.systemMessage).toContain('(disabled')
+  })
+
+  test('(k) user override of autoEnable: false hook survives re-discovery', () => {
+    sandbox = createSandbox()
+    sandbox.writeHomeConfig('version: "1.0.0"\n')
+
+    setupMockPluginCache(sandbox.home, {
+      pluginKey: 'override-pack@test-marketplace',
+      scope: 'user',
+      packName: 'override-pack',
+      hooks: {
+        'overridable-hook': {
+          path: 'hooks/overridable-hook.ts',
+          description: 'A hook that starts disabled',
+          autoEnable: false,
+          code: `
+export const hook = {
+  meta: { name: "overridable-hook" },
+  PreToolUse() {
+    return { result: "allow" as const, injectContext: "overridable-ran" }
+  },
+}
+`,
+        },
+      },
+    })
+
+    const stdin = loadEvent('pre-tool-use-bash.json')
+
+    // First run: registers with enabled: false
+    const r1 = sandbox.run([], { stdin })
+    expect(r1.exitCode).toBe(0)
+    const o1 = JSON.parse(r1.stdout)
+    expect(o1.systemMessage).toContain('Registered')
+    const ctx1 = o1.hookSpecificOutput?.additionalContext ?? ''
+    expect(ctx1).not.toContain('overridable-ran')
+
+    // User manually enables the hook
+    const config = sandbox.readHomeFile('.clooks/clooks.yml')
+    const updatedConfig = config.replace('enabled: false', 'enabled: true')
+    sandbox.writeHomeFile('.clooks/clooks.yml', updatedConfig)
+
+    // Second run: hook now executes, no re-registration
+    const r2 = sandbox.run([], { stdin })
+    expect(r2.exitCode).toBe(0)
+    const o2 = JSON.parse(r2.stdout)
+    const sysMsg2 = o2.systemMessage ?? ''
+    expect(sysMsg2).not.toContain('Registered')
+    const ctx2 = o2.hookSpecificOutput?.additionalContext ?? ''
+    expect(ctx2).toContain('overridable-ran')
+  })
+
+  test('(l) all-disabled pack: all hooks registered but none execute', () => {
+    sandbox = createSandbox()
+    sandbox.writeHomeConfig('version: "1.0.0"\n')
+
+    setupMockPluginCache(sandbox.home, {
+      pluginKey: 'all-disabled-pack@test-marketplace',
+      scope: 'user',
+      packName: 'all-disabled-pack',
+      hooks: {
+        'disabled-one': {
+          path: 'hooks/disabled-one.ts',
+          description: 'First disabled hook',
+          autoEnable: false,
+          code: `
+export const hook = {
+  meta: { name: "disabled-one" },
+  PreToolUse() {
+    return { result: "allow" as const, injectContext: "disabled-one-ran" }
+  },
+}
+`,
+        },
+        'disabled-two': {
+          path: 'hooks/disabled-two.ts',
+          description: 'Second disabled hook',
+          autoEnable: false,
+          code: `
+export const hook = {
+  meta: { name: "disabled-two" },
+  PreToolUse() {
+    return { result: "allow" as const, injectContext: "disabled-two-ran" }
+  },
+}
+`,
+        },
+      },
+    })
+
+    const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
+    expect(result.exitCode).toBe(0)
+
+    // Both hooks vendored
+    expect(sandbox.homeFileExists('.clooks/vendor/plugin/all-disabled-pack/disabled-one.ts')).toBe(
+      true,
+    )
+    expect(sandbox.homeFileExists('.clooks/vendor/plugin/all-disabled-pack/disabled-two.ts')).toBe(
+      true,
+    )
+
+    // Both in config with enabled: false
+    const config = sandbox.readHomeFile('.clooks/clooks.yml')
+    expect(config).toContain('disabled-one:')
+    expect(config).toContain('disabled-two:')
+
+    // Check both have enabled: false
+    const block1 = config.split('disabled-one:')[1]!.split('disabled-two:')[0]!
+    expect(block1).toContain('enabled: false')
+    const block2 = config.split('disabled-two:')[1]!
+    expect(block2).toContain('enabled: false')
+
+    // Parse output
+    const output = JSON.parse(result.stdout)
+
+    // No hook injectContext (neither hook ran)
+    const ctx = output.hookSpecificOutput?.additionalContext ?? ''
+    expect(ctx).not.toContain('disabled-one-ran')
+    expect(ctx).not.toContain('disabled-two-ran')
+
+    // System message lists all hooks as disabled (no "(enabled)" section)
+    expect(output.systemMessage).toContain('disabled-one')
+    expect(output.systemMessage).toContain('disabled-two')
+    expect(output.systemMessage).toContain('(disabled')
+    expect(output.systemMessage).not.toContain('(enabled)')
   })
 })
