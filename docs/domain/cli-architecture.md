@@ -204,6 +204,10 @@ Exits with code 1 when all hooks fail (errors only, no successes). Supports `--j
 
 See `docs/domain/vendoring/plugin-vendoring.md` for the full update algorithm.
 
+### `clooks uninstall`
+
+Removes Clooks from a project or global scope. With `--project`, removes Clooks hooks from `.claude/settings.json` and optionally deletes `.clooks/`. With `--global`, does the same for `~/.claude/settings.json` and `~/.clooks/`. Without a flag, presents an interactive scope picker (project, global, or both). `--force` skips all confirmation prompts and requires explicit scope (`--project`/`--global`) and action (`--unhook`/`--full`) flags. `--json` outputs a structured result envelope. Never loads or validates `clooks.yml` — works even when config is broken.
+
 ## Key Files
 
 - `src/cli.ts` — Dual-mode dispatch, signal handlers, version check.
@@ -215,6 +219,7 @@ See `docs/domain/vendoring/plugin-vendoring.md` for the full update algorithm.
 - `src/commands/types.ts` — `createTypesCommand()` — extracts embedded .d.ts type declarations (`clooks types`, `clooks types --global`).
 - `src/commands/new-hook.ts` — `createNewHookCommand()` — interactive hook scaffolding (`clooks new-hook`).
 - `src/commands/add.ts` — `createAddCommand()` — GitHub URL download and registration (`clooks add`), both blob URL and repo URL flows.
+- `src/commands/uninstall.ts` — `createUninstallCommand()` — project and global uninstall (`clooks uninstall`).
 - `src/commands/update.ts` — `createUpdateCommand()` — re-vendor plugin hooks (`clooks update plugin:<pack>`).
 - `src/manifest.ts` — `validateManifest()`, `ClooksPackManifest` type — pack manifest validation.
 - `src/platform.ts` — platform/scope helpers used by `clooks add` (`--global`/`--project`).
