@@ -9,3 +9,5 @@ domain-doc-size: {}
 debug-payload:  {}
 
 no-bare-mv: {}
+
+no-clooks-uninstall: {}
