@@ -342,6 +342,20 @@ debug-payload:
 for all events. Setting it per-event disables only that event. Hook-level `enabled: false`
 takes precedence over per-event settings.
 
+### Disabling a plugin hook
+
+Clooks only vendors plugin hooks that are enabled at the corresponding Claude settings scope. To stop a currently-registered plugin hook from running in one project without un-installing the plugin, add it to `.clooks/clooks.local.yml`:
+
+```yaml
+<hookName>:
+  uses: ./.clooks/vendor/plugin/<packName>/<hookName>.ts
+  enabled: false
+```
+
+The `uses:` field must be preserved. Clooks' three-layer config merge performs atomic replacement at the local layer — listing only `enabled: false` would leave the hook without a source path and it would be skipped as dangling.
+
+To disable a plugin globally across every project, use Claude Code's `/plugin disable <pluginKey>` command. Clooks will stop re-registering it on subsequent invocations and emit a `SessionStart` advisory for any lingering vendored entries pointing you at the manual cleanup step.
+
 ### Config Cascade
 
 There are two separate config systems:

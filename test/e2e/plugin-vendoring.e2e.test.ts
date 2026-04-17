@@ -17,7 +17,7 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 function setupMockPluginCache(
-  home: string,
+  sandbox: Sandbox,
   opts: {
     pluginKey: string
     scope: 'user' | 'project' | 'local'
@@ -25,6 +25,7 @@ function setupMockPluginCache(
     hooks: Record<string, { path: string; code: string; description: string; autoEnable?: boolean }>
   },
 ): string {
+  const home = sandbox.home
   // Create cache dir under sandbox home
   const cacheDir = join(
     home,
@@ -86,7 +87,45 @@ function setupMockPluginCache(
   mkdirSync(installedPluginsDir, { recursive: true })
   writeFileSync(installedPluginsPath, JSON.stringify({ version: 2, plugins }))
 
+  // Settings-driven discovery: write enabledPlugins at the layer that matches the
+  // vendor destination the test expects (user/project/local → clooks scope).
+  enablePluginAtScope(sandbox, opts.pluginKey, opts.scope)
+
   return cacheDir
+}
+
+// Reads or creates a Claude settings file at the layer's conventional path and
+// sets enabledPlugins[pluginKey] = value. Merges with any existing enabledPlugins
+// entries (multiple plugins per layer is common).
+function enablePluginAtScope(
+  sandbox: Sandbox,
+  pluginKey: string,
+  scope: 'user' | 'project' | 'local',
+  value = true,
+): void {
+  const relPath =
+    scope === 'user'
+      ? '.claude/settings.json'
+      : scope === 'project'
+        ? '.claude/settings.json'
+        : '.claude/settings.local.json'
+
+  let existing: { enabledPlugins?: Record<string, boolean> } = {}
+  try {
+    const raw = scope === 'user' ? sandbox.readHomeFile(relPath) : sandbox.readFile(relPath)
+    existing = JSON.parse(raw)
+  } catch {
+    // File doesn't exist yet
+  }
+  const enabled = existing.enabledPlugins ?? {}
+  enabled[pluginKey] = value
+  const content = JSON.stringify({ ...existing, enabledPlugins: enabled })
+
+  if (scope === 'user') {
+    sandbox.writeHomeFile(relPath, content)
+  } else {
+    sandbox.writeFile(relPath, content)
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -100,7 +139,7 @@ describe('plugin vendoring', () => {
     // Minimal home config so engine does not exit early
     sandbox.writeHomeConfig('version: "1.0.0"\n')
 
-    setupMockPluginCache(sandbox.home, {
+    setupMockPluginCache(sandbox, {
       pluginKey: 'test-pack@test-marketplace',
       scope: 'user',
       packName: 'test-pack',
@@ -146,7 +185,7 @@ export const hook = {
 
     sandbox.writeHomeConfig('version: "1.0.0"\n')
 
-    setupMockPluginCache(sandbox.home, {
+    setupMockPluginCache(sandbox, {
       pluginKey: 'idem-pack@test-marketplace',
       scope: 'user',
       packName: 'idem-pack',
@@ -192,7 +231,7 @@ export const hook = {
     // Minimal PROJECT config so engine does not exit early
     sandbox.writeConfig('version: "1.0.0"\n')
 
-    setupMockPluginCache(sandbox.home, {
+    setupMockPluginCache(sandbox, {
       pluginKey: 'project-pack@test-marketplace',
       scope: 'project',
       packName: 'project-pack',
@@ -249,7 +288,7 @@ existing-hook: {}
 `)
 
     // Set up a project-scoped plugin with a hook also named "existing-hook"
-    setupMockPluginCache(sandbox.home, {
+    setupMockPluginCache(sandbox, {
       pluginKey: 'collision-pack@test-marketplace',
       scope: 'project',
       packName: 'collision-pack',
@@ -295,7 +334,7 @@ export const hook = {
     sandbox.writeConfig('version: "1.0.0"\n')
 
     // Set up the mock plugin cache with version-1 code
-    const cacheDir = setupMockPluginCache(sandbox.home, {
+    const cacheDir = setupMockPluginCache(sandbox, {
       pluginKey: 'update-pack@test-marketplace',
       scope: 'project',
       packName: 'update-pack',
@@ -395,7 +434,7 @@ manual-hook: {}
     sandbox.writeHomeConfig('version: "1.0.0"\n')
 
     // Set up a user-scoped plugin hook
-    setupMockPluginCache(sandbox.home, {
+    setupMockPluginCache(sandbox, {
       pluginKey: 'coexist-pack@test-marketplace',
       scope: 'user',
       packName: 'coexist-pack',
@@ -432,7 +471,7 @@ export const hook = {
     // Minimal project config so engine does not exit early
     sandbox.writeConfig('version: "1.0.0"\n')
 
-    setupMockPluginCache(sandbox.home, {
+    setupMockPluginCache(sandbox, {
       pluginKey: 'local-pack@test-marketplace',
       scope: 'local',
       packName: 'local-pack',
@@ -477,7 +516,7 @@ export const hook = {
     sandbox = createSandbox()
     sandbox.writeHomeConfig('version: "1.0.0"\n')
 
-    setupMockPluginCache(sandbox.home, {
+    setupMockPluginCache(sandbox, {
       pluginKey: 'clooks-example-hooks@clooks-marketplace',
       scope: 'user',
       packName: 'clooks-example-hooks',
@@ -534,7 +573,7 @@ export const hook = {
     sandbox = createSandbox()
     sandbox.writeHomeConfig('version: "1.0.0"\n')
 
-    setupMockPluginCache(sandbox.home, {
+    setupMockPluginCache(sandbox, {
       pluginKey: 'clooks-example-hooks@clooks-marketplace',
       scope: 'user',
       packName: 'clooks-example-hooks',
@@ -588,7 +627,7 @@ export const hook = {
     sandbox = createSandbox()
     sandbox.writeHomeConfig('version: "1.0.0"\n')
 
-    setupMockPluginCache(sandbox.home, {
+    setupMockPluginCache(sandbox, {
       pluginKey: 'auto-enable-pack@test-marketplace',
       scope: 'user',
       packName: 'auto-enable-pack',
@@ -663,7 +702,7 @@ export const hook = {
     sandbox = createSandbox()
     sandbox.writeHomeConfig('version: "1.0.0"\n')
 
-    setupMockPluginCache(sandbox.home, {
+    setupMockPluginCache(sandbox, {
       pluginKey: 'override-pack@test-marketplace',
       scope: 'user',
       packName: 'override-pack',
@@ -713,7 +752,7 @@ export const hook = {
     sandbox = createSandbox()
     sandbox.writeHomeConfig('version: "1.0.0"\n')
 
-    setupMockPluginCache(sandbox.home, {
+    setupMockPluginCache(sandbox, {
       pluginKey: 'all-disabled-pack@test-marketplace',
       scope: 'user',
       packName: 'all-disabled-pack',

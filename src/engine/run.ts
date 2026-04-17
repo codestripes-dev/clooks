@@ -19,6 +19,14 @@ import {
 } from '../failures.js'
 import { discoverPluginPacks as defaultDiscoverPluginPacks } from '../plugin-discovery.js'
 import { vendorAndRegisterPack as defaultVendorAndRegisterPack } from '../plugin-vendor.js'
+import {
+  defaultSettingsPaths,
+  detectStaleAdvisories,
+  readEnabledPlugins,
+  readInstalledPlugins,
+  readVendoredPluginEntries,
+} from '../claude-settings.js'
+import type { StaleAdvisory } from '../claude-settings.js'
 import type { RunEngineDeps } from './types.js'
 import { EXIT_OK, EXIT_STDERR } from './types.js'
 import { matchHooksForEvent, buildShadowWarnings } from './match.js'
@@ -32,6 +40,39 @@ import { translateResult } from './translate.js'
  */
 const CONFIG_ERROR_HOOK = '__config__' as HookName
 const CONFIG_ERROR_EVENT = '__parse__' as EventName
+
+/**
+ * Render a StaleAdvisory as a user-facing `systemMessage` line.
+ * Paths are taken from the live homeRoot / projectRoot so a user with
+ * CLOOKS_HOME_ROOT overridden sees the correct paths.
+ */
+function formatAdvisory(
+  a: StaleAdvisory,
+  roots: { homeRoot: string; projectRoot: string },
+): string {
+  const scopeYmlPath =
+    a.scope === 'user'
+      ? join(roots.homeRoot, '.clooks/clooks.yml')
+      : a.scope === 'project'
+        ? join(roots.projectRoot, '.clooks/clooks.yml')
+        : join(roots.projectRoot, '.clooks/clooks.local.yml')
+  const localOverridePath = join(roots.projectRoot, '.clooks/clooks.local.yml')
+  if (a.kind === 'stale-registration') {
+    return (
+      `clooks: hook "${a.hookName}" (from plugin ${a.pluginKey}) is registered in ${scopeYmlPath} ` +
+      `but the plugin is not enabled at ${a.scope} scope in Claude settings. ` +
+      `To stop this hook from running in the current project, add to ${localOverridePath}:\n` +
+      `  ${a.hookName}:\n    enabled: false\n` +
+      `To remove it entirely, delete the ${a.hookName} entry from ${scopeYmlPath}.`
+    )
+  }
+  return (
+    `clooks: plugin ${a.pluginKey} is enabled at ${a.scope} scope in Claude settings ` +
+    `but no install record exists on disk. ` +
+    `Run /plugin install ${a.pluginKey} to install it, ` +
+    `or remove the ${a.pluginKey} entry from ${a.scope} Claude settings.`
+  )
+}
 
 export const defaultDeps: RunEngineDeps = {
   loadConfig,
@@ -108,7 +149,7 @@ export async function runEngine(deps: RunEngineDeps = defaultDeps): Promise<void
     const pluginSystemMessages: string[] = []
     const danglingWarnings: string[] = []
     if (deps.discoverPluginPacks && deps.vendorAndRegisterPack) {
-      const packs = deps.discoverPluginPacks()
+      const packs = deps.discoverPluginPacks({ homeRoot, projectRoot })
       if (packs.length > 0) {
         let needsReload = false
 
@@ -210,21 +251,10 @@ export async function runEngine(deps: RunEngineDeps = defaultDeps): Promise<void
       }
     }
 
-    if (hooks.length === 0 && loadErrors.length === 0) {
-      const earlyMessages = [...pluginSystemMessages, ...danglingWarnings]
-      if (earlyMessages.length > 0) {
-        const output: ClaudeCodeOutput = { systemMessage: earlyMessages.join('\n') }
-        process.stdout.write(JSON.stringify(output) + '\n')
-      }
-      if (debug) {
-        for (const line of engineDebugLines) {
-          process.stderr.write(`[clooks:debug] ${line}\n`)
-        }
-      }
-      process.exit(EXIT_OK)
-    }
-
     // --- Read and parse stdin ---
+    // Parsed here (before the hooks-empty early-exit) so that eventName is
+    // available for SessionStart-gated advisory emission below, even in the
+    // "no hooks configured at all" case (e.g. pure enable-without-install drift).
     let input: unknown
     try {
       input = await deps.readStdin()
@@ -247,6 +277,45 @@ export async function runEngine(deps: RunEngineDeps = defaultDeps): Promise<void
       process.exit(EXIT_STDERR)
     }
     const eventName: EventName = rawEventName
+
+    // --- SessionStart stale-plugin advisories (M4) ---
+    // Detect (a) plugin-vendored hook entries whose plugin key is no longer
+    // `true` at that scope in Claude settings (drift A: stale-registration)
+    // and (b) plugin keys enabled in Claude settings with no install record
+    // (drift B: enable-without-install). Advisories are gated to SessionStart
+    // to keep per-tool-call overhead low and visible at session open.
+    if (eventName === 'SessionStart' && deps.discoverPluginPacks) {
+      const settingsPaths = defaultSettingsPaths(homeRoot, projectRoot)
+      const installedPluginsPath = join(homeRoot, '.claude', 'plugins', 'installed_plugins.json')
+      const installedPluginsFile = readInstalledPlugins(installedPluginsPath)
+      const layers = readEnabledPlugins(settingsPaths)
+      const advisories = detectStaleAdvisories({
+        installedPluginsFile,
+        layers,
+        clooksYmlReaders: {
+          user: () => readVendoredPluginEntries(join(homeRoot, '.clooks', 'clooks.yml')),
+          project: () => readVendoredPluginEntries(join(projectRoot, '.clooks', 'clooks.yml')),
+          local: () => readVendoredPluginEntries(join(projectRoot, '.clooks', 'clooks.local.yml')),
+        },
+      })
+      for (const a of advisories) {
+        pluginSystemMessages.push(formatAdvisory(a, { homeRoot, projectRoot }))
+      }
+    }
+
+    if (hooks.length === 0 && loadErrors.length === 0) {
+      const earlyMessages = [...pluginSystemMessages, ...danglingWarnings]
+      if (earlyMessages.length > 0) {
+        const output: ClaudeCodeOutput = { systemMessage: earlyMessages.join('\n') }
+        process.stdout.write(JSON.stringify(output) + '\n')
+      }
+      if (debug) {
+        for (const line of engineDebugLines) {
+          process.stderr.write(`[clooks:debug] ${line}\n`)
+        }
+      }
+      process.exit(EXIT_OK)
+    }
 
     // --- Match hooks for this event ---
     const { matched, disabledSkips } = matchHooksForEvent(hooks, eventName, config)

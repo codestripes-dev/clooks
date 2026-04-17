@@ -63,7 +63,10 @@ beforeEach(() => {
   stderrSpy = spyOn(process.stderr, 'write').mockImplementation(() => true)
   mockLoadConfig = mock(() => Promise.resolve(null))
   mockLoadAllHooks = mock(() => Promise.resolve({ loaded: [], loadErrors: [], dangling: [] }))
-  mockReadStdin = mock(() => Promise.resolve({}))
+  // Default stdin: a minimal valid event payload so tests that don't explicitly
+  // set mockReadStdin still advance past the stdin/eventName parse (which happens
+  // before the hooks-empty early-exit so SessionStart advisories can fire).
+  mockReadStdin = mock(() => Promise.resolve({ hook_event_name: 'PreToolUse' }))
   mockDiscoverPluginPacks = mock(() => [])
   mockVendorAndRegisterPack = mock(() =>
     Promise.resolve({ registered: [], disabledHooks: [], skipped: [], collisions: [], errors: [] }),

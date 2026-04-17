@@ -110,6 +110,30 @@ CLOOKS_E2E_DOCKER=true bun test test/e2e/fail-closed.e2e.test.ts
 
 The Docker image contains only the base environment (Bun, git, testuser, `node_modules`). Source code and tests are bind-mounted at runtime via `-v` flags, so source changes are picked up on the next `test:e2e:run` without rebuilding the image. The `test/docker-entrypoint.sh` script compiles the binary from the mounted source before running tests.
 
+## Anti-patterns
+
+### Never gate a negative assertion on `stdout.length > 0`
+
+The sandbox's `run()` may return empty `stdout` for several reasons: the hook didn't match the event, the engine hit a silent early-exit, or the binary crashed. If a test asserts "advisory text should NOT appear" but does so inside `if (result.stdout.length > 0) { … }`, a crashed or short-circuited binary satisfies the assertion vacuously — the test passes for the wrong reason.
+
+When writing a negative assertion, either:
+
+- Seed a sentinel hook that is guaranteed to fire for the event under test (so `stdout` is always non-empty), then parse unconditionally and assert on `systemMessage` / `additionalContext`.
+- Assert on filesystem state instead (the vendor file does not exist, the yml does not contain the entry, etc.). Filesystem assertions cannot be satisfied by an empty-stdout short-circuit.
+
+Do not assume empty stdout means "nothing happened so the assertion holds." In a fail-closed system, empty stdout often means "something went very wrong and the engine didn't emit anything." That is exactly the case a negative assertion must distinguish from the healthy path.
+
+### Every `X should NOT happen` test needs a positive guard that X's code path was reached
+
+A test that asserts "shadow config suppresses the hook" must first prove the hook fires without the shadow. Otherwise a silently broken hook (missing export, typo in marker string, wrong event name) passes the negative assertion trivially.
+
+Structure these tests as two phases in the same sandbox:
+
+1. **Baseline.** Run the scenario in the state that should produce X. Assert X happened.
+2. **Under test.** Change the one variable the test is about (apply the shadow, enable the silencer, disable the plugin). Assert X no longer happens.
+
+The baseline is not optional padding — it is the only thing that distinguishes "the mitigation worked" from "the code was never exercised at all."
+
 ## Gotchas
 
 ### PreToolUse deny output drops additionalContext
