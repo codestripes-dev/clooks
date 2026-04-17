@@ -110,21 +110,14 @@ export async function runEngine(deps: RunEngineDeps = defaultDeps): Promise<void
     if (deps.discoverPluginPacks && deps.vendorAndRegisterPack) {
       const packs = deps.discoverPluginPacks()
       if (packs.length > 0) {
-        const existingHookNames = new Set(Object.keys(config.hooks))
         let needsReload = false
 
         for (const pack of packs) {
-          const vendorResult = await deps.vendorAndRegisterPack(
-            pack,
-            projectRoot,
-            homeRoot,
-            existingHookNames,
-          )
-
-          // Track newly registered hooks for collision detection with next packs
-          for (const name of vendorResult.registered) {
-            existingHookNames.add(name)
-          }
+          // Collision detection is scope-local and performed inside
+          // vendorAndRegisterPack by reading the target scope's yml. Each pack
+          // freshly observes the target file (which may have been updated by a
+          // prior pack in the same batch that wrote to the same scope).
+          const vendorResult = await deps.vendorAndRegisterPack(pack, projectRoot, homeRoot)
 
           if (vendorResult.registered.length > 0) {
             needsReload = true
