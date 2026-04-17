@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, unlinkSync } from 'fs'
 import { join, extname, dirname } from 'path'
 import { validateHookExport } from './loader.js'
+import { classifyConfigKeys } from './config/classify.js'
 import type { DiscoveredPack } from './plugin-discovery.js'
 
 export interface VendorResult {
@@ -13,11 +14,35 @@ export interface VendorResult {
 
 const SAFE_NAME_PATTERN = /^[a-z][a-z0-9._-]*$/
 
+/**
+ * Reads the hook names registered in a single scope's yml. Returns an empty
+ * set if the file doesn't exist or cannot be parsed.
+ *
+ * Scope-local: this intentionally does NOT look at the merged three-layer
+ * config. Cross-scope same-name hooks are shadows (handled by the merge
+ * machinery), not collisions.
+ */
+function readScopeHookNames(configPath: string): Set<string> {
+  if (!existsSync(configPath)) return new Set()
+  let raw: unknown
+  try {
+    const text = readFileSync(configPath, 'utf-8')
+    raw = Bun.YAML.parse(text)
+  } catch {
+    // Malformed yml — fall back to empty set. The engine's config loader
+    // surfaces parse errors through its own circuit-breaker path; we don't
+    // want to double-report here.
+    return new Set()
+  }
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return new Set()
+  const { hooks } = classifyConfigKeys(raw as Record<string, unknown>)
+  return new Set(Object.keys(hooks))
+}
+
 export async function vendorAndRegisterPack(
   pack: DiscoveredPack,
   projectRoot: string,
   homeRoot: string,
-  existingHookNames: Set<string>,
 ): Promise<VendorResult> {
   const result: VendorResult = {
     registered: [],
@@ -53,6 +78,11 @@ export async function vendorAndRegisterPack(
       configPath = join(projectRoot, '.clooks', 'clooks.local.yml')
       break
   }
+
+  // Build scope-local collision set from the target yml. Collisions only apply
+  // within a single scope — cross-scope same-name is a shadow handled by the
+  // three-layer merge.
+  const existingHookNames = readScopeHookNames(configPath)
 
   // Phase 1: Check collisions, then vendor (copy) hook files
   const vendored: { hookName: string; usesPath: string; autoEnable?: boolean }[] = []

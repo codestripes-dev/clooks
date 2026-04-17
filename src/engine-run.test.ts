@@ -8,7 +8,13 @@
  * fakes through an optional parameter, avoiding any global mock state.
  */
 import { describe, it, expect, spyOn, mock, beforeEach, afterEach } from 'bun:test'
-import { mkdtempSync, rmSync, mkdirSync } from 'fs'
+import {
+  mkdtempSync,
+  rmSync,
+  mkdirSync,
+  writeFileSync as writeFileSyncNode,
+  existsSync as existsSyncNode,
+} from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import type { HookName, Milliseconds } from './types/branded.js'
@@ -70,6 +76,7 @@ afterEach(() => {
   stdoutSpy.mockRestore()
   stderrSpy.mockRestore()
   delete process.env.CLOOKS_DEBUG
+  delete process.env.CLOOKS_HOME_ROOT
   if (tempDir) {
     rmSync(tempDir, { recursive: true, force: true })
   }
@@ -1380,6 +1387,87 @@ describe('runEngine', () => {
       // Should work normally — no crash from missing dangling
       const stdout = getStdout()
       expect(stdout).toContain('hookSpecificOutput')
+    })
+  })
+
+  describe('cross-scope plugin vendoring', () => {
+    it('two packs for the same plugin at different scopes both vendor cleanly', async () => {
+      // Set up a real filesystem for the vendor step.
+      const homeDir = join(tempDir, 'home')
+      const installDir = join(tempDir, 'install', 'test-pack')
+      mkdirSync(join(installDir, 'hooks'), { recursive: true })
+      writeFileSyncNode(
+        join(installDir, 'hooks', 'no-bare-mv.ts'),
+        `export const hook = {\n` +
+          `  meta: { name: 'no-bare-mv' },\n` +
+          `  PreToolUse: () => ({ decision: 'continue' }),\n` +
+          `}\n`,
+      )
+      mkdirSync(homeDir, { recursive: true })
+
+      // Route home to our tempdir.
+      process.env.CLOOKS_HOME_ROOT = homeDir
+
+      const projectPack = {
+        pluginName: 'test-pack@marketplace',
+        scope: 'project' as const,
+        installPath: installDir,
+        manifest: {
+          version: 1,
+          name: 'test-pack',
+          hooks: {
+            'no-bare-mv': { path: 'hooks/no-bare-mv.ts', description: 'Block bare mv' },
+          },
+        },
+      }
+      const userPack = { ...projectPack, scope: 'user' as const }
+
+      mockDiscoverPluginPacks.mockImplementation(() => [projectPack, userPack])
+
+      // Initial config has no hooks; after reload, both scopes have the vendored hook.
+      const initialConfig = makeConfig()
+      const reloadedConfig = makeConfig({ 'no-bare-mv': {} })
+      let loadConfigCallCount = 0
+      mockLoadConfig.mockImplementation(() => {
+        loadConfigCallCount++
+        if (loadConfigCallCount === 1) {
+          return Promise.resolve({ config: initialConfig, shadows: [], hasProjectConfig: true })
+        }
+        return Promise.resolve({ config: reloadedConfig, shadows: [], hasProjectConfig: true })
+      })
+      mockLoadAllHooks.mockResolvedValue({
+        loaded: [],
+        loadErrors: [],
+        dangling: [],
+      })
+
+      // Use the REAL vendorAndRegisterPack for this test.
+      const deps: RunEngineDeps = {
+        loadConfig: mockLoadConfig as any,
+        loadAllHooks: mockLoadAllHooks as any,
+        readStdin: mockReadStdin as any,
+        discoverPluginPacks: mockDiscoverPluginPacks as any,
+        vendorAndRegisterPack: defaultDeps.vendorAndRegisterPack,
+      }
+
+      await runEngine(deps).catch(() => {})
+
+      const stdout = getStdout()
+
+      // No collision message should appear — cross-scope same-plugin is not a collision.
+      expect(stdout).not.toContain('conflicts with existing hook')
+
+      // Both scopes should be registered (two "Registered" messages).
+      const registeredMatches = stdout.match(/Registered \d+ hook/g) ?? []
+      expect(registeredMatches.length).toBe(2)
+
+      // Both vendor files must exist on disk.
+      expect(
+        existsSyncNode(join(tempDir, '.clooks', 'vendor', 'plugin', 'test-pack', 'no-bare-mv.ts')),
+      ).toBe(true)
+      expect(
+        existsSyncNode(join(homeDir, '.clooks', 'vendor', 'plugin', 'test-pack', 'no-bare-mv.ts')),
+      ).toBe(true)
     })
   })
 })
