@@ -8,7 +8,7 @@ Clooks distributes hook packs as Claude Code data-only plugins. When a user inst
 
 Plugin hooks are NOT executed live from the plugin cache. They are copied to a vendor directory and pinned until the user explicitly updates. This prevents plugin updates from silently changing running code — aligning with clooks' safety-first model.
 
-Real-world examples of data-only hook pack plugins: `clooks-example-hooks` (educational hooks demonstrating lifecycle, config, and events) and `clooks-core-hooks` (production hooks for command safety, git history preservation, logging, and tmux notifications). Both live in the `clooks-marketplace` repo.
+Real-world examples of data-only hook pack plugins: `clooks-example-hooks` (educational hooks demonstrating lifecycle, config, and events), `clooks-core-hooks` (zero-config production hooks for command safety, git protection, tool hygiene, and tmux notifications), and `clooks-project-hooks` (project-configured hooks for package manager enforcement, protected paths, and project script preference). All three live in the `clooks-marketplace` repo.
 
 ## Plugin Cache Discovery
 
