@@ -15,7 +15,7 @@ import { getHomeDir } from '../platform.js'
 import { getGitRoot } from '../git.js'
 import { discoverPluginPacks } from '../plugin-discovery.js'
 import { validateHookExport } from '../loader.js'
-import type { DiscoveredPack } from '../plugin-discovery.js'
+import type { DiscoveredPack, DiscoverOptions } from '../plugin-discovery.js'
 
 const SAFE_NAME_PATTERN = /^[a-z][a-z0-9._-]*$/
 
@@ -30,7 +30,7 @@ export async function updatePluginPack(
   packName: string,
   projectRoot: string,
   homeRoot: string,
-  discoverFn: () => DiscoveredPack[] = discoverPluginPacks,
+  discoverFn: (opts?: DiscoverOptions) => DiscoveredPack[] = discoverPluginPacks,
 ): Promise<UpdateResult> {
   const result: UpdateResult = {
     updated: [],
@@ -46,7 +46,7 @@ export async function updatePluginPack(
   }
 
   // Discover installed packs matching the name
-  const allPacks = discoverFn()
+  const allPacks = discoverFn({ homeRoot, projectRoot })
   const matchingPacks = allPacks.filter((p) => p.manifest.name === packName)
 
   if (matchingPacks.length === 0) {

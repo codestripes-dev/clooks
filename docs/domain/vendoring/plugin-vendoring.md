@@ -12,14 +12,37 @@ Real-world examples of data-only hook pack plugins: `clooks-example-hooks` (educ
 
 ## Plugin Cache Discovery
 
-The `discoverPluginPacks()` function in `src/plugin-discovery.ts` scans the Claude Code plugin cache and returns validated manifests for all installed hook packs.
+The `discoverPluginPacks()` function in `src/plugin-discovery.ts` drives discovery from **Claude settings layers**, not from the install registry. A plugin is registered at a given clooks scope if and only if the corresponding Claude settings layer declares `enabledPlugins: { <plugin>@<marketplace>: true }`.
 
 ### How it works
 
-1. Reads `~/.claude/plugins/installed_plugins.json` — the Claude Code registry of installed plugins. Each entry maps a plugin key (`plugin-name@marketplace-name`) to an array of scope entries (`user`, `project`, `local`, or `managed`).
-2. For each entry, skips if: scope is `managed` (deferred), scope is unrecognized (warns and skips), `installPath` doesn't exist, directory contains `.orphaned_at` (orphaned by a plugin update), or no `clooks-pack.json` exists at the root.
-3. Loads and validates the manifest via `loadManifestFromFile()`. Invalid manifests are logged as warnings and skipped — one broken plugin does not prevent others from being discovered.
-4. Returns `DiscoveredPack[]` with `pluginName`, `scope`, `installPath`, and the validated `Manifest`.
+1. Resolves `installedPluginsPath`, `settingsPaths`, `homeRoot`, and `projectRoot` from `DiscoverOptions` or canonical defaults (see interface below).
+2. Reads `~/.claude/plugins/installed_plugins.json` via `readInstalledPlugins()`. Returns `[]` if missing or malformed. The install registry is treated purely as a **scope-agnostic lookup table** — its own `scope` and `projectPath` fields are metadata and do not influence where clooks vendors the hook.
+3. Reads each Claude settings layer (`user`, `project`, `local`) independently via `readEnabledPlugins()`. The `managed` layer is read but skipped for registration (see "Managed scope skipped" below).
+4. For each scope in `{ user, project, local }`, for each plugin key that layer activates (its own `enabledPlugins[key] === true`):
+   - `lookupInstallPath(installedPluginsFile, pluginKey)` — finds the first install entry whose `installPath` exists on disk, has no `.orphaned_at` marker, and whose scope is not `managed`. If nothing valid → skip (M4's stale detector later surfaces this as an `enable-without-install` advisory).
+   - Check for `clooks-pack.json` at `installPath`. Missing → silent skip (not every plugin is a hook pack).
+   - Validate the manifest via `loadManifestFromFile()`. Invalid manifests log a warning and are skipped — one broken plugin does not prevent others from being discovered.
+   - Emit a `DiscoveredPack` tagged with the **Claude settings layer's scope**, not the install record's scope.
+
+### `DiscoverOptions`
+
+```ts
+export interface DiscoverOptions {
+  installedPluginsPath?: string       // defaults to ~/.claude/plugins/installed_plugins.json
+  settingsPaths?: SettingsLayerPaths  // defaults via defaultSettingsPaths(homeRoot, projectRoot)
+  homeRoot?: string                   // defaults to os.homedir()
+  projectRoot?: string                // defaults to process.cwd()
+}
+
+export function discoverPluginPacks(opts?: DiscoverOptions): DiscoveredPack[]
+```
+
+Callers that pass no argument get the canonical defaults. The engine passes `{ homeRoot, projectRoot }` through from its own resolution so overrides (e.g., `CLOOKS_HOME_ROOT` in tests) propagate to discovery.
+
+### Managed scope skipped
+
+Clooks has no `managed/.clooks/clooks.yml` layer to register into, and managed Claude settings are set by platform policy (not user-editable), so drift advisories against them would be user-unactionable. Managed is therefore excluded from both registration and drift detection. This matches the prior code's blanket skip of `managed` install entries.
 
 ### Manifest loading
 
@@ -47,7 +70,7 @@ The `vendor/plugin/` prefix separates plugin-delivered hooks from manually vendo
 
 ### Scope-based routing
 
-The plugin's `scope` field determines where hooks are vendored and which config file they register in:
+A `DiscoveredPack`'s `scope` field is the Claude settings layer that declared `enabledPlugins: <key>: true` — **not** the `scope` field inside `installed_plugins.json`. The routing table is unchanged:
 
 | Scope | Vendor root | Config file |
 |-------|-------------|-------------|
@@ -126,6 +149,42 @@ The discovery step adds ~5ms per invocation when `installed_plugins.json` exists
 ### Dependency Injection
 
 `discoverPluginPacks` and `vendorAndRegisterPack` are optional fields on `RunEngineDeps` (in `src/engine/types.ts`). This enables unit testing via mocks without `mock.module()`, matching the existing DI pattern used for `loadConfig` and `loadAllHooks`.
+
+## Stale Entry Detection
+
+`detectStaleAdvisories()` in `src/claude-settings.ts` surfaces two kinds of drift between Claude settings and clooks vendored state. The engine calls it from `src/engine/run.ts` on `SessionStart` events only and pushes the formatted results into `pluginSystemMessages`.
+
+- **`stale-registration`** — a plugin-vendored hook entry exists in `<scope>/clooks.yml` (entry whose `uses` path starts with `./.clooks/vendor/plugin/<pack>/`), but the corresponding plugin key is NOT `true` at that scope in Claude settings. Happens when the user runs `/plugin disable <key>` (or `/plugin uninstall`) without cleaning up the already-registered clooks entries.
+- **`enable-without-install`** — a plugin key is `true` at some Claude settings layer, but no valid install record exists (missing entry, or all entries orphaned, or all cache dirs missing). Happens when a settings layer references a plugin that was never installed via `/plugin install`, or whose install was garbage-collected.
+
+Clooks **never mutates `clooks.yml`** on the user's behalf. Advisories are informational `systemMessage` lines telling the user the exact next step (e.g., the exact `.clooks/clooks.local.yml` snippet to shadow the entry, or the `/plugin install` command to re-install).
+
+### SessionStart gating
+
+The detector runs on `SessionStart` only. The per-invocation cost (two to four settings file reads + one `clooks.yml` scan) is acceptable once per session but noisy if added to every tool call. Non-SessionStart events skip the detector entirely.
+
+### Silencing
+
+Set `CLOOKS_SILENCE_STALE_PLUGIN_ADVISORIES=true` in the environment to suppress both advisory kinds. This is an env-var escape hatch, not a config-file setting — matching the project's preference for env-based gates (cf. `CLOOKS_DEBUG`).
+
+## Claude settings.local.json merge bypass
+
+Clooks reads each Claude settings layer independently (per-layer independence — see the routing section above), which deliberately bypasses Claude Code's known `enabledPlugins` merge bug in issues [#25086](https://github.com/anthropics/claude-code/issues/25086) and [#27247](https://github.com/anthropics/claude-code/issues/27247). That bug silently drops `enabledPlugins` values inside `.claude/settings.local.json` when the key is absent in the sibling `.claude/settings.json`. Clooks honors the `settings.local.json` entry regardless.
+
+**Tradeoff (pre-launch, acknowledged):** clooks' self-consistent behavior can diverge from a Claude Code session that is subject to the merge bug — a plugin can appear disabled in CC's own UI while still being active in clooks. If a user is debugging "Claude says this plugin is off but clooks keeps running it," this bypass is the explanation. The workaround on the Claude Code side is to seed `settings.json` with `"enabledPlugins": {}` so the merge finds the key.
+
+## Layer independence and the co-enable case
+
+When the same plugin is enabled at two Claude settings scopes simultaneously (e.g., user **and** project), `discoverPluginPacks()` emits **two** `DiscoveredPack` entries — one per layer. The vendor step then copies the hook files to **both** scope roots (`~/.clooks/vendor/plugin/<pack>/` and `.clooks/vendor/plugin/<pack>/`) and appends entries to **both** `clooks.yml` files. Both writes are visible in `git diff`. This is deliberate parallel vendoring, not a bug.
+
+At runtime, clooks' three-layer config merge (user/project/local, narrowest-wins) dedupes the two entries by hook name — the narrower layer's entry shadows the wider one — so the hook fires exactly once per event.
+
+A project-scope `enabledPlugins: { X: false }` does **not** unregister a user-scope enablement of X. Each layer is independent. To stop an already-registered plugin hook from running in one project, shadow it via `.clooks/clooks.local.yml` (see the README's "Disabling a plugin hook" section).
+
+## See also
+
+- `docs/plans/done/PLAN-0013-plugin-enabled-activation.md` — full design and decision log for the settings-driven discovery model.
+- `docs/research/plugin-enable-state.md` — research background (concluded; superseded by the plan above).
 
 ## Update Command
 

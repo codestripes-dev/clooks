@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync
 import { join } from 'path'
 import { tmpdir } from 'os'
 import { updatePluginPack } from './update.js'
-import type { DiscoveredPack } from '../plugin-discovery.js'
+import type { DiscoveredPack, DiscoverOptions } from '../plugin-discovery.js'
 import type { Manifest } from '../manifest.js'
 
 /**
@@ -83,7 +83,7 @@ describe('updatePluginPack', () => {
     )
 
     const pack = makePack({ installPath, scope: 'project' })
-    const discoverFn = () => [pack]
+    const discoverFn = (_opts?: DiscoverOptions) => [pack]
 
     const result = await updatePluginPack('test-pack', projectRoot, homeRoot, discoverFn)
 
@@ -114,7 +114,7 @@ describe('updatePluginPack', () => {
     writeFileSync(join(configDir, 'clooks.yml'), originalConfig)
 
     const pack = makePack({ installPath, scope: 'project' })
-    const discoverFn = () => [pack]
+    const discoverFn = (_opts?: DiscoverOptions) => [pack]
 
     const result = await updatePluginPack('test-pack', projectRoot, homeRoot, discoverFn)
 
@@ -161,7 +161,7 @@ describe('updatePluginPack', () => {
     })
 
     const pack = makePack({ installPath, manifest, scope: 'project' })
-    const discoverFn = () => [pack]
+    const discoverFn = (_opts?: DiscoverOptions) => [pack]
 
     const result = await updatePluginPack('test-pack', projectRoot, homeRoot, discoverFn)
 
@@ -180,7 +180,7 @@ describe('updatePluginPack', () => {
   })
 
   test('handles missing plugin (error message)', async () => {
-    const discoverFn = () => [] as DiscoveredPack[]
+    const discoverFn = (_opts?: DiscoverOptions) => [] as DiscoveredPack[]
 
     const result = await updatePluginPack('nonexistent-pack', projectRoot, homeRoot, discoverFn)
 
@@ -194,7 +194,12 @@ describe('updatePluginPack', () => {
 
   test('invalid target format (not plugin:xxx) — pack name safety validation', async () => {
     // Test with unsafe pack name characters
-    const result = await updatePluginPack('../../etc', projectRoot, homeRoot, () => [])
+    const result = await updatePluginPack(
+      '../../etc',
+      projectRoot,
+      homeRoot,
+      (_opts?: DiscoverOptions) => [],
+    )
 
     expect(result.errors).toHaveLength(1)
     expect(result.errors[0]).toContain('unsafe characters')
@@ -205,7 +210,7 @@ describe('updatePluginPack', () => {
   test('handles copy failure gracefully', async () => {
     // Don't create the source hook file — it won't exist
     const pack = makePack({ installPath, scope: 'project' })
-    const discoverFn = () => [pack]
+    const discoverFn = (_opts?: DiscoverOptions) => [pack]
 
     const result = await updatePluginPack('test-pack', projectRoot, homeRoot, discoverFn)
 
@@ -238,7 +243,7 @@ describe('updatePluginPack', () => {
     })
 
     const pack = makePack({ installPath, manifest, scope: 'project' })
-    const discoverFn = () => [pack]
+    const discoverFn = (_opts?: DiscoverOptions) => [pack]
 
     const result = await updatePluginPack('test-pack', projectRoot, homeRoot, discoverFn)
 
@@ -256,17 +261,32 @@ describe('updatePluginPack', () => {
 
   test('pack name safety validation rejects unsafe names', async () => {
     // Names starting with uppercase
-    const result1 = await updatePluginPack('BadName', projectRoot, homeRoot, () => [])
+    const result1 = await updatePluginPack(
+      'BadName',
+      projectRoot,
+      homeRoot,
+      (_opts?: DiscoverOptions) => [],
+    )
     expect(result1.errors).toHaveLength(1)
     expect(result1.errors[0]).toContain('unsafe characters')
 
     // Names with spaces
-    const result2 = await updatePluginPack('bad name', projectRoot, homeRoot, () => [])
+    const result2 = await updatePluginPack(
+      'bad name',
+      projectRoot,
+      homeRoot,
+      (_opts?: DiscoverOptions) => [],
+    )
     expect(result2.errors).toHaveLength(1)
     expect(result2.errors[0]).toContain('unsafe characters')
 
     // Path traversal
-    const result3 = await updatePluginPack('../escape', projectRoot, homeRoot, () => [])
+    const result3 = await updatePluginPack(
+      '../escape',
+      projectRoot,
+      homeRoot,
+      (_opts?: DiscoverOptions) => [],
+    )
     expect(result3.errors).toHaveLength(1)
     expect(result3.errors[0]).toContain('unsafe characters')
   })
@@ -287,7 +307,7 @@ describe('updatePluginPack', () => {
     )
 
     const pack = makePack({ installPath, scope: 'user' })
-    const discoverFn = () => [pack]
+    const discoverFn = (_opts?: DiscoverOptions) => [pack]
 
     const result = await updatePluginPack('test-pack', projectRoot, homeRoot, discoverFn)
 
@@ -309,7 +329,7 @@ describe('updatePluginPack', () => {
     writeFileSync(join(configDir, 'clooks.local.yml'), 'version: "1.0.0"\n')
 
     const pack = makePack({ installPath, scope: 'local' })
-    const discoverFn = () => [pack]
+    const discoverFn = (_opts?: DiscoverOptions) => [pack]
 
     const result = await updatePluginPack('test-pack', projectRoot, homeRoot, discoverFn)
 
@@ -327,7 +347,7 @@ describe('updatePluginPack', () => {
 
     // No config or vendor directory exists
     const pack = makePack({ installPath, scope: 'project' })
-    const discoverFn = () => [pack]
+    const discoverFn = (_opts?: DiscoverOptions) => [pack]
 
     const result = await updatePluginPack('test-pack', projectRoot, homeRoot, discoverFn)
 
@@ -355,7 +375,7 @@ describe('updatePluginPack', () => {
     })
 
     const pack = makePack({ installPath, manifest, scope: 'project' })
-    const discoverFn = () => [pack]
+    const discoverFn = (_opts?: DiscoverOptions) => [pack]
 
     const result = await updatePluginPack('test-pack', projectRoot, homeRoot, discoverFn)
 
@@ -405,7 +425,7 @@ describe('updatePluginPack', () => {
     })
 
     const pack = makePack({ installPath, manifest, scope: 'project' })
-    const discoverFn = () => [pack]
+    const discoverFn = (_opts?: DiscoverOptions) => [pack]
 
     const result = await updatePluginPack('test-pack', projectRoot, homeRoot, discoverFn)
 
@@ -451,7 +471,7 @@ describe('updatePluginPack', () => {
     })
 
     const pack = makePack({ installPath, manifest, scope: 'project' })
-    const discoverFn = () => [pack]
+    const discoverFn = (_opts?: DiscoverOptions) => [pack]
 
     const result = await updatePluginPack('test-pack', projectRoot, homeRoot, discoverFn)
 
@@ -462,5 +482,43 @@ describe('updatePluginPack', () => {
     const configContent = readFileSync(join(configDir, 'clooks.yml'), 'utf-8')
     const hookBlock = configContent.split('new-hook:')[1]!
     expect(hookBlock).not.toContain('enabled:')
+  })
+
+  test('co-enable: same pack discovered at user and project scope vendors to both destinations', async () => {
+    // Hook source lives in the shared install cache.
+    writeValidHook(installPath, 'hooks/test-hook.ts', 'test-hook')
+
+    // Two DiscoveredPack entries: same pack, different Claude-settings scopes.
+    // Under the M2/M3 semantics this models a plugin enabled at BOTH user and
+    // project Claude settings layers — both destinations must be vendored.
+    const userPack = makePack({ installPath, scope: 'user' })
+    const projectPack = makePack({ installPath, scope: 'project' })
+    const discoverFn = (_opts?: DiscoverOptions) => [userPack, projectPack]
+
+    const result = await updatePluginPack('test-pack', projectRoot, homeRoot, discoverFn)
+
+    expect(result.errors).toEqual([])
+    // Both scopes are "new" registrations because neither config/vendor-file exists yet.
+    // Asserts the hook was registered twice (once per scope). The authoritative
+    // per-scope check is the filesystem assertions below.
+    expect(result.registered.sort()).toEqual(['test-hook', 'test-hook'])
+    expect(result.skipped).toEqual([])
+
+    // Vendor files exist at BOTH scopes.
+    expect(
+      existsSync(join(homeRoot, '.clooks', 'vendor', 'plugin', 'test-pack', 'test-hook.ts')),
+    ).toBe(true)
+    expect(
+      existsSync(join(projectRoot, '.clooks', 'vendor', 'plugin', 'test-pack', 'test-hook.ts')),
+    ).toBe(true)
+
+    // Both clooks.yml files got an entry.
+    const userYml = readFileSync(join(homeRoot, '.clooks', 'clooks.yml'), 'utf-8')
+    expect(userYml).toContain('test-hook:')
+    expect(userYml).toContain('uses: ./.clooks/vendor/plugin/test-pack/test-hook.ts')
+
+    const projectYml = readFileSync(join(projectRoot, '.clooks', 'clooks.yml'), 'utf-8')
+    expect(projectYml).toContain('test-hook:')
+    expect(projectYml).toContain('uses: ./.clooks/vendor/plugin/test-pack/test-hook.ts')
   })
 })

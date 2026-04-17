@@ -702,3 +702,112 @@ describe('vendorAndRegisterPack — cross-scope collision semantics', () => {
     expect(result.errors).toEqual([])
   })
 })
+
+/**
+ * M3: scope routing follows DiscoveredPack.scope, which after M2 reflects the
+ * Claude settings layer that enabled the plugin — NOT the install-record origin.
+ *
+ * Co-enable (same plugin enabled at both user and project settings layers) must
+ * result in vendoring to both destinations without error.
+ */
+describe('vendorAndRegisterPack — M3 scope routing and co-enable', () => {
+  let tempDir: string
+  let projectRoot: string
+  let homeRoot: string
+  let installPath: string
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'clooks-vendor-m3-test-'))
+    projectRoot = join(tempDir, 'project')
+    homeRoot = join(tempDir, 'home')
+    installPath = join(tempDir, 'cache', 'test-pack')
+    mkdirSync(projectRoot, { recursive: true })
+    mkdirSync(homeRoot, { recursive: true })
+    mkdirSync(installPath, { recursive: true })
+  })
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true })
+  })
+
+  test('co-enable: user + project scope both register without collision', async () => {
+    writeValidHook(installPath, 'hooks/coe-hook.ts', 'coe-hook')
+
+    const manifest = makeManifest({
+      hooks: {
+        'coe-hook': { path: 'hooks/coe-hook.ts', description: 'Co-enable hook' },
+      },
+    })
+
+    // First call: user-layer activation.
+    const userPack = makePack({ installPath, manifest, scope: 'user' })
+    const userResult = await vendorAndRegisterPack(userPack, projectRoot, homeRoot)
+
+    expect(userResult.registered).toEqual(['coe-hook'])
+    expect(userResult.collisions).toEqual([])
+    expect(userResult.errors).toEqual([])
+
+    // Second call: project-layer activation of the same plugin. Scope-local
+    // collision check reads only the project yml, so the user-layer entry is
+    // not treated as a collision.
+    const projectPack = makePack({ installPath, manifest, scope: 'project' })
+    const projectResult = await vendorAndRegisterPack(projectPack, projectRoot, homeRoot)
+
+    expect(projectResult.registered).toEqual(['coe-hook'])
+    expect(projectResult.collisions).toEqual([])
+    expect(projectResult.errors).toEqual([])
+
+    // Both vendor files exist.
+    expect(
+      existsSync(join(homeRoot, '.clooks', 'vendor', 'plugin', 'test-pack', 'coe-hook.ts')),
+    ).toBe(true)
+    expect(
+      existsSync(join(projectRoot, '.clooks', 'vendor', 'plugin', 'test-pack', 'coe-hook.ts')),
+    ).toBe(true)
+
+    // Both config files contain the entry.
+    const userYml = readFileSync(join(homeRoot, '.clooks', 'clooks.yml'), 'utf-8')
+    expect(userYml).toContain('coe-hook:')
+    expect(userYml).toContain('uses: ./.clooks/vendor/plugin/test-pack/coe-hook.ts')
+
+    const projectYml = readFileSync(join(projectRoot, '.clooks', 'clooks.yml'), 'utf-8')
+    expect(projectYml).toContain('coe-hook:')
+    expect(projectYml).toContain('uses: ./.clooks/vendor/plugin/test-pack/coe-hook.ts')
+  })
+
+  test('scope from DiscoveredPack wins over install-record origin', async () => {
+    // Simulate a plugin whose installPath lives under a "project-style" cache
+    // location (e.g. ~/.claude/plugins/cache/<marketplace>/<pack>/... is the
+    // usual shape, but the test exercises the principle: the vendor routing
+    // derives from pack.scope, not from inspecting installPath).
+    writeValidHook(installPath, 'hooks/routing-hook.ts', 'routing-hook')
+
+    const manifest = makeManifest({
+      hooks: {
+        'routing-hook': { path: 'hooks/routing-hook.ts', description: 'Routing regression guard' },
+      },
+    })
+
+    // DiscoveredPack says scope: 'user' even though installPath sits inside
+    // a path that could look project-ish. Vendor destination must follow
+    // pack.scope → user (~/.clooks), not the installPath's directory shape.
+    const pack = makePack({ installPath, manifest, scope: 'user' })
+    const result = await vendorAndRegisterPack(pack, projectRoot, homeRoot)
+
+    expect(result.registered).toEqual(['routing-hook'])
+    expect(result.collisions).toEqual([])
+    expect(result.errors).toEqual([])
+
+    // User-scope destination received the vendor file.
+    expect(
+      existsSync(join(homeRoot, '.clooks', 'vendor', 'plugin', 'test-pack', 'routing-hook.ts')),
+    ).toBe(true)
+    expect(existsSync(join(homeRoot, '.clooks', 'clooks.yml'))).toBe(true)
+
+    // Project-scope destination was NOT touched.
+    expect(
+      existsSync(join(projectRoot, '.clooks', 'vendor', 'plugin', 'test-pack', 'routing-hook.ts')),
+    ).toBe(false)
+    expect(existsSync(join(projectRoot, '.clooks', 'clooks.yml'))).toBe(false)
+  })
+})
