@@ -3,7 +3,7 @@
 // InjectableContext is intersected where Claude Code supports additionalContext.
 
 /** Union of all result discriminant values across all base result types. */
-export type ResultTag = "allow" | "block" | "skip" | "success" | "failure" | "continue" | "stop"
+export type ResultTag = 'allow' | 'block' | 'skip' | 'success' | 'failure' | 'continue' | 'stop'
 
 /** Optional debug info, only visible in debug mode. */
 export interface DebugFields {
@@ -20,38 +20,38 @@ export interface InjectableContext {
 }
 
 export type AllowResult = DebugFields & {
-  result: "allow"
+  result: 'allow'
 }
 
 export type BlockResult = DebugFields & {
-  result: "block"
+  result: 'block'
   /** Required. Shown to the agent (guard events) or user (continuation events). */
   reason: string
 }
 
 export type SkipResult = DebugFields & {
-  result: "skip"
+  result: 'skip'
 }
 
 export type SuccessResult = DebugFields & {
-  result: "success"
+  result: 'success'
   /** Absolute path to the created worktree. */
   path: string
 }
 
 export type FailureResult = DebugFields & {
-  result: "failure"
+  result: 'failure'
   reason: string
 }
 
 export type ContinueResult = DebugFields & {
-  result: "continue"
+  result: 'continue'
   /** Required. Tells the teammate what to do next. */
   feedback: string
 }
 
 export type StopResult = DebugFields & {
-  result: "stop"
+  result: 'stop'
   reason: string
 }
 
@@ -59,13 +59,14 @@ export type StopResult = DebugFields & {
 
 // Guard events — allow | block | skip
 export type PreToolUseResult =
-  | (AllowResult & InjectableContext & {
-      /** Modified tool input to pass to subsequent hooks and/or Claude Code. */
-      updatedInput?: Record<string, unknown>
-    })
+  | (AllowResult &
+      InjectableContext & {
+        /** Modified tool input to pass to subsequent hooks and/or Claude Code. */
+        updatedInput?: Record<string, unknown>
+      })
   | (BlockResult & InjectableContext)
   | (SkipResult & InjectableContext)
-export type UserPromptSubmitResult  = (AllowResult | BlockResult | SkipResult) & InjectableContext
+export type UserPromptSubmitResult = (AllowResult | BlockResult | SkipResult) & InjectableContext
 export type PermissionRequestResult =
   | (AllowResult & {
       updatedInput?: Record<string, unknown>
@@ -75,26 +76,28 @@ export type PermissionRequestResult =
       interrupt?: boolean
     })
   | SkipResult
-export type StopEventResult         = AllowResult | BlockResult | SkipResult
-export type SubagentStopResult      = AllowResult | BlockResult | SkipResult
-export type ConfigChangeResult      = AllowResult | BlockResult | SkipResult
+export type StopEventResult = AllowResult | BlockResult | SkipResult
+export type SubagentStopResult = AllowResult | BlockResult | SkipResult
+export type ConfigChangeResult = AllowResult | BlockResult | SkipResult
+export type PreCompactResult = AllowResult | BlockResult | SkipResult
 
 // Observe events — skip only
-export type SessionStartResult       = SkipResult & InjectableContext
-export type SessionEndResult         = SkipResult
+export type SessionStartResult = SkipResult & InjectableContext
+export type SessionEndResult = SkipResult
 export type InstructionsLoadedResult = SkipResult
-export type PostToolUseResult = SkipResult & InjectableContext & {
-  updatedMCPToolOutput?: unknown
-}
+export type PostToolUseResult =
+  | (SkipResult & InjectableContext & { updatedMCPToolOutput?: unknown })
+  | (BlockResult & InjectableContext & { updatedMCPToolOutput?: unknown })
 export type PostToolUseFailureResult = SkipResult & InjectableContext
-export type NotificationResult       = SkipResult & InjectableContext
-export type SubagentStartResult      = SkipResult & InjectableContext
-export type WorktreeRemoveResult     = SkipResult
-export type PreCompactResult         = SkipResult
+export type NotificationResult = SkipResult & InjectableContext
+export type SubagentStartResult = SkipResult & InjectableContext
+export type WorktreeRemoveResult = SkipResult
+export type PostCompactResult = SkipResult
 
 // Implementation events — success | failure
 export type WorktreeCreateResult = SuccessResult | FailureResult
 
 // Continuation events — continue | stop | skip
-export type TeammateIdleResult  = ContinueResult | StopResult | SkipResult
+export type TeammateIdleResult = ContinueResult | StopResult | SkipResult
+export type TaskCreatedResult = ContinueResult | StopResult | SkipResult
 export type TaskCompletedResult = ContinueResult | StopResult | SkipResult

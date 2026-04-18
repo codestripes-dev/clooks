@@ -109,13 +109,13 @@ describe('clooks init', () => {
     expect(mode & 0o111).toBeGreaterThan(0) // at least one execute bit set
   })
 
-  test('registers all 18 events in settings.json', async () => {
+  test('registers all 20 events in settings.json', async () => {
     const program = createTestProgram()
     await program.parseAsync(['init'], { from: 'user' })
 
     const settings = readSettings(tempDir)
     const hooks = settings.hooks as Record<string, unknown[]>
-    expect(Object.keys(hooks)).toHaveLength(18)
+    expect(Object.keys(hooks)).toHaveLength(20)
 
     // Every event should have a Clooks matcher group
     for (const matchers of Object.values(hooks)) {
@@ -236,10 +236,10 @@ describe('clooks init', () => {
     const program = createTestProgram()
     await program.parseAsync(['init'], { from: 'user' })
 
-    // settings.json should be created with 18 events
+    // settings.json should be created with 20 events
     const settings = readSettings(tempDir)
     const hooks = settings.hooks as Record<string, unknown[]>
-    expect(Object.keys(hooks)).toHaveLength(18)
+    expect(Object.keys(hooks)).toHaveLength(20)
 
     // entrypoint should be written
     expect(existsSync(join(tempDir, '.clooks', 'bin', 'entrypoint.sh'))).toBe(true)
@@ -521,7 +521,7 @@ describe('clooks init --global', () => {
 
     const settings = readSettings(fakeHome)
     const hooks = settings.hooks as Record<string, unknown[]>
-    expect(Object.keys(hooks)).toHaveLength(18)
+    expect(Object.keys(hooks)).toHaveLength(20)
 
     const expectedPath = join(fakeHome, '.clooks/bin/entrypoint.sh')
     // Every event should have the absolute entrypoint path

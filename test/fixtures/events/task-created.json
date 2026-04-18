@@ -1,0 +1,5 @@
+{
+  "hook_event_name": "TaskCreated",
+  "task_id": "task_001",
+  "task_subject": "Implement plan M2"
+}

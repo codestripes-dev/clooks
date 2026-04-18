@@ -40,17 +40,17 @@ function readSettings(): Record<string, unknown> {
 }
 
 describe('settings', () => {
-  test('fresh registration into non-existent file creates file with 18 events', () => {
+  test('fresh registration into non-existent file creates file with 20 events', () => {
     const result = registerClooks(claudeDir(), CLOOKS_ENTRYPOINT_PATH)
 
-    expect(result.added).toHaveLength(18)
+    expect(result.added).toHaveLength(20)
     expect(result.skipped).toHaveLength(0)
     expect(result.updated).toHaveLength(0)
     expect(result.created).toBe(true)
 
     const settings = readSettings()
     const hooks = settings.hooks as Record<string, unknown[]>
-    expect(Object.keys(hooks)).toHaveLength(18)
+    expect(Object.keys(hooks)).toHaveLength(20)
 
     // Every event should have exactly one matcher group with the canonical path
     for (const matchers of Object.values(hooks)) {
@@ -110,14 +110,14 @@ describe('settings', () => {
     expect(clooksHooks[0]!.command).toBe(CLOOKS_ENTRYPOINT_PATH)
   })
 
-  test('idempotent — second run adds 0, skips 18, file unchanged', () => {
+  test('idempotent — second run adds 0, skips 20, file unchanged', () => {
     registerClooks(claudeDir(), CLOOKS_ENTRYPOINT_PATH)
     const firstContent = readFileSync(settingsPath(), 'utf-8')
 
     const result = registerClooks(claudeDir(), CLOOKS_ENTRYPOINT_PATH)
 
     expect(result.added).toHaveLength(0)
-    expect(result.skipped).toHaveLength(18)
+    expect(result.skipped).toHaveLength(20)
     expect(result.updated).toHaveLength(0)
     expect(result.created).toBe(false)
 
@@ -173,7 +173,7 @@ describe('settings', () => {
     registerClooks(claudeDir(), CLOOKS_ENTRYPOINT_PATH)
     const result = unregisterClooks(claudeDir())
 
-    expect(result.removed).toHaveLength(18)
+    expect(result.removed).toHaveLength(20)
 
     const settings = readSettings()
     // hooks object should be entirely removed
@@ -196,7 +196,7 @@ describe('settings', () => {
 
     const result = registerClooks(claudeDir(), CLOOKS_ENTRYPOINT_PATH)
 
-    expect(result.added).toHaveLength(18)
+    expect(result.added).toHaveLength(20)
     expect(result.created).toBe(false) // file existed, even if empty
     expect(existsSync(settingsPath())).toBe(true)
   })
@@ -249,7 +249,7 @@ describe('global settings', () => {
 
     const result = registerClooks(globalSettingsDir, globalEntrypoint)
 
-    expect(result.added).toHaveLength(18)
+    expect(result.added).toHaveLength(20)
     expect(result.created).toBe(true)
 
     const settings = readSettings()
@@ -273,7 +273,7 @@ describe('global settings', () => {
     const result = registerClooks(globalSettingsDir, globalEntrypoint)
 
     expect(result.added).toHaveLength(0)
-    expect(result.skipped).toHaveLength(18)
+    expect(result.skipped).toHaveLength(20)
     expect(result.updated).toHaveLength(0)
 
     // File should be byte-identical
@@ -289,7 +289,7 @@ describe('global settings', () => {
     expect(isClooksRegistered(globalSettingsDir)).toBe(true)
 
     const result = unregisterClooks(globalSettingsDir)
-    expect(result.removed).toHaveLength(18)
+    expect(result.removed).toHaveLength(20)
     expect(isClooksRegistered(globalSettingsDir)).toBe(false)
   })
 
@@ -300,7 +300,7 @@ describe('global settings', () => {
     // Re-register with new path — should update, not add
     const result = registerClooks(claudeDir(), CLOOKS_ENTRYPOINT_PATH)
 
-    expect(result.updated).toHaveLength(18)
+    expect(result.updated).toHaveLength(20)
     expect(result.added).toHaveLength(0)
     expect(result.skipped).toHaveLength(0)
 

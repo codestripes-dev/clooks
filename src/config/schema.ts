@@ -46,7 +46,7 @@ const HookEventOverrideSchema = z
   })
   .strict()
 
-// Build events sub-map with all 18 event names as known properties
+// Build events sub-map with all 20 event names as known properties
 const hookEventsMapProps = Object.fromEntries(
   [...CLAUDE_CODE_EVENTS].map((e) => [e, HookEventOverrideSchema.optional()]),
 ) as Record<EventName, z.ZodOptional<typeof HookEventOverrideSchema>>

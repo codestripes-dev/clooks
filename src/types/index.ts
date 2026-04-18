@@ -10,7 +10,7 @@ export type {
   InstructionsLoadReason,
   PreCompactTrigger,
   ConfigChangeSource,
-} from "./branded.js"
+} from './branded.js'
 
 export type {
   DebugFields,
@@ -37,10 +37,12 @@ export type {
   SubagentStartResult,
   WorktreeRemoveResult,
   PreCompactResult,
+  PostCompactResult,
   WorktreeCreateResult,
   TeammateIdleResult,
+  TaskCreatedResult,
   TaskCompletedResult,
-} from "./results.js"
+} from './results.js'
 
 export type {
   BaseContext,
@@ -59,16 +61,14 @@ export type {
   SubagentStartContext,
   WorktreeRemoveContext,
   PreCompactContext,
+  PostCompactContext,
   WorktreeCreateContext,
   TeammateIdleContext,
+  TaskCreatedContext,
   TaskCompletedContext,
-} from "./contexts.js"
+} from './contexts.js'
 
-export type {
-  MaybeAsync,
-  HookMeta,
-  ClooksHook,
-} from "./hook.js"
+export type { MaybeAsync, HookMeta, ClooksHook } from './hook.js'
 
 export type {
   EventContextMap,
@@ -76,4 +76,4 @@ export type {
   HookEventMeta,
   BeforeHookEvent,
   AfterHookEvent,
-} from "./lifecycle.js"
+} from './lifecycle.js'

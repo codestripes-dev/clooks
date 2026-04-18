@@ -194,6 +194,33 @@ describe('translateResult', () => {
     })
   })
 
+  it('TaskCreated continue → exit 2 + stderr feedback', () => {
+    const out = translateResult('TaskCreated', {
+      result: 'continue',
+      feedback: 'task subject must start with [TICKET-NNN]',
+    })
+    expect(out.exitCode).toBe(2)
+    expect(out.stderr).toBe('task subject must start with [TICKET-NNN]')
+  })
+
+  it('TaskCreated stop → JSON with continue:false + stopReason', () => {
+    const out = translateResult('TaskCreated', {
+      result: 'stop',
+      reason: 'teammate halted by policy',
+    })
+    expect(out.exitCode).toBe(0)
+    expect(JSON.parse(out.output!)).toEqual({
+      continue: false,
+      stopReason: 'teammate halted by policy',
+    })
+  })
+
+  it('TaskCreated skip → exit 0, no output', () => {
+    const out = translateResult('TaskCreated', { result: 'skip' })
+    expect(out.exitCode).toBe(0)
+    expect(out.output).toBeUndefined()
+  })
+
   it('TeammateIdle skip → exit 0, no output', () => {
     const out = translateResult('TeammateIdle', { result: 'skip' })
     expect(out.exitCode).toBe(0)
@@ -285,6 +312,15 @@ describe('translateResult', () => {
     expect(parsed.hookSpecificOutput.additionalContext).toBe('extra info')
   })
 
+  it('PostToolUse skip with injectContext only → hookSpecificOutput.additionalContext, no updatedMCPToolOutput', () => {
+    const out = translateResult('PostToolUse', { result: 'skip', injectContext: 'extra note' })
+    expect(out.exitCode).toBe(0)
+    const parsed = JSON.parse(out.output!)
+    expect(parsed.hookSpecificOutput.hookEventName).toBe('PostToolUse')
+    expect(parsed.hookSpecificOutput.additionalContext).toBe('extra note')
+    expect(parsed.updatedMCPToolOutput).toBeUndefined()
+  })
+
   it('Stop block → exit 0 + JSON with decision block', () => {
     const out = translateResult('Stop', { result: 'block', reason: 'stop blocked' })
     expect(out.exitCode).toBe(0)
@@ -293,12 +329,72 @@ describe('translateResult', () => {
     expect(parsed.reason).toBe('stop blocked')
   })
 
-  it('PostToolUse block → exit 0 + JSON with additionalContext (injectable observe)', () => {
-    const out = translateResult('PostToolUse', { result: 'block', reason: 'hook error' })
+  it('PostToolUse block → exit 0 + JSON with decision: block + reason', () => {
+    const out = translateResult('PostToolUse', {
+      result: 'block',
+      reason: 'tool output suspicious',
+    })
     expect(out.exitCode).toBe(0)
     const parsed = JSON.parse(out.output!)
+    expect(parsed.decision).toBe('block')
+    expect(parsed.reason).toBe('tool output suspicious')
+    // PostToolUse block no longer surfaces via hookSpecificOutput.additionalContext
+    expect(parsed.hookSpecificOutput).toBeUndefined()
+    expect(parsed.systemMessage).toBeUndefined()
+  })
+
+  it('PostToolUse block without reason → default reason used', () => {
+    const out = translateResult('PostToolUse', { result: 'block' } as any)
+    expect(out.exitCode).toBe(0)
+    const parsed = JSON.parse(out.output!)
+    expect(parsed.decision).toBe('block')
+    expect(parsed.reason).toBe('clooks: hook blocked tool output')
+  })
+
+  it('PostToolUse block with injectContext → decision: block + hookSpecificOutput.additionalContext', () => {
+    const out = translateResult('PostToolUse', {
+      result: 'block',
+      reason: 'bad output',
+      injectContext: 'see docs',
+    })
+    expect(out.exitCode).toBe(0)
+    const parsed = JSON.parse(out.output!)
+    expect(parsed.decision).toBe('block')
+    expect(parsed.reason).toBe('bad output')
     expect(parsed.hookSpecificOutput.hookEventName).toBe('PostToolUse')
-    expect(parsed.hookSpecificOutput.additionalContext).toBe('hook error')
+    expect(parsed.hookSpecificOutput.additionalContext).toBe('see docs')
+  })
+
+  it('PostToolUse block with injectContext AND updatedMCPToolOutput → all three fields merged', () => {
+    const mcpOutput = { replaced: true }
+    const out = translateResult('PostToolUse', {
+      result: 'block',
+      reason: 'tainted',
+      injectContext: 'context',
+      updatedMCPToolOutput: mcpOutput,
+    })
+    expect(out.exitCode).toBe(0)
+    const parsed = JSON.parse(out.output!)
+    expect(parsed.decision).toBe('block')
+    expect(parsed.reason).toBe('tainted')
+    expect(parsed.hookSpecificOutput.hookEventName).toBe('PostToolUse')
+    expect(parsed.hookSpecificOutput.additionalContext).toBe('context')
+    expect(parsed.updatedMCPToolOutput).toEqual(mcpOutput)
+  })
+
+  it('PostToolUse block with updatedMCPToolOutput only → decision:block + top-level updatedMCPToolOutput, no hookSpecificOutput', () => {
+    const mcpOutput = { replaced: true }
+    const out = translateResult('PostToolUse', {
+      result: 'block',
+      reason: 'tainted',
+      updatedMCPToolOutput: mcpOutput,
+    })
+    expect(out.exitCode).toBe(0)
+    const parsed = JSON.parse(out.output!)
+    expect(parsed.decision).toBe('block')
+    expect(parsed.reason).toBe('tainted')
+    expect(parsed.updatedMCPToolOutput).toEqual(mcpOutput)
+    expect(parsed.hookSpecificOutput).toBeUndefined()
   })
 
   it('SessionEnd block → exit 0 + JSON with systemMessage (non-injectable observe)', () => {
@@ -306,6 +402,106 @@ describe('translateResult', () => {
     expect(out.exitCode).toBe(0)
     const parsed = JSON.parse(out.output!)
     expect(parsed.systemMessage).toBe('session error')
+  })
+
+  // --- PreCompact (guard, non-injectable) ---
+
+  it('PreCompact block → exit 0 + JSON with decision block and reason', () => {
+    const out = translateResult('PreCompact', {
+      result: 'block',
+      reason: 'not yet',
+    })
+    expect(out.exitCode).toBe(0)
+    const parsed = JSON.parse(out.output!)
+    expect(parsed.decision).toBe('block')
+    expect(parsed.reason).toBe('not yet')
+    expect(out.stderr).toBeUndefined()
+  })
+
+  it('PreCompact allow → exit 0, no output (not in INJECTABLE_EVENTS)', () => {
+    const out = translateResult('PreCompact', { result: 'allow' })
+    expect(out.exitCode).toBe(0)
+    expect(out.output).toBeUndefined()
+    expect(out.stderr).toBeUndefined()
+  })
+
+  it('PreCompact allow with injectContext → injectContext is ignored (not in INJECTABLE_EVENTS), exit 0 + no output', () => {
+    const out = translateResult('PreCompact', {
+      result: 'allow',
+      injectContext: 'this should be dropped',
+    })
+    expect(out.exitCode).toBe(0)
+    expect(out.output).toBeUndefined()
+  })
+
+  it('PreCompact skip → exit 0, no output', () => {
+    const out = translateResult('PreCompact', { result: 'skip' })
+    expect(out.exitCode).toBe(0)
+    expect(out.output).toBeUndefined()
+    expect(out.stderr).toBeUndefined()
+  })
+
+  it('PreCompact block without explicit reason → falls back to default message', () => {
+    const out = translateResult('PreCompact', {
+      result: 'block',
+    } as unknown as import('./engine/index.js').EngineResult)
+    expect(out.exitCode).toBe(0)
+    const parsed = JSON.parse(out.output!)
+    expect(parsed.decision).toBe('block')
+    expect(typeof parsed.reason).toBe('string')
+    expect(parsed.reason.length).toBeGreaterThan(0)
+  })
+
+  it('PreCompact block with empty reason string → empty reason passes through (?? does not coalesce "")', () => {
+    const out = translateResult('PreCompact', { result: 'block', reason: '' })
+    expect(out.exitCode).toBe(0)
+    const parsed = JSON.parse(out.output!)
+    expect(parsed.decision).toBe('block')
+    expect(parsed.reason).toBe('')
+  })
+
+  it('PreCompact skip with injectContext → injectContext is ignored (not in INJECTABLE_EVENTS), exit 0 + no output', () => {
+    const out = translateResult('PreCompact', {
+      result: 'skip',
+      injectContext: 'this should be dropped',
+    })
+    expect(out.exitCode).toBe(0)
+    expect(out.output).toBeUndefined()
+  })
+
+  // --- PostCompact (observe, non-injectable) ---
+
+  it('PostCompact skip → exit 0, no output', () => {
+    const out = translateResult('PostCompact', { result: 'skip' })
+    expect(out.exitCode).toBe(0)
+    expect(out.output).toBeUndefined()
+    expect(out.stderr).toBeUndefined()
+  })
+
+  it('PostCompact skip with injectContext → injectContext is ignored (not in INJECTABLE_EVENTS), exit 0 + no output', () => {
+    // PostCompact is in OBSERVE_EVENTS but NOT in INJECTABLE_EVENTS, so
+    // authors returning injectContext alongside skip see it silently dropped —
+    // the translate.ts OBSERVE branch falls through to the bare exit 0 path.
+    const out = translateResult('PostCompact', {
+      result: 'skip',
+      injectContext: 'this should be dropped',
+    })
+    expect(out.exitCode).toBe(0)
+    expect(out.output).toBeUndefined()
+    expect(out.stderr).toBeUndefined()
+  })
+
+  it('PostCompact block (from onError: block cascade) → exit 0 + JSON with systemMessage (non-injectable observe)', () => {
+    // PostCompact is NOT in INJECTABLE_EVENTS so the cascade falls to the
+    // systemMessage branch of translate.ts (not additionalContext).
+    const out = translateResult('PostCompact', {
+      result: 'block',
+      reason: 'post-compact hook crashed',
+    })
+    expect(out.exitCode).toBe(0)
+    const parsed = JSON.parse(out.output!)
+    expect(parsed.systemMessage).toBe('post-compact hook crashed')
+    expect(parsed.hookSpecificOutput).toBeUndefined()
   })
 
   it('TeammateIdle block → exit 0 + JSON with continue false (fail-closed stop)', () => {

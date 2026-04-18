@@ -70,7 +70,7 @@ function makeClooksMatcherGroup(entrypointCommand: string): Record<string, unkno
 }
 
 /**
- * Register Clooks in settings.json for all 18 Claude Code events.
+ * Register Clooks in settings.json for all 20 Claude Code events.
  * Creates the settings directory and file if missing.
  *
  * @param settingsDir - Directory containing settings.json (e.g., `join(projectRoot, ".claude")` or `join(homeRoot, ".claude")`)
