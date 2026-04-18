@@ -7,5 +7,12 @@
   "tool_input": {
     "command": "rm -rf /"
   },
-  "permission_suggestions": ["allow_once"]
+  "permission_suggestions": [
+    {
+      "type": "addRules",
+      "rules": [{ "toolName": "Bash", "ruleContent": "rm -rf /" }],
+      "behavior": "allow",
+      "destination": "localSettings"
+    }
+  ]
 }

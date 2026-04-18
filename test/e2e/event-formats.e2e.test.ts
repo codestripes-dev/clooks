@@ -120,6 +120,127 @@ perm-crash:
     expect(output.hookSpecificOutput.decision.message).toContain('perm-crash')
   })
 
+  // 4a. PermissionRequest allow + updatedPermissions addRules → entry serializes verbatim
+  test('PermissionRequest allow with updatedPermissions addRules → entry round-trips verbatim', () => {
+    sandbox = createSandbox()
+    sandbox.writeHook(
+      'perm-allow-addrules.ts',
+      `
+export const hook = {
+  meta: { name: "perm-allow-addrules" },
+  PermissionRequest() {
+    return {
+      result: "allow",
+      updatedPermissions: [
+        {
+          type: "addRules",
+          rules: [{ toolName: "Bash", ruleContent: "npm test" }],
+          behavior: "allow",
+          destination: "session",
+        },
+      ],
+    }
+  },
+}
+`,
+    )
+    sandbox.writeConfig(`
+version: "1.0.0"
+perm-allow-addrules: {}
+`)
+    const result = sandbox.run([], { stdin: loadEvent('permission-request.json') })
+    expect(result.exitCode).toBe(0)
+    const output = JSON.parse(result.stdout)
+    expect(output.hookSpecificOutput.hookEventName).toBe('PermissionRequest')
+    expect(output.hookSpecificOutput.decision.behavior).toBe('allow')
+    expect(output.hookSpecificOutput.decision.updatedPermissions).toEqual([
+      {
+        type: 'addRules',
+        rules: [{ toolName: 'Bash', ruleContent: 'npm test' }],
+        behavior: 'allow',
+        destination: 'session',
+      },
+    ])
+  })
+
+  // 4b. PermissionRequest allow + updatedPermissions setMode → entry serializes verbatim
+  test('PermissionRequest allow with updatedPermissions setMode → entry round-trips verbatim', () => {
+    sandbox = createSandbox()
+    sandbox.writeHook(
+      'perm-allow-setmode.ts',
+      `
+export const hook = {
+  meta: { name: "perm-allow-setmode" },
+  PermissionRequest() {
+    return {
+      result: "allow",
+      updatedPermissions: [
+        {
+          type: "setMode",
+          mode: "acceptEdits",
+          destination: "session",
+        },
+      ],
+    }
+  },
+}
+`,
+    )
+    sandbox.writeConfig(`
+version: "1.0.0"
+perm-allow-setmode: {}
+`)
+    const result = sandbox.run([], { stdin: loadEvent('permission-request.json') })
+    expect(result.exitCode).toBe(0)
+    const output = JSON.parse(result.stdout)
+    expect(output.hookSpecificOutput.decision.updatedPermissions).toEqual([
+      {
+        type: 'setMode',
+        mode: 'acceptEdits',
+        destination: 'session',
+      },
+    ])
+  })
+
+  // 4c. PermissionRequest allow + updatedPermissions removeDirectories → entry serializes verbatim
+  test('PermissionRequest allow with updatedPermissions removeDirectories → entry round-trips verbatim', () => {
+    sandbox = createSandbox()
+    sandbox.writeHook(
+      'perm-allow-removedirs.ts',
+      `
+export const hook = {
+  meta: { name: "perm-allow-removedirs" },
+  PermissionRequest() {
+    return {
+      result: "allow",
+      updatedPermissions: [
+        {
+          type: "removeDirectories",
+          directories: ["/tmp/old-a", "/tmp/old-b"],
+          destination: "localSettings",
+        },
+      ],
+    }
+  },
+}
+`,
+    )
+    sandbox.writeConfig(`
+version: "1.0.0"
+perm-allow-removedirs: {}
+`)
+    const result = sandbox.run([], { stdin: loadEvent('permission-request.json') })
+    expect(result.exitCode).toBe(0)
+    const output = JSON.parse(result.stdout)
+    expect(output.hookSpecificOutput.decision.updatedPermissions).toEqual([
+      {
+        type: 'removeDirectories',
+        directories: ['/tmp/old-a', '/tmp/old-b'],
+        destination: 'localSettings',
+      },
+    ])
+  })
+
   // 5. UserPromptSubmit block → generic { decision: "block", reason } format
   test('UserPromptSubmit block → top-level decision/reason (not hookSpecificOutput)', () => {
     sandbox = createSandbox()
@@ -168,6 +289,40 @@ prompt-allow: {}
     const result = sandbox.run([], { stdin: loadEvent('user-prompt-submit.json') })
     expect(result.exitCode).toBe(0)
     expect(result.stdout.trim()).toBe('')
+  })
+
+  // 6b. UserPromptSubmit allow + injectContext + sessionTitle → hookSpecificOutput with both fields
+  test('UserPromptSubmit allow with injectContext + sessionTitle → hookSpecificOutput carries both', () => {
+    sandbox = createSandbox()
+    sandbox.writeHook(
+      'prompt-title.ts',
+      `
+export const hook = {
+  meta: { name: "prompt-title" },
+  UserPromptSubmit() {
+    return {
+      result: "allow" as const,
+      injectContext: "ctx",
+      sessionTitle: "Test",
+    }
+  },
+}
+`,
+    )
+    sandbox.writeConfig(`
+version: "1.0.0"
+prompt-title: {}
+`)
+    const result = sandbox.run([], { stdin: loadEvent('user-prompt-submit.json') })
+    expect(result.exitCode).toBe(0)
+    const output = JSON.parse(result.stdout)
+    expect(output.hookSpecificOutput).toBeDefined()
+    expect(output.hookSpecificOutput.hookEventName).toBe('UserPromptSubmit')
+    expect(output.hookSpecificOutput.additionalContext).toBe('ctx')
+    expect(output.hookSpecificOutput.sessionTitle).toBe('Test')
+    // Allow path must NOT carry top-level decision or continue keys
+    expect(output.decision).toBeUndefined()
+    expect(output.continue).toBeUndefined()
   })
 
   // 7. Stop block → generic guard format
@@ -272,6 +427,36 @@ pre-rewrite: {}
     expect(output.hookSpecificOutput.hookEventName).toBe('PreToolUse')
     expect(output.hookSpecificOutput.permissionDecision).toBe('allow')
     expect(output.hookSpecificOutput.updatedInput).toEqual({ command: 'echo safe' })
+  })
+
+  // 9b. ConfigChange block for policy_settings → downgraded to skip + systemMessage warning (M5)
+  test('ConfigChange block for source: "policy_settings" → downgraded to systemMessage, no decision', () => {
+    sandbox = createSandbox()
+    sandbox.writeHook(
+      'config-blocker.ts',
+      `
+export const hook = {
+  meta: { name: "config-blocker" },
+  ConfigChange() {
+    return { result: "block" as const, reason: "disallowed" }
+  },
+}
+`,
+    )
+    sandbox.writeConfig(`
+version: "1.0.0"
+config-blocker: {}
+`)
+    const result = sandbox.run([], { stdin: loadEvent('config-change-policy.json') })
+    expect(result.exitCode).toBe(0)
+    const output = JSON.parse(result.stdout)
+    // No block JSON — upstream would ignore it anyway
+    expect(output.decision).toBeUndefined()
+    expect(output.reason).toBeUndefined()
+    // systemMessage carries the downgrade warning
+    expect(output.systemMessage).toContain('Clooks downgraded')
+    expect(output.systemMessage).toContain('policy_settings')
+    expect(output.systemMessage).toContain('disallowed')
   })
 })
 
@@ -409,6 +594,35 @@ notify-context: {}
     expect(output.hookSpecificOutput).toBeDefined()
     expect(output.hookSpecificOutput.hookEventName).toBe('Notification')
     expect(output.hookSpecificOutput.additionalContext).toBe('notification context')
+  })
+
+  // 13z. SessionEnd with reason: "resume" → accepted and dispatched (M2)
+  test('SessionEnd with reason: "resume" → hook receives context and dispatches cleanly', () => {
+    sandbox = createSandbox()
+    sandbox.writeHook(
+      'session-end-resume.ts',
+      `
+export const hook = {
+  meta: { name: "session-end-resume" },
+  SessionEnd(ctx: any) {
+    // Assert the new "resume" reason flows through normalization to ctx.reason.
+    if (ctx.reason !== "resume") {
+      throw new Error("expected reason=resume, got " + ctx.reason)
+    }
+    return { result: "skip" as const }
+  },
+}
+`,
+    )
+    sandbox.writeConfig(`
+version: "1.0.0"
+session-end-resume: {}
+`)
+    // session-end.json fixture carries reason: "resume" after M2 extension.
+    const result = sandbox.run([], { stdin: loadEvent('session-end.json') })
+    expect(result.exitCode).toBe(0)
+    // skip → empty stdout
+    expect(result.stdout.trim()).toBe('')
   })
 
   // 13a. PostCompact skip → empty stdout, exit 0 (pure observer)
@@ -557,8 +771,8 @@ task-created-skip: {}
     expect(result.stdout.trim()).toBe('')
   })
 
-  // 16. TeammateIdle crash with onError:block → { continue: false, stopReason }
-  test('TeammateIdle crash with onError:block → continue:false (not deny)', () => {
+  // 16. TeammateIdle crash with onError:block → exit 2 + stderr (retry/feedback)
+  test('TeammateIdle crash with onError:block → exit 2 + stderr (retry, not stop-teammate)', () => {
     sandbox = createSandbox()
     sandbox.writeHook(
       'teammate-crash.ts',
@@ -577,14 +791,69 @@ teammate-crash:
   onError: block
 `)
     const result = sandbox.run([], { stdin: loadEvent('teammate-idle.json') })
-    expect(result.exitCode).toBe(0)
-    const output = JSON.parse(result.stdout)
-    // Continuation events with block result → { continue: false, stopReason }
-    expect(output.continue).toBe(false)
-    expect(output.stopReason).toContain('teammate-crash')
-    // Should NOT use deny or hookSpecificOutput
-    expect(output.hookSpecificOutput).toBeUndefined()
-    expect(output.decision).toBeUndefined()
+    // CONTINUATION onError:block → exit-2 + stderr (upstream's documented retry path).
+    // PLAN-0015 M6: previously emitted {continue: false, stopReason} (stop-teammate path)
+    // which was more aggressive than upstream's documented semantic.
+    expect(result.exitCode).toBe(2)
+    expect(result.stderr).toContain('teammate-crash')
+    // stdout must be empty — no {continue: false, stopReason} JSON.
+    expect(result.stdout.trim()).toBe('')
+  })
+
+  // 16a. TaskCompleted crash with onError:block → exit 2 + stderr (retry/feedback)
+  test('TaskCompleted crash with onError:block → exit 2 + stderr (retry, not stop-teammate)', () => {
+    sandbox = createSandbox()
+    sandbox.writeHook(
+      'task-completed-crash.ts',
+      `
+export const hook = {
+  meta: { name: "task-completed-crash" },
+  TaskCompleted() {
+    throw new Error("task completion hook crashed")
+  },
+}
+`,
+    )
+    sandbox.writeConfig(`
+version: "1.0.0"
+task-completed-crash:
+  onError: block
+`)
+    const result = sandbox.run([], { stdin: loadEvent('task-completed.json') })
+    // CONTINUATION onError:block → exit-2 + stderr (upstream's documented retry path).
+    // Matches upstream's canonical TaskCompleted "tests failed" example.
+    expect(result.exitCode).toBe(2)
+    expect(result.stderr).toContain('task-completed-crash')
+    // stdout must be empty — no {continue: false, stopReason} JSON.
+    expect(result.stdout.trim()).toBe('')
+  })
+
+  // 16b. TaskCreated crash with onError:block → exit 2 + stderr (retry/feedback)
+  test('TaskCreated crash with onError:block → exit 2 + stderr (retry, not stop-teammate)', () => {
+    sandbox = createSandbox()
+    sandbox.writeHook(
+      'task-created-crash.ts',
+      `
+export const hook = {
+  meta: { name: "task-created-crash" },
+  TaskCreated() {
+    throw new Error("task creation hook crashed")
+  },
+}
+`,
+    )
+    sandbox.writeConfig(`
+version: "1.0.0"
+task-created-crash:
+  onError: block
+`)
+    const result = sandbox.run([], { stdin: loadEvent('task-created.json') })
+    // CONTINUATION onError:block → exit-2 + stderr (upstream's documented retry path).
+    // Parallels 16a; asserts TaskCreated shares the exit-2 + stderr retry shape.
+    expect(result.exitCode).toBe(2)
+    expect(result.stderr).toContain('task-created-crash')
+    // stdout must be empty — no {continue: false, stopReason} JSON.
+    expect(result.stdout.trim()).toBe('')
   })
 
   // 17. TeammateIdle skip → empty stdout, exit 0

@@ -3,6 +3,7 @@ import type {
   ClaudeCodeOutput,
   PreToolUseOutput,
   HookSpecificOutputBase,
+  UserPromptSubmitOutput,
 } from '../types/claude-code.js'
 import { INJECTABLE_EVENTS } from '../config/constants.js'
 import type { EngineResult, ExitCode } from './types.js'
@@ -85,9 +86,42 @@ export function translateResult(
     if (resultType === 'block') {
       const reason = result.reason ?? 'clooks: action blocked by hook'
       const output: ClaudeCodeOutput = { decision: 'block', reason }
+      // UserPromptSubmit allows sessionTitle and/or additionalContext alongside
+      // block — upstream's canonical example combines `decision: "block"` with
+      // `hookSpecificOutput.sessionTitle` AND `hookSpecificOutput.additionalContext`
+      // in a single response (docs/domain/raw-claude-ai/hook-docs/UserPromptSubmit.md:42-52).
+      if (eventName === 'UserPromptSubmit' && (result.sessionTitle || result.injectContext)) {
+        const hookOutput: UserPromptSubmitOutput = {
+          hookEventName: 'UserPromptSubmit',
+        }
+        if (result.injectContext) {
+          hookOutput.additionalContext = result.injectContext
+        }
+        if (result.sessionTitle) {
+          hookOutput.sessionTitle = result.sessionTitle
+        }
+        output.hookSpecificOutput = hookOutput
+      }
       return { output: JSON.stringify(output), exitCode: EXIT_OK }
     }
     if (resultType === 'allow' || resultType === 'skip') {
+      // UserPromptSubmit: thread sessionTitle alongside additionalContext.
+      // Emit hookSpecificOutput when EITHER injectContext OR sessionTitle is
+      // present (sessionTitle-only still requires the hookSpecificOutput so
+      // the title update fires upstream).
+      if (eventName === 'UserPromptSubmit' && (result.injectContext || result.sessionTitle)) {
+        const hookOutput: UserPromptSubmitOutput = {
+          hookEventName: 'UserPromptSubmit',
+        }
+        if (result.injectContext) {
+          hookOutput.additionalContext = result.injectContext
+        }
+        if (result.sessionTitle) {
+          hookOutput.sessionTitle = result.sessionTitle
+        }
+        const output: ClaudeCodeOutput = { hookSpecificOutput: hookOutput }
+        return { output: JSON.stringify(output), exitCode: EXIT_OK }
+      }
       if (result.injectContext && INJECTABLE_EVENTS.has(eventName)) {
         const hookOutput: HookSpecificOutputBase = {
           hookEventName: eventName,
@@ -194,15 +228,16 @@ export function translateResult(
 
   // --- Continuation events ---
   if (CONTINUATION_EVENTS.has(eventName)) {
-    // Handle block results from onError: "block" hook errors.
-    // Fail-closed for continuation events = stop the agent/teammate.
+    // Fail-closed for continuation events = exit-2 + stderr (upstream's documented
+    // retry/feedback semantic). The task/teammate is blocked from this transition but
+    // not halted — stderr is fed back as feedback and the model retries.
+    // Explicit `stop` result below is unchanged — that's the stop-teammate path.
     if (resultType === 'block') {
       const reason = result.reason ?? 'clooks: hook error on continuation event'
-      const output: ClaudeCodeOutput = {
-        continue: false,
-        stopReason: reason,
+      return {
+        exitCode: EXIT_STDERR,
+        stderr: reason,
       }
-      return { output: JSON.stringify(output), exitCode: EXIT_OK }
     }
     if (resultType === 'continue') {
       return {

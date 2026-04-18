@@ -1,4 +1,5 @@
 import type { ResultTag } from '../types/results.js'
+import type { PermissionUpdateEntry } from '../types/permissions.js'
 import type { loadConfig } from '../config/index.js'
 import type { loadAllHooks } from '../loader.js'
 import type { discoverPluginPacks } from '../plugin-discovery.js'
@@ -13,9 +14,11 @@ export interface EngineResult {
   injectContext?: string
   debugMessage?: string
   updatedInput?: Record<string, unknown>
-  updatedPermissions?: unknown[]
+  updatedPermissions?: PermissionUpdateEntry[]
   interrupt?: boolean
   updatedMCPToolOutput?: unknown
+  /** UserPromptSubmit: updates the IDE session title (equivalent to /rename). */
+  sessionTitle?: string
 }
 
 /** Exit 0: success. Stdout may contain JSON output. */

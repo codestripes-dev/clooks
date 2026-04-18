@@ -260,6 +260,7 @@ Decide whether ongoing operations should continue. Return `continue`, `stop`, or
 | Event | When It Fires |
 |-------|--------------|
 | `TeammateIdle` | Teammate became idle |
+| `TaskCreated` | Task created |
 | `TaskCompleted` | Task completed |
 
 ### Implementation Events

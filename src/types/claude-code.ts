@@ -2,6 +2,8 @@
 // These mirror Claude Code's documented hook I/O contract.
 // Reference: docs/domain/claude-code-hooks/io-contract.md
 
+import type { PermissionUpdateEntry } from './permissions.js'
+
 /**
  * Fields present in every hook event payload, regardless of event type.
  * Claude Code always sends these when invoking a command hook.
@@ -77,7 +79,7 @@ export interface PermissionRequestInput extends ClaudeCodeCommonInput {
   hook_event_name: 'PermissionRequest'
   tool_name: string
   tool_input: Record<string, unknown>
-  permission_suggestions?: Array<Record<string, unknown>>
+  permission_suggestions?: PermissionUpdateEntry[]
 }
 
 /**
@@ -179,7 +181,7 @@ export interface NotificationInput extends ClaudeCodeCommonInput {
   hook_event_name: 'Notification'
   message: string
   title?: string
-  notification_type:
+  notification_type?:
     | 'permission_prompt'
     | 'idle_prompt'
     | 'auth_success'
@@ -328,6 +330,15 @@ export interface PreToolUseOutput extends HookSpecificOutputBase {
   permissionDecision?: 'allow' | 'deny' | 'ask'
   permissionDecisionReason?: string
   updatedInput?: Record<string, unknown>
+}
+
+/**
+ * The hookSpecificOutput field for UserPromptSubmit responses.
+ * sessionTitle updates the IDE session title (equivalent to /rename).
+ */
+export interface UserPromptSubmitOutput extends HookSpecificOutputBase {
+  hookEventName: 'UserPromptSubmit'
+  sessionTitle?: string
 }
 
 /**

@@ -83,7 +83,15 @@ fi
 
 ### PermissionRequest in Non-Interactive Mode
 
-PermissionRequest hooks do **not** fire in headless mode (`-p`). Use PreToolUse for automated permission decisions.
+PermissionRequest hooks do **not** fire in headless mode (`-p`). A hook registered for PermissionRequest has **zero invocations** across an entire `claude -p` session. Use PreToolUse for automated permission decisions.
+
+### SubagentStart additionalContext Audience
+
+`SubagentStart` hooks that return `additionalContext` inject that context into the **spawned subagent's** context — not the parent agent's. Every other injectable event injects into the active agent's context, so it's easy to assume parent-agent injection and miss the audience switch. Under `onError: "block"`, the `systemMessage` diagnostic is also routed into the subagent (since `SubagentStart` is in `INJECTABLE_EVENTS`).
+
+### WorktreeRemove Visibility Delta
+
+Upstream Claude Code logs `WorktreeRemove` hook failures in debug mode only — they are effectively invisible to the agent during normal operation. Clooks diverges: under `onError: "block"`, the failure surfaces via `systemMessage` to the agent (because `WorktreeRemove` is NOT in `INJECTABLE_EVENTS`, the OBSERVE translator falls to the `systemMessage` branch). This is intentional per Clooks' fail-closed philosophy — a hook author who wires a `WorktreeRemove` hook gets visible feedback instead of a silent failure.
 
 ### JSON Parsing from Shell Profiles
 
@@ -105,6 +113,14 @@ PostToolUse hooks fire after a tool completes — they cannot prevent the tool f
 ### ConfigChange and Policy Settings
 
 `policy_settings` changes **cannot be blocked**. ConfigChange hooks fire for audit purposes but blocking decisions are ignored for enterprise policy.
+
+**Clooks auto-downgrade (PLAN-0015 M5).** When a ConfigChange hook returns `{result: "block"}` for a payload with `source: "policy_settings"`, Clooks downgrades the result to `skip` and emits a `systemMessage` warning before `translateResult` runs. The emitted JSON contains no top-level `decision`/`reason` — only the `systemMessage`. The other four sources (`user_settings`, `project_settings`, `local_settings`, `skills`) honor block normally. Placement rationale: the downgrade lives in `src/engine/run.ts` (not the translator) so the warning joins the existing `systemMessages` aggregation array and cannot be clobbered by other in-flight system messages. This mirrors the engine-layer `trace → continue` runtime fallback in `src/engine/execute.ts` — both are configuration-vs-event-capability mismatches that Clooks detects at runtime, downgrades to a safe default, and surfaces via `systemMessage` so the hook author sees the discrepancy.
+
+### CONTINUATION `onError: "block"` Semantic
+
+For the three CONTINUATION events (`TaskCompleted`, `TaskCreated`, `TeammateIdle`), an `onError: "block"` cascade triggered by a crashed hook emits **exit-2 + stderr** — upstream's documented retry/feedback path — not `{continue: false, stopReason}` (upstream's stop-teammate path). The agent receives the stderr as feedback and retries the transition (task completion, task creation, or idle check). The stop-teammate path is still reachable, but only via an explicit `{result: "stop", reason: "..."}` return from a hook.
+
+**Why it matters (PLAN-0015 M6).** Clooks previously picked the more aggressive stop-teammate path for `onError: "block"` hook crashes; M6 aligns with upstream's retry semantic, matching what a hook author who configures `onError: "block"` reasonably expects ("block this completion and retry" rather than "halt the entire teammate"). The upstream raw docs for all three events document exit-2 as the re-run path and frame `{continue: false, stopReason}` as "stop the teammate entirely instead of re-running it." Hook authors who relied on the old stop-teammate behavior must switch to an explicit `{result: "stop"}` return (the `stop` branch in `src/engine/translate.ts` is intentionally unchanged and still emits `{continue: false, stopReason}` at exit-0). The BLOCK-path and STOP-path are now semantically distinct surfaces.
 
 ### No Individual Hook Disable
 

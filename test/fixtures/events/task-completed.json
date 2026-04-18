@@ -1,5 +1,12 @@
 {
   "hook_event_name": "TaskCompleted",
+  "session_id": "test-session-001",
+  "transcript_path": "/tmp/transcript.json",
+  "cwd": "/tmp/test",
+  "permission_mode": "default",
   "task_id": "task_001",
-  "task_subject": "Write unit tests"
+  "task_subject": "Write unit tests",
+  "task_description": "Cover the new discriminated union branches",
+  "teammate_name": "builder",
+  "team_name": "clooks"
 }

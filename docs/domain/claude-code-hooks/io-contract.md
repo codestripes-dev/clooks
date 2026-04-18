@@ -61,10 +61,10 @@ Must choose one approach per hook: exit codes alone, OR exit 0 with JSON. Claude
 
 | Events | Pattern | Key Fields |
 |--------|---------|------------|
-| UserPromptSubmit, PostToolUse, PostToolUseFailure, Stop, SubagentStop, ConfigChange, PreCompact | Top-level `decision` | `decision: "block"`, `reason` |
+| UserPromptSubmit, PostToolUse, PostToolUseFailure, Stop, SubagentStop, ConfigChange, PreCompact | Top-level `decision` | `decision: "block"`, `reason`. UserPromptSubmit also supports `hookSpecificOutput.sessionTitle` (sets session title, equivalent to /rename; may combine with block or allow/skip) |
 | TeammateIdle, TaskCompleted | Exit code or `continue` | Exit 2 blocks with stderr. `{"continue": false, "stopReason": "..."}` stops entirely |
 | PreToolUse | `hookSpecificOutput` | `hookEventName` (required), `permissionDecision`, `permissionDecisionReason`, `updatedInput`, `additionalContext` |
-| PermissionRequest | `hookSpecificOutput` | `hookEventName` (required), `decision.behavior`, `decision.updatedInput`, `decision.updatedPermissions`, `decision.message`, `decision.interrupt` |
+| PermissionRequest | `hookSpecificOutput` | `hookEventName` (required), `decision.behavior`, `decision.updatedInput`, `decision.updatedPermissions` (array of `PermissionUpdateEntry` — six variants per `src/types/permissions.ts`), `decision.message`, `decision.interrupt` |
 | WorktreeCreate | stdout path | Print absolute path. Non-zero exit fails |
 | WorktreeRemove, Notification, SessionEnd, PostCompact, InstructionsLoaded | None | Side effects only |
 

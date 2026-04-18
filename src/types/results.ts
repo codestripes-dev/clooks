@@ -2,6 +2,8 @@
 // Each base result is intersected with DebugFields.
 // InjectableContext is intersected where Claude Code supports additionalContext.
 
+import type { PermissionUpdateEntry } from './permissions.js'
+
 /** Union of all result discriminant values across all base result types. */
 export type ResultTag = 'allow' | 'block' | 'skip' | 'success' | 'failure' | 'continue' | 'stop'
 
@@ -66,11 +68,12 @@ export type PreToolUseResult =
       })
   | (BlockResult & InjectableContext)
   | (SkipResult & InjectableContext)
-export type UserPromptSubmitResult = (AllowResult | BlockResult | SkipResult) & InjectableContext
+export type UserPromptSubmitResult = (AllowResult | BlockResult | SkipResult) &
+  InjectableContext & { sessionTitle?: string }
 export type PermissionRequestResult =
   | (AllowResult & {
       updatedInput?: Record<string, unknown>
-      updatedPermissions?: unknown[]
+      updatedPermissions?: PermissionUpdateEntry[]
     })
   | (BlockResult & {
       interrupt?: boolean

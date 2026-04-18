@@ -1,0 +1,8 @@
+{
+  "hook_event_name": "ConfigChange",
+  "session_id": "test-session-001",
+  "transcript_path": "/tmp/transcript.json",
+  "cwd": "/tmp/test",
+  "source": "policy_settings",
+  "file_path": "/etc/claude/policy.json"
+}

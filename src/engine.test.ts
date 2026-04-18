@@ -17,6 +17,7 @@ import type { LoadedHook, HookLoadError } from './loader.js'
 import type { ClooksHook } from './types/hook.js'
 import type { ClooksConfig } from './config/schema.js'
 import type { HookName, EventName } from './types/branded.js'
+import type { PermissionUpdateEntry } from './types/permissions.js'
 import { hn, ms } from './test-utils.js'
 import { DEFAULT_MAX_FAILURES_MESSAGE } from './config/constants.js'
 import { readFailures, getFailurePath, LOAD_ERROR_EVENT } from './failures.js'
@@ -100,6 +101,105 @@ describe('translateResult', () => {
         additionalContext: 'context for agent',
       },
     })
+  })
+
+  it('UserPromptSubmit allow with injectContext + sessionTitle → hookSpecificOutput with both fields', () => {
+    const out = translateResult('UserPromptSubmit', {
+      result: 'allow',
+      injectContext: 'context for agent',
+      sessionTitle: 'Refactoring auth',
+    })
+    expect(out.exitCode).toBe(0)
+    expect(JSON.parse(out.output!)).toEqual({
+      hookSpecificOutput: {
+        hookEventName: 'UserPromptSubmit',
+        additionalContext: 'context for agent',
+        sessionTitle: 'Refactoring auth',
+      },
+    })
+  })
+
+  it('UserPromptSubmit allow with sessionTitle only → hookSpecificOutput with sessionTitle, no additionalContext', () => {
+    const out = translateResult('UserPromptSubmit', {
+      result: 'allow',
+      sessionTitle: 'Refactoring auth',
+    })
+    expect(out.exitCode).toBe(0)
+    const parsed = JSON.parse(out.output!)
+    expect(parsed).toEqual({
+      hookSpecificOutput: {
+        hookEventName: 'UserPromptSubmit',
+        sessionTitle: 'Refactoring auth',
+      },
+    })
+    expect(parsed.hookSpecificOutput.additionalContext).toBeUndefined()
+  })
+
+  it('UserPromptSubmit block with reason + sessionTitle → top-level decision/reason AND hookSpecificOutput.sessionTitle', () => {
+    const out = translateResult('UserPromptSubmit', {
+      result: 'block',
+      reason: 'prompt blocked',
+      sessionTitle: 'Security review',
+    })
+    expect(out.exitCode).toBe(0)
+    const parsed = JSON.parse(out.output!)
+    expect(parsed.decision).toBe('block')
+    expect(parsed.reason).toBe('prompt blocked')
+    expect(parsed.hookSpecificOutput).toEqual({
+      hookEventName: 'UserPromptSubmit',
+      sessionTitle: 'Security review',
+    })
+  })
+
+  it('UserPromptSubmit block + reason + sessionTitle + injectContext → hookSpecificOutput carries both additionalContext and sessionTitle', () => {
+    const out = translateResult('UserPromptSubmit', {
+      result: 'block',
+      reason: 'prompt blocked',
+      sessionTitle: 'Test',
+      injectContext: 'context text',
+    })
+    expect(out.exitCode).toBe(0)
+    expect(JSON.parse(out.output!)).toEqual({
+      decision: 'block',
+      reason: 'prompt blocked',
+      hookSpecificOutput: {
+        hookEventName: 'UserPromptSubmit',
+        additionalContext: 'context text',
+        sessionTitle: 'Test',
+      },
+    })
+  })
+
+  it('UserPromptSubmit allow with sessionTitle "" → no hookSpecificOutput (empty-string treated as absent)', () => {
+    const out = translateResult('UserPromptSubmit', { result: 'allow', sessionTitle: '' })
+    expect(out.exitCode).toBe(0)
+    expect(out.output).toBeUndefined()
+  })
+
+  it('UserPromptSubmit skip with sessionTitle → hookSpecificOutput with sessionTitle', () => {
+    const out = translateResult('UserPromptSubmit', {
+      result: 'skip',
+      sessionTitle: 'Quick check',
+    })
+    expect(out.exitCode).toBe(0)
+    expect(JSON.parse(out.output!)).toEqual({
+      hookSpecificOutput: {
+        hookEventName: 'UserPromptSubmit',
+        sessionTitle: 'Quick check',
+      },
+    })
+  })
+
+  it('UserPromptSubmit block with reason only (no sessionTitle) → top-level decision/reason, no hookSpecificOutput (regression)', () => {
+    const out = translateResult('UserPromptSubmit', {
+      result: 'block',
+      reason: 'prompt blocked',
+    })
+    expect(out.exitCode).toBe(0)
+    const parsed = JSON.parse(out.output!)
+    expect(parsed.decision).toBe('block')
+    expect(parsed.reason).toBe('prompt blocked')
+    expect(parsed.hookSpecificOutput).toBeUndefined()
   })
 
   it('Stop skip → exit 0', () => {
@@ -215,6 +315,18 @@ describe('translateResult', () => {
     })
   })
 
+  it('TeammateIdle stop → JSON with continue:false + stopReason', () => {
+    const out = translateResult('TeammateIdle', {
+      result: 'stop',
+      reason: 'idle timeout reached',
+    })
+    expect(out.exitCode).toBe(0)
+    expect(JSON.parse(out.output!)).toEqual({
+      continue: false,
+      stopReason: 'idle timeout reached',
+    })
+  })
+
   it('TaskCreated skip → exit 0, no output', () => {
     const out = translateResult('TaskCreated', { result: 'skip' })
     expect(out.exitCode).toBe(0)
@@ -257,14 +369,112 @@ describe('translateResult', () => {
     expect(parsed.hookSpecificOutput.decision.message).toBe('stop now')
   })
 
-  it('PermissionRequest allow with updatedPermissions → hookSpecificOutput with decision containing updatedPermissions', () => {
-    const perms = [{ tool: 'Bash', allowed: true }]
+  it('PermissionRequest allow with updatedPermissions addRules → hookSpecificOutput with decision containing the entry verbatim', () => {
+    const perms: PermissionUpdateEntry[] = [
+      {
+        type: 'addRules',
+        rules: [{ toolName: 'Bash', ruleContent: 'npm test' }],
+        behavior: 'allow',
+        destination: 'session',
+      },
+    ]
     const out = translateResult('PermissionRequest', { result: 'allow', updatedPermissions: perms })
     expect(out.exitCode).toBe(0)
     const parsed = JSON.parse(out.output!)
     expect(parsed.hookSpecificOutput.hookEventName).toBe('PermissionRequest')
     expect(parsed.hookSpecificOutput.decision.behavior).toBe('allow')
     expect(parsed.hookSpecificOutput.decision.updatedPermissions).toEqual(perms)
+  })
+
+  it('PermissionRequest allow with updatedPermissions replaceRules → entry serializes verbatim', () => {
+    const perms: PermissionUpdateEntry[] = [
+      {
+        type: 'replaceRules',
+        rules: [{ toolName: 'Bash' }],
+        behavior: 'deny',
+        destination: 'localSettings',
+      },
+    ]
+    const out = translateResult('PermissionRequest', { result: 'allow', updatedPermissions: perms })
+    expect(out.exitCode).toBe(0)
+    const parsed = JSON.parse(out.output!)
+    expect(parsed.hookSpecificOutput.decision.updatedPermissions).toEqual(perms)
+  })
+
+  it('PermissionRequest allow with updatedPermissions removeRules → entry serializes verbatim', () => {
+    const perms: PermissionUpdateEntry[] = [
+      {
+        type: 'removeRules',
+        rules: [{ toolName: 'Edit', ruleContent: '/tmp/**' }],
+        behavior: 'ask',
+        destination: 'projectSettings',
+      },
+    ]
+    const out = translateResult('PermissionRequest', { result: 'allow', updatedPermissions: perms })
+    expect(out.exitCode).toBe(0)
+    const parsed = JSON.parse(out.output!)
+    expect(parsed.hookSpecificOutput.decision.updatedPermissions).toEqual(perms)
+  })
+
+  it('PermissionRequest allow with updatedPermissions setMode → entry serializes verbatim', () => {
+    const perms: PermissionUpdateEntry[] = [
+      {
+        type: 'setMode',
+        mode: 'acceptEdits',
+        destination: 'session',
+      },
+    ]
+    const out = translateResult('PermissionRequest', { result: 'allow', updatedPermissions: perms })
+    expect(out.exitCode).toBe(0)
+    const parsed = JSON.parse(out.output!)
+    expect(parsed.hookSpecificOutput.decision.updatedPermissions).toEqual(perms)
+  })
+
+  it('PermissionRequest allow with updatedPermissions addDirectories → entry serializes verbatim', () => {
+    const perms: PermissionUpdateEntry[] = [
+      {
+        type: 'addDirectories',
+        directories: ['/tmp/a', '/tmp/b'],
+        destination: 'userSettings',
+      },
+    ]
+    const out = translateResult('PermissionRequest', { result: 'allow', updatedPermissions: perms })
+    expect(out.exitCode).toBe(0)
+    const parsed = JSON.parse(out.output!)
+    expect(parsed.hookSpecificOutput.decision.updatedPermissions).toEqual(perms)
+  })
+
+  it('PermissionRequest allow with updatedPermissions removeDirectories → entry serializes verbatim', () => {
+    const perms: PermissionUpdateEntry[] = [
+      {
+        type: 'removeDirectories',
+        directories: ['/tmp/c'],
+        destination: 'session',
+      },
+    ]
+    const out = translateResult('PermissionRequest', { result: 'allow', updatedPermissions: perms })
+    expect(out.exitCode).toBe(0)
+    const parsed = JSON.parse(out.output!)
+    expect(parsed.hookSpecificOutput.decision.updatedPermissions).toEqual(perms)
+  })
+
+  it('PermissionRequest allow echoing a permission_suggestions entry → round-trips verbatim ("always allow" pattern)', () => {
+    // Upstream "always allow" pattern: a hook receives an entry via
+    // context.permissionSuggestions and echoes it back as updatedPermissions.
+    // This test pins the round-trip at the translator layer.
+    const suggestion: PermissionUpdateEntry = {
+      type: 'addRules',
+      rules: [{ toolName: 'Bash', ruleContent: 'rm -rf node_modules' }],
+      behavior: 'allow',
+      destination: 'localSettings',
+    }
+    const out = translateResult('PermissionRequest', {
+      result: 'allow',
+      updatedPermissions: [suggestion],
+    })
+    expect(out.exitCode).toBe(0)
+    const parsed = JSON.parse(out.output!)
+    expect(parsed.hookSpecificOutput.decision.updatedPermissions).toEqual([suggestion])
   })
 
   it('PermissionRequest allow with updatedInput only → hookSpecificOutput with decision containing updatedInput', () => {
@@ -504,12 +714,52 @@ describe('translateResult', () => {
     expect(parsed.hookSpecificOutput).toBeUndefined()
   })
 
-  it('TeammateIdle block → exit 0 + JSON with continue false (fail-closed stop)', () => {
+  it('TeammateIdle block → exit 2 + stderr (retry/feedback, not stop-teammate)', () => {
     const out = translateResult('TeammateIdle', { result: 'block', reason: 'hook crash' })
-    expect(out.exitCode).toBe(0)
-    const parsed = JSON.parse(out.output!)
-    expect(parsed.continue).toBe(false)
-    expect(parsed.stopReason).toBe('hook crash')
+    expect(out.exitCode).toBe(2)
+    expect(out.stderr).toBe('hook crash')
+    expect(out.output).toBeUndefined()
+  })
+
+  it('TaskCompleted block → exit 2 + stderr (retry/feedback semantic)', () => {
+    const out = translateResult('TaskCompleted', { result: 'block', reason: 'tests failed' })
+    expect(out.exitCode).toBe(2)
+    expect(out.stderr).toBe('tests failed')
+    expect(out.output).toBeUndefined()
+  })
+
+  it('TaskCreated block → exit 2 + stderr (retry/feedback semantic)', () => {
+    const out = translateResult('TaskCreated', { result: 'block', reason: 'bad task payload' })
+    expect(out.exitCode).toBe(2)
+    expect(out.stderr).toBe('bad task payload')
+    expect(out.output).toBeUndefined()
+  })
+
+  it('TeammateIdle block without reason → exit 2 + default stderr', () => {
+    const out = translateResult('TeammateIdle', {
+      result: 'block',
+    } as unknown as import('./engine/index.js').EngineResult)
+    expect(out.exitCode).toBe(2)
+    expect(out.stderr).toBe('clooks: hook error on continuation event')
+    expect(out.output).toBeUndefined()
+  })
+
+  it('TaskCompleted block without reason → exit 2 + default stderr', () => {
+    const out = translateResult('TaskCompleted', {
+      result: 'block',
+    } as unknown as import('./engine/index.js').EngineResult)
+    expect(out.exitCode).toBe(2)
+    expect(out.stderr).toBe('clooks: hook error on continuation event')
+    expect(out.output).toBeUndefined()
+  })
+
+  it('TaskCreated block without reason → exit 2 + default stderr', () => {
+    const out = translateResult('TaskCreated', {
+      result: 'block',
+    } as unknown as import('./engine/index.js').EngineResult)
+    expect(out.exitCode).toBe(2)
+    expect(out.stderr).toBe('clooks: hook error on continuation event')
+    expect(out.output).toBeUndefined()
   })
 
   it('WorktreeCreate block → exit 1 + stderr', () => {
@@ -1562,6 +1812,31 @@ describe('parallel batch', () => {
     expect(result.lastResult?.injectContext).toContain('context-B')
     // Newline-joined
     expect(result.lastResult?.injectContext).toBe('context-A\ncontext-B')
+  })
+
+  it("UserPromptSubmit multi-hook sessionTitle → last non-skip hook's sessionTitle wins", async () => {
+    // sessionTitle cannot be concatenated the way injectContext can — upstream
+    // accepts a single session title per response. The engine preserves
+    // last-writer-wins semantics: the final non-skip result's fields (other
+    // than injectContext) carry forward. This test pins that contract.
+    const dir = makeTempDir()
+    const hookA = makeLoadedHook('hookA', {
+      UserPromptSubmit: () => ({ result: 'allow', sessionTitle: 'First' }),
+    })
+    const hookB = makeLoadedHook('hookB', {
+      UserPromptSubmit: () => ({ result: 'allow', sessionTitle: 'Second' }),
+    })
+    // Sequential (no `parallel: true`) so ordering is deterministic: A then B.
+    const config = makeTestConfig({ hookA: {}, hookB: {} })
+
+    const result = await executeHooks([hookA, hookB], 'UserPromptSubmit', {}, config, fp(dir))
+    expect(result.lastResult?.result).toBe('allow')
+    expect(result.lastResult?.sessionTitle).toBe('Second')
+
+    // Verify the translated wire output also carries the last writer's title.
+    const translated = translateResult('UserPromptSubmit', result.lastResult!)
+    const parsed = JSON.parse(translated.output!)
+    expect(parsed.hookSpecificOutput.sessionTitle).toBe('Second')
   })
 
   it('block short-circuits', async () => {
