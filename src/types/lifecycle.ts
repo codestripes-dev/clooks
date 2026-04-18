@@ -1,27 +1,55 @@
 // Lifecycle types for beforeHook / afterHook.
 // Reference: docs/plans/hook-lifecycle/M1-type-foundation.md
 
-import type { EventName } from "./branded.js"
+import type { EventName } from './branded.js'
 
 import type {
-  PreToolUseContext, PostToolUseContext, UserPromptSubmitContext,
-  SessionStartContext, SessionEndContext, StopContext, SubagentStopContext,
-  SubagentStartContext, InstructionsLoadedContext, PostToolUseFailureContext,
-  NotificationContext, PermissionRequestContext, ConfigChangeContext,
-  WorktreeCreateContext, WorktreeRemoveContext, PreCompactContext,
-  TeammateIdleContext, TaskCompletedContext,
-} from "./contexts.js"
+  PreToolUseContext,
+  PostToolUseContext,
+  UserPromptSubmitContext,
+  SessionStartContext,
+  SessionEndContext,
+  StopContext,
+  SubagentStopContext,
+  SubagentStartContext,
+  InstructionsLoadedContext,
+  PostToolUseFailureContext,
+  NotificationContext,
+  PermissionRequestContext,
+  ConfigChangeContext,
+  WorktreeCreateContext,
+  WorktreeRemoveContext,
+  PreCompactContext,
+  PostCompactContext,
+  TeammateIdleContext,
+  TaskCreatedContext,
+  TaskCompletedContext,
+} from './contexts.js'
 
 import type {
-  PreToolUseResult, PostToolUseResult, UserPromptSubmitResult,
-  SessionStartResult, SessionEndResult, StopEventResult, SubagentStopResult,
-  SubagentStartResult, InstructionsLoadedResult, PostToolUseFailureResult,
-  NotificationResult, PermissionRequestResult, ConfigChangeResult,
-  WorktreeCreateResult, WorktreeRemoveResult, PreCompactResult,
-  TeammateIdleResult, TaskCompletedResult,
+  PreToolUseResult,
+  PostToolUseResult,
+  UserPromptSubmitResult,
+  SessionStartResult,
+  SessionEndResult,
+  StopEventResult,
+  SubagentStopResult,
+  SubagentStartResult,
+  InstructionsLoadedResult,
+  PostToolUseFailureResult,
+  NotificationResult,
+  PermissionRequestResult,
+  ConfigChangeResult,
+  WorktreeCreateResult,
+  WorktreeRemoveResult,
+  PreCompactResult,
+  PostCompactResult,
+  TeammateIdleResult,
+  TaskCreatedResult,
+  TaskCompletedResult,
   BlockResult,
   SkipResult,
-} from "./results.js"
+} from './results.js'
 
 export interface EventContextMap extends Record<EventName, unknown> {
   PreToolUse: PreToolUseContext
@@ -40,7 +68,9 @@ export interface EventContextMap extends Record<EventName, unknown> {
   WorktreeCreate: WorktreeCreateContext
   WorktreeRemove: WorktreeRemoveContext
   PreCompact: PreCompactContext
+  PostCompact: PostCompactContext
   TeammateIdle: TeammateIdleContext
+  TaskCreated: TaskCreatedContext
   TaskCompleted: TaskCompletedContext
 }
 
@@ -61,7 +91,9 @@ export interface EventResultMap extends Record<EventName, unknown> {
   WorktreeCreate: WorktreeCreateResult
   WorktreeRemove: WorktreeRemoveResult
   PreCompact: PreCompactResult
+  PostCompact: PostCompactResult
   TeammateIdle: TeammateIdleResult
+  TaskCreated: TaskCreatedResult
   TaskCompleted: TaskCompletedResult
 }
 
@@ -71,7 +103,7 @@ export interface HookEventMeta {
   /** Current branch. Null if detached HEAD or not in a git repo. */
   gitBranch: string | null
   /** OS platform. */
-  platform: "darwin" | "linux"
+  platform: 'darwin' | 'linux'
   /** This hook's name (same as meta.name). */
   hookName: string
   /** Absolute path to the hook's .ts file. */

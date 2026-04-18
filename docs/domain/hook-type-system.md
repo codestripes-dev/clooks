@@ -31,10 +31,10 @@ Events fall into 4 categories, each with a distinct result pattern:
 
 | Category | Result options | Events |
 |----------|--------------|--------|
-| Guard | allow, block, skip | PreToolUse, UserPromptSubmit, PermissionRequest, Stop, SubagentStop, ConfigChange |
-| Observe | skip only | SessionStart, SessionEnd, InstructionsLoaded, PostToolUse, PostToolUseFailure, Notification, SubagentStart, WorktreeRemove, PreCompact |
+| Guard | allow, block, skip | PreToolUse, UserPromptSubmit, PermissionRequest, Stop, SubagentStop, ConfigChange, PreCompact |
+| Observe | skip (PostToolUse also accepts block) | SessionStart, SessionEnd, InstructionsLoaded, PostToolUse, PostToolUseFailure, Notification, SubagentStart, WorktreeRemove, PostCompact |
 | Implementation | success, failure | WorktreeCreate |
-| Continuation | continue, stop, skip | TeammateIdle, TaskCompleted |
+| Continuation | continue, stop, skip | TeammateIdle, TaskCreated, TaskCompleted |
 
 ### ResultTag and ExitCode
 
@@ -86,14 +86,14 @@ Not all `BaseContext` fields are universally present across all events. The foll
 
 ### PostToolUse output fields
 
-`PostToolUseResult` includes `updatedMCPToolOutput?: unknown`. This field replaces the MCP tool output at the **top level** of the output JSON (not inside `hookSpecificOutput`). It is a passthrough field — PostToolUse is observe-only in Clooks, but this capability allows modifying what the agent sees from MCP tool calls.
+`PostToolUseResult` is a union of a skip-arm and a block-arm — hook authors may return `{result: "block", reason: "..."}` to surface a post-hoc block decision to Claude (the tool has already run). Both arms also support `updatedMCPToolOutput?: unknown` (replaces the MCP tool output at the **top level** of the output JSON, not inside `hookSpecificOutput`) and `injectContext`. PostToolUse sits in `OBSERVE_EVENTS` as a hybrid: the category still determines default translator behavior, but a PostToolUse-specific branch in `src/engine/translate.ts` emits `decision: "block"` when a block result arrives (whether from an author handler or an `onError: block` cascade).
 
 ### Branded strings and typed identifiers
 
 The type system uses three distinct strategies for semantic types, depending on the domain:
 
 **Closed literal union — `EventName`:**
-`EventName` is a union of all 18 known Claude Code event name literals (e.g., `"PreToolUse" | "PostToolUse" | ...`). It does NOT include `(string & {})` — it is a closed set. The engine must know every event to translate results correctly. Unknown events are fail-closed errors, not forward-compatible pass-throughs. The type guard `isEventName()` (in `src/config/constants.ts`) narrows a runtime `string` to `EventName` at the stdin boundary.
+`EventName` is a union of all 20 known Claude Code event name literals (e.g., `"PreToolUse" | "PostToolUse" | ...`). It does NOT include `(string & {})` — it is a closed set. The engine must know every event to translate results correctly. Unknown events are fail-closed errors, not forward-compatible pass-throughs. The type guard `isEventName()` (in `src/config/constants.ts`) narrows a runtime `string` to `EventName` at the stdin boundary.
 
 **Branded types — `HookName`, `Milliseconds`:**
 These use TypeScript's intersection branding pattern to prevent type confusion between semantically different primitives:
@@ -123,7 +123,7 @@ Hook `meta.config` defaults are shallow-merged with config overrides from `clook
 
 ### Runtime validation
 
-TypeScript types are erased when hook files are dynamically imported. The loader (`src/loader.ts`) performs runtime validation of every hook export via `validateHookExport()`. It checks: `hook` named export exists and is an object, `hook.meta` exists with a `name` string, all property keys are in the allowed set (`meta`, `beforeHook`, `afterHook`, plus 18 event names), and all non-`meta` properties are functions. Invalid hooks cause fail-closed behavior (the engine exits with code 2 and a diagnostic message on stderr).
+TypeScript types are erased when hook files are dynamically imported. The loader (`src/loader.ts`) performs runtime validation of every hook export via `validateHookExport()`. It checks: `hook` named export exists and is an object, `hook.meta` exists with a `name` string, all property keys are in the allowed set (`meta`, `beforeHook`, `afterHook`, plus 20 event names), and all non-`meta` properties are functions. Invalid hooks cause fail-closed behavior (the engine exits with code 2 and a diagnostic message on stderr).
 
 **`meta.name` relaxation for aliases:** After `validateHookExport()`, the loader checks `meta.name` against an expected name. For regular hooks (no `uses`), `meta.name` must match the YAML key. For aliases with hook-name `uses`, `meta.name` must match the `uses` target (not the YAML key). For aliases with path-like `uses` (`./`, `../`, `/`), `meta.name` validation is skipped entirely — the hook file is a custom path and its `meta.name` is whatever the author set.
 
@@ -195,11 +195,11 @@ Both communicate results through the `respond()` callback, not through return va
 
 ### Runtime validation
 
-`validateHookExport()` in `src/loader.ts` enumerates allowed property keys on hook objects: `meta`, `beforeHook`, `afterHook`, plus all 18 event names. Unknown keys (e.g., typos like `beforHook`) produce a descriptive error listing the allowed names.
+`validateHookExport()` in `src/loader.ts` enumerates allowed property keys on hook objects: `meta`, `beforeHook`, `afterHook`, plus all 20 event names. Unknown keys (e.g., typos like `beforHook`) produce a descriptive error listing the allowed names.
 
 ## .d.ts Type Declarations
 
-Hook authors get full TypeScript type support via a generated `types.d.ts` file placed in the hooks directory (`.clooks/hooks/types.d.ts` for project scope, `~/.clooks/hooks/types.d.ts` for global scope). This file contains the complete public type surface — `ClooksHook`, all 18 event contexts, all result types, config generics, and branded string unions.
+Hook authors get full TypeScript type support via a generated `types.d.ts` file placed in the hooks directory (`.clooks/hooks/types.d.ts` for project scope, `~/.clooks/hooks/types.d.ts` for global scope). This file contains the complete public type surface — `ClooksHook`, all 20 event contexts, all result types, config generics, and branded string unions.
 
 ### Build pipeline
 

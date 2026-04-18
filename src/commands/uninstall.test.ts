@@ -194,7 +194,7 @@ describe('clooks uninstall — force mode', () => {
         nonClooksPreserved: 0,
       },
     })
-    expect(parsed.data.eventsRemoved).toHaveLength(18)
+    expect(parsed.data.eventsRemoved).toHaveLength(20)
   })
 })
 

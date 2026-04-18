@@ -821,4 +821,24 @@ describe('validateConfig', () => {
     expect(result.hooks['TaskCompleted' as any]).toBeUndefined()
     expect(result.hooks['TeammateIdle' as any]).toBeUndefined()
   })
+
+  test('TaskCreated recognized as an event', () => {
+    const result = validateConfig({
+      version: '1.0.0',
+      'hook-a': {},
+      TaskCreated: { order: ['hook-a'] },
+    })
+    expect(result.events['TaskCreated']).toBeDefined()
+    expect(result.hooks['TaskCreated' as any]).toBeUndefined()
+  })
+
+  test('PostCompact recognized as an event', () => {
+    const result = validateConfig({
+      version: '1.0.0',
+      'hook-a': {},
+      PostCompact: { order: ['hook-a'] },
+    })
+    expect(result.events['PostCompact']).toBeDefined()
+    expect(result.hooks['PostCompact' as any]).toBeUndefined()
+  })
 })

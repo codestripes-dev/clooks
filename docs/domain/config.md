@@ -278,7 +278,7 @@ Config parsing takes ~15ms per invocation using Bun's native YAML parser (`Bun.Y
 ## Gotchas
 
 - **Unknown keys are rejected** — Unrecognized keys in any config section (global config, event entries, hook entries, hook event overrides) produce an immediate error naming the unknown key and listing valid keys. This catches typos like `tiemout` instead of `timeout`.
-- **Event names are reserved** — All 18 Claude Code event names are classified as event entries, never hook entries. A key like `Stop` always goes to `events`, even if its value looks like a hook entry.
+- **Event names are reserved** — All 20 Claude Code event names are classified as event entries, never hook entries. A key like `Stop` always goes to `events`, even if its value looks like a hook entry.
 - **`noUncheckedIndexedAccess`** — The project uses strict TypeScript. Accessing `config.hooks["name"]` returns `HookEntry | undefined`. Always check before use.
 - **Arrays replace, don't append** — In config merging, arrays in the override file completely replace arrays in the base file. There is no array concatenation.
 - **`meta.config` merge is not here** — The config module stores overrides in `HookEntry.config`. The merge with `meta.config` defaults from the hook's TypeScript file happens at hook loading time in `src/loader.ts` (`loadHook()`), not at config parsing time.

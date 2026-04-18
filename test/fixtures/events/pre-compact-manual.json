@@ -1,0 +1,5 @@
+{
+  "hook_event_name": "PreCompact",
+  "trigger": "manual",
+  "custom_instructions": "summarize the design discussion"
+}

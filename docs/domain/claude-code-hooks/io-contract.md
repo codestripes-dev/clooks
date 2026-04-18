@@ -40,7 +40,7 @@ Clooks is a JSON-producing intermediary — it aggregates results from multiple 
 | `ConfigChange` | Blocks change (except `policy_settings`) |
 | `WorktreeCreate` | Any non-zero exit fails creation |
 | `PostToolUse` / `PostToolUseFailure` | Shows stderr to Claude |
-| `Notification` / `SubagentStart` / `SessionStart` / `SessionEnd` / `PreCompact` | **Blocking errors are ignored.** Stderr shown to user only |
+| `Notification` / `SubagentStart` / `SessionStart` / `SessionEnd` | **Blocking errors are ignored.** Stderr shown to user only |
 | `WorktreeRemove` | Logged in debug mode only |
 | `InstructionsLoaded` | Exit code ignored |
 
@@ -61,12 +61,12 @@ Must choose one approach per hook: exit codes alone, OR exit 0 with JSON. Claude
 
 | Events | Pattern | Key Fields |
 |--------|---------|------------|
-| UserPromptSubmit, PostToolUse, PostToolUseFailure, Stop, SubagentStop, ConfigChange | Top-level `decision` | `decision: "block"`, `reason` |
+| UserPromptSubmit, PostToolUse, PostToolUseFailure, Stop, SubagentStop, ConfigChange, PreCompact | Top-level `decision` | `decision: "block"`, `reason` |
 | TeammateIdle, TaskCompleted | Exit code or `continue` | Exit 2 blocks with stderr. `{"continue": false, "stopReason": "..."}` stops entirely |
 | PreToolUse | `hookSpecificOutput` | `hookEventName` (required), `permissionDecision`, `permissionDecisionReason`, `updatedInput`, `additionalContext` |
 | PermissionRequest | `hookSpecificOutput` | `hookEventName` (required), `decision.behavior`, `decision.updatedInput`, `decision.updatedPermissions`, `decision.message`, `decision.interrupt` |
 | WorktreeCreate | stdout path | Print absolute path. Non-zero exit fails |
-| WorktreeRemove, Notification, SessionEnd, PreCompact, InstructionsLoaded | None | Side effects only |
+| WorktreeRemove, Notification, SessionEnd, PostCompact, InstructionsLoaded | None | Side effects only |
 
 ### HTTP Response Handling
 
@@ -167,5 +167,5 @@ The `tool_response` field in PostToolUse contains the tool's return value. **Per
 ## Related
 
 - [overview.md](./overview.md) — Configuration, handler types, locations
-- [events.md](./events.md) — All 18 events with input/output
+- [events.md](./events.md) — All 20 events with input/output
 - [behavior-and-gotchas.md](./behavior-and-gotchas.md) — Execution model, async, known issues

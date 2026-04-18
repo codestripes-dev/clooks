@@ -8,7 +8,7 @@ Four major AI coding agents have hook systems with similar enough patterns to su
 
 | Agent | Hook System | Maturity | Viable for Clooks? |
 |-------|------------|----------|-------------------|
-| **Claude Code** | 18 events, 4 hook types | Mature | Yes (primary target) |
+| **Claude Code** | 20 events, 4 hook types | Mature | Yes (primary target) |
 | **Cursor** | ~6 events | Beta (since 1.7, improved 2026) | Yes |
 | **Windsurf** | ~8 events | Active | Yes |
 | **VS Code Copilot** | ~8 events | Preview | Yes |
@@ -34,7 +34,7 @@ These commonalities make a normalization layer feasible.
 
 The most mature hook system. See [claude-code-hooks/overview.md](./claude-code-hooks/overview.md) for full details.
 
-- **18 lifecycle events**
+- **20 lifecycle events**
 - **4 hook types:** command, HTTP, prompt, agent
 - **Config:** `.claude/settings.json` or plugin `hooks/hooks.json`
 - **Execution:** Parallel, no sequential option
@@ -113,7 +113,7 @@ This table maps equivalent lifecycle concepts across agents. A Clooks normalizat
 
 - **Granularity differs.** Claude Code uses a single `PreToolUse` event with matchers to filter by tool. Cursor and Windsurf have separate events per tool type (file read, file write, command). Clooks may need both approaches — granular canonical events that map to Claude Code's matcher system.
 
-- **Not all events map.** Claude Code has 18 events; the others have 6-8. Events like `PreCompact`, `ConfigChange`, `TeammateIdle`, `InstructionsLoaded` are Claude Code-specific. These would be available only when running under Claude Code.
+- **Not all events map.** Claude Code has 20 events; the others have 6-8. Events like `PreCompact`, `PostCompact`, `ConfigChange`, `TeammateIdle`, `TaskCreated`, `TaskCompleted`, `InstructionsLoaded` are Claude Code-specific. These would be available only when running under Claude Code.
 
 - **Blocking semantics differ.** Claude Code requires exit code 2 specifically. Others use any non-zero exit. Clooks needs to normalize this.
 

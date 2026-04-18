@@ -9,7 +9,7 @@ Execution model, async hooks, session snapshot, debugging, and all known pitfall
 - **All matching hooks run in parallel.** No sequential execution option. Sequential was explicitly closed as NOT_PLANNED.
 - **Identical handlers are deduplicated.** Command hooks by command string. HTTP hooks by URL.
 - **Default timeout:** 600 seconds (10 minutes) for command hooks. Configurable per hook.
-- **Hook type support varies:** Only 8 of 18 events support all four types. The rest are command-only. See [events.md](./events.md) for the full table.
+- **Hook type support varies:** Only 9 of 20 events support all four types. The rest are command-only. See [events.md](./events.md) for the full table.
 
 **Clooks implication:** Sequential execution with defined merge semantics is a key differentiator.
 
@@ -95,9 +95,12 @@ if [[ $- == *i* ]]; then
 fi
 ```
 
-### PostToolUse Cannot Modify Output
+### PostToolUse Cannot Prevent Execution
 
-PostToolUse hooks are observational — they cannot modify tool output before the model processes it. Exception: `updatedMCPToolOutput` works for MCP tools only.
+PostToolUse hooks fire after a tool completes — they cannot prevent the tool from running. They can:
+- Return `{result: "block", reason: "..."}` to surface post-hoc feedback to Claude (shown as `decision: "block"` with a reason). Claude sees the block after the fact and decides how to respond.
+- Return `{result: "skip", injectContext: "..."}` to add context without a block signal.
+- For MCP tools only: return `updatedMCPToolOutput` to replace the tool's output before the model processes it.
 
 ### ConfigChange and Policy Settings
 
@@ -122,6 +125,6 @@ The `tool_response` field in PostToolUse varies by tool but Anthropic does not p
 ## Related
 
 - [overview.md](./overview.md) — Configuration, handler types, locations
-- [events.md](./events.md) — All 18 events with input/output
+- [events.md](./events.md) — All 20 events with input/output
 - [io-contract.md](./io-contract.md) — Exit codes, JSON output, decision patterns, tool_input schemas
 - [claude-code-hooks-api-deep-dive.md](../../research/claude-code-hooks-api-deep-dive.md) — Exhaustive research with unverified community details

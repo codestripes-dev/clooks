@@ -17,10 +17,12 @@ import type {
   SubagentStartContext,
   WorktreeRemoveContext,
   PreCompactContext,
+  PostCompactContext,
   WorktreeCreateContext,
   TeammateIdleContext,
+  TaskCreatedContext,
   TaskCompletedContext,
-} from "./contexts.js"
+} from './contexts.js'
 
 import type {
   PreToolUseResult,
@@ -38,12 +40,14 @@ import type {
   SubagentStartResult,
   WorktreeRemoveResult,
   PreCompactResult,
+  PostCompactResult,
   WorktreeCreateResult,
   TeammateIdleResult,
+  TaskCreatedResult,
   TaskCompletedResult,
-} from "./results.js"
+} from './results.js'
 
-import type { BeforeHookEvent, AfterHookEvent } from "./lifecycle.js"
+import type { BeforeHookEvent, AfterHookEvent } from './lifecycle.js'
 
 export type MaybeAsync<T> = T | Promise<T>
 
@@ -67,7 +71,10 @@ export interface ClooksHook<C extends Record<string, unknown> = Record<string, u
   // Guard events
   PreToolUse?: (ctx: PreToolUseContext, config: C) => MaybeAsync<PreToolUseResult>
   UserPromptSubmit?: (ctx: UserPromptSubmitContext, config: C) => MaybeAsync<UserPromptSubmitResult>
-  PermissionRequest?: (ctx: PermissionRequestContext, config: C) => MaybeAsync<PermissionRequestResult>
+  PermissionRequest?: (
+    ctx: PermissionRequestContext,
+    config: C,
+  ) => MaybeAsync<PermissionRequestResult>
   Stop?: (ctx: StopContext, config: C) => MaybeAsync<StopEventResult>
   SubagentStop?: (ctx: SubagentStopContext, config: C) => MaybeAsync<SubagentStopResult>
   ConfigChange?: (ctx: ConfigChangeContext, config: C) => MaybeAsync<ConfigChangeResult>
@@ -75,18 +82,26 @@ export interface ClooksHook<C extends Record<string, unknown> = Record<string, u
   // Observe events
   SessionStart?: (ctx: SessionStartContext, config: C) => MaybeAsync<SessionStartResult>
   SessionEnd?: (ctx: SessionEndContext, config: C) => MaybeAsync<SessionEndResult>
-  InstructionsLoaded?: (ctx: InstructionsLoadedContext, config: C) => MaybeAsync<InstructionsLoadedResult>
+  InstructionsLoaded?: (
+    ctx: InstructionsLoadedContext,
+    config: C,
+  ) => MaybeAsync<InstructionsLoadedResult>
   PostToolUse?: (ctx: PostToolUseContext, config: C) => MaybeAsync<PostToolUseResult>
-  PostToolUseFailure?: (ctx: PostToolUseFailureContext, config: C) => MaybeAsync<PostToolUseFailureResult>
+  PostToolUseFailure?: (
+    ctx: PostToolUseFailureContext,
+    config: C,
+  ) => MaybeAsync<PostToolUseFailureResult>
   Notification?: (ctx: NotificationContext, config: C) => MaybeAsync<NotificationResult>
   SubagentStart?: (ctx: SubagentStartContext, config: C) => MaybeAsync<SubagentStartResult>
   WorktreeRemove?: (ctx: WorktreeRemoveContext, config: C) => MaybeAsync<WorktreeRemoveResult>
   PreCompact?: (ctx: PreCompactContext, config: C) => MaybeAsync<PreCompactResult>
+  PostCompact?: (ctx: PostCompactContext, config: C) => MaybeAsync<PostCompactResult>
 
   // Implementation events
   WorktreeCreate?: (ctx: WorktreeCreateContext, config: C) => MaybeAsync<WorktreeCreateResult>
 
   // Continuation events
   TeammateIdle?: (ctx: TeammateIdleContext, config: C) => MaybeAsync<TeammateIdleResult>
+  TaskCreated?: (ctx: TaskCreatedContext, config: C) => MaybeAsync<TaskCreatedResult>
   TaskCompleted?: (ctx: TaskCompletedContext, config: C) => MaybeAsync<TaskCompletedResult>
 }

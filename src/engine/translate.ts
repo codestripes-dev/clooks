@@ -102,6 +102,30 @@ export function translateResult(
 
   // --- Observe events ---
   if (OBSERVE_EVENTS.has(eventName)) {
+    // PostToolUse author-returnable block (and onError: "block" cascade):
+    // unify both paths onto upstream's decision: "block" + reason shape.
+    // Although PostToolUse runs after the tool has already executed (cannot be
+    // undone), Claude Code surfaces `decision: "block"` + reason as post-hoc
+    // feedback to the agent. Must precede the generic cascade handler below so
+    // the cascade does not shadow this for PostToolUse.
+    if (eventName === 'PostToolUse' && resultType === 'block') {
+      const reason = result.reason ?? 'clooks: hook blocked tool output'
+      const out: ClaudeCodeOutput = { decision: 'block', reason }
+      if (result.injectContext) {
+        out.hookSpecificOutput = {
+          hookEventName: 'PostToolUse',
+          additionalContext: result.injectContext,
+        }
+      }
+      if (result.updatedMCPToolOutput !== undefined) {
+        const merged: Record<string, unknown> = {
+          ...out,
+          updatedMCPToolOutput: result.updatedMCPToolOutput,
+        }
+        return { output: JSON.stringify(merged), exitCode: EXIT_OK }
+      }
+      return { output: JSON.stringify(out), exitCode: EXIT_OK }
+    }
     // Handle block results from onError: "block" hook errors.
     // Observe events can't actually block (action already completed),
     // so surface the error via additionalContext or systemMessage instead.

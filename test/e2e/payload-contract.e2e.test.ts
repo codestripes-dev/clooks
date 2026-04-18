@@ -16,14 +16,17 @@ describe('payload contract — context field optionality', () => {
   // 1. SessionStart hook receives no permissionMode
   test('SessionStart — permissionMode is absent', () => {
     sandbox = createSandbox()
-    sandbox.writeHook('session-perm.ts', `
+    sandbox.writeHook(
+      'session-perm.ts',
+      `
 export const hook = {
   meta: { name: "session-perm" },
   SessionStart(ctx: any) {
     return { result: "skip" as const, injectContext: String(ctx.permissionMode) }
   },
 }
-`)
+`,
+    )
     sandbox.writeConfig(`
 version: "1.0.0"
 session-perm: {}
@@ -34,32 +37,66 @@ session-perm: {}
     expect(output.hookSpecificOutput.additionalContext).toBe('undefined')
   })
 
-  // 2. PreCompact hook receives null customInstructions
-  test('PreCompact — customInstructions is null', () => {
+  // 2. PreCompact hook receives empty string customInstructions for auto trigger
+  test('PreCompact — customInstructions is empty string for auto trigger', () => {
     sandbox = createSandbox()
-    sandbox.writeHook('compact-null.ts', `
+    sandbox.writeHook(
+      'compact-auto.ts',
+      `
 export const hook = {
-  meta: { name: "compact-null" },
+  meta: { name: "compact-auto" },
   PreCompact(ctx: any) {
-    const isNull = ctx.customInstructions === null
-    return { result: "skip" as const, debugMessage: isNull ? "null-confirmed" : "not-null" }
+    const isEmptyString = typeof ctx.customInstructions === "string" && ctx.customInstructions.length === 0
+    return { result: "skip" as const, debugMessage: isEmptyString ? "empty-string-confirmed" : "unexpected:" + String(ctx.customInstructions) }
   },
 }
-`)
+`,
+    )
     sandbox.writeConfig(`
 version: "1.0.0"
-compact-null: {}
+compact-auto: {}
 `)
-    const result = sandbox.run([], { stdin: loadEvent('pre-compact.json'), env: { CLOOKS_DEBUG: 'true' } })
+    const result = sandbox.run([], {
+      stdin: loadEvent('pre-compact.json'),
+      env: { CLOOKS_DEBUG: 'true' },
+    })
     expect(result.exitCode).toBe(0)
     // Debug mode outputs debug messages to stderr
-    expect(result.stderr).toContain('null-confirmed')
+    expect(result.stderr).toContain('empty-string-confirmed')
+  })
+
+  // 2b. PreCompact hook receives user-provided customInstructions for manual trigger
+  test('PreCompact — customInstructions carries user content for manual trigger', () => {
+    sandbox = createSandbox()
+    sandbox.writeHook(
+      'compact-manual.ts',
+      `
+export const hook = {
+  meta: { name: "compact-manual" },
+  PreCompact(ctx: any) {
+    return { result: "skip" as const, debugMessage: "instructions:" + String(ctx.customInstructions) }
+  },
+}
+`,
+    )
+    sandbox.writeConfig(`
+version: "1.0.0"
+compact-manual: {}
+`)
+    const result = sandbox.run([], {
+      stdin: loadEvent('pre-compact-manual.json'),
+      env: { CLOOKS_DEBUG: 'true' },
+    })
+    expect(result.exitCode).toBe(0)
+    expect(result.stderr).toContain('instructions:summarize the design discussion')
   })
 
   // 3. PostToolUse hook receives originalToolInput
   test('PostToolUse — originalToolInput is accessible', () => {
     sandbox = createSandbox()
-    sandbox.writeHook('post-original.ts', `
+    sandbox.writeHook(
+      'post-original.ts',
+      `
 export const hook = {
   meta: { name: "post-original" },
   PostToolUse(ctx: any) {
@@ -67,7 +104,8 @@ export const hook = {
     return { result: "skip" as const, injectContext: hasIt ? JSON.stringify(ctx.originalToolInput) : "missing" }
   },
 }
-`)
+`,
+    )
     sandbox.writeConfig(`
 version: "1.0.0"
 post-original: {}
@@ -82,7 +120,9 @@ post-original: {}
   // 4. TaskCompleted hook handles missing teammateName
   test('TaskCompleted — teammateName absent is handled gracefully', () => {
     sandbox = createSandbox()
-    sandbox.writeHook('task-team.ts', `
+    sandbox.writeHook(
+      'task-team.ts',
+      `
 export const hook = {
   meta: { name: "task-team" },
   TaskCompleted(ctx: any) {
@@ -91,7 +131,8 @@ export const hook = {
     return { result: "skip" as const }
   },
 }
-`)
+`,
+    )
     sandbox.writeConfig(`
 version: "1.0.0"
 task-team: {}
@@ -104,7 +145,9 @@ task-team: {}
   // 5. PostToolUseFailure with isInterrupt absent
   test('PostToolUseFailure — isInterrupt absent is handled gracefully', () => {
     sandbox = createSandbox()
-    sandbox.writeHook('ptuf-interrupt.ts', `
+    sandbox.writeHook(
+      'ptuf-interrupt.ts',
+      `
 export const hook = {
   meta: { name: "ptuf-interrupt" },
   PostToolUseFailure(ctx: any) {
@@ -112,7 +155,8 @@ export const hook = {
     return { result: "skip" as const, injectContext: String(interrupt) }
   },
 }
-`)
+`,
+    )
     sandbox.writeConfig(`
 version: "1.0.0"
 ptuf-interrupt: {}
@@ -127,7 +171,9 @@ ptuf-interrupt: {}
   test('PermissionRequest — permissionSuggestions absent on minimal fixture', () => {
     sandbox = createSandbox()
     // Use an inline fixture without permission_suggestions to test the optional field
-    sandbox.writeHook('perm-suggest.ts', `
+    sandbox.writeHook(
+      'perm-suggest.ts',
+      `
 export const hook = {
   meta: { name: "perm-suggest" },
   PermissionRequest(ctx: any) {
@@ -136,16 +182,17 @@ export const hook = {
     return { result: "skip" as const }
   },
 }
-`)
+`,
+    )
     sandbox.writeConfig(`
 version: "1.0.0"
 perm-suggest: {}
 `)
     // Use inline fixture WITHOUT permission_suggestions
     const minimalFixture = JSON.stringify({
-      hook_event_name: "PermissionRequest",
-      tool_name: "Bash",
-      tool_input: { command: "test" },
+      hook_event_name: 'PermissionRequest',
+      tool_name: 'Bash',
+      tool_input: { command: 'test' },
     })
     const result = sandbox.run([], { stdin: minimalFixture })
     expect(result.exitCode).toBe(0)
@@ -157,7 +204,9 @@ describe('payload contract — new output fields', () => {
   // 7. PermissionRequest allow with updatedPermissions
   test('PermissionRequest allow with updatedPermissions', () => {
     sandbox = createSandbox()
-    sandbox.writeHook('perm-perms.ts', `
+    sandbox.writeHook(
+      'perm-perms.ts',
+      `
 export const hook = {
   meta: { name: "perm-perms" },
   PermissionRequest() {
@@ -167,7 +216,8 @@ export const hook = {
     }
   },
 }
-`)
+`,
+    )
     sandbox.writeConfig(`
 version: "1.0.0"
 perm-perms: {}
@@ -177,13 +227,17 @@ perm-perms: {}
     const output = JSON.parse(result.stdout)
     expect(output.hookSpecificOutput.hookEventName).toBe('PermissionRequest')
     expect(output.hookSpecificOutput.decision.behavior).toBe('allow')
-    expect(output.hookSpecificOutput.decision.updatedPermissions).toEqual([{ tool: "Bash", permission: "allow" }])
+    expect(output.hookSpecificOutput.decision.updatedPermissions).toEqual([
+      { tool: 'Bash', permission: 'allow' },
+    ])
   })
 
   // 8. PermissionRequest block with interrupt
   test('PermissionRequest block with interrupt', () => {
     sandbox = createSandbox()
-    sandbox.writeHook('perm-interrupt.ts', `
+    sandbox.writeHook(
+      'perm-interrupt.ts',
+      `
 export const hook = {
   meta: { name: "perm-interrupt" },
   PermissionRequest() {
@@ -194,7 +248,8 @@ export const hook = {
     }
   },
 }
-`)
+`,
+    )
     sandbox.writeConfig(`
 version: "1.0.0"
 perm-interrupt: {}
@@ -211,7 +266,9 @@ perm-interrupt: {}
   // 9. PostToolUse with updatedMCPToolOutput (top-level, not in hookSpecificOutput)
   test('PostToolUse with updatedMCPToolOutput → top-level output', () => {
     sandbox = createSandbox()
-    sandbox.writeHook('post-mcp.ts', `
+    sandbox.writeHook(
+      'post-mcp.ts',
+      `
 export const hook = {
   meta: { name: "post-mcp" },
   PostToolUse() {
@@ -221,7 +278,8 @@ export const hook = {
     }
   },
 }
-`)
+`,
+    )
     sandbox.writeConfig(`
 version: "1.0.0"
 post-mcp: {}
@@ -237,14 +295,17 @@ post-mcp: {}
   // 10. WorktreeCreate success without path → exit 1
   test('WorktreeCreate success without path → exit 1 with error', () => {
     sandbox = createSandbox()
-    sandbox.writeHook('worktree-nopath.ts', `
+    sandbox.writeHook(
+      'worktree-nopath.ts',
+      `
 export const hook = {
   meta: { name: "worktree-nopath" },
   WorktreeCreate() {
     return { result: "success" as const }
   },
 }
-`)
+`,
+    )
     sandbox.writeConfig(`
 version: "1.0.0"
 worktree-nopath: {}
@@ -257,7 +318,9 @@ worktree-nopath: {}
   // 11. PermissionRequest allow with updatedInput only (no updatedPermissions)
   test('PermissionRequest allow with updatedInput only', () => {
     sandbox = createSandbox()
-    sandbox.writeHook('perm-input.ts', `
+    sandbox.writeHook(
+      'perm-input.ts',
+      `
 export const hook = {
   meta: { name: "perm-input" },
   PermissionRequest() {
@@ -267,7 +330,8 @@ export const hook = {
     }
   },
 }
-`)
+`,
+    )
     sandbox.writeConfig(`
 version: "1.0.0"
 perm-input: {}
@@ -277,7 +341,7 @@ perm-input: {}
     const output = JSON.parse(result.stdout)
     expect(output.hookSpecificOutput.hookEventName).toBe('PermissionRequest')
     expect(output.hookSpecificOutput.decision.behavior).toBe('allow')
-    expect(output.hookSpecificOutput.decision.updatedInput).toEqual({ command: "safe-cmd" })
+    expect(output.hookSpecificOutput.decision.updatedInput).toEqual({ command: 'safe-cmd' })
     expect(output.hookSpecificOutput.decision.updatedPermissions).toBeUndefined()
   })
 })

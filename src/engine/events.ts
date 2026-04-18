@@ -11,6 +11,7 @@ export const GUARD_EVENTS: Set<EventName> = new Set<EventName>([
   'Stop',
   'SubagentStop',
   'ConfigChange',
+  'PreCompact',
 ])
 
 export const OBSERVE_EVENTS: Set<EventName> = new Set<EventName>([
@@ -22,11 +23,12 @@ export const OBSERVE_EVENTS: Set<EventName> = new Set<EventName>([
   'Notification',
   'SubagentStart',
   'WorktreeRemove',
-  'PreCompact',
+  'PostCompact',
 ])
 
 export const CONTINUATION_EVENTS: Set<EventName> = new Set<EventName>([
   'TeammateIdle',
+  'TaskCreated',
   'TaskCompleted',
 ])
 

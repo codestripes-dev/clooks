@@ -1,0 +1,5 @@
+{
+  "hook_event_name": "PostCompact",
+  "trigger": "auto",
+  "compact_summary": "Summary of the compacted conversation..."
+}
