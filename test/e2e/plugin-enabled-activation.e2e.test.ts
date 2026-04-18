@@ -691,11 +691,20 @@ describe('plugin-enabled-activation', () => {
     sandbox = createSandbox()
     sandbox.writeHomeConfig('version: "1.0.0"\n')
 
-    // User Claude settings enables a plugin that has no install record.
-    sandbox.writeHomeFile(
-      '.claude/settings.json',
-      JSON.stringify({ enabledPlugins: { 'ghost@mp': true } }),
-    )
+    setupPluginWithEnable(sandbox, {
+      pluginKey: 'ghost@mp',
+      packName: 'ghost',
+      installRecordScope: 'user',
+      enable: { user: true },
+      orphaned: true,
+      hooks: {
+        'ghost-hook': {
+          path: 'hooks/ghost-hook.ts',
+          description: 'Drift B fixture',
+          code: HOOK_CODE('ghost-hook', 'ghost-ran'),
+        },
+      },
+    })
 
     const result = sandbox.run([], { stdin: loadEvent('session-start.json') })
     expect(result.exitCode).toBe(0)
@@ -705,6 +714,44 @@ describe('plugin-enabled-activation', () => {
     expect(sysMsg).toContain('ghost@mp')
     expect(sysMsg).toContain('no install record exists on disk')
     expect(sysMsg).toContain('/plugin install ghost@mp')
+  })
+
+  test('E2E-M4-2b. Non-clooks plugin enabled without install does NOT produce advisory', () => {
+    sandbox = createSandbox()
+    sandbox.writeHomeConfig('version: "1.0.0"\n')
+
+    sandbox.writeHomeFile(
+      '.claude/plugins/installed_plugins.json',
+      JSON.stringify({
+        version: 2,
+        plugins: {
+          'stale-skill@mp': [
+            {
+              scope: 'user',
+              installPath: join(sandbox.home, '.claude/plugins/cache/mp/stale-skill/gone'),
+              version: 'unknown',
+            },
+          ],
+        },
+      }),
+    )
+    sandbox.writeHomeFile(
+      '.claude/settings.json',
+      JSON.stringify({
+        enabledPlugins: {
+          'stale-skill@mp': true,
+          'never-installed@mp': true,
+        },
+      }),
+    )
+
+    const result = sandbox.run([], { stdin: loadEvent('session-start.json') })
+    expect(result.exitCode).toBe(0)
+    const sysMsg: string =
+      result.stdout.length > 0 ? (JSON.parse(result.stdout).systemMessage ?? '') : ''
+    expect(sysMsg).not.toContain('stale-skill@mp')
+    expect(sysMsg).not.toContain('never-installed@mp')
+    expect(sysMsg).not.toContain('no install record exists on disk')
   })
 
   test('E2E-M4-3. Advisories do NOT appear on non-SessionStart events', () => {
@@ -764,10 +811,20 @@ describe('plugin-enabled-activation', () => {
     sandbox = createSandbox()
     sandbox.writeHomeConfig('version: "1.0.0"\n')
 
-    sandbox.writeHomeFile(
-      '.claude/settings.json',
-      JSON.stringify({ enabledPlugins: { 'ghost@mp': true } }),
-    )
+    setupPluginWithEnable(sandbox, {
+      pluginKey: 'ghost@mp',
+      packName: 'ghost',
+      installRecordScope: 'user',
+      enable: { user: true },
+      orphaned: true,
+      hooks: {
+        'ghost-hook': {
+          path: 'hooks/ghost-hook.ts',
+          description: 'Silencer fixture',
+          code: HOOK_CODE('ghost-hook', 'ghost-ran'),
+        },
+      },
+    })
 
     const result = sandbox.run([], {
       stdin: loadEvent('session-start.json'),
@@ -800,20 +857,20 @@ describe('plugin-enabled-activation', () => {
     })
     seedVendoredEntry(sandbox, 'home', 'm4both', 'm4both-hook')
 
-    // Drift B (enable-without-install): enabled, no install record.
-    // Merge into the existing user settings.json written by setupPluginWithEnable.
-    let existing: { enabledPlugins?: Record<string, boolean> } = {}
-    try {
-      existing = JSON.parse(sandbox.readHomeFile('.claude/settings.json'))
-    } catch {
-      // Fresh file.
-    }
-    const enabled = existing.enabledPlugins ?? {}
-    enabled['ghost@mp'] = true
-    sandbox.writeHomeFile(
-      '.claude/settings.json',
-      JSON.stringify({ ...existing, enabledPlugins: enabled }),
-    )
+    setupPluginWithEnable(sandbox, {
+      pluginKey: 'ghost@mp',
+      packName: 'ghost',
+      installRecordScope: 'user',
+      enable: { user: true },
+      orphaned: true,
+      hooks: {
+        'ghost-hook': {
+          path: 'hooks/ghost-hook.ts',
+          description: 'Drift B fixture',
+          code: HOOK_CODE('ghost-hook', 'ghost-ran'),
+        },
+      },
+    })
 
     const result = sandbox.run([], { stdin: loadEvent('session-start.json') })
     expect(result.exitCode).toBe(0)
