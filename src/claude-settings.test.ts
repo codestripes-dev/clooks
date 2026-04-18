@@ -388,7 +388,11 @@ describe('readVendoredPluginEntries', () => {
 
 interface DetectorFixture {
   cacheRoot: string
-  writePack: (pluginKey: string, packName: string, opts?: { missingManifest?: boolean }) => string
+  writePack: (
+    pluginKey: string,
+    packName: string,
+    opts?: { missingManifest?: boolean; orphaned?: boolean },
+  ) => string
 }
 
 function buildDetectorFx(): DetectorFixture {
@@ -401,6 +405,9 @@ function buildDetectorFx(): DetectorFixture {
         join(installPath, 'clooks-pack.json'),
         JSON.stringify({ version: 1, name: packName, hooks: {} }),
       )
+    }
+    if (opts.orphaned) {
+      writeFileSync(join(installPath, '.orphaned_at'), new Date().toISOString())
     }
     return installPath
   }
@@ -462,17 +469,20 @@ describe('detectStaleAdvisories', () => {
     try {
       process.env.CLOOKS_SILENCE_STALE_PLUGIN_ADVISORIES = 'true'
       const installPath = dfx.writePack('foo@mp', 'foo')
+      const orphanedInstallPath = dfx.writePack('orphaned@mp', 'orphaned', { orphaned: true })
       const installedPluginsFile: InstalledPluginsFile = {
         version: 2,
-        plugins: { 'foo@mp': [{ scope: 'user', installPath }] },
+        plugins: {
+          'foo@mp': [{ scope: 'user', installPath }],
+          'orphaned@mp': [{ scope: 'user', installPath: orphanedInstallPath }],
+        },
       }
       const out = detectStaleAdvisories({
         installedPluginsFile,
         // Drift state present at every scope — both kinds.
         layers: {
           ...emptyLayers,
-          user: { 'ghost@mp': true, 'foo@mp': false },
-          project: { 'ghost2@mp': true },
+          user: { 'orphaned@mp': true, 'foo@mp': false },
         },
         clooksYmlReaders: {
           ...emptyReaders,
@@ -583,7 +593,11 @@ describe('detectStaleAdvisories', () => {
   })
 
   test('enable-without-install at project scope only -> one advisory tagged project', () => {
-    const installedPluginsFile: InstalledPluginsFile = { version: 2, plugins: {} }
+    const installPath = dfx.writePack('ghost@mp', 'ghost', { orphaned: true })
+    const installedPluginsFile: InstalledPluginsFile = {
+      version: 2,
+      plugins: { 'ghost@mp': [{ scope: 'project', installPath }] },
+    }
     const out = detectStaleAdvisories({
       installedPluginsFile,
       layers: { ...emptyLayers, project: { 'ghost@mp': true } },
@@ -598,11 +612,35 @@ describe('detectStaleAdvisories', () => {
     ])
   })
 
-  test('both drift types coexisting -> both advisories returned', () => {
-    const installPath = dfx.writePack('foo@mp', 'foo')
+  test('enable-without-install does NOT fire for non-clooks plugins (no clooks-pack.json)', () => {
+    const noManifestPath = dfx.writePack('skill@mp', 'skill', { missingManifest: true })
     const installedPluginsFile: InstalledPluginsFile = {
       version: 2,
-      plugins: { 'foo@mp': [{ scope: 'user', installPath }] },
+      plugins: {
+        'skill@mp': [{ scope: 'user', installPath: noManifestPath }],
+        'stale@mp': [{ scope: 'user', installPath: join(dfx.cacheRoot, 'gone') }],
+      },
+    }
+    const out = detectStaleAdvisories({
+      installedPluginsFile,
+      layers: {
+        ...emptyLayers,
+        user: { 'skill@mp': true, 'stale@mp': true, 'never-installed@mp': true },
+      },
+      clooksYmlReaders: emptyReaders,
+    })
+    expect(out).toEqual([])
+  })
+
+  test('both drift types coexisting -> both advisories returned', () => {
+    const installPath = dfx.writePack('foo@mp', 'foo')
+    const orphanedPath = dfx.writePack('ghost@mp', 'ghost', { orphaned: true })
+    const installedPluginsFile: InstalledPluginsFile = {
+      version: 2,
+      plugins: {
+        'foo@mp': [{ scope: 'user', installPath }],
+        'ghost@mp': [{ scope: 'user', installPath: orphanedPath }],
+      },
     }
     const out = detectStaleAdvisories({
       installedPluginsFile,
@@ -656,19 +694,13 @@ describe('detectStaleAdvisories', () => {
     ])
   })
 
-  test('null installedPluginsFile + some enabled key -> enable-without-install advisory surfaces', () => {
+  test('null installedPluginsFile + some enabled key -> no advisory (cannot verify clooks ownership)', () => {
     const out = detectStaleAdvisories({
       installedPluginsFile: null,
       layers: { ...emptyLayers, user: { 'ghost@mp': true } },
       clooksYmlReaders: emptyReaders,
     })
-    expect(out).toEqual([
-      {
-        kind: 'enable-without-install',
-        scope: 'user',
-        pluginKey: 'ghost@mp',
-      },
-    ])
+    expect(out).toEqual([])
   })
 
   test('when packName cannot be resolved to a pluginKey, falls back to packName as pluginKey', () => {
@@ -700,7 +732,17 @@ describe('detectStaleAdvisories', () => {
   })
 
   test('deterministic scope ordering user -> project -> local', () => {
-    const installedPluginsFile: InstalledPluginsFile = { version: 2, plugins: {} }
+    const aPath = dfx.writePack('a@mp', 'a', { orphaned: true })
+    const bPath = dfx.writePack('b@mp', 'b', { orphaned: true })
+    const cPath = dfx.writePack('c@mp', 'c', { orphaned: true })
+    const installedPluginsFile: InstalledPluginsFile = {
+      version: 2,
+      plugins: {
+        'a@mp': [{ scope: 'user', installPath: aPath }],
+        'b@mp': [{ scope: 'user', installPath: bPath }],
+        'c@mp': [{ scope: 'user', installPath: cPath }],
+      },
+    }
     const out = detectStaleAdvisories({
       installedPluginsFile,
       layers: {

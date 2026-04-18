@@ -184,6 +184,23 @@ export function readVendoredPluginEntries(ymlPath: string): VendoredHookEntry[] 
 }
 
 /**
+ * True if any install entry for `pluginKey` has a reachable `clooks-pack.json`.
+ * Used to gate the `enable-without-install` advisory so it only fires for
+ * plugins clooks can identify as its own.
+ */
+function hasClooksPackJson(file: InstalledPluginsFile, pluginKey: string): boolean {
+  const entries = file.plugins?.[pluginKey]
+  if (!Array.isArray(entries)) return false
+  for (const entry of entries) {
+    if (!entry || typeof entry !== 'object') continue
+    if (!entry.installPath) continue
+    if (!existsSync(entry.installPath)) continue
+    if (existsSync(join(entry.installPath, 'clooks-pack.json'))) return true
+  }
+  return false
+}
+
+/**
  * Build a map of manifest.name → pluginKey by reading clooks-pack.json
  * for each installed plugin entry. Plugins whose install records lack a
  * clooks-pack.json are omitted (they cannot produce vendored entries).
@@ -256,12 +273,13 @@ export function detectStaleAdvisories(opts: {
       }
     }
 
-    // Drift case B: enable-without-install.
+    // Drift case B: enable-without-install. Gated on hasClooksPackJson so
+    // non-clooks Claude plugins cannot produce noise.
     for (const [pluginKey, value] of Object.entries(layers[scope])) {
       if (value !== true) continue
-      const lookup = installedPluginsFile
-        ? lookupInstallPath(installedPluginsFile, pluginKey)
-        : undefined
+      if (!installedPluginsFile) continue
+      if (!hasClooksPackJson(installedPluginsFile, pluginKey)) continue
+      const lookup = lookupInstallPath(installedPluginsFile, pluginKey)
       if (!lookup) {
         advisories.push({
           kind: 'enable-without-install',
