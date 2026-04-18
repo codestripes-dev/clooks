@@ -1473,4 +1473,202 @@ describe('runEngine', () => {
       ).toBe(true)
     })
   })
+
+  describe('ConfigChange policy_settings runtime fallback (M5)', () => {
+    // (a) block for policy_settings → warning systemMessage, NO decision: "block"
+    it('downgrades block to skip for source: "policy_settings"', async () => {
+      mockLoadConfig.mockResolvedValue({
+        config: makeConfig({ blocker: {} }),
+        shadows: [],
+        hasProjectConfig: true,
+      })
+      mockLoadAllHooks.mockResolvedValue({
+        loaded: [
+          makeLoadedHook('blocker', {
+            ConfigChange: () => ({ result: 'block', reason: 'disallowed change' }),
+          }),
+        ],
+        loadErrors: [],
+      })
+      mockReadStdin.mockResolvedValue({
+        hook_event_name: 'ConfigChange',
+        source: 'policy_settings',
+      })
+      await runEngine(makeDeps()).catch(() => {})
+      const stdout = getStdout()
+      const parsed = JSON.parse(stdout.trim().split('\n')[0]!)
+      expect(parsed.decision).toBeUndefined()
+      expect(parsed.systemMessage).toContain('Clooks downgraded')
+      expect(parsed.systemMessage).toContain('policy_settings')
+      expect(parsed.systemMessage).toContain('disallowed change')
+    })
+
+    // (b) block for user_settings → unchanged: decision: "block" + reason
+    it('preserves block for source: "user_settings" (regression guard)', async () => {
+      mockLoadConfig.mockResolvedValue({
+        config: makeConfig({ blocker: {} }),
+        shadows: [],
+        hasProjectConfig: true,
+      })
+      mockLoadAllHooks.mockResolvedValue({
+        loaded: [
+          makeLoadedHook('blocker', {
+            ConfigChange: () => ({ result: 'block', reason: 'no can do' }),
+          }),
+        ],
+        loadErrors: [],
+      })
+      mockReadStdin.mockResolvedValue({
+        hook_event_name: 'ConfigChange',
+        source: 'user_settings',
+      })
+      await runEngine(makeDeps()).catch(() => {})
+      const stdout = getStdout()
+      const parsed = JSON.parse(stdout.trim().split('\n')[0]!)
+      expect(parsed.decision).toBe('block')
+      expect(parsed.reason).toBe('no can do')
+      expect(parsed.systemMessage).toBeUndefined()
+    })
+
+    // (c) block for policy_settings with no reason → default reason in warning
+    it('uses default reason when hook omits reason for policy_settings', async () => {
+      mockLoadConfig.mockResolvedValue({
+        config: makeConfig({ blocker: {} }),
+        shadows: [],
+        hasProjectConfig: true,
+      })
+      mockLoadAllHooks.mockResolvedValue({
+        loaded: [
+          makeLoadedHook('blocker', {
+            ConfigChange: () => ({ result: 'block' }),
+          }),
+        ],
+        loadErrors: [],
+      })
+      mockReadStdin.mockResolvedValue({
+        hook_event_name: 'ConfigChange',
+        source: 'policy_settings',
+      })
+      await runEngine(makeDeps()).catch(() => {})
+      const stdout = getStdout()
+      const parsed = JSON.parse(stdout.trim().split('\n')[0]!)
+      expect(parsed.decision).toBeUndefined()
+      expect(parsed.systemMessage).toContain('clooks: hook attempted to block policy_settings')
+    })
+
+    // (d) allow for policy_settings → unchanged (downgrade is block-only)
+    it('does not downgrade allow for policy_settings', async () => {
+      mockLoadConfig.mockResolvedValue({
+        config: makeConfig({ allower: {} }),
+        shadows: [],
+        hasProjectConfig: true,
+      })
+      mockLoadAllHooks.mockResolvedValue({
+        loaded: [
+          makeLoadedHook('allower', {
+            ConfigChange: () => ({ result: 'allow' }),
+          }),
+        ],
+        loadErrors: [],
+      })
+      mockReadStdin.mockResolvedValue({
+        hook_event_name: 'ConfigChange',
+        source: 'policy_settings',
+      })
+      await runEngine(makeDeps()).catch(() => {})
+      const stdout = getStdout()
+      // Allow on ConfigChange (a GUARD event) produces no output (skip-equivalent); no warning either.
+      expect(stdout.trim()).toBe('')
+    })
+
+    // (e) skip for policy_settings → unchanged
+    it('does not downgrade skip for policy_settings', async () => {
+      mockLoadConfig.mockResolvedValue({
+        config: makeConfig({ skipper: {} }),
+        shadows: [],
+        hasProjectConfig: true,
+      })
+      mockLoadAllHooks.mockResolvedValue({
+        loaded: [
+          makeLoadedHook('skipper', {
+            ConfigChange: () => ({ result: 'skip' }),
+          }),
+        ],
+        loadErrors: [],
+      })
+      mockReadStdin.mockResolvedValue({
+        hook_event_name: 'ConfigChange',
+        source: 'policy_settings',
+      })
+      await runEngine(makeDeps()).catch(() => {})
+      const stdout = getStdout()
+      // Skip on ConfigChange produces no output; no warning either.
+      expect(stdout.trim()).toBe('')
+    })
+
+    // (f) CLOBBER REGRESSION: block for policy_settings + systemMessage from a crashed continue hook
+    // → both messages joined in the final output. This pins the aggregation pipeline so a
+    // future refactor can't silently clobber the policy_settings warning with another systemMessage.
+    it('aggregates downgrade warning with other systemMessages (clobber regression)', async () => {
+      mockLoadConfig.mockResolvedValue({
+        config: makeConfig({ crasher: { onError: 'continue' }, blocker: {} }),
+        shadows: [],
+        hasProjectConfig: true,
+      })
+      mockLoadAllHooks.mockResolvedValue({
+        loaded: [
+          makeLoadedHook('crasher', {
+            ConfigChange: () => {
+              throw new Error('hook crashed')
+            },
+          }),
+          makeLoadedHook('blocker', {
+            ConfigChange: () => ({ result: 'block', reason: 'policy denial' }),
+          }),
+        ],
+        loadErrors: [],
+      })
+      mockReadStdin.mockResolvedValue({
+        hook_event_name: 'ConfigChange',
+        source: 'policy_settings',
+      })
+      await runEngine(makeDeps()).catch(() => {})
+      const stdout = getStdout()
+      const parsed = JSON.parse(stdout.trim().split('\n')[0]!)
+      // No block JSON — downgraded
+      expect(parsed.decision).toBeUndefined()
+      // systemMessage should contain BOTH the downgrade warning AND the crasher diagnostic
+      expect(parsed.systemMessage).toContain('Clooks downgraded')
+      expect(parsed.systemMessage).toContain('policy denial')
+      // Crashed hook's diagnostic (from onError: continue) should be surfaced
+      expect(parsed.systemMessage).toContain('crasher')
+      expect(parsed.systemMessage).toContain('hook crashed')
+    })
+
+    // (g) block for ConfigChange payload without source → unchanged
+    it('does not downgrade when source field is missing', async () => {
+      mockLoadConfig.mockResolvedValue({
+        config: makeConfig({ blocker: {} }),
+        shadows: [],
+        hasProjectConfig: true,
+      })
+      mockLoadAllHooks.mockResolvedValue({
+        loaded: [
+          makeLoadedHook('blocker', {
+            ConfigChange: () => ({ result: 'block', reason: 'no source' }),
+          }),
+        ],
+        loadErrors: [],
+      })
+      mockReadStdin.mockResolvedValue({
+        hook_event_name: 'ConfigChange',
+      })
+      await runEngine(makeDeps()).catch(() => {})
+      const stdout = getStdout()
+      const parsed = JSON.parse(stdout.trim().split('\n')[0]!)
+      expect(parsed.decision).toBe('block')
+      expect(parsed.reason).toBe('no source')
+      expect(parsed.systemMessage).toBeUndefined()
+    })
+  })
 })

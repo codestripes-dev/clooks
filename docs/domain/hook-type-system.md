@@ -21,6 +21,7 @@ The type system is organized around the `ClooksHook<C>` interface — a single t
 - `src/types/hook.ts` — `MaybeAsync<T>`, `HookMeta<C>`, `ClooksHook<C>`.
 - `src/types/lifecycle.ts` — `EventContextMap`, `EventResultMap`, `HookEventMeta`, `BeforeHookEvent`, `AfterHookEvent`.
 - `src/types/claude-code.ts` — Raw Claude Code types (snake_case). Used by the engine for stdin parsing and stdout serialization. Not part of the hook-author-facing API.
+- `src/types/permissions.ts` — `PermissionUpdateEntry` discriminated union and `PermissionDestination` enum (used by `PermissionRequestContext.permissionSuggestions` and `PermissionRequestResult.updatedPermissions`).
 - `src/normalize.ts` — Recursive snake_case → camelCase key normalization. Used by the engine to convert Claude Code payloads into hook-author-facing context objects.
 
 ## Patterns
@@ -81,7 +82,7 @@ Not all `BaseContext` fields are universally present across all events. The foll
 
 `PermissionRequestResult` supports additional fields beyond the base guard result:
 
-- **Allow variant:** `updatedInput?: Record<string, unknown>` and `updatedPermissions?: unknown[]`. When present, the engine emits `hookSpecificOutput.decision` with `behavior: "allow"` and the extra fields. When absent, allow is a bare exit 0.
+- **Allow variant:** `updatedInput?: Record<string, unknown>` and `updatedPermissions?: PermissionUpdateEntry[]`. When present, the engine emits `hookSpecificOutput.decision` with `behavior: "allow"` and the extra fields. When absent, allow is a bare exit 0. `PermissionUpdateEntry` is a discriminated union (tagged by `type`) with six variants: `addRules` / `replaceRules` / `removeRules` carry `rules: PermissionRule[]` and `behavior: PermissionRuleBehavior` (`"allow" | "deny" | "ask"`); `setMode` carries `mode: PermissionMode`; `addDirectories` / `removeDirectories` carry `directories: string[]`. Every entry carries a `destination: PermissionDestination` (`"session" | "localSettings" | "projectSettings" | "userSettings"`). The same entry shape is used by `PermissionRequestContext.permissionSuggestions` on the input side, so an allow-handler may echo a received suggestion verbatim (the upstream "always allow" pattern).
 - **Block variant:** `interrupt?: boolean`. When true, Claude Code stops entirely (not just denies the permission). The engine maps `reason` to `decision.message` in the output.
 
 ### PostToolUse output fields

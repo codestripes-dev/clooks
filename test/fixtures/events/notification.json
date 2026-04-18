@@ -1,4 +1,10 @@
 {
   "hook_event_name": "Notification",
+  "session_id": "test-session-001",
+  "transcript_path": "/tmp/transcript.json",
+  "cwd": "/tmp/test",
+  "permission_mode": "default",
+  "notification_type": "permission_prompt",
+  "title": "Permission required",
   "message": "test notification"
 }

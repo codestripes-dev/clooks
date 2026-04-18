@@ -68,6 +68,13 @@ export type {
   TaskCompletedContext,
 } from './contexts.js'
 
+export type {
+  PermissionDestination,
+  PermissionRuleBehavior,
+  PermissionRule,
+  PermissionUpdateEntry,
+} from './permissions.js'
+
 export type { MaybeAsync, HookMeta, ClooksHook } from './hook.js'
 
 export type {

@@ -9,7 +9,7 @@ All 20 lifecycle events: when they fire, what they match on, what input they rec
 | Event | Can block? | Hook types | Matcher filters |
 |-------|-----------|------------|-----------------|
 | `SessionStart` | No | Command only | how started: `startup`, `resume`, `clear`, `compact` |
-| `InstructionsLoaded` | No | Command only | not supported |
+| `InstructionsLoaded` | No | Command only | `load_reason`: `session_start`, `nested_traversal`, `path_glob_match`, `include`, `compact` (regex/alternation) |
 | `UserPromptSubmit` | Yes | All four | not supported |
 | `PreToolUse` | Yes | All four | tool name: `Bash`, `Edit\|Write`, `mcp__.*` |
 | `PermissionRequest` | Yes | All four | tool name (same as PreToolUse) |
@@ -27,7 +27,7 @@ All 20 lifecycle events: when they fire, what they match on, what input they rec
 | `WorktreeRemove` | No | Command only | not supported |
 | `PreCompact` | Yes | Command only | trigger: `manual`, `auto` |
 | `PostCompact` | No | Command only | trigger: `manual`, `auto` |
-| `SessionEnd` | No | Command only | reason: `clear`, `logout`, `prompt_input_exit`, `bypass_permissions_disabled`, `other` |
+| `SessionEnd` | No | Command only | reason: `clear`, `resume`, `logout`, `prompt_input_exit`, `bypass_permissions_disabled`, `other` |
 
 ## Common Input Fields (All Events)
 
@@ -50,13 +50,13 @@ All 20 lifecycle events: when they fire, what they match on, what input they rec
 
 ### InstructionsLoaded
 
-**Input:** `file_path`, `memory_type` (User/Project/Local/Managed), `load_reason` (session_start/nested_traversal/path_glob_match/include), optional `globs`, `trigger_file_path`, `parent_file_path`.
+**Input:** `file_path`, `memory_type` (User/Project/Local/Managed), `load_reason` (session_start/nested_traversal/path_glob_match/include/compact), optional `globs`, `trigger_file_path`, `parent_file_path`.
 **Output:** None. Audit/observability only. Exit code ignored.
 
 ### UserPromptSubmit
 
 **Input:** `prompt` (the submitted text).
-**Output:** `decision: "block"` + `reason` (shown to user, erases prompt). `additionalContext` added to context. Plain text stdout also added as context.
+**Output:** `decision: "block"` + `reason` (shown to user, erases prompt). `additionalContext` added to context. Plain text stdout also added as context. JSON `hookSpecificOutput.sessionTitle` sets the session title (equivalent to /rename); may be combined with `decision: "block"` or allow/skip results.
 
 ### PreToolUse
 
@@ -71,12 +71,12 @@ Deprecated: top-level `decision`/`reason`. Legacy `"approve"` → `"allow"`, `"b
 
 ### PermissionRequest
 
-**Input:** `tool_name`, `tool_input` (no `tool_use_id`), optional `permission_suggestions` (array of "always allow" options).
+**Input:** `tool_name`, `tool_input` (no `tool_use_id`), optional `permission_suggestions` (array of `PermissionUpdateEntry` objects representing the "always allow" options the user would see).
 **Does NOT fire in non-interactive mode (`-p`).**
 **Output via `hookSpecificOutput.decision`:**
 - `behavior`: `"allow"` or `"deny"`
 - `updatedInput`: for allow — modified tool input
-- `updatedPermissions`: for allow — applies permission rules (equivalent to "always allow")
+- `updatedPermissions`: array of `PermissionUpdateEntry` (discriminated by `type`: `addRules` / `replaceRules` / `removeRules` each carry `rules: PermissionRule[]` and `behavior: "allow" | "deny" | "ask"`; `setMode` carries `mode: PermissionMode`; `addDirectories` / `removeDirectories` carry `directories: string[]`. Every entry has `destination: "session" | "localSettings" | "projectSettings" | "userSettings"`). A hook may echo a `permission_suggestions` entry into `updatedPermissions` verbatim (the "always allow" pattern).
 - `message`: for deny — tells Claude why
 - `interrupt`: for deny — if `true`, stops Claude entirely
 
@@ -92,13 +92,13 @@ Deprecated: top-level `decision`/`reason`. Legacy `"approve"` → `"allow"`, `"b
 
 ### Notification
 
-**Input:** `message`, optional `title`, `notification_type`.
+**Input:** `message`, optional `title`, optional `notification_type` (one of `permission_prompt`, `idle_prompt`, `auth_success`, `elicitation_dialog`; absent in the payload when upstream runs the hook for all notification types).
 **Output:** `additionalContext`. Cannot block.
 
 ### SubagentStart
 
 **Input:** `agent_id`, `agent_type`.
-**Output:** `additionalContext` (injected into subagent's context). Cannot block.
+**Output:** `additionalContext` (injected into the spawned subagent's context — NOT the parent agent's). Cannot block.
 
 ### SubagentStop
 
@@ -114,22 +114,22 @@ Deprecated: top-level `decision`/`reason`. Legacy `"approve"` → `"allow"`, `"b
 ### TeammateIdle
 
 **Input:** `teammate_name`, `team_name`.
-**Output:** Exit 2 → teammate continues with stderr as feedback. JSON `{"continue": false, "stopReason": "..."}` → stops teammate entirely.
+**Output:** Exit 2 → teammate continues with stderr as feedback. JSON `{"continue": false, "stopReason": "..."}` → stops teammate entirely. Under `onError: "block"`, a hook crash now emits exit-2 + stderr (retry signal — same as a hook returning `continue`), aligned with upstream's documented re-run path. The stop-teammate path is only reachable via an explicit `{result: "stop"}` return.
 
 ### TaskCreated
 
 **Input:** `task_id`, `task_subject`, optional `task_description`, optional `teammate_name`, optional `team_name`.
-**Output:** Exit 2 → task not created, stderr fed back to model. JSON `{"continue": false, "stopReason": "..."}` → stops teammate.
+**Output:** Exit 2 → task not created, stderr fed back to model. JSON `{"continue": false, "stopReason": "..."}` → stops teammate. Under `onError: "block"`, a hook crash now emits exit-2 + stderr (retry signal — same as a hook returning `continue`), aligned with upstream's documented re-run path. The stop-teammate path is only reachable via an explicit `{result: "stop"}` return.
 
 ### TaskCompleted
 
 **Input:** `task_id`, `task_subject`, optional `task_description`, optional `teammate_name`, optional `team_name`.
-**Output:** Exit 2 → task not completed, stderr fed back to model. JSON `{"continue": false, "stopReason": "..."}` → stops teammate.
+**Output:** Exit 2 → task not completed, stderr fed back to model. JSON `{"continue": false, "stopReason": "..."}` → stops teammate. Under `onError: "block"`, a hook crash now emits exit-2 + stderr (retry signal — same as a hook returning `continue`), aligned with upstream's documented re-run path. The stop-teammate path is only reachable via an explicit `{result: "stop"}` return.
 
 ### ConfigChange
 
 **Input:** `source`, optional `file_path`.
-**Output:** `decision: "block"` + `reason`. **`policy_settings` cannot be blocked** — hooks fire for audit but blocking is ignored.
+**Output:** `decision: "block"` + `reason`. **`policy_settings` cannot be blocked** — hooks fire for audit but blocking is ignored upstream. Clooks downgrades a `{result: "block"}` on `policy_settings` to `skip` and emits a `systemMessage` warning so authors aren't confused. Other sources (`user_settings`, `project_settings`, `local_settings`, `skills`) honor block normally.
 
 ### WorktreeCreate
 
@@ -140,7 +140,7 @@ Deprecated: top-level `decision`/`reason`. Legacy `"approve"` → `"allow"`, `"b
 ### WorktreeRemove
 
 **Input:** `worktree_path` (absolute path being removed).
-**Output:** None. Cleanup only. Failures logged in debug mode only.
+**Output:** None. Cleanup only. Failures logged in debug mode only. Clooks divergence: under `onError: "block"`, failures surface via `systemMessage` to the agent (more visible than upstream's debug-only logging). This is intentional per Clooks' fail-closed philosophy.
 
 ### PreCompact
 
@@ -154,7 +154,7 @@ Deprecated: top-level `decision`/`reason`. Legacy `"approve"` → `"allow"`, `"b
 
 ### SessionEnd
 
-**Input:** `reason` (clear/logout/prompt_input_exit/bypass_permissions_disabled/other).
+**Input:** `reason` (clear/resume/logout/prompt_input_exit/bypass_permissions_disabled/other).
 **Output:** None. Cleanup/logging only.
 
 ## Related

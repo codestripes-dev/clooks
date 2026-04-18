@@ -137,7 +137,19 @@ export const hook = {
 version: "1.0.0"
 task-team: {}
 `)
-    const result = sandbox.run([], { stdin: loadEvent('task-completed.json') })
+    // Inline minimal payload: intentionally omits teammate_name to exercise the
+    // fallback path. The shared task-completed.json fixture now populates all
+    // optional fields for M2 coverage, so we cannot reuse it here.
+    const stdin = JSON.stringify({
+      hook_event_name: 'TaskCompleted',
+      session_id: 'test-session-001',
+      transcript_path: '/tmp/transcript.json',
+      cwd: '/tmp/test',
+      permission_mode: 'default',
+      task_id: 'task_001',
+      task_subject: 'Write unit tests',
+    })
+    const result = sandbox.run([], { stdin })
     expect(result.exitCode).toBe(0)
     expect(result.stdout.trim()).toBe('')
   })
@@ -165,6 +177,52 @@ ptuf-interrupt: {}
     expect(result.exitCode).toBe(0)
     const output = JSON.parse(result.stdout)
     expect(output.hookSpecificOutput.additionalContext).toBe('not-present')
+  })
+
+  // 6a. PermissionRequest — permissionSuggestions flows through as typed PermissionUpdateEntry[]
+  test('PermissionRequest — permissionSuggestions flows through as typed PermissionUpdateEntry[]', () => {
+    sandbox = createSandbox()
+    sandbox.writeHook(
+      'perm-suggest-flow.ts',
+      `
+export const hook = {
+  meta: { name: "perm-suggest-flow" },
+  PermissionRequest(ctx: any) {
+    const suggestions = ctx.permissionSuggestions
+    if (!Array.isArray(suggestions)) {
+      throw new Error("expected permissionSuggestions to be an array, got " + typeof suggestions)
+    }
+    if (suggestions.length !== 1) {
+      throw new Error("expected permissionSuggestions length 1, got " + suggestions.length)
+    }
+    const entry = suggestions[0]
+    if (entry.type !== "addRules") {
+      throw new Error("expected entry.type === 'addRules', got " + String(entry.type))
+    }
+    if (!Array.isArray(entry.rules) || entry.rules.length !== 1) {
+      throw new Error("expected entry.rules to be an array of length 1, got " + JSON.stringify(entry.rules))
+    }
+    if (entry.rules[0].toolName !== "Bash") {
+      throw new Error("expected entry.rules[0].toolName === 'Bash', got " + String(entry.rules[0].toolName))
+    }
+    if (entry.behavior !== "allow") {
+      throw new Error("expected entry.behavior === 'allow', got " + String(entry.behavior))
+    }
+    if (entry.destination !== "localSettings") {
+      throw new Error("expected entry.destination === 'localSettings', got " + String(entry.destination))
+    }
+    return { result: "skip" as const }
+  },
+}
+`,
+    )
+    sandbox.writeConfig(`
+version: "1.0.0"
+perm-suggest-flow: {}
+`)
+    const result = sandbox.run([], { stdin: loadEvent('permission-request.json') })
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout.trim()).toBe('')
   })
 
   // 6. PermissionRequest with permissionSuggestions absent
@@ -212,7 +270,14 @@ export const hook = {
   PermissionRequest() {
     return {
       result: "allow" as const,
-      updatedPermissions: [{ tool: "Bash", permission: "allow" }],
+      updatedPermissions: [
+        {
+          type: "addRules",
+          rules: [{ toolName: "Bash" }],
+          behavior: "allow",
+          destination: "session",
+        },
+      ],
     }
   },
 }
@@ -228,7 +293,12 @@ perm-perms: {}
     expect(output.hookSpecificOutput.hookEventName).toBe('PermissionRequest')
     expect(output.hookSpecificOutput.decision.behavior).toBe('allow')
     expect(output.hookSpecificOutput.decision.updatedPermissions).toEqual([
-      { tool: 'Bash', permission: 'allow' },
+      {
+        type: 'addRules',
+        rules: [{ toolName: 'Bash' }],
+        behavior: 'allow',
+        destination: 'session',
+      },
     ])
   })
 

@@ -12,6 +12,7 @@ import type {
   PreCompactTrigger,
   ConfigChangeSource,
 } from './branded.js'
+import type { PermissionUpdateEntry } from './permissions.js'
 
 export interface BaseContext {
   event: EventName
@@ -48,7 +49,7 @@ export interface PermissionRequestContext extends BaseContext {
   event: 'PermissionRequest'
   toolName: string
   toolInput: Record<string, unknown>
-  permissionSuggestions?: unknown[]
+  permissionSuggestions?: PermissionUpdateEntry[]
 }
 
 export interface StopContext extends BaseContext {
@@ -118,7 +119,7 @@ export interface NotificationContext extends BaseContext {
   event: 'Notification'
   message: string
   title?: string
-  notificationType: NotificationType
+  notificationType?: NotificationType
 }
 
 export interface SubagentStartContext extends BaseContext {

@@ -43,6 +43,7 @@ export type SessionStartSource = 'startup' | 'resume' | 'clear' | 'compact' | (s
 
 export type SessionEndReason =
   | 'clear'
+  | 'resume'
   | 'logout'
   | 'prompt_input_exit'
   | 'bypass_permissions_disabled'

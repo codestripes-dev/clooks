@@ -477,6 +477,23 @@ export async function runEngine(deps: RunEngineDeps = defaultDeps): Promise<void
       }
     }
 
+    // --- Runtime fallback: ConfigChange + policy_settings + block is silently ignored upstream.
+    // Upstream Claude Code silently ignores decision: "block" on policy_settings so enterprise
+    // policy always applies. Downgrade to skip and push a visible warning into systemMessages
+    // so the author knows their block didn't take effect.
+    if (
+      eventName === 'ConfigChange' &&
+      lastResult?.result === 'block' &&
+      (normalized.source as string | undefined) === 'policy_settings'
+    ) {
+      const blockReason = lastResult.reason ?? 'clooks: hook attempted to block policy_settings'
+      systemMessages.push(
+        `Clooks downgraded a ConfigChange hook's block to skip for source: "policy_settings" (reason: "${blockReason}"). ` +
+          `Upstream Claude Code silently ignores blocks on policy_settings (enterprise policy always applies).`,
+      )
+      lastResult = { result: 'skip' } as typeof lastResult
+    }
+
     // --- Translate and output ---
     if (lastResult === undefined) {
       // Even with no hook results, we may have system messages to deliver

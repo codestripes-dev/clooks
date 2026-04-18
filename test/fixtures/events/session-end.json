@@ -1,3 +1,8 @@
 {
-  "hook_event_name": "SessionEnd"
+  "hook_event_name": "SessionEnd",
+  "session_id": "test-session-001",
+  "transcript_path": "/tmp/transcript.json",
+  "cwd": "/tmp/test",
+  "permission_mode": "default",
+  "reason": "resume"
 }
