@@ -5,7 +5,7 @@ import type {
   HookSpecificOutputBase,
   UserPromptSubmitOutput,
 } from '../types/claude-code.js'
-import { INJECTABLE_EVENTS } from '../config/constants.js'
+import { INJECTABLE_EVENTS, NOTIFY_ONLY_EVENTS } from '../config/constants.js'
 import type { EngineResult, ExitCode } from './types.js'
 import { EXIT_OK, EXIT_HOOK_FAILURE, EXIT_STDERR } from './types.js'
 import { GUARD_EVENTS, OBSERVE_EVENTS, CONTINUATION_EVENTS } from './events.js'
@@ -23,6 +23,14 @@ export function translateResult(
   result: EngineResult,
 ): { output?: string; exitCode: ExitCode; stderr?: string } {
   const resultType = result.result
+
+  // --- NOTIFY_ONLY_EVENTS: output and exit code are ignored upstream.
+  // Short-circuit to EXIT_OK with no stdout, regardless of the hook's result.
+  // The crashed-hook stderr passthrough lives in the engine's run/error path
+  // (src/engine/run.ts), not here. See FEAT-0057 D1, D3.
+  if (NOTIFY_ONLY_EVENTS.has(eventName)) {
+    return { exitCode: EXIT_OK }
+  }
 
   // --- PreToolUse: uses hookSpecificOutput ---
   if (eventName === 'PreToolUse') {
@@ -131,6 +139,19 @@ export function translateResult(
         return { output: JSON.stringify(output), exitCode: EXIT_OK }
       }
       return { exitCode: EXIT_OK }
+    }
+  }
+
+  // PermissionDenied retry hint. Non-retry results fall through to
+  // the generic OBSERVE_EVENTS block below.
+  if (eventName === 'PermissionDenied' && resultType === 'retry') {
+    const hookOutput = {
+      hookEventName: 'PermissionDenied' as const,
+      retry: true,
+    }
+    return {
+      output: JSON.stringify({ hookSpecificOutput: hookOutput }),
+      exitCode: EXIT_OK,
     }
   }
 

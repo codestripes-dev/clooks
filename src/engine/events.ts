@@ -1,5 +1,5 @@
 import type { EventName } from '../types/branded.js'
-import { CLAUDE_CODE_EVENTS } from '../config/constants.js'
+import { CLAUDE_CODE_EVENTS, NOTIFY_ONLY_EVENTS } from '../config/constants.js'
 
 // Event categories for result translation.
 // Completeness is enforced by assertCategoryCompleteness() below — adding
@@ -21,6 +21,7 @@ export const OBSERVE_EVENTS: Set<EventName> = new Set<EventName>([
   'PostToolUse',
   'PostToolUseFailure',
   'Notification',
+  'PermissionDenied',
   'SubagentStart',
   'WorktreeRemove',
   'PostCompact',
@@ -61,7 +62,7 @@ export function assertCategoryCompleteness(
     if (!seen.has(event)) {
       throw new Error(
         `clooks: event "${event}" is in CLAUDE_CODE_EVENTS but not categorized in ` +
-          `GUARD_EVENTS, OBSERVE_EVENTS, CONTINUATION_EVENTS, or WorktreeCreate. ` +
+          `GUARD_EVENTS, OBSERVE_EVENTS, CONTINUATION_EVENTS, NOTIFY_ONLY_EVENTS, or WorktreeCreate. ` +
           `Add it to the appropriate category set in src/engine.ts.`,
       )
     }
@@ -78,9 +79,13 @@ export function assertCategoryCompleteness(
   }
 }
 
+// NOTIFY_ONLY_EVENTS is declared in src/config/constants.ts (alongside INJECTABLE_EVENTS)
+// and imported here for completeness-checking — do not redeclare the set here.
+// Example member: StopFailure (upstream drops stdout + exit code).
 assertCategoryCompleteness(CLAUDE_CODE_EVENTS, [
   ['GUARD_EVENTS', GUARD_EVENTS],
   ['OBSERVE_EVENTS', OBSERVE_EVENTS],
   ['CONTINUATION_EVENTS', CONTINUATION_EVENTS],
+  ['NOTIFY_ONLY_EVENTS', NOTIFY_ONLY_EVENTS],
   ['WorktreeCreate', new Set<EventName>(['WorktreeCreate'])],
 ])

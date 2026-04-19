@@ -1,4 +1,4 @@
-// Base context and 20 per-event context interfaces.
+// Base context and 21 per-event context interfaces.
 // The `event` field is the discriminant literal for each context type.
 
 import type {
@@ -12,6 +12,7 @@ import type {
   PreCompactTrigger,
   ConfigChangeSource,
 } from './branded.js'
+import type { StopFailureErrorType } from './claude-code.js'
 import type { PermissionUpdateEntry } from './permissions.js'
 
 export interface BaseContext {
@@ -71,6 +72,21 @@ export interface ConfigChangeContext extends BaseContext {
   event: 'ConfigChange'
   source: ConfigChangeSource
   filePath?: string
+}
+
+// --- Notify-only events ---
+
+export interface StopFailureContext extends BaseContext {
+  event: 'StopFailure'
+  error: StopFailureErrorType
+  errorDetails?: string
+  /**
+   * For StopFailure, this is the rendered API error string
+   * (e.g., "API Error: Rate limit reached") — NOT Claude's
+   * conversational text as in Stop / SubagentStop. See `errorDetails`
+   * for additional structured detail.
+   */
+  lastAssistantMessage?: string
 }
 
 // --- Observe events ---
@@ -143,6 +159,16 @@ export interface PostCompactContext extends BaseContext {
   event: 'PostCompact'
   trigger: PreCompactTrigger
   compactSummary: string
+}
+
+export interface PermissionDeniedContext extends BaseContext {
+  event: 'PermissionDenied'
+  toolName: string
+  /** Tool input as provided to Claude Code. Keys are camelCase. */
+  toolInput: Record<string, unknown>
+  toolUseId: string
+  /** The classifier's explanation for why the tool call was denied. */
+  denialReason: string
 }
 
 // --- Implementation events ---

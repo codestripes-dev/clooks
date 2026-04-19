@@ -5,6 +5,7 @@ import type {
   PreToolUseContext,
   UserPromptSubmitContext,
   PermissionRequestContext,
+  PermissionDeniedContext,
   StopContext,
   SubagentStopContext,
   ConfigChangeContext,
@@ -18,6 +19,7 @@ import type {
   WorktreeRemoveContext,
   PreCompactContext,
   PostCompactContext,
+  StopFailureContext,
   WorktreeCreateContext,
   TeammateIdleContext,
   TaskCreatedContext,
@@ -28,6 +30,7 @@ import type {
   PreToolUseResult,
   UserPromptSubmitResult,
   PermissionRequestResult,
+  PermissionDeniedResult,
   StopEventResult,
   SubagentStopResult,
   ConfigChangeResult,
@@ -41,6 +44,7 @@ import type {
   WorktreeRemoveResult,
   PreCompactResult,
   PostCompactResult,
+  StopFailureResult,
   WorktreeCreateResult,
   TeammateIdleResult,
   TaskCreatedResult,
@@ -96,6 +100,10 @@ export interface ClooksHook<C extends Record<string, unknown> = Record<string, u
   WorktreeRemove?: (ctx: WorktreeRemoveContext, config: C) => MaybeAsync<WorktreeRemoveResult>
   PreCompact?: (ctx: PreCompactContext, config: C) => MaybeAsync<PreCompactResult>
   PostCompact?: (ctx: PostCompactContext, config: C) => MaybeAsync<PostCompactResult>
+  PermissionDenied?: (ctx: PermissionDeniedContext, config: C) => MaybeAsync<PermissionDeniedResult>
+
+  // Notify-only events
+  StopFailure?: (ctx: StopFailureContext, config: C) => MaybeAsync<StopFailureResult>
 
   // Implementation events
   WorktreeCreate?: (ctx: WorktreeCreateContext, config: C) => MaybeAsync<WorktreeCreateResult>

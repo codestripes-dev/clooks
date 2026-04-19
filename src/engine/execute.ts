@@ -1,7 +1,7 @@
 import type { EventName, HookName } from '../types/branded.js'
 import type { ClooksConfig, ErrorMode } from '../config/schema.js'
 import type { LoadedHook, HookLoadError } from '../loader.js'
-import { INJECTABLE_EVENTS } from '../config/constants.js'
+import { INJECTABLE_EVENTS, NOTIFY_ONLY_EVENTS } from '../config/constants.js'
 import {
   readFailures,
   writeFailures,
@@ -240,6 +240,31 @@ export async function executeHooks(
           effectiveMode = 'continue'
         }
 
+        // Runtime fallback: NOTIFY_ONLY events cannot honor "block" — output is ignored
+        // upstream, so blocking is impossible. Coerce to "no-block" but still record
+        // the failure so the circuit breaker can quarantine a repeatedly crashing
+        // alerting hook (per FEAT-0057 D3 — circuit-breaker applies normally).
+        if (effectiveMode === 'block' && NOTIFY_ONLY_EVENTS.has(eventName)) {
+          process.stderr.write(
+            `clooks: hook "${loaded.name}" onError: "block" cannot apply to ${eventName} ` +
+              `(notify-only event — output and exit code ignored upstream). ` +
+              `Skipping; failure counted toward maxFailures.\n`,
+          )
+          failureState = recordFailure(failureState, loaded.name, eventName, errorMessage)
+          failuresDirty = true
+          const newCount = getFailureCount(failureState, loaded.name, eventName)
+          if (maxFailures !== 0 && newCount >= maxFailures) {
+            const msg = interpolateMessage(maxFailuresMessage, {
+              hook: loaded.name,
+              event: eventName,
+              count: newCount,
+              error: errorMessage,
+            })
+            degradedMessages.push(msg)
+          }
+          continue
+        }
+
         if (effectiveMode === 'block') {
           failureState = recordFailure(failureState, loaded.name, eventName, errorMessage)
           failuresDirty = true
@@ -366,7 +391,9 @@ export async function executeHooks(
         continue
       }
 
-      // Allow or other non-skip result: update pipeline state
+      // Allow or other non-skip result: update pipeline state.
+      // PermissionDenied's retry-wins semantic is handled by this "last non-skip"
+      // reducer — no short-circuit occurs because retry carries no block/updatedInput.
       if (resultObj.updatedInput) {
         currentToolInput = resultObj.updatedInput
       }
@@ -389,6 +416,10 @@ export async function executeHooks(
     }
 
     function shouldShortCircuit(settled: SettledHookResult): boolean {
+      // NOTIFY_ONLY events cannot honor block — never short-circuit a parallel batch
+      // on a notify-only hook crash. The post-batch circuit-breaker loop still
+      // records failures for quarantine accounting.
+      if (NOTIFY_ONLY_EVENTS.has(eventName)) return false
       if (settled.status === 'fulfilled') {
         const lr = settled.value as LifecycleResult
         const val = lr.result as EngineResult | undefined
@@ -582,7 +613,16 @@ export async function executeHooks(
           effectiveMode = 'continue'
         }
 
-        if (effectiveMode === 'block') {
+        // Runtime fallback: NOTIFY_ONLY events cannot honor "block" — emit the stderr
+        // warning and skip the block assignment. The post-batch circuit-breaker loop
+        // at 663-686 records the failure naturally.
+        if (effectiveMode === 'block' && NOTIFY_ONLY_EVENTS.has(eventName)) {
+          process.stderr.write(
+            `clooks: hook "${settled.hookName}" onError: "block" cannot apply to ${eventName} ` +
+              `(notify-only event — output and exit code ignored upstream). ` +
+              `Skipping; failure counted toward maxFailures.\n`,
+          )
+        } else if (effectiveMode === 'block') {
           const { maxFailures } = resolveMaxFailures(settled.hookName, config)
           const currentCount = getFailureCount(failureState, settled.hookName, eventName)
           const projectedCount = currentCount + 1

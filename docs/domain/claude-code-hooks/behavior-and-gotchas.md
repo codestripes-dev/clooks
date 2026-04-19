@@ -9,7 +9,7 @@ Execution model, async hooks, session snapshot, debugging, and all known pitfall
 - **All matching hooks run in parallel.** No sequential execution option. Sequential was explicitly closed as NOT_PLANNED.
 - **Identical handlers are deduplicated.** Command hooks by command string. HTTP hooks by URL.
 - **Default timeout:** 600 seconds (10 minutes) for command hooks. Configurable per hook.
-- **Hook type support varies:** Only 9 of 20 events support all four types. The rest are command-only. See [events.md](./events.md) for the full table.
+- **Hook type support varies:** Only 9 of 21 events support all four types. The rest are command-only. See [events.md](./events.md) for the full table.
 
 **Clooks implication:** Sequential execution with defined merge semantics is a key differentiator.
 
@@ -63,6 +63,8 @@ Toggle verbose mode with `Ctrl+O` to see hook output in transcript.
 **Exit 1 does NOT block.** Only exit 2 blocks. This is the most common mistake and the most dangerous for security hooks. A crashing hook silently allows the action to proceed.
 
 **Stderr is hidden by default.** Non-blocking errors (exit != 0, exit != 2) only show in verbose mode (`Ctrl+O`). Users won't know their hook is failing.
+
+**Exception:** `NOTIFY_ONLY` events (currently `StopFailure`) cannot enforce fail-closed — the turn has already failed upstream and output is dropped. See `events.md` § `NOTIFY_ONLY events`.
 
 ### Parallel Execution Race Condition
 
@@ -141,6 +143,6 @@ The `tool_response` field in PostToolUse varies by tool but Anthropic does not p
 ## Related
 
 - [overview.md](./overview.md) — Configuration, handler types, locations
-- [events.md](./events.md) — All 20 events with input/output
+- [events.md](./events.md) — All 21 events with input/output
 - [io-contract.md](./io-contract.md) — Exit codes, JSON output, decision patterns, tool_input schemas
 - [claude-code-hooks-api-deep-dive.md](../../research/claude-code-hooks-api-deep-dive.md) — Exhaustive research with unverified community details

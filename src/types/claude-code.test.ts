@@ -5,6 +5,7 @@ import type {
   SessionEndInput,
   StopInput,
   SubagentStopInput,
+  StopFailureInput,
   SubagentStartInput,
   InstructionsLoadedInput,
   PostToolUseFailureInput,
@@ -40,6 +41,8 @@ function describeInput(input: ClaudeCodeInput): string {
       return `SessionEnd:${input.reason}`
     case 'Stop':
       return `Stop:${String(input.stop_hook_active)}:${input.last_assistant_message}`
+    case 'StopFailure':
+      return `StopFailure:${input.error}:${input.error_details ?? ''}:${input.last_assistant_message ?? ''}`
     case 'SubagentStop':
       return `SubagentStop:${input.agent_transcript_path}:${input.last_assistant_message}:${input.agent_id}:${String(input.stop_hook_active)}`
     case 'SubagentStart':
@@ -108,6 +111,72 @@ describe('ClaudeCodeInput discriminated union narrowing', () => {
       last_assistant_message: 'done',
     }
     expect(describeInput(input)).toBe('Stop:true:done')
+  })
+
+  test('StopFailure narrows to error, error_details, last_assistant_message (API error string, not Claude text)', () => {
+    // Semantic trap: unlike Stop / SubagentStop where last_assistant_message carries
+    // Claude's conversational text, for StopFailure it carries the rendered API error
+    // string (e.g., "API Error: Rate limit reached"). A Stop handler copy-pasted onto
+    // StopFailure that parses this field as natural language will misbehave.
+    const input: StopFailureInput = {
+      ...common,
+      hook_event_name: 'StopFailure',
+      error: 'rate_limit',
+      error_details: '429 Too Many Requests',
+      last_assistant_message: 'API Error: Rate limit reached',
+    }
+    expect(describeInput(input)).toBe(
+      'StopFailure:rate_limit:429 Too Many Requests:API Error: Rate limit reached',
+    )
+  })
+
+  test('StopFailure accepts forward-compat error via (string & {}) tail', () => {
+    const input: StopFailureInput = {
+      ...common,
+      hook_event_name: 'StopFailure',
+      error: 'future_error_type_not_yet_known',
+    }
+    expect(describeInput(input)).toBe('StopFailure:future_error_type_not_yet_known::')
+    // Optional fields default to undefined.
+    expect(input.error_details).toBeUndefined()
+    expect(input.last_assistant_message).toBeUndefined()
+  })
+
+  test('StopFailure with empty-string error_details is distinct from undefined', () => {
+    // Pin the type-level distinction between optional-absent and optional-present-empty.
+    // Mirrors the PreCompact empty custom_instructions test earlier in this file.
+    const input: StopFailureInput = {
+      ...common,
+      hook_event_name: 'StopFailure',
+      error: 'unknown',
+      error_details: '',
+    }
+    expect(input.error_details).toBe('')
+    expect(input.error_details).not.toBeUndefined()
+    expect(describeInput(input)).toBe('StopFailure:unknown::')
+  })
+
+  test('StopFailure error accepts all seven documented literals', () => {
+    // Living catalogue: surfaces immediately if any upstream-documented error
+    // literal is removed from StopFailureErrorType. No TypeScript-safety benefit
+    // (the tail makes every string assignable) — purely a documentation guard.
+    const make = (error: StopFailureInput['error']): StopFailureInput => ({
+      ...common,
+      hook_event_name: 'StopFailure',
+      error,
+    })
+    const errors: Array<StopFailureInput['error']> = [
+      'rate_limit',
+      'authentication_failed',
+      'billing_error',
+      'invalid_request',
+      'server_error',
+      'max_output_tokens',
+      'unknown',
+    ]
+    for (const e of errors) {
+      expect(make(e).error).toBe(e)
+    }
   })
 
   test('SubagentStop narrows to agent_transcript_path', () => {

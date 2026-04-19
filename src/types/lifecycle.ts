@@ -10,12 +10,14 @@ import type {
   SessionStartContext,
   SessionEndContext,
   StopContext,
+  StopFailureContext,
   SubagentStopContext,
   SubagentStartContext,
   InstructionsLoadedContext,
   PostToolUseFailureContext,
   NotificationContext,
   PermissionRequestContext,
+  PermissionDeniedContext,
   ConfigChangeContext,
   WorktreeCreateContext,
   WorktreeRemoveContext,
@@ -33,12 +35,14 @@ import type {
   SessionStartResult,
   SessionEndResult,
   StopEventResult,
+  StopFailureResult,
   SubagentStopResult,
   SubagentStartResult,
   InstructionsLoadedResult,
   PostToolUseFailureResult,
   NotificationResult,
   PermissionRequestResult,
+  PermissionDeniedResult,
   ConfigChangeResult,
   WorktreeCreateResult,
   WorktreeRemoveResult,
@@ -58,12 +62,14 @@ export interface EventContextMap extends Record<EventName, unknown> {
   SessionStart: SessionStartContext
   SessionEnd: SessionEndContext
   Stop: StopContext
+  StopFailure: StopFailureContext
   SubagentStop: SubagentStopContext
   SubagentStart: SubagentStartContext
   InstructionsLoaded: InstructionsLoadedContext
   PostToolUseFailure: PostToolUseFailureContext
   Notification: NotificationContext
   PermissionRequest: PermissionRequestContext
+  PermissionDenied: PermissionDeniedContext
   ConfigChange: ConfigChangeContext
   WorktreeCreate: WorktreeCreateContext
   WorktreeRemove: WorktreeRemoveContext
@@ -81,12 +87,14 @@ export interface EventResultMap extends Record<EventName, unknown> {
   SessionStart: SessionStartResult
   SessionEnd: SessionEndResult
   Stop: StopEventResult
+  StopFailure: StopFailureResult
   SubagentStop: SubagentStopResult
   SubagentStart: SubagentStartResult
   InstructionsLoaded: InstructionsLoadedResult
   PostToolUseFailure: PostToolUseFailureResult
   Notification: NotificationResult
   PermissionRequest: PermissionRequestResult
+  PermissionDenied: PermissionDeniedResult
   ConfigChange: ConfigChangeResult
   WorktreeCreate: WorktreeCreateResult
   WorktreeRemove: WorktreeRemoveResult

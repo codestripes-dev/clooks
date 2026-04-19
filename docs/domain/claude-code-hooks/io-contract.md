@@ -43,6 +43,7 @@ Clooks is a JSON-producing intermediary — it aggregates results from multiple 
 | `Notification` / `SubagentStart` / `SessionStart` / `SessionEnd` | **Blocking errors are ignored.** Stderr shown to user only |
 | `WorktreeRemove` | Logged in debug mode only |
 | `InstructionsLoaded` | Exit code ignored |
+| `StopFailure` | Exit code and stdout both ignored (notify-only — see events.md § NOTIFY_ONLY events) |
 
 ## JSON Output (stdout on exit 0)
 
@@ -167,5 +168,5 @@ The `tool_response` field in PostToolUse contains the tool's return value. **Per
 ## Related
 
 - [overview.md](./overview.md) — Configuration, handler types, locations
-- [events.md](./events.md) — All 20 events with input/output
+- [events.md](./events.md) — All 21 events with input/output
 - [behavior-and-gotchas.md](./behavior-and-gotchas.md) — Execution model, async, known issues

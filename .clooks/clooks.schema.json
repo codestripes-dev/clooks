@@ -108,6 +108,19 @@
       },
       "additionalProperties": {}
     },
+    "StopFailure": {
+      "type": "object",
+      "properties": {
+        "order": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "additionalProperties": {}
+    },
     "SubagentStop": {
       "type": "object",
       "properties": {
@@ -238,7 +251,33 @@
       },
       "additionalProperties": {}
     },
+    "PostCompact": {
+      "type": "object",
+      "properties": {
+        "order": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "additionalProperties": {}
+    },
     "TeammateIdle": {
+      "type": "object",
+      "properties": {
+        "order": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "additionalProperties": {}
+    },
+    "TaskCreated": {
       "type": "object",
       "properties": {
         "order": {
@@ -383,6 +422,19 @@
             },
             "additionalProperties": false
           },
+          "StopFailure": {
+            "type": "object",
+            "properties": {
+              "onError": {
+                "type": "string",
+                "enum": ["block", "continue", "trace"]
+              },
+              "enabled": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          },
           "SubagentStop": {
             "type": "object",
             "properties": {
@@ -513,7 +565,33 @@
             },
             "additionalProperties": false
           },
+          "PostCompact": {
+            "type": "object",
+            "properties": {
+              "onError": {
+                "type": "string",
+                "enum": ["block", "continue", "trace"]
+              },
+              "enabled": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          },
           "TeammateIdle": {
+            "type": "object",
+            "properties": {
+              "onError": {
+                "type": "string",
+                "enum": ["block", "continue", "trace"]
+              },
+              "enabled": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          },
+          "TaskCreated": {
             "type": "object",
             "properties": {
               "onError": {

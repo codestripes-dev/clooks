@@ -151,7 +151,7 @@ The resolved command loads all three config files independently (does not reuse 
 
 ### `clooks types` / `clooks types --global`
 
-Extracts the embedded `.d.ts` type declarations to `.clooks/hooks/types.d.ts`. The file provides `ClooksHook`, all 20 event context types, all result types, and config generics — giving hook authors full IntelliSense without npm or package.json.
+Extracts the embedded `.d.ts` type declarations to `.clooks/hooks/types.d.ts`. The file provides `ClooksHook`, all 21 event context types, all result types, and config generics — giving hook authors full IntelliSense without npm or package.json.
 
 Always overwrites unconditionally (no version check). With `--global`, writes to `~/.clooks/hooks/types.d.ts` instead. Supports `--json` for structured output.
 

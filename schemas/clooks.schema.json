@@ -108,6 +108,19 @@
       },
       "additionalProperties": {}
     },
+    "StopFailure": {
+      "type": "object",
+      "properties": {
+        "order": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "additionalProperties": {}
+    },
     "SubagentStop": {
       "type": "object",
       "properties": {
@@ -397,6 +410,19 @@
             "additionalProperties": false
           },
           "Stop": {
+            "type": "object",
+            "properties": {
+              "onError": {
+                "type": "string",
+                "enum": ["block", "continue", "trace"]
+              },
+              "enabled": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          },
+          "StopFailure": {
             "type": "object",
             "properties": {
               "onError": {
