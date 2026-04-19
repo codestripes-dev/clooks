@@ -236,7 +236,7 @@ describe('clooks init', () => {
     const program = createTestProgram()
     await program.parseAsync(['init'], { from: 'user' })
 
-    // settings.json should be created with 21 events
+    // settings.json should be created with 22 events
     const settings = readSettings(tempDir)
     const hooks = settings.hooks as Record<string, unknown[]>
     expect(Object.keys(hooks)).toHaveLength(22)

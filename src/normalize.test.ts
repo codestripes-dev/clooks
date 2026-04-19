@@ -91,6 +91,13 @@ describe('normalizeKeys', () => {
     })
   })
 
+  it("leaves 'reason' key unchanged (PermissionDenied rename happens at engine layer, not here)", () => {
+    // The wire field rename (reason → denialReason) is intentionally NOT in normalizeKeys.
+    // It is handled event-specifically in src/engine/run.ts after the normalizeKeys call.
+    // This test confirms normalizeKeys is a pure snake→camel converter with no per-event logic.
+    expect(normalizeKeys({ reason: 'foo' })).toEqual({ reason: 'foo' })
+  })
+
   it('normalizes the StopFailure fixture → errorDetails and lastAssistantMessage are camelCased', () => {
     const fixturePath = join(__dirname, '..', 'test', 'fixtures', 'events', 'stop-failure.json')
     const raw = JSON.parse(readFileSync(fixturePath, 'utf8'))

@@ -10,6 +10,7 @@ import type {
   InstructionsLoadedInput,
   PostToolUseFailureInput,
   PermissionRequestInput,
+  PermissionDeniedInput,
   ConfigChangeInput,
   WorktreeCreateInput,
   WorktreeRemoveInput,
@@ -55,6 +56,8 @@ function describeInput(input: ClaudeCodeInput): string {
       return `Notification:${input.notification_type}:${input.message}`
     case 'PermissionRequest':
       return `PermissionRequest:${input.tool_name}`
+    case 'PermissionDenied':
+      return `PermissionDenied:${input.tool_name}`
     case 'ConfigChange':
       return `ConfigChange:${input.source}`
     case 'WorktreeCreate':
@@ -233,6 +236,21 @@ describe('ClaudeCodeInput discriminated union narrowing', () => {
       tool_input: { command: 'rm -rf node_modules' },
     }
     expect(describeInput(input)).toBe('PermissionRequest:Bash')
+  })
+
+  test('PermissionDenied narrows to tool_name (verifies exact branch, not default fallthrough)', () => {
+    // The describeInput switch has a default: branch that absorbs unhandled cases as
+    // "Unknown:...". A missing case would silently fall through to "Unknown:PermissionDenied".
+    // This test explicitly asserts the narrowed string to prove the branch is reached.
+    const input: PermissionDeniedInput = {
+      ...common,
+      hook_event_name: 'PermissionDenied',
+      tool_name: 'Bash',
+      tool_input: { command: 'rm -rf /tmp/build' },
+      tool_use_id: 'toolu_01TEST',
+      reason: 'Auto mode denied: command targets a path outside the project',
+    }
+    expect(describeInput(input)).toBe('PermissionDenied:Bash')
   })
 
   test('ConfigChange narrows to source', () => {

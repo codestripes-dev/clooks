@@ -1,4 +1,4 @@
-// Base context and 21 per-event context interfaces.
+// Base context and 22 per-event context interfaces.
 // The `event` field is the discriminant literal for each context type.
 
 import type {

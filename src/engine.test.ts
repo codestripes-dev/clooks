@@ -869,6 +869,62 @@ describe('translateResult', () => {
     expect(preToolIdx).toBeGreaterThan(-1)
     expect(notifyIdx).toBeLessThan(preToolIdx)
   })
+
+  // --- PermissionDenied ---
+
+  it('PermissionDenied retry → hookSpecificOutput with hookEventName and retry: true', () => {
+    const out = translateResult('PermissionDenied', { result: 'retry' })
+    expect(out.exitCode).toBe(0)
+    const parsed = JSON.parse(out.output!)
+    expect(parsed.hookSpecificOutput.hookEventName).toBe('PermissionDenied')
+    expect(parsed.hookSpecificOutput.retry).toBe(true)
+    expect(out.stderr).toBeUndefined()
+  })
+
+  it('PermissionDenied retry with debugMessage: debugMessage is silently dropped from stdout', () => {
+    const out = translateResult('PermissionDenied', { result: 'retry', debugMessage: 'hello' })
+    expect(out.exitCode).toBe(0)
+    const parsed = JSON.parse(out.output!)
+    expect(parsed.hookSpecificOutput.hookEventName).toBe('PermissionDenied')
+    expect(parsed.hookSpecificOutput.retry).toBe(true)
+    expect(out.stderr).toBeUndefined()
+  })
+
+  it('PermissionDenied retry with empty debugMessage: equivalent to absent (no extra fields)', () => {
+    const out = translateResult('PermissionDenied', { result: 'retry', debugMessage: '' })
+    expect(out.exitCode).toBe(0)
+    const parsed = JSON.parse(out.output!)
+    expect(parsed.hookSpecificOutput.hookEventName).toBe('PermissionDenied')
+    expect(parsed.hookSpecificOutput.retry).toBe(true)
+    expect(Object.keys(parsed)).toEqual(['hookSpecificOutput'])
+    expect(Object.keys(parsed.hookSpecificOutput)).toEqual(['hookEventName', 'retry'])
+    expect(out.stderr).toBeUndefined()
+  })
+
+  it('PermissionDenied skip → exit 0, no output', () => {
+    const out = translateResult('PermissionDenied', { result: 'skip' })
+    expect(out.exitCode).toBe(0)
+    expect(out.output).toBeUndefined()
+    expect(out.stderr).toBeUndefined()
+  })
+
+  it('PermissionDenied cascade-block (onError: block) → systemMessage on stdout, exit 0', () => {
+    // This is the onError: "block" path — a crashed hook produces a block result with reason.
+    // PermissionDenied is not injectable, so the OBSERVE branch emits systemMessage.
+    const out = translateResult('PermissionDenied', { result: 'block', reason: 'cascade' })
+    expect(out.exitCode).toBe(0)
+    const parsed = JSON.parse(out.output!)
+    expect(parsed.systemMessage).toBe('cascade')
+  })
+
+  it('PreToolUse with result: retry (as any) → fail-closed: exitCode 2, stderr mentions retry', () => {
+    // Safety net: retry is not a valid PreToolUse result. The translator must not
+    // silently produce an incorrect output. It should reach the "unknown result type"
+    // fall-through and fail closed. Assert the outcome, not a specific line number.
+    const out = translateResult('PreToolUse', { result: 'retry' } as any)
+    expect(out.exitCode).toBe(2)
+    expect(out.stderr).toContain('retry')
+  })
 })
 
 // --- matchHooksForEvent ---

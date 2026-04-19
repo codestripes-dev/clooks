@@ -33,6 +33,7 @@ Clooks is a JSON-producing intermediary — it aggregates results from multiple 
 |-------|---------------|
 | `PreToolUse` | Blocks tool call |
 | `PermissionRequest` | Denies permission |
+| `PermissionDenied` | **Blocking errors are ignored.** Retry hint delivered via JSON on exit 0, not via exit 2 |
 | `UserPromptSubmit` | Blocks and erases prompt |
 | `Stop` / `SubagentStop` | Prevents stopping, continues |
 | `TeammateIdle` | Teammate continues with stderr feedback |
@@ -168,5 +169,5 @@ The `tool_response` field in PostToolUse contains the tool's return value. **Per
 ## Related
 
 - [overview.md](./overview.md) — Configuration, handler types, locations
-- [events.md](./events.md) — All 21 events with input/output
+- [events.md](./events.md) — All 22 events with input/output
 - [behavior-and-gotchas.md](./behavior-and-gotchas.md) — Execution model, async, known issues

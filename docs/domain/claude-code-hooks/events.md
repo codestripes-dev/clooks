@@ -1,6 +1,6 @@
 # Claude Code Hooks — Events
 
-All 21 lifecycle events: when they fire, what they match on, what input they receive, and how to control their behavior.
+All 22 lifecycle events: when they fire, what they match on, what input they receive, and how to control their behavior.
 
 **Source:** Official Anthropic docs at `code.claude.com/docs/en/hooks`, verified 2026-03-08.
 
@@ -13,6 +13,7 @@ All 21 lifecycle events: when they fire, what they match on, what input they rec
 | `UserPromptSubmit` | Yes | All four | not supported |
 | `PreToolUse` | Yes | All four | tool name: `Bash`, `Edit\|Write`, `mcp__.*` |
 | `PermissionRequest` | Yes | All four | tool name (same as PreToolUse) |
+| `PermissionDenied` | No (denial already happened; can emit retry hint) | Command only | tool name (same as PreToolUse) |
 | `PostToolUse` | Yes | All four | tool name |
 | `PostToolUseFailure` | No | All four | tool name |
 | `Notification` | No | Command only | type: `permission_prompt`, `idle_prompt`, `auth_success`, `elicitation_dialog` |
@@ -80,6 +81,15 @@ Deprecated: top-level `decision`/`reason`. Legacy `"approve"` → `"allow"`, `"b
 - `updatedPermissions`: array of `PermissionUpdateEntry` (discriminated by `type`: `addRules` / `replaceRules` / `removeRules` each carry `rules: PermissionRule[]` and `behavior: "allow" | "deny" | "ask"`; `setMode` carries `mode: PermissionMode`; `addDirectories` / `removeDirectories` carry `directories: string[]`. Every entry has `destination: "session" | "localSettings" | "projectSettings" | "userSettings"`). A hook may echo a `permission_suggestions` entry into `updatedPermissions` verbatim (the "always allow" pattern).
 - `message`: for deny — tells Claude why
 - `interrupt`: for deny — if `true`, stops Claude entirely
+
+### PermissionDenied
+
+Fires only in auto mode when the permission classifier denies a tool call (does not fire on manual deny, `PreToolUse` block, or `deny` rule match).
+
+**Input:** `tool_name`, `tool_input`, `tool_use_id`, `reason` (classifier's explanation).
+**Output:** `hookSpecificOutput.retry: true` (optional) — tells the model it may retry the denied tool call. The denial itself is not reversible. No `additionalContext` channel.
+
+Clooks exposes this as the `retry` result primitive: `return { result: 'retry' }` emits the hint; `return { result: 'skip' }` lets the denial stand without a hint. Multi-hook reduction is OR-based (any retry wins); all hooks run to completion (no short-circuit) so audit-log hooks fire even when another hook also requests retry. Cascade-block (crashed hook under `onError: block`) surfaces as a `systemMessage` — the denial still stands.
 
 ### PostToolUse
 

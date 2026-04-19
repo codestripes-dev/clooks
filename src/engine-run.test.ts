@@ -1828,4 +1828,307 @@ describe('runEngine', () => {
       ).toBe(3)
     })
   })
+
+  // --- PermissionDenied: multi-hook reducer tests ---
+
+  function permissionDeniedPayload() {
+    return {
+      hook_event_name: 'PermissionDenied',
+      session_id: 'sess-pd-test',
+      cwd: '/tmp/proj',
+      permission_mode: 'auto',
+      transcript_path: '/tmp/transcript.jsonl',
+      tool_name: 'Bash',
+      tool_input: { command: 'rm -rf /tmp/build' },
+      tool_use_id: 'toolu_01TEST',
+      reason: 'Auto mode denied: command targets a path outside the project',
+    }
+  }
+
+  describe('PermissionDenied multi-hook reducer', () => {
+    // Note: the engine uses `process.exitCode = EXIT_OK` (not process.exit(0)) for the
+    // normal success path when translateResult returns EXIT_OK. exitSpy is NOT called
+    // for successful hook runs. These tests check stdout and exitSpy non-invocation instead.
+
+    it('skip, retry, skip → retry wins; counter === 3 (no short-circuit in sequential)', async () => {
+      let counter = 0
+      mockLoadConfig.mockResolvedValue({
+        config: makeConfig({ h1: {}, h2: {}, h3: {} }),
+        shadows: [],
+        hasProjectConfig: true,
+      })
+      mockLoadAllHooks.mockResolvedValue({
+        loaded: [
+          makeLoadedHook('h1', {
+            PermissionDenied: () => {
+              counter++
+              return { result: 'skip' }
+            },
+          }),
+          makeLoadedHook('h2', {
+            PermissionDenied: () => {
+              counter++
+              return { result: 'retry' }
+            },
+          }),
+          makeLoadedHook('h3', {
+            PermissionDenied: () => {
+              counter++
+              return { result: 'skip' }
+            },
+          }),
+        ],
+        loadErrors: [],
+      })
+      mockReadStdin.mockResolvedValue(permissionDeniedPayload())
+      await runEngine(makeDeps()).catch(() => {})
+      // exitSpy not called for EXIT_OK path (engine uses process.exitCode = 0)
+      expect(exitSpy).not.toHaveBeenCalled()
+      const stdout = getStdout()
+      const parsed = JSON.parse(stdout.trim().split('\n')[0]!)
+      expect(parsed.hookSpecificOutput.hookEventName).toBe('PermissionDenied')
+      expect(parsed.hookSpecificOutput.retry).toBe(true)
+      expect(counter).toBe(3)
+    })
+
+    it('retry, skip, skip → retry wins; counter === 3 (order-independence)', async () => {
+      let counter = 0
+      mockLoadConfig.mockResolvedValue({
+        config: makeConfig({ h1: {}, h2: {}, h3: {} }),
+        shadows: [],
+        hasProjectConfig: true,
+      })
+      mockLoadAllHooks.mockResolvedValue({
+        loaded: [
+          makeLoadedHook('h1', {
+            PermissionDenied: () => {
+              counter++
+              return { result: 'retry' }
+            },
+          }),
+          makeLoadedHook('h2', {
+            PermissionDenied: () => {
+              counter++
+              return { result: 'skip' }
+            },
+          }),
+          makeLoadedHook('h3', {
+            PermissionDenied: () => {
+              counter++
+              return { result: 'skip' }
+            },
+          }),
+        ],
+        loadErrors: [],
+      })
+      mockReadStdin.mockResolvedValue(permissionDeniedPayload())
+      await runEngine(makeDeps()).catch(() => {})
+      expect(exitSpy).not.toHaveBeenCalled()
+      const stdout = getStdout()
+      const parsed = JSON.parse(stdout.trim().split('\n')[0]!)
+      expect(parsed.hookSpecificOutput.hookEventName).toBe('PermissionDenied')
+      expect(parsed.hookSpecificOutput.retry).toBe(true)
+      expect(counter).toBe(3)
+    })
+
+    it('all-skip → no stdout, exit 0; counter === 3', async () => {
+      // All-skip path: lastResult is undefined, engine calls process.exit(EXIT_OK) at
+      // run.ts line ~535. The exitSpy mock throws, which the engine's catch re-exits via 2.
+      // Assert the first call was with 0.
+      let counter = 0
+      mockLoadConfig.mockResolvedValue({
+        config: makeConfig({ h1: {}, h2: {}, h3: {} }),
+        shadows: [],
+        hasProjectConfig: true,
+      })
+      mockLoadAllHooks.mockResolvedValue({
+        loaded: [
+          makeLoadedHook('h1', {
+            PermissionDenied: () => {
+              counter++
+              return { result: 'skip' }
+            },
+          }),
+          makeLoadedHook('h2', {
+            PermissionDenied: () => {
+              counter++
+              return { result: 'skip' }
+            },
+          }),
+          makeLoadedHook('h3', {
+            PermissionDenied: () => {
+              counter++
+              return { result: 'skip' }
+            },
+          }),
+        ],
+        loadErrors: [],
+      })
+      mockReadStdin.mockResolvedValue(permissionDeniedPayload())
+      await runEngine(makeDeps()).catch(() => {})
+      expect(exitSpy).toHaveBeenCalledWith(0)
+      expect(getStdout()).toBe('')
+      expect(counter).toBe(3)
+    })
+
+    it('all-retry → exactly one retry hint on stdout; counter === 3', async () => {
+      let counter = 0
+      mockLoadConfig.mockResolvedValue({
+        config: makeConfig({ h1: {}, h2: {}, h3: {} }),
+        shadows: [],
+        hasProjectConfig: true,
+      })
+      mockLoadAllHooks.mockResolvedValue({
+        loaded: [
+          makeLoadedHook('h1', {
+            PermissionDenied: () => {
+              counter++
+              return { result: 'retry' }
+            },
+          }),
+          makeLoadedHook('h2', {
+            PermissionDenied: () => {
+              counter++
+              return { result: 'retry' }
+            },
+          }),
+          makeLoadedHook('h3', {
+            PermissionDenied: () => {
+              counter++
+              return { result: 'retry' }
+            },
+          }),
+        ],
+        loadErrors: [],
+      })
+      mockReadStdin.mockResolvedValue(permissionDeniedPayload())
+      await runEngine(makeDeps()).catch(() => {})
+      expect(exitSpy).not.toHaveBeenCalled()
+      // The stdout should have exactly one JSON line (not three retry hints)
+      const lines = getStdout().trim().split('\n').filter(Boolean)
+      expect(lines).toHaveLength(1)
+      const parsed = JSON.parse(lines[0]!)
+      expect(parsed.hookSpecificOutput.hookEventName).toBe('PermissionDenied')
+      expect(parsed.hookSpecificOutput.retry).toBe(true)
+      expect(counter).toBe(3)
+    })
+
+    it('parallel: skip + retry → retry wins; counter === 2 (no short-circuit in parallel)', async () => {
+      let counter = 0
+      mockLoadConfig.mockResolvedValue({
+        config: makeConfig({ h1: { parallel: true }, h2: { parallel: true } }),
+        shadows: [],
+        hasProjectConfig: true,
+      })
+      mockLoadAllHooks.mockResolvedValue({
+        loaded: [
+          makeLoadedHook('h1', {
+            PermissionDenied: () => {
+              counter++
+              return { result: 'skip' }
+            },
+          }),
+          makeLoadedHook('h2', {
+            PermissionDenied: () => {
+              counter++
+              return { result: 'retry' }
+            },
+          }),
+        ],
+        loadErrors: [],
+      })
+      mockReadStdin.mockResolvedValue(permissionDeniedPayload())
+      await runEngine(makeDeps()).catch(() => {})
+      expect(exitSpy).not.toHaveBeenCalled()
+      const lines = getStdout().trim().split('\n').filter(Boolean)
+      expect(lines).toHaveLength(1)
+      const parsed = JSON.parse(lines[0]!)
+      expect(parsed.hookSpecificOutput.hookEventName).toBe('PermissionDenied')
+      expect(parsed.hookSpecificOutput.retry).toBe(true)
+      expect(counter).toBe(2)
+    })
+
+    it('sequential: throwing hook does not short-circuit retry-wins reducer', async () => {
+      let counter = 0
+      mockLoadConfig.mockResolvedValue({
+        config: makeConfig({ h1: { onError: 'continue' }, h2: {}, h3: {} }),
+        shadows: [],
+        hasProjectConfig: true,
+      })
+      mockLoadAllHooks.mockResolvedValue({
+        loaded: [
+          makeLoadedHook('h1', {
+            PermissionDenied: () => {
+              counter++
+              throw new Error('boom')
+            },
+          }),
+          makeLoadedHook('h2', {
+            PermissionDenied: () => {
+              counter++
+              return { result: 'retry' }
+            },
+          }),
+          makeLoadedHook('h3', {
+            PermissionDenied: () => {
+              counter++
+              return { result: 'skip' }
+            },
+          }),
+        ],
+        loadErrors: [],
+      })
+      mockReadStdin.mockResolvedValue(permissionDeniedPayload())
+      await runEngine(makeDeps()).catch(() => {})
+      // retry wins over skip; throwing hook configured with onError: 'continue' does not block
+      expect(exitSpy).not.toHaveBeenCalled()
+      const lines = getStdout().trim().split('\n').filter(Boolean)
+      expect(lines).toHaveLength(1)
+      const parsed = JSON.parse(lines[0]!)
+      expect(parsed.hookSpecificOutput.hookEventName).toBe('PermissionDenied')
+      expect(parsed.hookSpecificOutput.retry).toBe(true)
+      // all three hooks ran; the throw in h1 did not short-circuit the sequential reducer
+      expect(counter).toBe(3)
+    })
+  })
+
+  // --- PermissionDenied: wire rename end-to-end ---
+
+  describe('PermissionDenied wire rename (reason → denialReason)', () => {
+    it('pipes reason through run.ts rename so ctx.denialReason equals wire reason', async () => {
+      let capturedDenialReason: unknown = undefined
+      mockLoadConfig.mockResolvedValue({
+        config: makeConfig({ 'capture-hook': {} }),
+        shadows: [],
+        hasProjectConfig: true,
+      })
+      mockLoadAllHooks.mockResolvedValue({
+        loaded: [
+          makeLoadedHook('capture-hook', {
+            PermissionDenied: (ctx: any) => {
+              capturedDenialReason = ctx.denialReason
+              return { result: 'skip' }
+            },
+          }),
+        ],
+        loadErrors: [],
+      })
+      mockReadStdin.mockResolvedValue({
+        hook_event_name: 'PermissionDenied',
+        session_id: 'sess-rename-test',
+        cwd: '/tmp/proj',
+        permission_mode: 'auto',
+        transcript_path: '/tmp/transcript.jsonl',
+        tool_name: 'Bash',
+        tool_input: { command: 'rm -rf /tmp' },
+        tool_use_id: 'toolu_rename',
+        reason: 'classifier said no',
+      })
+      await runEngine(makeDeps()).catch(() => {})
+      // Hook returns skip → lastResult is undefined → engine calls process.exit(EXIT_OK)
+      expect(exitSpy).toHaveBeenCalledWith(0)
+      // If the rename didn't happen, capturedDenialReason would be undefined.
+      expect(capturedDenialReason).toBe('classifier said no')
+    })
+  })
 })

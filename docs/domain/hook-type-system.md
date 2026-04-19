@@ -16,8 +16,8 @@ The type system is organized around the `ClooksHook<C>` interface — a single t
 
 - `src/types/index.ts` — Public API barrel. Re-exports everything from submodules.
 - `src/types/branded.ts` — `EventName` (closed literal union), `HookName` and `Milliseconds` (branded types), plus 8 forward-compatible union types for enum-like fields.
-- `src/types/results.ts` — 7 base result types + 21 per-event result types.
-- `src/types/contexts.ts` — `BaseContext` + 21 per-event context interfaces.
+- `src/types/results.ts` — 9 base result types + 22 per-event result types.
+- `src/types/contexts.ts` — `BaseContext` + 22 per-event context interfaces.
 - `src/types/hook.ts` — `MaybeAsync<T>`, `HookMeta<C>`, `ClooksHook<C>`.
 - `src/types/lifecycle.ts` — `EventContextMap`, `EventResultMap`, `HookEventMeta`, `BeforeHookEvent`, `AfterHookEvent`.
 - `src/types/claude-code.ts` — Raw Claude Code types (snake_case). Used by the engine for stdin parsing and stdout serialization. Not part of the hook-author-facing API.
@@ -33,14 +33,14 @@ Events fall into 4 categories, each with a distinct result pattern:
 | Category | Result options | Events |
 |----------|--------------|--------|
 | Guard | allow, block, skip | PreToolUse, UserPromptSubmit, PermissionRequest, Stop, SubagentStop, ConfigChange, PreCompact |
-| Observe | skip (PostToolUse also accepts block) | SessionStart, SessionEnd, InstructionsLoaded, PostToolUse, PostToolUseFailure, Notification, SubagentStart, WorktreeRemove, PostCompact |
+| Observe | skip (PostToolUse also accepts block; PermissionDenied also accepts retry) | SessionStart, SessionEnd, InstructionsLoaded, PostToolUse, PostToolUseFailure, Notification, SubagentStart, WorktreeRemove, PostCompact, PermissionDenied |
 | Implementation | success, failure | WorktreeCreate |
 | Continuation | continue, stop, skip | TeammateIdle, TaskCreated, TaskCompleted |
 | NOTIFY_ONLY | skip (output ignored upstream) | StopFailure |
 
 ### ResultTag and ExitCode
 
-`ResultTag` (in `src/types/results.ts`) is a literal union of all result discriminant values: `"allow" | "block" | "skip" | "success" | "failure" | "continue" | "stop"`. It names the union that already exists implicitly across the base result types. The engine uses `ResultTag` in the `EngineResult` interface to type result objects flowing through the execution pipeline, eliminating `as string` casts on result discriminants.
+`ResultTag` (in `src/types/results.ts`) is a literal union of all result discriminant values: `"allow" | "block" | "skip" | "success" | "failure" | "continue" | "stop" | "retry"`. It names the union that already exists implicitly across the base result types. The engine uses `ResultTag` in the `EngineResult` interface to type result objects flowing through the execution pipeline, eliminating `as string` casts on result discriminants.
 
 `ExitCode` (in `src/engine.ts`) is a literal union derived from three `as const` constants:
 - `EXIT_OK = 0` — Success. Stdout may contain JSON output.
@@ -95,7 +95,7 @@ Not all `BaseContext` fields are universally present across all events. The foll
 The type system uses three distinct strategies for semantic types, depending on the domain:
 
 **Closed literal union — `EventName`:**
-`EventName` is a union of all 21 known Claude Code event name literals (e.g., `"PreToolUse" | "PostToolUse" | ...`). It does NOT include `(string & {})` — it is a closed set. The engine must know every event to translate results correctly. Unknown events are fail-closed errors, not forward-compatible pass-throughs. The type guard `isEventName()` (in `src/config/constants.ts`) narrows a runtime `string` to `EventName` at the stdin boundary.
+`EventName` is a union of all 22 known Claude Code event name literals (e.g., `"PreToolUse" | "PostToolUse" | ...`). It does NOT include `(string & {})` — it is a closed set. The engine must know every event to translate results correctly. Unknown events are fail-closed errors, not forward-compatible pass-throughs. The type guard `isEventName()` (in `src/config/constants.ts`) narrows a runtime `string` to `EventName` at the stdin boundary.
 
 **Branded types — `HookName`, `Milliseconds`:**
 These use TypeScript's intersection branding pattern to prevent type confusion between semantically different primitives:
@@ -125,7 +125,7 @@ Hook `meta.config` defaults are shallow-merged with config overrides from `clook
 
 ### Runtime validation
 
-TypeScript types are erased when hook files are dynamically imported. The loader (`src/loader.ts`) performs runtime validation of every hook export via `validateHookExport()`. It checks: `hook` named export exists and is an object, `hook.meta` exists with a `name` string, all property keys are in the allowed set (`meta`, `beforeHook`, `afterHook`, plus 21 event names), and all non-`meta` properties are functions. Invalid hooks cause fail-closed behavior (the engine exits with code 2 and a diagnostic message on stderr).
+TypeScript types are erased when hook files are dynamically imported. The loader (`src/loader.ts`) performs runtime validation of every hook export via `validateHookExport()`. It checks: `hook` named export exists and is an object, `hook.meta` exists with a `name` string, all property keys are in the allowed set (`meta`, `beforeHook`, `afterHook`, plus 22 event names), and all non-`meta` properties are functions. Invalid hooks cause fail-closed behavior (the engine exits with code 2 and a diagnostic message on stderr).
 
 **`meta.name` relaxation for aliases:** After `validateHookExport()`, the loader checks `meta.name` against an expected name. For regular hooks (no `uses`), `meta.name` must match the YAML key. For aliases with hook-name `uses`, `meta.name` must match the `uses` target (not the YAML key). For aliases with path-like `uses` (`./`, `../`, `/`), `meta.name` validation is skipped entirely — the hook file is a custom path and its `meta.name` is whatever the author set.
 
@@ -197,11 +197,11 @@ Both communicate results through the `respond()` callback, not through return va
 
 ### Runtime validation
 
-`validateHookExport()` in `src/loader.ts` enumerates allowed property keys on hook objects: `meta`, `beforeHook`, `afterHook`, plus all 21 event names. Unknown keys (e.g., typos like `beforHook`) produce a descriptive error listing the allowed names.
+`validateHookExport()` in `src/loader.ts` enumerates allowed property keys on hook objects: `meta`, `beforeHook`, `afterHook`, plus all 22 event names. Unknown keys (e.g., typos like `beforHook`) produce a descriptive error listing the allowed names.
 
 ## .d.ts Type Declarations
 
-Hook authors get full TypeScript type support via a generated `types.d.ts` file placed in the hooks directory (`.clooks/hooks/types.d.ts` for project scope, `~/.clooks/hooks/types.d.ts` for global scope). This file contains the complete public type surface — `ClooksHook`, all 21 event contexts, all result types, config generics, and branded string unions.
+Hook authors get full TypeScript type support via a generated `types.d.ts` file placed in the hooks directory (`.clooks/hooks/types.d.ts` for project scope, `~/.clooks/hooks/types.d.ts` for global scope). This file contains the complete public type surface — `ClooksHook`, all 22 event contexts, all result types, config generics, and branded string unions.
 
 ### Build pipeline
 
@@ -213,7 +213,7 @@ The build pipeline produces a single `.d.ts` file and embeds it in the compiled 
 
 ### Source of truth vs. generated artifact
 
-`src/types/index.ts` is the source of truth for the public type surface. It re-exports exactly 57 types from the submodules in `src/types/`. The generated `.clooks/hooks/types.d.ts` is a build artifact derived entirely from this barrel — hook authors should never edit it. Running `clooks types` regenerates it from the binary's embedded copy.
+`src/types/index.ts` is the source of truth for the public type surface. It re-exports exactly 73 types from the submodules in `src/types/`. The generated `.clooks/hooks/types.d.ts` is a build artifact derived entirely from this barrel — hook authors should never edit it. Running `clooks types` regenerates it from the binary's embedded copy.
 
 ### Hook author import
 

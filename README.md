@@ -222,7 +222,7 @@ When hooks run sequentially, each hook sees the `toolInput` as modified by previ
 
 ## Events
 
-Clooks supports all 21 Claude Code hook events, organized into four categories:
+Clooks supports all 22 Claude Code hook events, organized into four categories:
 
 ### Guard Events
 
@@ -252,6 +252,7 @@ Fire **after** actions complete. Cannot block (the action already happened). Ret
 | `SubagentStart` | Subagent started |
 | `WorktreeRemove` | Worktree deleted |
 | `PreCompact` | Before transcript compaction |
+| `PermissionDenied` | Auto-mode classifier denied a tool call |
 
 ### Continuation Events
 
