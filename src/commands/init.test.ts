@@ -239,7 +239,7 @@ describe('clooks init', () => {
     // settings.json should be created with 21 events
     const settings = readSettings(tempDir)
     const hooks = settings.hooks as Record<string, unknown[]>
-    expect(Object.keys(hooks)).toHaveLength(21)
+    expect(Object.keys(hooks)).toHaveLength(22)
 
     // entrypoint should be written
     expect(existsSync(join(tempDir, '.clooks', 'bin', 'entrypoint.sh'))).toBe(true)
@@ -521,7 +521,7 @@ describe('clooks init --global', () => {
 
     const settings = readSettings(fakeHome)
     const hooks = settings.hooks as Record<string, unknown[]>
-    expect(Object.keys(hooks)).toHaveLength(21)
+    expect(Object.keys(hooks)).toHaveLength(22)
 
     const expectedPath = join(fakeHome, '.clooks/bin/entrypoint.sh')
     // Every event should have the absolute entrypoint path
