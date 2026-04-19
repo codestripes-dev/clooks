@@ -2092,6 +2092,373 @@ describe('runEngine', () => {
     })
   })
 
+  // --- FEAT-0059 M3: PreToolUse collect-all-then-reduce end-to-end tests ---
+
+  describe('PreToolUse M3: collect-all-then-reduce', () => {
+    it('allow + block + ask → deny wins; permissionDecisionReason from block; all three ran', async () => {
+      let counter = 0
+      mockLoadConfig.mockResolvedValue({
+        config: makeConfig({ 'allow-hook': {}, 'block-hook': {}, 'ask-hook': {} }),
+        shadows: [],
+        hasProjectConfig: true,
+      })
+      mockLoadAllHooks.mockResolvedValue({
+        loaded: [
+          makeLoadedHook('allow-hook', {
+            PreToolUse: () => {
+              counter++
+              return { result: 'allow' }
+            },
+          }),
+          makeLoadedHook('block-hook', {
+            PreToolUse: () => {
+              counter++
+              return { result: 'block', reason: 'policy violation' }
+            },
+          }),
+          makeLoadedHook('ask-hook', {
+            PreToolUse: () => {
+              counter++
+              return { result: 'ask', reason: 'confirm' }
+            },
+          }),
+        ],
+        loadErrors: [],
+      })
+      mockReadStdin.mockResolvedValue({ hook_event_name: 'PreToolUse' })
+      await runEngine(makeDeps()).catch(() => {})
+      const stdout = getStdout()
+      const parsed = JSON.parse(stdout.trim().split('\n')[0]!)
+      expect(parsed.hookSpecificOutput.permissionDecision).toBe('deny')
+      expect(parsed.hookSpecificOutput.permissionDecisionReason).toBe('policy violation')
+      // All three hooks ran — collect-all, no short-circuit
+      expect(counter).toBe(3)
+    })
+
+    it('reorder same three hooks (block first) → same outcome (order-independence)', async () => {
+      let counter = 0
+      mockLoadConfig.mockResolvedValue({
+        config: makeConfig({ 'block-hook': {}, 'allow-hook': {}, 'ask-hook': {} }),
+        shadows: [],
+        hasProjectConfig: true,
+      })
+      mockLoadAllHooks.mockResolvedValue({
+        loaded: [
+          makeLoadedHook('block-hook', {
+            PreToolUse: () => {
+              counter++
+              return { result: 'block', reason: 'policy violation' }
+            },
+          }),
+          makeLoadedHook('allow-hook', {
+            PreToolUse: () => {
+              counter++
+              return { result: 'allow' }
+            },
+          }),
+          makeLoadedHook('ask-hook', {
+            PreToolUse: () => {
+              counter++
+              return { result: 'ask', reason: 'confirm' }
+            },
+          }),
+        ],
+        loadErrors: [],
+      })
+      mockReadStdin.mockResolvedValue({ hook_event_name: 'PreToolUse' })
+      await runEngine(makeDeps()).catch(() => {})
+      const stdout = getStdout()
+      const parsed = JSON.parse(stdout.trim().split('\n')[0]!)
+      expect(parsed.hookSpecificOutput.permissionDecision).toBe('deny')
+      expect(parsed.hookSpecificOutput.permissionDecisionReason).toBe('policy violation')
+      expect(counter).toBe(3)
+    })
+
+    it('all-allow stack → permissionDecision allow', async () => {
+      mockLoadConfig.mockResolvedValue({
+        config: makeConfig({ h1: {}, h2: {}, h3: {} }),
+        shadows: [],
+        hasProjectConfig: true,
+      })
+      mockLoadAllHooks.mockResolvedValue({
+        loaded: [
+          makeLoadedHook('h1', { PreToolUse: () => ({ result: 'allow' }) }),
+          makeLoadedHook('h2', { PreToolUse: () => ({ result: 'allow' }) }),
+          makeLoadedHook('h3', { PreToolUse: () => ({ result: 'allow' }) }),
+        ],
+        loadErrors: [],
+      })
+      mockReadStdin.mockResolvedValue({ hook_event_name: 'PreToolUse' })
+      await runEngine(makeDeps()).catch(() => {})
+      const stdout = getStdout()
+      const parsed = JSON.parse(stdout.trim().split('\n')[0]!)
+      expect(parsed.hookSpecificOutput.permissionDecision).toBe('allow')
+    })
+
+    it('all-skip → no stdout output (skip translates to no output)', async () => {
+      mockLoadConfig.mockResolvedValue({
+        config: makeConfig({ h1: {}, h2: {}, h3: {} }),
+        shadows: [],
+        hasProjectConfig: true,
+      })
+      mockLoadAllHooks.mockResolvedValue({
+        loaded: [
+          makeLoadedHook('h1', { PreToolUse: () => ({ result: 'skip' }) }),
+          makeLoadedHook('h2', { PreToolUse: () => ({ result: 'skip' }) }),
+          makeLoadedHook('h3', { PreToolUse: () => ({ result: 'skip' }) }),
+        ],
+        loadErrors: [],
+      })
+      mockReadStdin.mockResolvedValue({ hook_event_name: 'PreToolUse' })
+      await runEngine(makeDeps()).catch(() => {})
+      // All-skip → skip winner → translateResult for skip → no output (process.exitCode set, not process.exit called)
+      const stdout = getStdout()
+      expect(stdout.trim()).toBe('')
+      // No explicit process.exit call (exitCode set instead)
+      expect(exitSpy).not.toHaveBeenCalled()
+    })
+
+    it('allow + defer + ask → defer wins, no extras, systemMessages empty', async () => {
+      mockLoadConfig.mockResolvedValue({
+        config: makeConfig({ h1: {}, h2: {}, h3: {} }),
+        shadows: [],
+        hasProjectConfig: true,
+      })
+      mockLoadAllHooks.mockResolvedValue({
+        loaded: [
+          makeLoadedHook('h1', { PreToolUse: () => ({ result: 'allow' }) }),
+          makeLoadedHook('h2', { PreToolUse: () => ({ result: 'defer' }) }),
+          makeLoadedHook('h3', { PreToolUse: () => ({ result: 'ask', reason: 'confirm' }) }),
+        ],
+        loadErrors: [],
+      })
+      mockReadStdin.mockResolvedValue({ hook_event_name: 'PreToolUse' })
+      await runEngine(makeDeps()).catch(() => {})
+      const stdout = getStdout()
+      const parsed = JSON.parse(stdout.trim().split('\n')[0]!)
+      expect(parsed.hookSpecificOutput.permissionDecision).toBe('defer')
+      // No reason, no additionalContext for defer
+      expect(parsed.hookSpecificOutput.permissionDecisionReason).toBeUndefined()
+      expect(parsed.hookSpecificOutput.additionalContext).toBeUndefined()
+      // No warnings — no losers with updatedInput or context
+      expect(parsed.systemMessage).toBeUndefined()
+    })
+
+    it('allow-with-updatedInput + defer → defer wins, systemMessage mentions dropped updatedInput', async () => {
+      mockLoadConfig.mockResolvedValue({
+        config: makeConfig({ 'allow-hook': {}, 'defer-hook': {} }),
+        shadows: [],
+        hasProjectConfig: true,
+      })
+      mockLoadAllHooks.mockResolvedValue({
+        loaded: [
+          makeLoadedHook('allow-hook', {
+            PreToolUse: () => ({ result: 'allow', updatedInput: { cmd: 'ls' } }),
+          }),
+          makeLoadedHook('defer-hook', {
+            PreToolUse: () => ({ result: 'defer' }),
+          }),
+        ],
+        loadErrors: [],
+      })
+      mockReadStdin.mockResolvedValue({
+        hook_event_name: 'PreToolUse',
+        tool_input: { cmd: 'original' },
+      })
+      await runEngine(makeDeps()).catch(() => {})
+      const stdout = getStdout()
+      const parsed = JSON.parse(stdout.trim().split('\n')[0]!)
+      expect(parsed.hookSpecificOutput.permissionDecision).toBe('defer')
+      // systemMessage warning about dropped updatedInput
+      expect(parsed.systemMessage).toBeDefined()
+      expect(parsed.systemMessage).toContain('updatedInput')
+    })
+
+    it('parallel group: 2 allows + 1 block → all three run, deny wins', async () => {
+      let counter = 0
+      mockLoadConfig.mockResolvedValue({
+        config: makeConfig({
+          h1: { parallel: true },
+          h2: { parallel: true },
+          h3: { parallel: true },
+        }),
+        shadows: [],
+        hasProjectConfig: true,
+      })
+      mockLoadAllHooks.mockResolvedValue({
+        loaded: [
+          makeLoadedHook('h1', {
+            PreToolUse: () => {
+              counter++
+              return { result: 'allow' }
+            },
+          }),
+          makeLoadedHook('h2', {
+            PreToolUse: () => {
+              counter++
+              return { result: 'allow' }
+            },
+          }),
+          makeLoadedHook('h3', {
+            PreToolUse: () => {
+              counter++
+              return { result: 'block', reason: 'par-deny' }
+            },
+          }),
+        ],
+        loadErrors: [],
+      })
+      mockReadStdin.mockResolvedValue({ hook_event_name: 'PreToolUse' })
+      await runEngine(makeDeps()).catch(() => {})
+      const stdout = getStdout()
+      const parsed = JSON.parse(stdout.trim().split('\n')[0]!)
+      expect(parsed.hookSpecificOutput.permissionDecision).toBe('deny')
+      // All three ran — no short-circuit for PreToolUse block in parallel
+      expect(counter).toBe(3)
+    })
+
+    it('parallel group: 2 allows + 1 crashing hook (onError:block) → crash short-circuits, deny wins via crash path', async () => {
+      mockLoadConfig.mockResolvedValue({
+        config: makeConfig({
+          h1: { parallel: true },
+          h2: { parallel: true },
+          'crash-hook': { parallel: true, onError: 'block' },
+        }),
+        shadows: [],
+        hasProjectConfig: true,
+      })
+      mockLoadAllHooks.mockResolvedValue({
+        loaded: [
+          makeLoadedHook('h1', {
+            PreToolUse: async () => {
+              return { result: 'allow' }
+            },
+          }),
+          makeLoadedHook('h2', {
+            PreToolUse: async () => {
+              return { result: 'allow' }
+            },
+          }),
+          makeLoadedHook('crash-hook', {
+            PreToolUse: () => {
+              throw new Error('crash-diagnostic')
+            },
+          }),
+        ],
+        loadErrors: [],
+      })
+      mockReadStdin.mockResolvedValue({ hook_event_name: 'PreToolUse' })
+      await runEngine(makeDeps()).catch(() => {})
+      const stdout = getStdout()
+      const parsed = JSON.parse(stdout.trim().split('\n')[0]!)
+      // Crash-block path → deny with crash diagnostic (NOT the reducer output)
+      expect(parsed.hookSpecificOutput.permissionDecision).toBe('deny')
+      expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain('crash-diagnostic')
+    })
+
+    it('sequential UserPromptSubmit: allow + block + allow → block short-circuits, third hook does NOT run', async () => {
+      let counter = 0
+      mockLoadConfig.mockResolvedValue({
+        config: makeConfig({ h1: {}, h2: {}, h3: {} }),
+        shadows: [],
+        hasProjectConfig: true,
+      })
+      mockLoadAllHooks.mockResolvedValue({
+        loaded: [
+          makeLoadedHook('h1', {
+            UserPromptSubmit: () => {
+              counter++
+              return { result: 'allow' }
+            },
+          }),
+          makeLoadedHook('h2', {
+            UserPromptSubmit: () => {
+              counter++
+              return { result: 'block', reason: 'blocked' }
+            },
+          }),
+          makeLoadedHook('h3', {
+            UserPromptSubmit: () => {
+              counter++
+              return { result: 'allow' }
+            },
+          }),
+        ],
+        loadErrors: [],
+      })
+      mockReadStdin.mockResolvedValue({ hook_event_name: 'UserPromptSubmit' })
+      await runEngine(makeDeps()).catch(() => {})
+      // Non-PreToolUse: block still short-circuits; h3 does NOT run
+      expect(counter).toBe(2)
+    })
+
+    it('PreToolUse crash path: H1 throws, H2 returns allow, onError:block → deny with crash diagnostic; reduction did not run', async () => {
+      mockLoadConfig.mockResolvedValue({
+        config: makeConfig({ h1: { onError: 'block' }, h2: {} }),
+        shadows: [],
+        hasProjectConfig: true,
+      })
+      mockLoadAllHooks.mockResolvedValue({
+        loaded: [
+          makeLoadedHook('h1', {
+            PreToolUse: () => {
+              throw new Error('crash-reason')
+            },
+          }),
+          makeLoadedHook('h2', {
+            PreToolUse: () => ({ result: 'allow' }),
+          }),
+        ],
+        loadErrors: [],
+      })
+      mockReadStdin.mockResolvedValue({ hook_event_name: 'PreToolUse' })
+      await runEngine(makeDeps()).catch(() => {})
+      const stdout = getStdout()
+      const parsed = JSON.parse(stdout.trim().split('\n')[0]!)
+      // Crash path: deny with crash diagnostic
+      expect(parsed.hookSpecificOutput.permissionDecision).toBe('deny')
+      expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain('crash-reason')
+      // Not a structured reduction output (no allow winner)
+    })
+
+    it('accumulator dead-state proof: deny winner uses reducer path; no outer-accumulator double-counting; systemMessage is absent', async () => {
+      // allow-hook runs first and returns injectContext: 'ghost'.
+      // deny-hook runs second and returns injectContext: 'policy-ctx'.
+      // Deny wins via reducer (rank 3 > rank 0). The reducer assembles
+      // merged.injectContext = 'ghost\npolicy-ctx' (allow loser + deny winner, execution order).
+      // The translator now wires additionalContext on the deny path (M3 QA fix).
+      // The dead-state check: no systemMessage warning (no double-counted context from the reducer),
+      // and additionalContext carries exactly the merged context — not a doubled/leaked value.
+      mockLoadConfig.mockResolvedValue({
+        config: makeConfig({ 'allow-hook': {}, 'deny-hook': {} }),
+        shadows: [],
+        hasProjectConfig: true,
+      })
+      mockLoadAllHooks.mockResolvedValue({
+        loaded: [
+          makeLoadedHook('allow-hook', {
+            PreToolUse: () => ({ result: 'allow', injectContext: 'ghost' }),
+          }),
+          makeLoadedHook('deny-hook', {
+            PreToolUse: () => ({ result: 'block', reason: 'policy', injectContext: 'policy-ctx' }),
+          }),
+        ],
+        loadErrors: [],
+      })
+      mockReadStdin.mockResolvedValue({ hook_event_name: 'PreToolUse' })
+      await runEngine(makeDeps()).catch(() => {})
+      const stdout = getStdout()
+      const parsed = JSON.parse(stdout.trim().split('\n')[0]!)
+      expect(parsed.hookSpecificOutput.permissionDecision).toBe('deny')
+      expect(parsed.hookSpecificOutput.permissionDecisionReason).toBe('policy')
+      // Translator now emits additionalContext for deny (M3 QA fix: plan-vs-code gap patched).
+      // 'ghost\npolicy-ctx' = allow loser's context + deny winner's context, in execution order.
+      // A doubled value like 'ghost\nghost\npolicy-ctx' would indicate outer-accumulator leak.
+      expect(parsed.systemMessage).toBeUndefined()
+      expect(parsed.hookSpecificOutput.additionalContext).toBe('ghost\npolicy-ctx')
+    })
+  })
+
   // --- PermissionDenied: wire rename end-to-end ---
 
   describe('PermissionDenied wire rename (reason → denialReason)', () => {

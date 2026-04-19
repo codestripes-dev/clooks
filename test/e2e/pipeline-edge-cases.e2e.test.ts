@@ -22,7 +22,9 @@ describe('pipeline edge cases', () => {
       sandbox = createSandbox()
 
       // Hook A adds field_a to toolInput
-      sandbox.writeHook('chain-a.ts', `
+      sandbox.writeHook(
+        'chain-a.ts',
+        `
 export const hook = {
   meta: { name: "chain-a" },
   PreToolUse(ctx: Record<string, unknown>) {
@@ -33,9 +35,12 @@ export const hook = {
     }
   },
 }
-`)
+`,
+      )
       // Hook B adds field_b, should see field_a from hook A
-      sandbox.writeHook('chain-b.ts', `
+      sandbox.writeHook(
+        'chain-b.ts',
+        `
 export const hook = {
   meta: { name: "chain-b" },
   PreToolUse(ctx: Record<string, unknown>) {
@@ -47,9 +52,12 @@ export const hook = {
     }
   },
 }
-`)
+`,
+      )
       // Hook C adds field_c, should see both field_a and field_b
-      sandbox.writeHook('chain-c.ts', `
+      sandbox.writeHook(
+        'chain-c.ts',
+        `
 export const hook = {
   meta: { name: "chain-c" },
   PreToolUse(ctx: Record<string, unknown>) {
@@ -61,7 +69,8 @@ export const hook = {
     }
   },
 }
-`)
+`,
+      )
       sandbox.writeConfig(`
 version: "1.0.0"
 chain-a: {}
@@ -87,7 +96,9 @@ PreToolUse:
     test('2: updatedInput survives a subsequent skip', () => {
       sandbox = createSandbox()
 
-      sandbox.writeHook('mutate-input.ts', `
+      sandbox.writeHook(
+        'mutate-input.ts',
+        `
 export const hook = {
   meta: { name: "mutate-input" },
   PreToolUse(ctx: Record<string, unknown>) {
@@ -98,15 +109,19 @@ export const hook = {
     }
   },
 }
-`)
-      sandbox.writeHook('skipper.ts', `
+`,
+      )
+      sandbox.writeHook(
+        'skipper.ts',
+        `
 export const hook = {
   meta: { name: "skipper" },
   PreToolUse() {
     return { result: "skip" as const }
   },
 }
-`)
+`,
+      )
       sandbox.writeConfig(`
 version: "1.0.0"
 mutate-input: {}
@@ -125,7 +140,9 @@ PreToolUse:
     test('3: updatedInput as non-object (string) passes through unchecked', () => {
       sandbox = createSandbox()
 
-      sandbox.writeHook('string-input.ts', `
+      sandbox.writeHook(
+        'string-input.ts',
+        `
 export const hook = {
   meta: { name: "string-input" },
   PreToolUse() {
@@ -135,7 +152,8 @@ export const hook = {
     }
   },
 }
-`)
+`,
+      )
       sandbox.writeConfig(`
 version: "1.0.0"
 string-input: {}
@@ -151,7 +169,9 @@ string-input: {}
       sandbox = createSandbox()
 
       // Parallel hook returning updatedInput — contract violation
-      sandbox.writeHook('parallel-mutate.ts', `
+      sandbox.writeHook(
+        'parallel-mutate.ts',
+        `
 export const hook = {
   meta: { name: "parallel-mutate" },
   PreToolUse(ctx: Record<string, unknown>) {
@@ -162,9 +182,12 @@ export const hook = {
     }
   },
 }
-`)
+`,
+      )
       // Sequential hook in a later group — should NOT execute due to pipeline block
-      sandbox.writeHook('sidecar-writer.ts', `
+      sandbox.writeHook(
+        'sidecar-writer.ts',
+        `
 import { writeFileSync } from "fs"
 export const hook = {
   meta: { name: "sidecar-writer" },
@@ -175,7 +198,8 @@ export const hook = {
     return { result: "allow" as const }
   },
 }
-`)
+`,
+      )
       sandbox.writeConfig(`
 version: "1.0.0"
 parallel-mutate:
@@ -203,18 +227,24 @@ PreToolUse:
     test('5: all parallel hooks crash with onError:block — block result surfaces', () => {
       sandbox = createSandbox()
 
-      sandbox.writeHook('crash-p1.ts', `
+      sandbox.writeHook(
+        'crash-p1.ts',
+        `
 export const hook = {
   meta: { name: "crash-p1" },
   PreToolUse() { throw new Error("crash p1") },
 }
-`)
-      sandbox.writeHook('crash-p2.ts', `
+`,
+      )
+      sandbox.writeHook(
+        'crash-p2.ts',
+        `
 export const hook = {
   meta: { name: "crash-p2" },
   PreToolUse() { throw new Error("crash p2") },
 }
-`)
+`,
+      )
       sandbox.writeConfig(`
 version: "1.0.0"
 crash-p1:
@@ -236,20 +266,26 @@ crash-p2:
     test('6: parallel group — one hook crashes (onError:block), sibling injectContext survives in block result', () => {
       sandbox = createSandbox()
 
-      sandbox.writeHook('ctx-parallel.ts', `
+      sandbox.writeHook(
+        'ctx-parallel.ts',
+        `
 export const hook = {
   meta: { name: "ctx-parallel" },
   PreToolUse() {
     return { result: "allow" as const, injectContext: "parallel context survived" }
   },
 }
-`)
-      sandbox.writeHook('crash-parallel.ts', `
+`,
+      )
+      sandbox.writeHook(
+        'crash-parallel.ts',
+        `
 export const hook = {
   meta: { name: "crash-parallel" },
   PreToolUse() { throw new Error("parallel crash") },
 }
-`)
+`,
+      )
       sandbox.writeConfig(`
 version: "1.0.0"
 ctx-parallel:
@@ -262,33 +298,41 @@ crash-parallel:
       expect(result.exitCode).toBe(0)
       const output = JSON.parse(result.stdout)
       expect(output.hookSpecificOutput.permissionDecision).toBe('deny')
-      // Both hooks are synchronous, so the sibling settles before short-circuit.
-      // The engine merges sibling injectContext into blockResult.injectContext internally,
-      // but PreToolUse deny output format drops additionalContext — only permissionDecision
-      // and permissionDecisionReason are emitted. Document this limitation:
-      expect(output.hookSpecificOutput.additionalContext).toBeUndefined()
+      // Crash path short-circuits and emits deny (Decision D-2026-04-19-05).
+      // The sibling's injectContext is accumulated into accumulatedInjectContext before
+      // the crash block fires (D-2026-04-19-10: outer push is unconditional/authoritative
+      // on crash path). The crash-path block result is then merged with the accumulated
+      // context (injectContext = accumulatedInjectContext.join) and the M2 translator
+      // emits it as additionalContext on the wire:
+      expect(output.hookSpecificOutput.additionalContext).toBe('parallel context survived')
       expect(output.hookSpecificOutput.permissionDecisionReason).toContain('crash-parallel')
     })
 
     test('7: parallel skip + parallel block — block wins cleanly', () => {
       sandbox = createSandbox()
 
-      sandbox.writeHook('skip-parallel.ts', `
+      sandbox.writeHook(
+        'skip-parallel.ts',
+        `
 export const hook = {
   meta: { name: "skip-parallel" },
   PreToolUse() {
     return { result: "skip" as const }
   },
 }
-`)
-      sandbox.writeHook('block-parallel.ts', `
+`,
+      )
+      sandbox.writeHook(
+        'block-parallel.ts',
+        `
 export const hook = {
   meta: { name: "block-parallel" },
   PreToolUse() {
     return { result: "block" as const, reason: "parallel block wins" }
   },
 }
-`)
+`,
+      )
       sandbox.writeConfig(`
 version: "1.0.0"
 skip-parallel:
@@ -303,7 +347,7 @@ block-parallel:
       expect(output.hookSpecificOutput.permissionDecisionReason).toContain('parallel block wins')
     })
 
-    test('8: slow parallel hook abandoned after sibling triggers short-circuit — block result returned promptly', () => {
+    test('8: slow parallel hook abandoned after sibling crashes (onError:block) triggers short-circuit — block result returned promptly', () => {
       sandbox = createSandbox()
 
       // Slow hook that respects the AbortSignal passed via context.signal.
@@ -312,7 +356,9 @@ block-parallel:
       // However, if the hook ignores the signal, the process still waits
       // for the promise to settle or the hook's timeout to fire.
       // We use a hook that checks signal to demonstrate the intended pattern.
-      sandbox.writeHook('slow-parallel.ts', `
+      sandbox.writeHook(
+        'slow-parallel.ts',
+        `
 export const hook = {
   meta: { name: "slow-parallel" },
   async PreToolUse(ctx: Record<string, unknown>) {
@@ -324,22 +370,31 @@ export const hook = {
     return { result: "allow" as const, injectContext: "slow hook finished" }
   },
 }
-`)
-      // Fast hook that blocks immediately
-      sandbox.writeHook('fast-block.ts', `
+`,
+      )
+      // Fast hook that CRASHES immediately with onError: block.
+      // Under M3, structured block no longer short-circuits for PreToolUse (D-2026-04-19-04),
+      // but a crash under onError:block DOES still short-circuit for all events including
+      // PreToolUse (D-2026-04-19-05). This keeps the test demonstrating signal-aware
+      // abandonment via the crash-path short-circuit.
+      sandbox.writeHook(
+        'fast-crash.ts',
+        `
 export const hook = {
-  meta: { name: "fast-block" },
+  meta: { name: "fast-crash" },
   PreToolUse() {
-    return { result: "block" as const, reason: "fast block" }
+    throw new Error("fast crash")
   },
 }
-`)
+`,
+      )
       sandbox.writeConfig(`
 version: "1.0.0"
 slow-parallel:
   parallel: true
-fast-block:
+fast-crash:
   parallel: true
+  onError: block
 `)
       const startMs = Date.now()
       const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json'), timeout: 15000 })
@@ -347,7 +402,7 @@ fast-block:
       expect(result.exitCode).toBe(0)
       const output = JSON.parse(result.stdout)
       expect(output.hookSpecificOutput.permissionDecision).toBe('deny')
-      expect(output.hookSpecificOutput.permissionDecisionReason).toContain('fast block')
+      expect(output.hookSpecificOutput.permissionDecisionReason).toMatch(/fast-crash/)
       // With signal-aware hook, should complete well before the 10s delay.
       // Allow generous margin for subprocess startup overhead.
       expect(elapsedMs).toBeLessThan(5000)
@@ -363,18 +418,24 @@ fast-block:
       sandbox = createSandbox()
 
       // Hook that only handles PostToolUse, NOT PreToolUse
-      sandbox.writeHook('post-only.ts', `
+      sandbox.writeHook(
+        'post-only.ts',
+        `
 export const hook = {
   meta: { name: "post-only" },
   PostToolUse() { return { result: "skip" as const } },
 }
-`)
-      sandbox.writeHook('allow-pre.ts', `
+`,
+      )
+      sandbox.writeHook(
+        'allow-pre.ts',
+        `
 export const hook = {
   meta: { name: "allow-pre" },
   PreToolUse() { return { result: "allow" as const } },
 }
-`)
+`,
+      )
       sandbox.writeConfig(`
 version: "1.0.0"
 post-only: {}
@@ -392,14 +453,17 @@ PreToolUse:
     test('10: single-hook order list — normal execution, no partition warning', () => {
       sandbox = createSandbox()
 
-      sandbox.writeHook('solo.ts', `
+      sandbox.writeHook(
+        'solo.ts',
+        `
 export const hook = {
   meta: { name: "solo" },
   PreToolUse() {
     return { result: "allow" as const, injectContext: "solo ran" }
   },
 }
-`)
+`,
+      )
       sandbox.writeConfig(`
 version: "1.0.0"
 solo: {}
@@ -418,30 +482,39 @@ PreToolUse:
     test('11: all hooks in order list are parallel — single parallel group', () => {
       sandbox = createSandbox()
 
-      sandbox.writeHook('par-a.ts', `
+      sandbox.writeHook(
+        'par-a.ts',
+        `
 export const hook = {
   meta: { name: "par-a" },
   PreToolUse() {
     return { result: "allow" as const, injectContext: "par-a ran" }
   },
 }
-`)
-      sandbox.writeHook('par-b.ts', `
+`,
+      )
+      sandbox.writeHook(
+        'par-b.ts',
+        `
 export const hook = {
   meta: { name: "par-b" },
   PreToolUse() {
     return { result: "allow" as const, injectContext: "par-b ran" }
   },
 }
-`)
-      sandbox.writeHook('par-c.ts', `
+`,
+      )
+      sandbox.writeHook(
+        'par-c.ts',
+        `
 export const hook = {
   meta: { name: "par-c" },
   PreToolUse() {
     return { result: "allow" as const, injectContext: "par-c ran" }
   },
 }
-`)
+`,
+      )
       sandbox.writeConfig(`
 version: "1.0.0"
 par-a:
@@ -467,32 +540,41 @@ PreToolUse:
       sandbox = createSandbox()
 
       // Unordered parallel hook — should hoist to front
-      sandbox.writeHook('unord-par.ts', `
+      sandbox.writeHook(
+        'unord-par.ts',
+        `
 export const hook = {
   meta: { name: "unord-par" },
   PreToolUse() {
     return { result: "allow" as const, injectContext: "unord-par ran" }
   },
 }
-`)
+`,
+      )
       // Ordered sequential hook — in the order list
-      sandbox.writeHook('ord-seq.ts', `
+      sandbox.writeHook(
+        'ord-seq.ts',
+        `
 export const hook = {
   meta: { name: "ord-seq" },
   PreToolUse() {
     return { result: "allow" as const, injectContext: "ord-seq ran" }
   },
 }
-`)
+`,
+      )
       // Unordered sequential hook — should go to end
-      sandbox.writeHook('unord-seq.ts', `
+      sandbox.writeHook(
+        'unord-seq.ts',
+        `
 export const hook = {
   meta: { name: "unord-seq" },
   PreToolUse() {
     return { result: "allow" as const, injectContext: "unord-seq ran" }
   },
 }
-`)
+`,
+      )
       sandbox.writeConfig(`
 version: "1.0.0"
 unord-par:
@@ -527,7 +609,9 @@ PreToolUse:
       sandbox = createSandbox()
 
       // Hook A has beforeHook that blocks — handler never runs
-      sandbox.writeHook('before-block-a.ts', `
+      sandbox.writeHook(
+        'before-block-a.ts',
+        `
 import { writeFileSync } from "fs"
 export const hook = {
   meta: { name: "before-block-a" },
@@ -540,9 +624,12 @@ export const hook = {
     return { result: "allow" as const }
   },
 }
-`)
+`,
+      )
       // Hook B runs normally after A's block
-      sandbox.writeHook('normal-b.ts', `
+      sandbox.writeHook(
+        'normal-b.ts',
+        `
 import { writeFileSync } from "fs"
 export const hook = {
   meta: { name: "normal-b" },
@@ -551,7 +638,8 @@ export const hook = {
     return { result: "allow" as const, injectContext: "hook-b executed" }
   },
 }
-`)
+`,
+      )
       sandbox.writeConfig(`
 version: "1.0.0"
 before-block-a: {}
@@ -562,19 +650,25 @@ PreToolUse:
       const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
       expect(result.exitCode).toBe(0)
       const output = JSON.parse(result.stdout)
-      // beforeHook block on hook A causes pipeline block — remaining hooks don't run
+      // beforeHook block is treated as a structured deny vote (rank 3) in the M3 reducer.
+      // Hook B's allow vote (rank 0) loses — deny wins via precedence.
       expect(output.hookSpecificOutput.permissionDecision).toBe('deny')
       expect(output.hookSpecificOutput.permissionDecisionReason).toContain('before blocked A')
-      // Hook A's handler should NOT have run
+      // Hook A's handler should NOT have run (beforeHook still short-circuits hook A's handler)
       expect(sandbox.fileExists('hook-a-ran.txt')).toBe(false)
-      // Hook B should NOT have run (block short-circuits the pipeline)
-      expect(sandbox.fileExists('hook-b-ran.txt')).toBe(false)
+      // Under M3, the sequential pipeline continues after hook A's deny vote — hook B runs
+      expect(sandbox.fileExists('hook-b-ran.txt')).toBe(true)
+      // Hook B's allow-loser injectContext is accumulated into the deny winner per M3 D2 rules,
+      // and emitted as additionalContext by the M2 translator:
+      expect(output.hookSpecificOutput.additionalContext).toContain('hook-b executed')
     })
 
     test('14: afterHook overrides result in parallel group — override propagates', () => {
       sandbox = createSandbox()
 
-      sandbox.writeHook('after-override.ts', `
+      sandbox.writeHook(
+        'after-override.ts',
+        `
 export const hook = {
   meta: { name: "after-override" },
   afterHook(event: any) {
@@ -588,7 +682,8 @@ export const hook = {
     return { result: "allow" as const }
   },
 }
-`)
+`,
+      )
       sandbox.writeConfig(`
 version: "1.0.0"
 after-override:
@@ -604,7 +699,9 @@ after-override:
     test('15: afterHook throws in parallel group with onError:continue — crash swallowed, sibling result used', () => {
       sandbox = createSandbox()
 
-      sandbox.writeHook('after-crash.ts', `
+      sandbox.writeHook(
+        'after-crash.ts',
+        `
 export const hook = {
   meta: { name: "after-crash" },
   afterHook() {
@@ -614,15 +711,19 @@ export const hook = {
     return { result: "allow" as const }
   },
 }
-`)
-      sandbox.writeHook('sibling-ctx.ts', `
+`,
+      )
+      sandbox.writeHook(
+        'sibling-ctx.ts',
+        `
 export const hook = {
   meta: { name: "sibling-ctx" },
   PreToolUse() {
     return { result: "allow" as const, injectContext: "sibling survived" }
   },
 }
-`)
+`,
+      )
       sandbox.writeConfig(`
 version: "1.0.0"
 after-crash:
@@ -644,7 +745,9 @@ sibling-ctx:
     test('16: timeout fires during beforeHook phase — still blocked', () => {
       sandbox = createSandbox()
 
-      sandbox.writeHook('before-hang.ts', `
+      sandbox.writeHook(
+        'before-hang.ts',
+        `
 export const hook = {
   meta: { name: "before-hang" },
   async beforeHook() {
@@ -655,7 +758,8 @@ export const hook = {
     return { result: "allow" as const }
   },
 }
-`)
+`,
+      )
       sandbox.writeConfig(`
 version: "1.0.0"
 before-hang:
@@ -678,18 +782,24 @@ before-hang:
     test('17: all hooks return skip on guard event — action proceeds (exit 0, no output)', () => {
       sandbox = createSandbox()
 
-      sandbox.writeHook('skip-a.ts', `
+      sandbox.writeHook(
+        'skip-a.ts',
+        `
 export const hook = {
   meta: { name: "skip-a" },
   PreToolUse() { return { result: "skip" as const } },
 }
-`)
-      sandbox.writeHook('skip-b.ts', `
+`,
+      )
+      sandbox.writeHook(
+        'skip-b.ts',
+        `
 export const hook = {
   meta: { name: "skip-b" },
   PreToolUse() { return { result: "skip" as const } },
 }
-`)
+`,
+      )
       sandbox.writeConfig(`
 version: "1.0.0"
 skip-a: {}
@@ -704,18 +814,24 @@ skip-b: {}
     test('18: all hooks return null/undefined — same as all-skip', () => {
       sandbox = createSandbox()
 
-      sandbox.writeHook('null-a.ts', `
+      sandbox.writeHook(
+        'null-a.ts',
+        `
 export const hook = {
   meta: { name: "null-a" },
   PreToolUse() { return null },
 }
-`)
-      sandbox.writeHook('undef-b.ts', `
+`,
+      )
+      sandbox.writeHook(
+        'undef-b.ts',
+        `
 export const hook = {
   meta: { name: "undef-b" },
   PreToolUse() { return undefined },
 }
-`)
+`,
+      )
       sandbox.writeConfig(`
 version: "1.0.0"
 null-a: {}
@@ -731,48 +847,63 @@ undef-b: {}
       sandbox = createSandbox()
 
       // Group 1: parallel hooks
-      sandbox.writeHook('par-g1a.ts', `
+      sandbox.writeHook(
+        'par-g1a.ts',
+        `
 export const hook = {
   meta: { name: "par-g1a" },
   PreToolUse() {
     return { result: "allow" as const, injectContext: "group1-a" }
   },
 }
-`)
-      sandbox.writeHook('par-g1b.ts', `
+`,
+      )
+      sandbox.writeHook(
+        'par-g1b.ts',
+        `
 export const hook = {
   meta: { name: "par-g1b" },
   PreToolUse() {
     return { result: "allow" as const, injectContext: "group1-b" }
   },
 }
-`)
+`,
+      )
       // Sequential separator
-      sandbox.writeHook('seq-mid.ts', `
+      sandbox.writeHook(
+        'seq-mid.ts',
+        `
 export const hook = {
   meta: { name: "seq-mid" },
   PreToolUse() {
     return { result: "allow" as const, injectContext: "seq-middle" }
   },
 }
-`)
+`,
+      )
       // Group 2: parallel hooks
-      sandbox.writeHook('par-g2a.ts', `
+      sandbox.writeHook(
+        'par-g2a.ts',
+        `
 export const hook = {
   meta: { name: "par-g2a" },
   PreToolUse() {
     return { result: "allow" as const, injectContext: "group2-a" }
   },
 }
-`)
-      sandbox.writeHook('par-g2b.ts', `
+`,
+      )
+      sandbox.writeHook(
+        'par-g2b.ts',
+        `
 export const hook = {
   meta: { name: "par-g2b" },
   PreToolUse() {
     return { result: "allow" as const, injectContext: "group2-b" }
   },
 }
-`)
+`,
+      )
       sandbox.writeConfig(`
 version: "1.0.0"
 par-g1a:
@@ -810,23 +941,29 @@ PreToolUse:
       sandbox = createSandbox()
 
       // Hook that injects context normally
-      sandbox.writeHook('ctx-hook.ts', `
+      sandbox.writeHook(
+        'ctx-hook.ts',
+        `
 export const hook = {
   meta: { name: "ctx-hook" },
   PreToolUse() {
     return { result: "allow" as const, injectContext: "normal context" }
   },
 }
-`)
+`,
+      )
       // Hook that crashes with onError:trace
-      sandbox.writeHook('trace-crash.ts', `
+      sandbox.writeHook(
+        'trace-crash.ts',
+        `
 export const hook = {
   meta: { name: "trace-crash" },
   PreToolUse() {
     throw new Error("trace crash error")
   },
 }
-`)
+`,
+      )
       sandbox.writeConfig(`
 version: "1.0.0"
 ctx-hook: {}

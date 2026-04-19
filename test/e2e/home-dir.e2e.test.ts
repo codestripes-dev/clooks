@@ -257,7 +257,7 @@ crash-hook:
 // ============================================================================
 
 describe('multi-hook home configs', () => {
-  test('9. two home hooks on same event, one blocks — pipeline blocks, second never runs', () => {
+  test('9. two home hooks on PreToolUse, deny + allow — deny wins via precedence; both run', () => {
     sandbox = createSandbox()
 
     sandbox.writeHomeHook(
@@ -295,11 +295,14 @@ PreToolUse:
     const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
     expect(result.exitCode).toBe(0)
     const output = JSON.parse(result.stdout)
+    // deny > allow via M3 precedence — deny wins
     expect(output.hookSpecificOutput.permissionDecision).toBe('deny')
     expect(output.hookSpecificOutput.permissionDecisionReason).toContain('blocked-by-home')
-    // Observer should not have produced any output
+    // Under M3, both hooks run to completion; deny wins via precedence (rank 3 > rank 0).
+    // Per the M3 deny-winner accumulation rule (FEAT-0059 D2), allow-loser injectContext
+    // is merged into the deny winner and emitted as additionalContext by the M2 translator:
     const ctx = output.hookSpecificOutput.additionalContext ?? ''
-    expect(ctx).not.toContain('observer-ran')
+    expect(ctx).toContain('observer-ran')
   })
 
   test('10. home config with explicit event order — ordering respected', () => {

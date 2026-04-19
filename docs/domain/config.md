@@ -242,8 +242,8 @@ A diagnostic warning is emitted when a single parallel hook is sandwiched betwee
 
 ### Group execution
 
-- **Sequential groups** — Hooks run one at a time. Each hook receives the current `toolInput` (possibly modified by a prior hook's `updatedInput`). A block result stops the group and the pipeline.
-- **Parallel groups** — All hooks in the group start concurrently. They all see the same `toolInput` snapshot. A short-circuit mechanism aborts remaining hooks when a block or contract violation (`updatedInput` in parallel mode) is detected. Results are merged after all hooks settle (or short-circuit).
+- **Sequential groups** — Hooks run one at a time. Each hook receives the current `toolInput` (possibly modified by a prior hook's `updatedInput`). A block result stops the group and the pipeline. **Exception (PreToolUse only):** `block` is a structured deny vote, not a pipeline stop — execution continues so every hook contributes to the `deny > defer > ask > allow` reduction. Crashed hooks under `onError: "block"` still short-circuit.
+- **Parallel groups** — All hooks in the group start concurrently. They all see the same `toolInput` snapshot. A short-circuit mechanism aborts remaining hooks when a block or contract violation (`updatedInput` in parallel mode) is detected. Results are merged after all hooks settle (or short-circuit). **Exception (PreToolUse only):** structured `block` results do not trigger the short-circuit abort — they are pushed to the vote accumulator. Contract violations and crashed hooks under `onError: "block"` still short-circuit.
 
 ## Circuit Breaker
 

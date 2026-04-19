@@ -15,18 +15,24 @@ afterEach(() => {
 describe('error cascade advanced', () => {
   test('1. Hook A (onError:continue) crashes, Hook B (onError:block) crashes — both diagnostics + block', () => {
     sandbox = createSandbox()
-    sandbox.writeHook('hook-a.ts', `
+    sandbox.writeHook(
+      'hook-a.ts',
+      `
 export const hook = {
   meta: { name: "hook-a" },
   PreToolUse() { throw new Error("hook-a crash") },
 }
-`)
-    sandbox.writeHook('hook-b.ts', `
+`,
+    )
+    sandbox.writeHook(
+      'hook-b.ts',
+      `
 export const hook = {
   meta: { name: "hook-b" },
   PreToolUse() { throw new Error("hook-b crash") },
 }
-`)
+`,
+    )
     sandbox.writeConfig(`
 version: "1.0.0"
 hook-a:
@@ -52,18 +58,24 @@ PreToolUse:
 
   test('2. two hooks crash with onError:continue — both diagnostics in systemMessage', () => {
     sandbox = createSandbox()
-    sandbox.writeHook('cont-a.ts', `
+    sandbox.writeHook(
+      'cont-a.ts',
+      `
 export const hook = {
   meta: { name: "cont-a" },
   PreToolUse() { throw new Error("cont-a crash") },
 }
-`)
-    sandbox.writeHook('cont-b.ts', `
+`,
+    )
+    sandbox.writeHook(
+      'cont-b.ts',
+      `
 export const hook = {
   meta: { name: "cont-b" },
   PreToolUse() { throw new Error("cont-b crash") },
 }
-`)
+`,
+    )
     sandbox.writeConfig(`
 version: "1.0.0"
 config:
@@ -88,12 +100,15 @@ PreToolUse:
 
   test('3. hook degraded (above maxFailures) with onError:block — degraded message, no block', () => {
     sandbox = createSandbox()
-    sandbox.writeHook('degrading.ts', `
+    sandbox.writeHook(
+      'degrading.ts',
+      `
 export const hook = {
   meta: { name: "degrading" },
   PreToolUse() { throw new Error("degrading crash") },
 }
-`)
+`,
+    )
     sandbox.writeConfig(`
 version: "1.0.0"
 degrading:
@@ -120,12 +135,15 @@ degrading:
   test('4. onError:trace on non-injectable event — fallback to continue, runtime warning', () => {
     sandbox = createSandbox()
     // SessionEnd is a non-injectable observe event
-    sandbox.writeHook('trace-noninject.ts', `
+    sandbox.writeHook(
+      'trace-noninject.ts',
+      `
 export const hook = {
   meta: { name: "trace-noninject" },
   SessionEnd() { throw new Error("trace crash") },
 }
-`)
+`,
+    )
     sandbox.writeConfig(`
 version: "1.0.0"
 trace-noninject:
@@ -146,16 +164,21 @@ trace-noninject:
   test('5. beforeHook blocks, prior hooks injectContext merged into block result (injectable event)', () => {
     sandbox = createSandbox()
     // Hook A: allows with injectContext
-    sandbox.writeHook('inject-a.ts', `
+    sandbox.writeHook(
+      'inject-a.ts',
+      `
 export const hook = {
   meta: { name: "inject-a" },
   PreToolUse() {
     return { result: "allow" as const, injectContext: "context-from-a" }
   },
 }
-`)
+`,
+    )
     // Hook B: beforeHook blocks
-    sandbox.writeHook('before-block-b.ts', `
+    sandbox.writeHook(
+      'before-block-b.ts',
+      `
 export const hook = {
   meta: { name: "before-block-b" },
   beforeHook(event: any) {
@@ -165,7 +188,8 @@ export const hook = {
     return { result: "allow" as const }
   },
 }
-`)
+`,
+    )
     sandbox.writeConfig(`
 version: "1.0.0"
 inject-a: {}
@@ -181,17 +205,19 @@ PreToolUse:
     const output = JSON.parse(result.stdout)
     // Block from Hook B's beforeHook
     expect(output.hookSpecificOutput.permissionDecision).toBe('deny')
-    // Hook A's injectContext is merged internally into blockResult.injectContext,
-    // but PreToolUse deny output format drops additionalContext — only permissionDecision
-    // and permissionDecisionReason are emitted. So the merge is structurally correct
-    // but not observable in serialized output. Document this explicitly:
-    expect(output.hookSpecificOutput.additionalContext).toBeUndefined()
+    // Under M3, the beforeHook block is treated as a structured deny vote in the reducer
+    // (rank 3). Hook A's allow vote (rank 0) loses. Per the M3 deny-winner accumulation
+    // rule (FEAT-0059 D2), allow-loser injectContext is merged into the deny winner's
+    // injectContext. The M2 translator then emits it as additionalContext on the wire:
+    expect(output.hookSpecificOutput.additionalContext).toBe('context-from-a')
     expect(output.hookSpecificOutput.permissionDecisionReason).toContain('before-hook blocked')
   })
 
   test('6. afterHook crashes — treated as runtime error, onError applies', () => {
     sandbox = createSandbox()
-    sandbox.writeHook('after-crash.ts', `
+    sandbox.writeHook(
+      'after-crash.ts',
+      `
 export const hook = {
   meta: { name: "after-crash" },
   async afterHook() {
@@ -201,7 +227,8 @@ export const hook = {
     return { result: "allow" as const }
   },
 }
-`)
+`,
+    )
     sandbox.writeConfig(`
 version: "1.0.0"
 after-crash:
@@ -222,7 +249,9 @@ after-crash:
 
   test('7. beforeHook calls respond() twice — "only once" error, onError applies', () => {
     sandbox = createSandbox()
-    sandbox.writeHook('respond-twice.ts', `
+    sandbox.writeHook(
+      'respond-twice.ts',
+      `
 export const hook = {
   meta: { name: "respond-twice" },
   beforeHook(event: any) {
@@ -233,7 +262,8 @@ export const hook = {
     return { result: "allow" as const }
   },
 }
-`)
+`,
+    )
     // Use onError:block (default) to see the error surface
     sandbox.writeConfig(`
 version: "1.0.0"
@@ -260,7 +290,9 @@ respond-twice: {}
 
   test('8. beforeHook calls respond(null) — "non-null result" error, onError applies', () => {
     sandbox = createSandbox()
-    sandbox.writeHook('respond-null.ts', `
+    sandbox.writeHook(
+      'respond-null.ts',
+      `
 export const hook = {
   meta: { name: "respond-null" },
   beforeHook(event: any) {
@@ -270,7 +302,8 @@ export const hook = {
     return { result: "allow" as const }
   },
 }
-`)
+`,
+    )
     sandbox.writeConfig(`
 version: "1.0.0"
 respond-null: {}

@@ -468,7 +468,7 @@ describe('lifecycle integration', () => {
     expect(lastResult?.result).toBe('allow')
   })
 
-  test('sequential pipeline: first hook beforeHook blocks, second hook does not run', async () => {
+  test('sequential pipeline: first hook beforeHook blocks, second hook DOES run (M3 collect-all)', async () => {
     let secondHandlerRan = false
 
     const hookA = makeLoadedHook('blocker', {
@@ -499,8 +499,8 @@ describe('lifecycle integration', () => {
 
     expect(lastResult?.result).toBe('block')
     expect(lastResult?.reason).toContain('first blocks')
-    // Second hook should NOT run because pipeline was blocked
-    expect(secondHandlerRan).toBe(false)
+    // M3: collect-all — second hook runs even when first hook blocked
+    expect(secondHandlerRan).toBe(true)
   })
 
   test('beforeHook receives correct event context', async () => {
@@ -561,7 +561,7 @@ describe('lifecycle integration', () => {
     expect(typeof receivedEvent.respond).toBe('function')
   })
 
-  test('beforeHook skip — handler and afterHook do not run, hook is invisible', async () => {
+  test('beforeHook skip — handler and afterHook do not run; M3: skip vote returned (not undefined)', async () => {
     let handlerRan = false
     let afterHookRan = false
 
@@ -591,8 +591,9 @@ describe('lifecycle integration', () => {
 
     expect(handlerRan).toBe(false)
     expect(afterHookRan).toBe(false)
-    // skip = hook is invisible, no result
-    expect(lastResult).toBeUndefined()
+    // M3: beforeHook skip produces a skip vote; reducer returns the skip winner.
+    // (Non-PreToolUse events still return undefined for all-skip — this is PreToolUse-specific.)
+    expect(lastResult?.result).toBe('skip')
   })
 
   test('beforeHook skip — pipeline continues to next hook', async () => {

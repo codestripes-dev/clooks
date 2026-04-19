@@ -380,7 +380,7 @@ export interface HookSpecificOutputBase {
  */
 export interface PreToolUseOutput extends HookSpecificOutputBase {
   hookEventName: 'PreToolUse'
-  permissionDecision?: 'allow' | 'deny' | 'ask'
+  permissionDecision?: 'allow' | 'deny' | 'ask' | 'defer'
   permissionDecisionReason?: string
   updatedInput?: Record<string, unknown>
 }

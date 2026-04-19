@@ -1,4 +1,14 @@
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync, cpSync, symlinkSync, chmodSync } from 'fs'
+import {
+  mkdtempSync,
+  rmSync,
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+  existsSync,
+  cpSync,
+  symlinkSync,
+  chmodSync,
+} from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 
@@ -18,7 +28,10 @@ export interface Sandbox {
   dir: string
   /** Absolute path to the fake HOME directory (sibling of project dir). */
   home: string
-  run(args: string[], opts?: { stdin?: string; env?: Record<string, string>; timeout?: number; cwd?: string }): RunResult
+  run(
+    args: string[],
+    opts?: { stdin?: string; env?: Record<string, string>; timeout?: number; cwd?: string },
+  ): RunResult
   runEntrypoint(opts?: { stdin?: string; env?: Record<string, string> }): RunResult
   writeFile(relativePath: string, content: string): void
   writeConfig(yamlContent: string): void
@@ -42,9 +55,9 @@ export interface Sandbox {
 export function createSandbox(): Sandbox {
   if (process.env.CLOOKS_E2E_DOCKER !== 'true') {
     throw new Error(
-      'E2E tests must run inside Docker for hermetic isolation.\n' +
-      'Run: bun run test:e2e\n' +
-      'To bypass (local debugging only): CLOOKS_E2E_DOCKER=true bun test test/e2e/'
+      "Run 'bun run test:e2e' — it builds and runs the Docker container automatically.\n" +
+        'Docker is a project dependency, not optional. If `docker ps` fails, the Docker daemon/engine is not running — start it and alert the user; do not assume Docker is unavailable.\n' +
+        'Debugging bypass (skips hermetic isolation): CLOOKS_E2E_DOCKER=true bun test test/e2e/',
     )
   }
 

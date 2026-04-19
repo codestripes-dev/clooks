@@ -1,0 +1,19 @@
+{
+  "session_id": "test-session-001",
+  "hook_event_name": "PreToolUse",
+  "cwd": "/tmp/test",
+  "permission_mode": "bypassPermissions",
+  "transcript_path": "/tmp/transcript.jsonl",
+  "tool_name": "AskUserQuestion",
+  "tool_input": {
+    "questions": [
+      {
+        "question": "Which framework?",
+        "header": "Framework",
+        "options": [{ "label": "React" }, { "label": "Vue" }],
+        "multi_select": false
+      }
+    ]
+  },
+  "tool_use_id": "toolu_01TEST"
+}
