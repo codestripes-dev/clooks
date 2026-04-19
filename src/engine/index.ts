@@ -21,6 +21,8 @@ export {
   formatDiagnostic,
   formatTraceMessage,
   executeHooks,
+  rankPreToolUseResult,
+  reducePreToolUseVotes,
 } from './execute.js'
 
 // run

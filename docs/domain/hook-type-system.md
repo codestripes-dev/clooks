@@ -16,7 +16,7 @@ The type system is organized around the `ClooksHook<C>` interface — a single t
 
 - `src/types/index.ts` — Public API barrel. Re-exports everything from submodules.
 - `src/types/branded.ts` — `EventName` (closed literal union), `HookName` and `Milliseconds` (branded types), plus 8 forward-compatible union types for enum-like fields.
-- `src/types/results.ts` — 9 base result types + 22 per-event result types.
+- `src/types/results.ts` — 10 base result types + 22 per-event result types.
 - `src/types/contexts.ts` — `BaseContext` + 22 per-event context interfaces.
 - `src/types/hook.ts` — `MaybeAsync<T>`, `HookMeta<C>`, `ClooksHook<C>`.
 - `src/types/lifecycle.ts` — `EventContextMap`, `EventResultMap`, `HookEventMeta`, `BeforeHookEvent`, `AfterHookEvent`.
@@ -32,7 +32,7 @@ Events fall into 4 categories, each with a distinct result pattern:
 
 | Category | Result options | Events |
 |----------|--------------|--------|
-| Guard | allow, block, skip | PreToolUse, UserPromptSubmit, PermissionRequest, Stop, SubagentStop, ConfigChange, PreCompact |
+| Guard | allow, block, skip (PreToolUse also: ask, defer) | PreToolUse, UserPromptSubmit, PermissionRequest, Stop, SubagentStop, ConfigChange, PreCompact |
 | Observe | skip (PostToolUse also accepts block; PermissionDenied also accepts retry) | SessionStart, SessionEnd, InstructionsLoaded, PostToolUse, PostToolUseFailure, Notification, SubagentStart, WorktreeRemove, PostCompact, PermissionDenied |
 | Implementation | success, failure | WorktreeCreate |
 | Continuation | continue, stop, skip | TeammateIdle, TaskCreated, TaskCompleted |
@@ -40,7 +40,7 @@ Events fall into 4 categories, each with a distinct result pattern:
 
 ### ResultTag and ExitCode
 
-`ResultTag` (in `src/types/results.ts`) is a literal union of all result discriminant values: `"allow" | "block" | "skip" | "success" | "failure" | "continue" | "stop" | "retry"`. It names the union that already exists implicitly across the base result types. The engine uses `ResultTag` in the `EngineResult` interface to type result objects flowing through the execution pipeline, eliminating `as string` casts on result discriminants.
+`ResultTag` (in `src/types/results.ts`) is a literal union of all result discriminant values: `"allow" | "block" | "skip" | "success" | "failure" | "continue" | "stop" | "retry" | "ask" | "defer"`. It names the union that already exists implicitly across the base result types. The engine uses `ResultTag` in the `EngineResult` interface to type result objects flowing through the execution pipeline, eliminating `as string` casts on result discriminants. `"ask"` and `"defer"` are PreToolUse-only — narrow per-event result types prevent hook authors from using them on other events at compile time; the translator's unknown-result fall-through catches any `as any` escape hatches.
 
 `ExitCode` (in `src/engine.ts`) is a literal union derived from three `as const` constants:
 - `EXIT_OK = 0` — Success. Stdout may contain JSON output.
@@ -64,9 +64,33 @@ Not all `BaseContext` fields are universally present across all events. The foll
 
 ### Tool event pipeline fields
 
-`PreToolUseContext` includes two fields for the tool input pipeline:
+`PreToolUseContext` is a **discriminated union on `toolName`** (FEAT-0059). Narrowing on `ctx.toolName` automatically narrows `ctx.toolInput` to a tool-specific camelCase interface — no `as` cast required:
 
-- `toolInput: Record<string, unknown>` — The current tool input, which may differ from the original if a previous sequential hook returned `updatedInput`.
+```ts
+if (ctx.toolName === 'Write') {
+  ctx.toolInput.filePath   // string — auto-typed
+  ctx.toolInput.content    // string — auto-typed
+}
+```
+
+Typed variants: `BashToolInput`, `WriteToolInput`, `EditToolInput`, `ReadToolInput`, `GlobToolInput`, `GrepToolInput`, `AgentToolInput`, `WebFetchToolInput`, `WebSearchToolInput`, `AskUserQuestionToolInput`. All interfaces use camelCase keys because `src/normalize.ts` recursively camelCases every payload key before a handler sees it. See FEAT-0012 for higher-level matcher helpers built on top of these interfaces.
+
+**`PreToolUseContext` does NOT include a catch-all variant.** A `toolName: string` catch-all cannot coexist with discriminated-union narrowing in TypeScript: because `string` is a supertype of every literal, narrowing on `ctx.toolName === 'Bash'` keeps both the `Bash` variant and the catch-all, making `ctx.toolInput` resolve to `BashToolInput | Record<string, unknown>` and defeating typed access. For unknown tool names (MCP tools, `ExitPlanMode`, future upstream tools), use `UnknownPreToolUseContext`:
+
+```ts
+import type { UnknownPreToolUseContext } from './types'
+
+const ctx = rawCtx as unknown as UnknownPreToolUseContext
+if (ctx.toolName.startsWith('mcp__')) {
+  const val: unknown = ctx.toolInput.someField  // Record<string, unknown>
+}
+```
+
+`UnknownPreToolUseContext` is exported from `src/types/index.ts` alongside `PreToolUseContext`.
+
+`PreToolUseContext` also includes two fields for the tool input pipeline:
+
+- `toolInput: <per-tool interface>` — The current tool input (typed per `toolName`), which may differ from the original if a previous sequential hook returned `updatedInput`.
 - `originalToolInput: Record<string, unknown>` — The original tool input from Claude Code, before any hook modifications. Always reflects the unmodified input, even after multiple hooks have modified `toolInput`.
 
 `PostToolUseContext` and `PostToolUseFailureContext` also include `originalToolInput?: Record<string, unknown>`. The engine adds this field for all tool events (any event whose normalized payload contains `toolInput`). It is optional on post-tool events because it is engine-injected, not contractually guaranteed by Claude Code for these event types.

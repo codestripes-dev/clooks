@@ -71,6 +71,10 @@ This project uses agentic-driven development with a clear separation between fea
 
 4. **Findings** are logged in real-time to `docs/findings/` whenever you hit snags: knowledge gaps, code quality issues, test gaps, stale docs, or tooling friction. Read `docs/findings/index.md` for format and severity levels. Remove findings once the underlying issue is resolved. **CRITICAL: Read `docs/findings/index.md` at the start of every session.**
 
+## Running E2E Tests (agents + subagents)
+
+Docker is a hard dependency of this project and is expected to be available in this environment. Always run E2E tests via `bun run test:e2e` — it builds the container and runs the suite. Do **not** invoke `bun test test/e2e/…` directly; that bypasses the Docker orchestration and trips the sandbox guard. If `docker ps` fails, the Docker **daemon/engine is not running** — start the engine or alert the user. Do not conclude that Docker is unavailable.
+
 ## Temporary Files
 
 Use `tmp/` in the repository root for any temporary scripts, spike code, or throwaway files. Always persist multi-line scripts to `tmp/` first rather than running them inline — this makes them easy to reuse, modify, and re-run. Use a descriptive subfolder (e.g., `tmp/test-hook-output/`) to keep things organized. The directory is gitignored.

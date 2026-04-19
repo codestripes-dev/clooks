@@ -1153,6 +1153,318 @@ stop-failure-crash-block: {}
   })
 })
 
+describe('event formats — PreToolUse decisions (FEAT-0059)', () => {
+  // A. defer outcome
+  test('PreToolUse defer → permissionDecision:defer, no extra fields, exit 0', () => {
+    sandbox = createSandbox()
+    sandbox.writeHook(
+      'pre-defer.ts',
+      `
+export const hook = {
+  meta: { name: "pre-defer" },
+  PreToolUse() {
+    return { result: "defer" as const }
+  },
+}
+`,
+    )
+    sandbox.writeConfig(`
+version: "1.0.0"
+pre-defer: {}
+`)
+    const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-ask-user-question.json') })
+    expect(result.exitCode).toBe(0)
+    const output = JSON.parse(result.stdout)
+    expect(output.hookSpecificOutput).toBeDefined()
+    expect(output.hookSpecificOutput.hookEventName).toBe('PreToolUse')
+    expect(output.hookSpecificOutput.permissionDecision).toBe('defer')
+    expect(output.hookSpecificOutput.permissionDecisionReason).toBeUndefined()
+    expect(output.hookSpecificOutput.updatedInput).toBeUndefined()
+    expect(output.hookSpecificOutput.additionalContext).toBeUndefined()
+  })
+
+  // B. ask outcome with reason
+  test('PreToolUse ask with reason → permissionDecision:ask + reason, exit 0', () => {
+    sandbox = createSandbox()
+    sandbox.writeHook(
+      'pre-ask.ts',
+      `
+export const hook = {
+  meta: { name: "pre-ask" },
+  PreToolUse() {
+    return { result: "ask" as const, reason: "confirm" }
+  },
+}
+`,
+    )
+    sandbox.writeConfig(`
+version: "1.0.0"
+pre-ask: {}
+`)
+    const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
+    expect(result.exitCode).toBe(0)
+    const output = JSON.parse(result.stdout)
+    expect(output.hookSpecificOutput.hookEventName).toBe('PreToolUse')
+    expect(output.hookSpecificOutput.permissionDecision).toBe('ask')
+    expect(output.hookSpecificOutput.permissionDecisionReason).toBe('confirm')
+  })
+
+  // C. ask + updatedInput + injectContext
+  test('PreToolUse ask + updatedInput + injectContext → all three fields present', () => {
+    sandbox = createSandbox()
+    sandbox.writeHook(
+      'pre-ask-full.ts',
+      `
+export const hook = {
+  meta: { name: "pre-ask-full" },
+  PreToolUse() {
+    return {
+      result: "ask" as const,
+      reason: "confirm",
+      updatedInput: { command: "echo safe" },
+      injectContext: "extra context",
+    }
+  },
+}
+`,
+    )
+    sandbox.writeConfig(`
+version: "1.0.0"
+pre-ask-full: {}
+`)
+    const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
+    expect(result.exitCode).toBe(0)
+    const output = JSON.parse(result.stdout)
+    expect(output.hookSpecificOutput.permissionDecision).toBe('ask')
+    expect(output.hookSpecificOutput.permissionDecisionReason).toBe('confirm')
+    expect(output.hookSpecificOutput.updatedInput).toEqual({ command: 'echo safe' })
+    expect(output.hookSpecificOutput.additionalContext).toBe('extra context')
+  })
+
+  // D. allow with reason (D4 wire-up)
+  test('PreToolUse allow with reason → permissionDecision:allow + permissionDecisionReason', () => {
+    sandbox = createSandbox()
+    sandbox.writeHook(
+      'pre-allow-reason.ts',
+      `
+export const hook = {
+  meta: { name: "pre-allow-reason" },
+  PreToolUse() {
+    return { result: "allow" as const, reason: "auto-approved" }
+  },
+}
+`,
+    )
+    sandbox.writeConfig(`
+version: "1.0.0"
+pre-allow-reason: {}
+`)
+    const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
+    expect(result.exitCode).toBe(0)
+    const output = JSON.parse(result.stdout)
+    expect(output.hookSpecificOutput.permissionDecision).toBe('allow')
+    expect(output.hookSpecificOutput.permissionDecisionReason).toBe('auto-approved')
+  })
+
+  // E. multi-hook precedence permutation 1: allow, deny, ask → deny wins
+  test('PreToolUse multi-hook: allow + deny(policy) + ask → deny wins, all hooks ran', () => {
+    sandbox = createSandbox()
+    sandbox.writeHook(
+      'pre-h1-allow.ts',
+      `
+import { writeFileSync } from "fs"
+export const hook = {
+  meta: { name: "pre-h1-allow" },
+  PreToolUse() {
+    writeFileSync(process.env.BREADCRUMB_FILE!, "H1\\n", { flag: "a" })
+    return { result: "allow" as const }
+  },
+}
+`,
+    )
+    sandbox.writeHook(
+      'pre-h2-deny.ts',
+      `
+import { writeFileSync } from "fs"
+export const hook = {
+  meta: { name: "pre-h2-deny" },
+  PreToolUse() {
+    writeFileSync(process.env.BREADCRUMB_FILE!, "H2\\n", { flag: "a" })
+    return { result: "block" as const, reason: "policy" }
+  },
+}
+`,
+    )
+    sandbox.writeHook(
+      'pre-h3-ask.ts',
+      `
+import { writeFileSync } from "fs"
+export const hook = {
+  meta: { name: "pre-h3-ask" },
+  PreToolUse() {
+    writeFileSync(process.env.BREADCRUMB_FILE!, "H3\\n", { flag: "a" })
+    return { result: "ask" as const, reason: "check" }
+  },
+}
+`,
+    )
+    sandbox.writeConfig(`
+version: "1.0.0"
+pre-h1-allow: {}
+pre-h2-deny: {}
+pre-h3-ask: {}
+`)
+    const breadcrumbFile = join(sandbox.dir, 'breadcrumbs.txt')
+    const result = sandbox.run([], {
+      stdin: loadEvent('pre-tool-use-bash.json'),
+      env: { BREADCRUMB_FILE: breadcrumbFile },
+    })
+    expect(result.exitCode).toBe(0)
+    const output = JSON.parse(result.stdout)
+    expect(output.hookSpecificOutput.permissionDecision).toBe('deny')
+    expect(output.hookSpecificOutput.permissionDecisionReason).toBe('policy')
+    // All three hooks ran — breadcrumb file has three lines
+    const crumbs = sandbox.readFile('breadcrumbs.txt').trim().split('\n')
+    expect(crumbs).toHaveLength(3)
+  })
+
+  // E'. multi-hook precedence permutation 2: ask, allow, deny → deny still wins (order-independence)
+  test('PreToolUse multi-hook permutation 2: ask + allow + deny(policy) → deny wins regardless of order', () => {
+    sandbox = createSandbox()
+    sandbox.writeHook(
+      'pre-p2-h1-ask.ts',
+      `
+import { writeFileSync } from "fs"
+export const hook = {
+  meta: { name: "pre-p2-h1-ask" },
+  PreToolUse() {
+    writeFileSync(process.env.BREADCRUMB_FILE!, "H1\\n", { flag: "a" })
+    return { result: "ask" as const, reason: "check" }
+  },
+}
+`,
+    )
+    sandbox.writeHook(
+      'pre-p2-h2-allow.ts',
+      `
+import { writeFileSync } from "fs"
+export const hook = {
+  meta: { name: "pre-p2-h2-allow" },
+  PreToolUse() {
+    writeFileSync(process.env.BREADCRUMB_FILE!, "H2\\n", { flag: "a" })
+    return { result: "allow" as const }
+  },
+}
+`,
+    )
+    sandbox.writeHook(
+      'pre-p2-h3-deny.ts',
+      `
+import { writeFileSync } from "fs"
+export const hook = {
+  meta: { name: "pre-p2-h3-deny" },
+  PreToolUse() {
+    writeFileSync(process.env.BREADCRUMB_FILE!, "H3\\n", { flag: "a" })
+    return { result: "block" as const, reason: "policy" }
+  },
+}
+`,
+    )
+    sandbox.writeConfig(`
+version: "1.0.0"
+pre-p2-h1-ask: {}
+pre-p2-h2-allow: {}
+pre-p2-h3-deny: {}
+`)
+    const breadcrumbFile = join(sandbox.dir, 'breadcrumbs.txt')
+    const result = sandbox.run([], {
+      stdin: loadEvent('pre-tool-use-bash.json'),
+      env: { BREADCRUMB_FILE: breadcrumbFile },
+    })
+    expect(result.exitCode).toBe(0)
+    const output = JSON.parse(result.stdout)
+    expect(output.hookSpecificOutput.permissionDecision).toBe('deny')
+    expect(output.hookSpecificOutput.permissionDecisionReason).toBe('policy')
+    const crumbs = sandbox.readFile('breadcrumbs.txt').trim().split('\n')
+    expect(crumbs).toHaveLength(3)
+  })
+
+  // F. defer-drops-data warning: allow+updatedInput + defer → defer wins + systemMessage warning
+  test('PreToolUse defer wins over allow+updatedInput → systemMessage warning about dropped data', () => {
+    sandbox = createSandbox()
+    sandbox.writeHook(
+      'pre-f-allow-input.ts',
+      `
+export const hook = {
+  meta: { name: "pre-f-allow-input" },
+  PreToolUse() {
+    return { result: "allow" as const, updatedInput: { command: "echo replaced" } }
+  },
+}
+`,
+    )
+    sandbox.writeHook(
+      'pre-f-defer.ts',
+      `
+export const hook = {
+  meta: { name: "pre-f-defer" },
+  PreToolUse() {
+    return { result: "defer" as const }
+  },
+}
+`,
+    )
+    sandbox.writeConfig(`
+version: "1.0.0"
+pre-f-allow-input: {}
+pre-f-defer: {}
+`)
+    const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
+    expect(result.exitCode).toBe(0)
+    const output = JSON.parse(result.stdout)
+    expect(output.hookSpecificOutput.permissionDecision).toBe('defer')
+    expect(output.hookSpecificOutput.updatedInput).toBeUndefined()
+    expect(output.hookSpecificOutput.additionalContext).toBeUndefined()
+    // systemMessage must warn about dropped updatedInput
+    expect(output.systemMessage).toBeDefined()
+    expect(output.systemMessage).toContain('defer')
+    expect(output.systemMessage).toContain('updatedInput')
+  })
+
+  // G. discriminated-context narrowing end-to-end
+  test('PreToolUse Write tool → hook narrows ctx.toolInput to WriteToolInput, updatedInput round-trips', () => {
+    sandbox = createSandbox()
+    sandbox.writeHook(
+      'pre-write-narrow.ts',
+      `
+export const hook = {
+  meta: { name: "pre-write-narrow" },
+  PreToolUse(ctx: any) {
+    if (ctx.toolName === "Write") {
+      return {
+        result: "allow" as const,
+        updatedInput: { filePath: ctx.toolInput.filePath, content: "overridden" },
+      }
+    }
+    return { result: "skip" as const }
+  },
+}
+`,
+    )
+    sandbox.writeConfig(`
+version: "1.0.0"
+pre-write-narrow: {}
+`)
+    const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-write.json') })
+    expect(result.exitCode).toBe(0)
+    const output = JSON.parse(result.stdout)
+    expect(output.hookSpecificOutput.permissionDecision).toBe('allow')
+    expect(output.hookSpecificOutput.updatedInput).toBeDefined()
+    expect(output.hookSpecificOutput.updatedInput.filePath).toBe('/tmp/test.txt')
+    expect(output.hookSpecificOutput.updatedInput.content).toBe('overridden')
+  })
+})
+
 describe('event formats — PermissionDenied (FEAT-0058)', () => {
   // PD-1. PermissionDenied retry outcome → hookSpecificOutput with retry: true
   test('PermissionDenied retry → hookSpecificOutput with hookEventName and retry: true', () => {

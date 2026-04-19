@@ -65,7 +65,7 @@ Must choose one approach per hook: exit codes alone, OR exit 0 with JSON. Claude
 |--------|---------|------------|
 | UserPromptSubmit, PostToolUse, PostToolUseFailure, Stop, SubagentStop, ConfigChange, PreCompact | Top-level `decision` | `decision: "block"`, `reason`. UserPromptSubmit also supports `hookSpecificOutput.sessionTitle` (sets session title, equivalent to /rename; may combine with block or allow/skip) |
 | TeammateIdle, TaskCompleted | Exit code or `continue` | Exit 2 blocks with stderr. `{"continue": false, "stopReason": "..."}` stops entirely |
-| PreToolUse | `hookSpecificOutput` | `hookEventName` (required), `permissionDecision`, `permissionDecisionReason`, `updatedInput`, `additionalContext` |
+| PreToolUse | `hookSpecificOutput` | `hookEventName` (required), `permissionDecision` (`"allow"` / `"deny"` / `"ask"` / `"defer"`), `permissionDecisionReason`, `updatedInput`, `additionalContext`. Multi-hook execution model: all registered PreToolUse hooks run to completion (no short-circuit on deny); results are reduced via `deny > defer > ask > allow` precedence. Crashed hooks under `onError: "block"` still short-circuit — a crash does not participate in the reduction. |
 | PermissionRequest | `hookSpecificOutput` | `hookEventName` (required), `decision.behavior`, `decision.updatedInput`, `decision.updatedPermissions` (array of `PermissionUpdateEntry` — six variants per `src/types/permissions.ts`), `decision.message`, `decision.interrupt` |
 | WorktreeCreate | stdout path | Print absolute path. Non-zero exit fails |
 | WorktreeRemove, Notification, SessionEnd, PostCompact, InstructionsLoaded | None | Side effects only |

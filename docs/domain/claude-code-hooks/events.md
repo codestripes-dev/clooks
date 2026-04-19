@@ -2,7 +2,7 @@
 
 All 22 lifecycle events: when they fire, what they match on, what input they receive, and how to control their behavior.
 
-**Source:** Official Anthropic docs at `code.claude.com/docs/en/hooks`, verified 2026-03-08.
+**Source:** Official Anthropic docs at `code.claude.com/docs/en/hooks`, verified 2026-04-19.
 
 ## Event Summary
 
@@ -11,7 +11,7 @@ All 22 lifecycle events: when they fire, what they match on, what input they rec
 | `SessionStart` | No | Command only | how started: `startup`, `resume`, `clear`, `compact` |
 | `InstructionsLoaded` | No | Command only | `load_reason`: `session_start`, `nested_traversal`, `path_glob_match`, `include`, `compact` (regex/alternation) |
 | `UserPromptSubmit` | Yes | All four | not supported |
-| `PreToolUse` | Yes | All four | tool name: `Bash`, `Edit\|Write`, `mcp__.*` |
+| `PreToolUse` | Yes | All four | tool name: `Bash`, `Edit`, `Write`, `Read`, `Glob`, `Grep`, `Agent`, `WebFetch`, `WebSearch`, `AskUserQuestion`, `ExitPlanMode`, `mcp__.*` |
 | `PermissionRequest` | Yes | All four | tool name (same as PreToolUse) |
 | `PermissionDenied` | No (denial already happened; can emit retry hint) | Command only | tool name (same as PreToolUse) |
 | `PostToolUse` | Yes | All four | tool name |
@@ -64,12 +64,20 @@ All 22 lifecycle events: when they fire, what they match on, what input they rec
 
 **Input:** `tool_name`, `tool_input` (see [io-contract.md](./io-contract.md) for per-tool schemas), `tool_use_id`.
 **Output via `hookSpecificOutput`:**
-- `permissionDecision`: `"allow"` (bypass), `"deny"` (block), `"ask"` (prompt user)
-- `permissionDecisionReason`: for allow/ask → shown to user; for deny → shown to Claude
-- `updatedInput`: modified tool input before execution
-- `additionalContext`: added to Claude's context
+- `permissionDecision`: `"allow"` (bypass), `"deny"` (block), `"ask"` (prompt user), `"defer"` (pause for headless caller; `-p` mode only, v2.1.89+)
+- `permissionDecisionReason`: for allow/ask → shown to user; for deny → shown to Claude; ignored for defer
+- `updatedInput`: modified tool input before execution; ignored for defer
+- `additionalContext`: added to Claude's context; ignored for defer
 
 Deprecated: top-level `decision`/`reason`. Legacy `"approve"` → `"allow"`, `"block"` → `"deny"`.
+
+**Source label:** `ask` prompts display the Claude Code source label assigned to the Clooks entrypoint (`[Project]`, `[User]`, `[Plugin]`, `[Local]`) — not the individual hook name. Use `permissionDecisionReason` to disambiguate which hook asked.
+
+**Headless-detection limitation:** Clooks cannot determine whether the session is headless (`-p`) from inside a hook. Return `defer` unconditionally when that is the desired behavior; Claude Code ignores `defer` in interactive sessions (logs a warning and proceeds normally).
+
+**Multi-hook precedence:** Clooks runs every PreToolUse hook to completion (no short-circuit on block) and reduces via `deny > defer > ask > allow`. Crashed hooks under `onError: "block"` still short-circuit — a crash exits the pipeline entirely and does not participate in the precedence reduction.
+
+**Defer ignore-fields:** `defer` ignores `updatedInput`, `additionalContext`, and `permissionDecisionReason`. When a losing hook contributed these fields and `defer` wins, Clooks emits a `systemMessage` warning so authors see the discarded data.
 
 ### PermissionRequest
 

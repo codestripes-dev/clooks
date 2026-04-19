@@ -41,6 +41,9 @@ export function translateResult(
         permissionDecision: 'deny',
         permissionDecisionReason: reason,
       }
+      if (result.injectContext) {
+        hookOutput.additionalContext = result.injectContext
+      }
       const output: ClaudeCodeOutput = { hookSpecificOutput: hookOutput }
       return { output: JSON.stringify(output), exitCode: EXIT_OK }
     }
@@ -52,11 +55,49 @@ export function translateResult(
         hookEventName: 'PreToolUse',
         permissionDecision: 'allow',
       }
+      // Optional reason on allow (FEAT-0059 D4). Surfaced to the user as
+      // permissionDecisionReason per upstream contract.
+      if (typeof result.reason === 'string' && result.reason.length > 0) {
+        hookOutput.permissionDecisionReason = result.reason
+      }
       if (result.injectContext) {
         hookOutput.additionalContext = result.injectContext
       }
       if (result.updatedInput) {
         hookOutput.updatedInput = result.updatedInput as Record<string, unknown>
+      }
+      const output: ClaudeCodeOutput = { hookSpecificOutput: hookOutput }
+      return { output: JSON.stringify(output), exitCode: EXIT_OK }
+    }
+    if (resultType === 'ask') {
+      // `ask` requires reason per AskResult type; the reducer guarantees a
+      // non-empty string reaches here. Defensive fallback kept for safety.
+      const reason =
+        typeof result.reason === 'string' && result.reason.length > 0
+          ? result.reason
+          : 'clooks: hook requested confirmation'
+      const hookOutput: PreToolUseOutput = {
+        hookEventName: 'PreToolUse',
+        permissionDecision: 'ask',
+        permissionDecisionReason: reason,
+      }
+      if (result.injectContext) {
+        hookOutput.additionalContext = result.injectContext
+      }
+      if (result.updatedInput) {
+        hookOutput.updatedInput = result.updatedInput as Record<string, unknown>
+      }
+      const output: ClaudeCodeOutput = { hookSpecificOutput: hookOutput }
+      return { output: JSON.stringify(output), exitCode: EXIT_OK }
+    }
+    if (resultType === 'defer') {
+      // Upstream ignores reason / updatedInput / additionalContext for
+      // defer. The reducer in M3 drops these and emits a systemMessage
+      // warning if any loser contributed them. At the translator layer
+      // we emit the minimal shape — no defensive read of reason/etc.
+      const hookOutput: PreToolUseOutput = {
+        hookEventName: 'PreToolUse',
+        permissionDecision: 'defer',
       }
       const output: ClaudeCodeOutput = { hookSpecificOutput: hookOutput }
       return { output: JSON.stringify(output), exitCode: EXIT_OK }

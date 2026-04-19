@@ -31,14 +31,103 @@ export interface BaseContext {
 
 // --- Guard events ---
 
-export interface PreToolUseContext extends BaseContext {
+// --- PreToolUse per-tool input types (camelCase, post-normalize) ---
+// These mirror the tool_input fields Claude Code sends upstream
+// (docs/domain/raw-claude-ai/hook-docs/PreToolUse.md:11-112), transformed
+// through src/normalize.ts: snake_case keys become camelCase. Authors
+// narrow on ctx.toolName to get a typed ctx.toolInput.
+
+export interface BashToolInput {
+  command: string
+  description?: string
+  timeout?: number
+  runInBackground?: boolean
+}
+export interface WriteToolInput {
+  filePath: string
+  content: string
+}
+export interface EditToolInput {
+  filePath: string
+  oldString: string
+  newString: string
+  replaceAll?: boolean
+}
+export interface ReadToolInput {
+  filePath: string
+  offset?: number
+  limit?: number
+}
+export interface GlobToolInput {
+  pattern: string
+  path?: string
+}
+export interface GrepToolInput {
+  pattern: string
+  path?: string
+  glob?: string
+  outputMode?: 'content' | 'files_with_matches' | 'count' | (string & {})
+  '-i'?: boolean
+  multiline?: boolean
+}
+export interface WebFetchToolInput {
+  url: string
+  prompt: string
+}
+export interface WebSearchToolInput {
+  query: string
+  allowedDomains?: string[]
+  blockedDomains?: string[]
+}
+export interface AgentToolInput {
+  prompt: string
+  description: string
+  subagentType: string
+  model?: string
+}
+export interface AskUserQuestionToolInput {
+  questions: Array<{
+    question: string
+    header: string
+    options: Array<{ label: string }>
+    multiSelect?: boolean
+  }>
+  answers?: Record<string, string>
+}
+
+export type PreToolUseContext = BaseContext & {
   event: 'PreToolUse'
-  toolName: string
-  /** Current tool input — may differ from originalToolInput if a previous hook returned updatedInput. */
-  toolInput: Record<string, unknown>
+  toolUseId: string
   /** The original tool input from Claude Code, before any hook modifications. */
   originalToolInput: Record<string, unknown>
+} & (
+    | { toolName: 'Bash'; toolInput: BashToolInput }
+    | { toolName: 'Write'; toolInput: WriteToolInput }
+    | { toolName: 'Edit'; toolInput: EditToolInput }
+    | { toolName: 'Read'; toolInput: ReadToolInput }
+    | { toolName: 'Glob'; toolInput: GlobToolInput }
+    | { toolName: 'Grep'; toolInput: GrepToolInput }
+    | { toolName: 'WebFetch'; toolInput: WebFetchToolInput }
+    | { toolName: 'WebSearch'; toolInput: WebSearchToolInput }
+    | { toolName: 'Agent'; toolInput: AgentToolInput }
+    | { toolName: 'AskUserQuestion'; toolInput: AskUserQuestionToolInput }
+  )
+
+/**
+ * Context for a PreToolUse event where the tool name is not one of the 10
+ * known variants (e.g. MCP tools, ExitPlanMode, future upstream tools).
+ * Cast from `PreToolUseContext` when handling unknown tool names.
+ *
+ * @example
+ * const ctx = rawCtx as unknown as UnknownPreToolUseContext
+ * if (ctx.toolName.startsWith('mcp__')) { ... }
+ */
+export type UnknownPreToolUseContext = BaseContext & {
+  event: 'PreToolUse'
   toolUseId: string
+  originalToolInput: Record<string, unknown>
+  toolName: string
+  toolInput: Record<string, unknown>
 }
 
 export interface UserPromptSubmitContext extends BaseContext {

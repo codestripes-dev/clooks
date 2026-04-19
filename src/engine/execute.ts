@@ -16,6 +16,164 @@ import { runHookLifecycle, LifecycleMetaCache } from '../lifecycle.js'
 import type { LifecycleResult } from '../lifecycle.js'
 import type { EngineResult } from './types.js'
 
+// --- PreToolUse vote collector types and helpers ---
+
+type PreToolUseVote = {
+  engineResult: EngineResult
+  rank: number // deny=3, defer=2, ask=1, allow=0, skip=-1
+}
+
+export function rankPreToolUseResult(r: EngineResult): number {
+  switch (r.result) {
+    case 'block':
+      return 3
+    case 'defer':
+      return 2
+    case 'ask':
+      return 1
+    case 'allow':
+      return 0
+    case 'skip':
+      return -1
+    default:
+      return -1 // defensive; shouldn't happen given type narrowing
+  }
+}
+
+export function reducePreToolUseVotes(votes: PreToolUseVote[]): {
+  result?: EngineResult
+  warnings: string[]
+} {
+  if (votes.length === 0) return { warnings: [] }
+
+  // Pick the max-rank winner. For equal ranks, the last-seen wins
+  // (execution order), matching today's last-non-skip semantics for
+  // rank ties — ask/ask, allow/allow, etc.
+  let winner = votes[0]!
+  for (const v of votes.slice(1)) {
+    if (v.rank >= winner.rank) winner = v
+  }
+
+  const warnings: string[] = []
+  const losers = votes.filter((v) => v !== winner)
+
+  // Accumulate from losers per the FEAT-0059 D2 table.
+  const accumulatedContext: string[] = []
+  const hasLoserUpdatedInput = losers.some((l) => l.engineResult.updatedInput !== undefined)
+  const hasLoserContext = losers.some(
+    (l) =>
+      typeof l.engineResult.injectContext === 'string' && l.engineResult.injectContext.length > 0,
+  )
+
+  if (winner.engineResult.result === 'block') {
+    // Deny: keep accumulated context from the winner itself + allow/ask losers only.
+    // Block-result losers must NOT contribute context (per FEAT-0059 D2 per-winner table).
+    // Iterate in vote (execution) order to preserve context ordering.
+    for (const v of votes) {
+      const isWinner = v === winner
+      const isAllowOrAskLoser =
+        !isWinner && (v.engineResult.result === 'allow' || v.engineResult.result === 'ask')
+      if (isWinner || isAllowOrAskLoser) {
+        if (
+          typeof v.engineResult.injectContext === 'string' &&
+          v.engineResult.injectContext.length > 0
+        ) {
+          accumulatedContext.push(v.engineResult.injectContext)
+        }
+      }
+    }
+    const merged: EngineResult = { ...winner.engineResult }
+    if (accumulatedContext.length > 0) merged.injectContext = accumulatedContext.join('\n')
+    delete merged.updatedInput
+    return { result: merged, warnings }
+  }
+
+  if (winner.engineResult.result === 'defer') {
+    // Defer: drop updatedInput / additionalContext / reason entirely.
+    // The returned object is a fresh minimal {result: 'defer'} so any
+    // fields the winner carried via `as any` cast (the type system
+    // forbids them on DeferResult but a cast escape hatch is possible
+    // at runtime) are silently stripped here. This is intentional —
+    // upstream ignores all such fields and emitting them would be
+    // wire-noise. No systemMessage is emitted for winner-side drops
+    // since the type system is the primary guard.
+    //
+    // Loser-side drops DO emit systemMessage warnings — those are
+    // legitimate author-returned fields on allow/ask hooks that lose
+    // to the defer vote. Making the drop visible prevents silent
+    // misconfiguration (e.g. "my audit context never reaches Claude").
+    if (hasLoserUpdatedInput) {
+      warnings.push(
+        'clooks: defer wins but one or more PreToolUse hooks returned updatedInput — upstream Claude Code ignores updatedInput for defer; dropping.',
+      )
+    }
+    if (hasLoserContext) {
+      warnings.push(
+        'clooks: defer wins but one or more PreToolUse hooks returned additionalContext / injectContext — upstream Claude Code ignores additionalContext for defer; dropping.',
+      )
+    }
+    return { result: { result: 'defer' }, warnings }
+  }
+
+  if (winner.engineResult.result === 'ask') {
+    // Ask: keep both context and updatedInput from winner + allow losers.
+    // Two-pass to avoid early-return context-loss: pass 1 finds the
+    // updatedInput to propagate (first allow loser with one, used only
+    // if the winner has none); pass 2 accumulates context from EVERY
+    // allow loser in vote (execution) order.
+    let propagatedInput: Record<string, unknown> | undefined = winner.engineResult.updatedInput
+      ? { ...(winner.engineResult.updatedInput as Record<string, unknown>) }
+      : undefined
+    if (!propagatedInput) {
+      for (const l of losers) {
+        if (l.engineResult.result === 'allow' && l.engineResult.updatedInput) {
+          propagatedInput = l.engineResult.updatedInput as Record<string, unknown>
+          break
+        }
+      }
+    }
+    // Iterate in vote (execution) order: collect context from winner and allow losers only.
+    // Ask-loser context must NOT contribute (per FEAT-0059 D2 per-winner table, lines 750-756).
+    for (const v of votes) {
+      const isWinner = v === winner
+      const isAllowLoser = !isWinner && v.engineResult.result === 'allow'
+      if (isWinner || isAllowLoser) {
+        if (
+          typeof v.engineResult.injectContext === 'string' &&
+          v.engineResult.injectContext.length > 0
+        ) {
+          accumulatedContext.push(v.engineResult.injectContext)
+        }
+      }
+    }
+    const merged: EngineResult = { ...winner.engineResult }
+    if (accumulatedContext.length > 0) merged.injectContext = accumulatedContext.join('\n')
+    if (propagatedInput) merged.updatedInput = propagatedInput
+    return { result: merged, warnings }
+  }
+
+  if (winner.engineResult.result === 'allow') {
+    // Allow: accumulate context from all allow hooks in vote (execution) order.
+    // Iterate votes in order to preserve execution-order context sequencing.
+    for (const v of votes) {
+      if (v.engineResult.result === 'allow') {
+        if (
+          typeof v.engineResult.injectContext === 'string' &&
+          v.engineResult.injectContext.length > 0
+        ) {
+          accumulatedContext.push(v.engineResult.injectContext)
+        }
+      }
+    }
+    const merged: EngineResult = { ...winner.engineResult }
+    if (accumulatedContext.length > 0) merged.injectContext = accumulatedContext.join('\n')
+    return { result: merged, warnings }
+  }
+
+  // skip — only reached when every hook skipped
+  return { result: winner.engineResult, warnings }
+}
+
 function resolveMaxFailures(
   hookName: HookName,
   config: ClooksConfig,
@@ -186,6 +344,9 @@ export async function executeHooks(
   let pipelineBlocked = false
   let blockResult: EngineResult | undefined
   let lastNonSkipResult: EngineResult | undefined
+
+  // --- PreToolUse-specific state (populated by runners when eventName === 'PreToolUse') ---
+  const preToolUseVotes: PreToolUseVote[] = []
 
   // --- Order and partition ---
   const orderedHooks = orderHooksForEvent(
@@ -370,10 +531,17 @@ export async function executeHooks(
         debugMessages.push(resultObj.debugMessage)
       }
 
-      // Block bails out immediately — stop the group and signal pipeline
+      // Block bails out immediately — stop the group and signal pipeline.
+      // For PreToolUse: outer accumulatedInjectContext.push stays unconditional (authoritative
+      // on crash path per Decision D-2026-04-19-10); blockResult/pipelineBlocked/return are
+      // gated to non-PreToolUse so the collect-all pipeline continues.
       if (resultObj.result === 'block') {
         if (resultObj.injectContext) {
           accumulatedInjectContext.push(resultObj.injectContext)
+        }
+        if (eventName === 'PreToolUse') {
+          preToolUseVotes.push({ engineResult: resultObj, rank: rankPreToolUseResult(resultObj) })
+          continue
         }
         blockResult = resultObj
         pipelineBlocked = true
@@ -388,6 +556,31 @@ export async function executeHooks(
         if (resultObj.updatedMCPToolOutput !== undefined) {
           lastNonSkipResult = resultObj
         }
+        if (eventName === 'PreToolUse') {
+          preToolUseVotes.push({ engineResult: resultObj, rank: rankPreToolUseResult(resultObj) })
+        }
+        continue
+      }
+
+      // Ask — PreToolUse: push vote and continue; non-PreToolUse: fall through to allow path.
+      if (resultObj.result === 'ask') {
+        if (eventName === 'PreToolUse') {
+          preToolUseVotes.push({ engineResult: resultObj, rank: rankPreToolUseResult(resultObj) })
+          continue
+        }
+        // Non-PreToolUse: treat as non-skip (updates lastNonSkipResult below)
+        lastNonSkipResult = resultObj
+        continue
+      }
+
+      // Defer — PreToolUse: push vote and continue; non-PreToolUse: fall through to allow path.
+      if (resultObj.result === 'defer') {
+        if (eventName === 'PreToolUse') {
+          preToolUseVotes.push({ engineResult: resultObj, rank: rankPreToolUseResult(resultObj) })
+          continue
+        }
+        // Non-PreToolUse: treat as non-skip (updates lastNonSkipResult below)
+        lastNonSkipResult = resultObj
         continue
       }
 
@@ -401,6 +594,9 @@ export async function executeHooks(
         accumulatedInjectContext.push(resultObj.injectContext)
       }
       lastNonSkipResult = resultObj
+      if (eventName === 'PreToolUse') {
+        preToolUseVotes.push({ engineResult: resultObj, rank: rankPreToolUseResult(resultObj) })
+      }
     }
   }
 
@@ -423,8 +619,9 @@ export async function executeHooks(
       if (settled.status === 'fulfilled') {
         const lr = settled.value as LifecycleResult
         const val = lr.result as EngineResult | undefined
-        if (val?.result === 'block') return true
-        if (val?.updatedInput) return true // contract violation
+        // PreToolUse specifically: block is a deny-vote, not a pipeline terminator.
+        if (eventName !== 'PreToolUse' && val?.result === 'block') return true
+        if (val?.updatedInput) return true // contract violation — always short-circuits
       }
       if (settled.status === 'rejected') {
         const onErrorMode = resolveOnError(settled.hookName, eventName, config)
@@ -552,10 +749,14 @@ export async function executeHooks(
           if (val.updatedMCPToolOutput !== undefined) {
             lastNonSkipResult = val
           }
+          if (eventName === 'PreToolUse') {
+            preToolUseVotes.push({ engineResult: val, rank: rankPreToolUseResult(val) })
+          }
           continue
         }
 
-        // Contract violation: updatedInput in parallel mode
+        // Contract violation: updatedInput in parallel mode — unchanged for ALL events including PreToolUse
+        // (Decision D-2026-04-19-04: contract violation, not a structured opinion)
         if (val.updatedInput) {
           const violationMsg = `clooks: hook "${settled.hookName}" returned updatedInput in parallel mode — this is a contract violation. Parallel hooks cannot modify tool input.`
           systemMessages.push(violationMsg)
@@ -580,12 +781,41 @@ export async function executeHooks(
           continue
         }
 
+        // Block branch: outer accumulatedInjectContext.push stays unconditional (authoritative
+        // on crash path per Decision D-2026-04-19-10); blockResult/pipelineBlocked are gated
+        // to non-PreToolUse so the collect-all pipeline continues for PreToolUse.
         if (val.result === 'block') {
           if (val.injectContext) {
             accumulatedInjectContext.push(val.injectContext)
           }
+          if (eventName === 'PreToolUse') {
+            preToolUseVotes.push({ engineResult: val, rank: rankPreToolUseResult(val) })
+            continue
+          }
           blockResult = val
           pipelineBlocked = true
+          continue
+        }
+
+        // Ask — PreToolUse: push vote and continue; non-PreToolUse: fall through to allow path.
+        if (val.result === 'ask') {
+          if (eventName === 'PreToolUse') {
+            preToolUseVotes.push({ engineResult: val, rank: rankPreToolUseResult(val) })
+            continue
+          }
+          // Non-PreToolUse: treat as non-skip (updates lastNonSkipResult below)
+          lastNonSkipResult = val
+          continue
+        }
+
+        // Defer — PreToolUse: push vote and continue; non-PreToolUse: fall through to allow path.
+        if (val.result === 'defer') {
+          if (eventName === 'PreToolUse') {
+            preToolUseVotes.push({ engineResult: val, rank: rankPreToolUseResult(val) })
+            continue
+          }
+          // Non-PreToolUse: treat as non-skip (updates lastNonSkipResult below)
+          lastNonSkipResult = val
           continue
         }
 
@@ -599,6 +829,9 @@ export async function executeHooks(
         }
 
         lastNonSkipResult = val
+        if (eventName === 'PreToolUse') {
+          preToolUseVotes.push({ engineResult: val, rank: rankPreToolUseResult(val) })
+        }
       }
 
       if (settled.status === 'rejected') {
@@ -743,26 +976,56 @@ export async function executeHooks(
   }
 
   // --- Build final result ---
-  if (pipelineBlocked && blockResult) {
-    // For injectable events, merge accumulated injectContext from prior groups into block result
-    if (INJECTABLE_EVENTS.has(eventName) && accumulatedInjectContext.length > 0) {
-      // Block result's own injectContext was already added to accumulator; replace with full accumulation
-      const accumulated = accumulatedInjectContext.join('\n')
-      blockResult = { ...blockResult, injectContext: accumulated }
+  if (eventName === 'PreToolUse') {
+    // Crash-block path still short-circuits (Decision Log D-2026-04-19-05):
+    // if pipelineBlocked is true, a crashed hook under onError:"block"
+    // already set blockResult — use that without running reduction.
+    // This path DOES read accumulatedInjectContext (preserves prior allow-hook
+    // contexts that ran before the crash, matching today's injectable-event
+    // semantics). It does NOT call the reducer.
+    if (pipelineBlocked && blockResult) {
+      if (INJECTABLE_EVENTS.has(eventName) && accumulatedInjectContext.length > 0) {
+        const accumulated = accumulatedInjectContext.join('\n')
+        lastResult = { ...blockResult, injectContext: accumulated }
+      } else {
+        lastResult = blockResult
+      }
+    } else {
+      // Non-crash path: reducer is AUTHORITATIVE. Do NOT read from
+      // accumulatedInjectContext, lastNonSkipResult, or currentToolInput
+      // here. The reducer's per-winner accumulation rules (D2) walk the
+      // votes array and emit the canonical merged result. Joining the
+      // outer accumulator here would double-count context — see the
+      // runner-integration explanation above.
+      const { result: reduced, warnings } = reducePreToolUseVotes(preToolUseVotes)
+      if (warnings.length > 0) systemMessages.push(...warnings)
+      if (reduced) {
+        lastResult = reduced
+      }
     }
-    lastResult = blockResult
-  } else if (lastNonSkipResult) {
-    lastResult = { ...lastNonSkipResult }
-    if (accumulatedInjectContext.length > 0) {
-      lastResult.injectContext = accumulatedInjectContext.join('\n')
+  } else {
+    // --- Non-PreToolUse events: today's behavior unchanged ---
+    if (pipelineBlocked && blockResult) {
+      // For injectable events, merge accumulated injectContext from prior groups into block result
+      if (INJECTABLE_EVENTS.has(eventName) && accumulatedInjectContext.length > 0) {
+        // Block result's own injectContext was already added to accumulator; replace with full accumulation
+        const accumulated = accumulatedInjectContext.join('\n')
+        blockResult = { ...blockResult, injectContext: accumulated }
+      }
+      lastResult = blockResult
+    } else if (lastNonSkipResult) {
+      lastResult = { ...lastNonSkipResult }
+      if (accumulatedInjectContext.length > 0) {
+        lastResult.injectContext = accumulatedInjectContext.join('\n')
+      }
+      // If any hook returned updatedInput (reference comparison)
+      if (currentToolInput !== originalToolInput) {
+        lastResult.updatedInput = currentToolInput
+      }
+    } else if (accumulatedInjectContext.length > 0) {
+      // All hooks skipped but accumulated injectContext exists (e.g., from trace errors)
+      lastResult = { result: 'allow', injectContext: accumulatedInjectContext.join('\n') }
     }
-    // If any hook returned updatedInput (reference comparison)
-    if (currentToolInput !== originalToolInput) {
-      lastResult.updatedInput = currentToolInput
-    }
-  } else if (accumulatedInjectContext.length > 0) {
-    // All hooks skipped but accumulated injectContext exists (e.g., from trace errors)
-    lastResult = { result: 'allow', injectContext: accumulatedInjectContext.join('\n') }
   }
 
   if (failuresDirty) {

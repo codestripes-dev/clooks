@@ -12,6 +12,8 @@ import {
   formatDiagnostic,
   formatTraceMessage,
   assertCategoryCompleteness,
+  rankPreToolUseResult,
+  reducePreToolUseVotes,
 } from './engine/index.js'
 import type { LoadedHook, HookLoadError } from './loader.js'
 import type { ClooksHook } from './types/hook.js'
@@ -47,6 +49,36 @@ describe('translateResult', () => {
     expect(out.stderr).toBeUndefined()
   })
 
+  it('PreToolUse block with injectContext → additionalContext emitted alongside deny fields', () => {
+    const out = translateResult('PreToolUse', {
+      result: 'block',
+      reason: 'policy',
+      injectContext: 'extra-ctx',
+    })
+    expect(out.exitCode).toBe(0)
+    expect(JSON.parse(out.output!)).toEqual({
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: 'deny',
+        permissionDecisionReason: 'policy',
+        additionalContext: 'extra-ctx',
+      },
+    })
+    expect(out.stderr).toBeUndefined()
+  })
+
+  it('PreToolUse block with empty injectContext → no additionalContext on output', () => {
+    const out = translateResult('PreToolUse', {
+      result: 'block',
+      reason: 'policy',
+      injectContext: '',
+    })
+    expect(out.exitCode).toBe(0)
+    const parsed = JSON.parse(out.output!)
+    expect(parsed.hookSpecificOutput).not.toHaveProperty('additionalContext')
+    expect(out.stderr).toBeUndefined()
+  })
+
   it('PreToolUse skip → exit 0, no output', () => {
     const out = translateResult('PreToolUse', { result: 'skip' })
     expect(out.exitCode).toBe(0)
@@ -67,6 +99,146 @@ describe('translateResult', () => {
         additionalContext: 'extra info for the agent',
       },
     })
+  })
+
+  it('PreToolUse allow with reason → permissionDecision allow + permissionDecisionReason', () => {
+    const out = translateResult('PreToolUse', {
+      result: 'allow',
+      reason: 'approved by policy',
+    })
+    expect(out.exitCode).toBe(0)
+    expect(JSON.parse(out.output!)).toEqual({
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: 'allow',
+        permissionDecisionReason: 'approved by policy',
+      },
+    })
+    expect(out.stderr).toBeUndefined()
+  })
+
+  it('PreToolUse ask → permissionDecision ask + permissionDecisionReason', () => {
+    const out = translateResult('PreToolUse', {
+      result: 'ask',
+      reason: 'please confirm this action',
+    })
+    expect(out.exitCode).toBe(0)
+    expect(JSON.parse(out.output!)).toEqual({
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: 'ask',
+        permissionDecisionReason: 'please confirm this action',
+      },
+    })
+    expect(out.stderr).toBeUndefined()
+  })
+
+  it('PreToolUse ask with updatedInput + injectContext → all four fields present', () => {
+    const out = translateResult('PreToolUse', {
+      result: 'ask',
+      reason: 'review required',
+      injectContext: 'here is some context',
+      updatedInput: { command: 'ls -la' },
+    })
+    expect(out.exitCode).toBe(0)
+    expect(JSON.parse(out.output!)).toEqual({
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: 'ask',
+        permissionDecisionReason: 'review required',
+        additionalContext: 'here is some context',
+        updatedInput: { command: 'ls -la' },
+      },
+    })
+    expect(out.stderr).toBeUndefined()
+  })
+
+  it('PreToolUse defer → exactly {hookSpecificOutput: {hookEventName, permissionDecision: defer}}, no extra fields', () => {
+    const out = translateResult('PreToolUse', { result: 'defer' })
+    expect(out.exitCode).toBe(0)
+    expect(JSON.parse(out.output!)).toEqual({
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: 'defer',
+      },
+    })
+    expect(out.stderr).toBeUndefined()
+  })
+
+  it('PreToolUse defer with reason (as any) → no permissionDecisionReason on output', () => {
+    const out = translateResult('PreToolUse', { result: 'defer', reason: 'foo' } as any)
+    expect(out.exitCode).toBe(0)
+    const parsed = JSON.parse(out.output!)
+    expect(parsed.hookSpecificOutput.permissionDecision).toBe('defer')
+    expect(parsed.hookSpecificOutput.permissionDecisionReason).toBeUndefined()
+    expect(out.stderr).toBeUndefined()
+  })
+
+  it('PreToolUse defer with updatedInput + injectContext (as any) → translator drops both', () => {
+    const out = translateResult('PreToolUse', {
+      result: 'defer',
+      updatedInput: { command: 'rm -rf /' },
+      injectContext: 'ctx',
+    } as any)
+    expect(out.exitCode).toBe(0)
+    const parsed = JSON.parse(out.output!)
+    expect(parsed.hookSpecificOutput.permissionDecision).toBe('defer')
+    expect(parsed.hookSpecificOutput.updatedInput).toBeUndefined()
+    expect(parsed.hookSpecificOutput.additionalContext).toBeUndefined()
+    expect(out.stderr).toBeUndefined()
+  })
+
+  it('PreToolUse defer with updatedInput + injectContext (as any) → hookSpecificOutput is exactly the minimal shape', () => {
+    const out = translateResult('PreToolUse', {
+      result: 'defer',
+      updatedInput: { command: 'rm -rf /' },
+      injectContext: 'ctx',
+    } as any)
+    expect(out.exitCode).toBe(0)
+    const parsed = JSON.parse(out.output!)
+    expect(parsed.hookSpecificOutput).toEqual({
+      hookEventName: 'PreToolUse',
+      permissionDecision: 'defer',
+    })
+    expect(out.stderr).toBeUndefined()
+  })
+
+  it('PreToolUse ask with empty reason string → falls back to default permissionDecisionReason', () => {
+    const out = translateResult('PreToolUse', { result: 'ask', reason: '' } as any)
+    expect(out.exitCode).toBe(0)
+    const parsed = JSON.parse(out.output!)
+    expect(parsed.hookSpecificOutput.permissionDecision).toBe('ask')
+    expect(parsed.hookSpecificOutput.permissionDecisionReason).toBe(
+      'clooks: hook requested confirmation',
+    )
+    expect(out.stderr).toBeUndefined()
+  })
+
+  it('PreToolUse ask with missing reason → falls back to default permissionDecisionReason', () => {
+    const out = translateResult('PreToolUse', { result: 'ask' } as any)
+    expect(out.exitCode).toBe(0)
+    const parsed = JSON.parse(out.output!)
+    expect(parsed.hookSpecificOutput.permissionDecision).toBe('ask')
+    expect(parsed.hookSpecificOutput.permissionDecisionReason).toBe(
+      'clooks: hook requested confirmation',
+    )
+    expect(out.stderr).toBeUndefined()
+  })
+
+  it('PreToolUse allow with empty reason → no permissionDecisionReason on output', () => {
+    const out = translateResult('PreToolUse', { result: 'allow', reason: '' })
+    expect(out.exitCode).toBe(0)
+    const parsed = JSON.parse(out.output!)
+    expect(parsed.hookSpecificOutput).not.toHaveProperty('permissionDecisionReason')
+    expect(out.stderr).toBeUndefined()
+  })
+
+  it('PreToolUse allow with empty injectContext → no additionalContext on output', () => {
+    const out = translateResult('PreToolUse', { result: 'allow', injectContext: '' })
+    expect(out.exitCode).toBe(0)
+    const parsed = JSON.parse(out.output!)
+    expect(parsed.hookSpecificOutput).not.toHaveProperty('additionalContext')
+    expect(out.stderr).toBeUndefined()
   })
 
   // --- Other guard events ---
@@ -925,6 +1097,41 @@ describe('translateResult', () => {
     expect(out.exitCode).toBe(2)
     expect(out.stderr).toContain('retry')
   })
+
+  // --- FEAT-0059 safety-net: ask/defer fall-through on non-PreToolUse events ---
+
+  it('PostToolUse with result: ask (as any) → silently absorbed by OBSERVE_EVENTS catch-all, exitCode 0', () => {
+    // Safety net: ask is not a valid PostToolUse result.
+    // The OBSERVE_EVENTS branch has a catch-all return { exitCode: EXIT_OK } that
+    // absorbs any unmatched result tag before the "unknown result type" fail-closed
+    // handler. This is the actual behavior — the safety net for observe events is the
+    // type system, not the translator. This test pins that behavior so M2's new
+    // PreToolUse branches cannot accidentally shadow unrelated events.
+    const out = translateResult('PostToolUse', { result: 'ask', reason: 'x' } as any)
+    expect(out.exitCode).toBe(0)
+    expect(out.output).toBeUndefined()
+  })
+
+  it('PostToolUse with result: defer (as any) → silently absorbed by OBSERVE_EVENTS catch-all, exitCode 0', () => {
+    const out = translateResult('PostToolUse', { result: 'defer' } as any)
+    expect(out.exitCode).toBe(0)
+    expect(out.output).toBeUndefined()
+  })
+
+  it('WorktreeCreate with result: ask (as any) → fail-closed: exitCode 2, stderr mentions ask', () => {
+    // Safety net: ask is not a valid WorktreeCreate result (implementation event).
+    // WorktreeCreate has no catch-all return before the unknown-result handler,
+    // so unmatched tags correctly fall through to fail-closed.
+    const out = translateResult('WorktreeCreate', { result: 'ask', reason: 'x' } as any)
+    expect(out.exitCode).toBe(2)
+    expect(out.stderr).toContain('ask')
+  })
+
+  it('WorktreeCreate with result: defer (as any) → fail-closed: exitCode 2, stderr mentions defer', () => {
+    const out = translateResult('WorktreeCreate', { result: 'defer' } as any)
+    expect(out.exitCode).toBe(2)
+    expect(out.stderr).toContain('defer')
+  })
 })
 
 // --- matchHooksForEvent ---
@@ -1743,7 +1950,7 @@ describe('trace and systemMessage integration', () => {
 // --- FEAT-0016 M3: Sequential pipeline with updatedInput ---
 
 describe('sequential pipeline: updatedInput', () => {
-  it('updatedInput piped from hook A to hook B', async () => {
+  it('updatedInput piped from hook A to hook B (sequential live state; M3 reducer is authoritative for final result)', async () => {
     const dir = makeTempDir()
     let capturedCtx: Record<string, unknown> | undefined
 
@@ -1762,16 +1969,18 @@ describe('sequential pipeline: updatedInput', () => {
     const result = await executeHooks([hookA, hookB], 'PreToolUse', normalized, config, fp(dir))
     expect(result.lastResult?.result).toBe('allow')
 
-    // Hook B should have received the modified toolInput from hook A
+    // Hook B still receives the modified toolInput from hook A (sequential live state is still propagated)
     expect(capturedCtx?.toolInput).toEqual({ file_path: '/modified' })
     // Hook B should have received the original toolInput as originalToolInput
     expect(capturedCtx?.originalToolInput).toEqual({ file_path: '/original' })
 
-    // Final result should have updatedInput since currentToolInput changed
-    expect(result.lastResult?.updatedInput).toEqual({ file_path: '/modified' })
+    // M3: The reducer is authoritative for the final result. Winner is hookB (last-seen allow).
+    // HookB returned no updatedInput, so the final result has no updatedInput.
+    // (updatedInput from hookA's vote is not propagated by the allow reducer — winner's own updatedInput only)
+    expect(result.lastResult?.updatedInput).toBeUndefined()
   })
 
-  it('originalToolInput stays frozen across chain', async () => {
+  it('originalToolInput stays frozen across chain (M3: reducer is authoritative for final result)', async () => {
     const dir = makeTempDir()
     let capturedCtxC: Record<string, unknown> | undefined
 
@@ -1799,16 +2008,17 @@ describe('sequential pipeline: updatedInput', () => {
     )
     expect(result.lastResult?.result).toBe('allow')
 
-    // Hook C receives B's updatedInput as toolInput (cumulative)
+    // Hook C still receives B's updatedInput as toolInput (sequential live state still propagated)
     expect(capturedCtxC?.toolInput).toEqual({ file_path: '/step2', extra: 'b' })
     // originalToolInput is always the original
     expect(capturedCtxC?.originalToolInput).toEqual({ file_path: '/original' })
 
-    // Final result reflects last updatedInput
-    expect(result.lastResult?.updatedInput).toEqual({ file_path: '/step2', extra: 'b' })
+    // M3: Reducer is authoritative. Winner is hookC (last-seen allow, no updatedInput).
+    // Allow winner's own updatedInput only — hookC returned none.
+    expect(result.lastResult?.updatedInput).toBeUndefined()
   })
 
-  it('block in middle stops chain', async () => {
+  it('block in middle does NOT stop chain (M3 collect-all: all PreToolUse hooks run, deny wins)', async () => {
     const dir = makeTempDir()
     let hookCRan = false
 
@@ -1829,7 +2039,8 @@ describe('sequential pipeline: updatedInput', () => {
     const result = await executeHooks([hookA, hookB, hookC], 'PreToolUse', {}, config, fp(dir))
     expect(result.lastResult?.result).toBe('block')
     expect(result.lastResult?.reason).toBe('blocked by B')
-    expect(hookCRan).toBe(false)
+    // M3: collect-all — ALL hooks run regardless of block votes
+    expect(hookCRan).toBe(true)
   })
 
   it('injectContext accumulates across hooks', async () => {
@@ -1984,14 +2195,14 @@ describe('parallel batch', () => {
     expect(parsed.hookSpecificOutput.sessionTitle).toBe('Second')
   })
 
-  it('block short-circuits', async () => {
+  it('block does NOT short-circuit for PreToolUse (M3 collect-all: both hooks run)', async () => {
     const dir = makeTempDir()
     const hookA = makeLoadedHook('hookA', {
       PreToolUse: () => ({ result: 'block', reason: 'denied' }),
     })
     const hookB = makeLoadedHook('hookB', {
       PreToolUse: async () => {
-        await Bun.sleep(500)
+        await Bun.sleep(50)
         return { result: 'allow' }
       },
     })
@@ -2003,8 +2214,9 @@ describe('parallel batch', () => {
 
     expect(result.lastResult?.result).toBe('block')
     expect(result.lastResult?.reason).toBe('denied')
-    // Short-circuited: should be well under 500ms
-    expect(elapsed).toBeLessThan(200)
+    // M3: block does NOT short-circuit for PreToolUse — both hooks run (~50ms, not instant)
+    expect(elapsed).toBeGreaterThan(30)
+    expect(elapsed).toBeLessThan(500)
   })
 
   it('crash with onError block short-circuits', async () => {
@@ -2078,7 +2290,7 @@ describe('parallel batch', () => {
     expect(state[hn('hookA')]?.['PreToolUse']?.consecutiveFailures).toBe(1)
   })
 
-  it('all skip is passthrough', async () => {
+  it('all skip — M3 reducer returns skip winner (not undefined)', async () => {
     const dir = makeTempDir()
     const hookA = makeLoadedHook('hookA', {
       PreToolUse: () => ({ result: 'skip' }),
@@ -2089,8 +2301,8 @@ describe('parallel batch', () => {
     const config = makeTestConfig({ hookA: { parallel: true }, hookB: { parallel: true } })
 
     const result = await executeHooks([hookA, hookB], 'PreToolUse', {}, config, fp(dir))
-    // No non-skip result, no injectContext
-    expect(result.lastResult).toBeUndefined()
+    // M3: all-skip → reducer returns one of the skip votes (last-seen wins); skip winner is returned
+    expect(result.lastResult?.result).toBe('skip')
     expect(result.degradedMessages).toEqual([])
     expect(result.traceMessages).toEqual([])
   })
@@ -2169,7 +2381,7 @@ describe('parallel batch', () => {
     expect(state2[hn('hookA')]).toBeUndefined()
   })
 
-  it('AbortSignal fired on short-circuit', async () => {
+  it('AbortSignal NOT fired on PreToolUse block (M3: block is a vote, not a pipeline terminator)', async () => {
     const dir = makeTempDir()
     let signalAborted = false
 
@@ -2179,7 +2391,7 @@ describe('parallel batch', () => {
     const hookB = makeLoadedHook('hookB', {
       PreToolUse: async (ctx: Record<string, unknown>) => {
         const signal = ctx.signal as AbortSignal
-        // Wait a tick to let hookA's result propagate and trigger abort
+        // Wait a tick to let hookA's result propagate
         await Bun.sleep(20)
         signalAborted = signal.aborted
         return { result: 'allow' }
@@ -2191,7 +2403,8 @@ describe('parallel batch', () => {
     expect(result.lastResult?.result).toBe('block')
     // Give hookB a moment to check the signal
     await Bun.sleep(30)
-    expect(signalAborted).toBe(true)
+    // M3: block does not short-circuit for PreToolUse — signal is NOT aborted
+    expect(signalAborted).toBe(false)
   })
 
   it('parallel batch: block result injectContext merged with other hooks', async () => {
@@ -2318,7 +2531,7 @@ describe('parallel batch', () => {
     expect(result.traceMessages[0]).toContain('par-trace-err')
   })
 
-  it('parallel hook skip with injectContext collects into batch', async () => {
+  it('parallel hook skip with injectContext — M3: skip losers context not propagated when allow wins', async () => {
     const dir = makeTempDir()
     const hook = makeLoadedHook('skip-inject', {
       PreToolUse: () => ({ result: 'skip', injectContext: 'skipped-context' }),
@@ -2332,7 +2545,10 @@ describe('parallel batch', () => {
     })
 
     const result = await executeHooks([hook, hookB], 'PreToolUse', {}, config, fp(dir))
-    expect(result.lastResult?.injectContext).toContain('skipped-context')
+    // M3: allow reducer only accumulates context from allow-result hooks, not skip losers.
+    // Skip's injectContext is not propagated when an allow wins.
+    expect(result.lastResult?.result).toBe('allow')
+    expect(result.lastResult?.injectContext).toBeUndefined()
   })
 
   it('parallel hook skip with updatedMCPToolOutput promotes to lastNonSkipResult', async () => {
@@ -2465,7 +2681,7 @@ describe('mixed pipeline', () => {
     warnSpy.mockRestore()
   })
 
-  it('parallel block stops subsequent groups', async () => {
+  it('parallel block does NOT stop subsequent groups for PreToolUse (M3 collect-all)', async () => {
     const dir = makeTempDir()
     let hookCRan = false
 
@@ -2495,7 +2711,8 @@ describe('mixed pipeline', () => {
     const result = await executeHooks([hookA, hookB, hookC], 'PreToolUse', {}, config, fp(dir))
     expect(result.lastResult?.result).toBe('block')
     expect(result.lastResult?.reason).toBe('parallel-block')
-    expect(hookCRan).toBe(false)
+    // M3: block is a vote for PreToolUse — subsequent groups still run
+    expect(hookCRan).toBe(true)
   })
 
   it('injectContext accumulates across all groups', async () => {
@@ -2586,10 +2803,11 @@ describe('integration: full pipeline', () => {
     )
 
     expect(result.lastResult?.result).toBe('allow')
-    // Formatter saw scanner's updatedInput
+    // Formatter saw scanner's updatedInput (sequential live state still propagated to subsequent hooks)
     expect(result.lastResult?.injectContext).toBe('scanned\nformatted:scanned-cmd')
-    // updatedInput flows through to final result
-    expect(result.lastResult?.updatedInput).toEqual({ command: 'scanned-cmd' })
+    // M3: reducer is authoritative. Winner is formatter (last allow, no updatedInput returned).
+    // updatedInput from scanner's vote is not propagated — allow winner's own only.
+    expect(result.lastResult?.updatedInput).toBeUndefined()
   })
 
   it('full pipeline with unordered hooks', async () => {
@@ -2898,5 +3116,343 @@ describe('assertCategoryCompleteness', () => {
     expect(GUARD_EVENTS.has('StopFailure' as EventName)).toBe(false)
     expect(OBSERVE_EVENTS.has('StopFailure' as EventName)).toBe(false)
     expect(CONTINUATION_EVENTS.has('StopFailure' as EventName)).toBe(false)
+  })
+})
+
+// --- FEAT-0059 M3: PreToolUse reducer unit tests ---
+
+describe('rankPreToolUseResult', () => {
+  it('block (deny) → 3', () => {
+    expect(rankPreToolUseResult({ result: 'block', reason: 'policy violation' })).toBe(3)
+  })
+
+  it('defer → 2', () => {
+    expect(rankPreToolUseResult({ result: 'defer' })).toBe(2)
+  })
+
+  it('ask → 1', () => {
+    expect(rankPreToolUseResult({ result: 'ask', reason: 'please confirm' })).toBe(1)
+  })
+
+  it('allow → 0', () => {
+    expect(rankPreToolUseResult({ result: 'allow' })).toBe(0)
+  })
+
+  it('skip → -1', () => {
+    expect(rankPreToolUseResult({ result: 'skip' })).toBe(-1)
+  })
+})
+
+describe('reducePreToolUseVotes', () => {
+  it('empty votes → result undefined, warnings empty', () => {
+    const { result, warnings } = reducePreToolUseVotes([])
+    expect(result).toBeUndefined()
+    expect(warnings).toEqual([])
+  })
+
+  it('all-skip → skip winner returned, warnings empty', () => {
+    const skipA = { result: 'skip' as const }
+    const skipB = { result: 'skip' as const }
+    const { result, warnings } = reducePreToolUseVotes([
+      { engineResult: skipA, rank: -1 },
+      { engineResult: skipB, rank: -1 },
+    ])
+    expect(result?.result).toBe('skip')
+    expect(warnings).toEqual([])
+  })
+
+  it('allow-only → allow wins', () => {
+    const allow = { result: 'allow' as const, injectContext: 'ctx' }
+    const { result, warnings } = reducePreToolUseVotes([{ engineResult: allow, rank: 0 }])
+    expect(result?.result).toBe('allow')
+    expect(warnings).toEqual([])
+  })
+
+  it('ordering: deny > defer > ask > allow regardless of input order', () => {
+    const allow = { result: 'allow' as const }
+    const ask = { result: 'ask' as const, reason: 'confirm' }
+    const deny = { result: 'block' as const, reason: 'policy' }
+    const defer = { result: 'defer' as const }
+    // Test that deny wins regardless of position in the array
+    const { result } = reducePreToolUseVotes([
+      { engineResult: allow, rank: 0 },
+      { engineResult: ask, rank: 1 },
+      { engineResult: deny, rank: 3 },
+      { engineResult: defer, rank: 2 },
+    ])
+    expect(result?.result).toBe('block')
+  })
+
+  it('defer wins — drops updatedInput from losers and emits warning', () => {
+    const allowWithInput = { result: 'allow' as const, updatedInput: { cmd: 'ls' } }
+    const defer = { result: 'defer' as const }
+    const { result, warnings } = reducePreToolUseVotes([
+      { engineResult: allowWithInput, rank: 0 },
+      { engineResult: defer, rank: 2 },
+    ])
+    expect(result?.result).toBe('defer')
+    expect(result).not.toHaveProperty('updatedInput')
+    expect(warnings.some((w) => w.includes('updatedInput'))).toBe(true)
+  })
+
+  it('defer wins — drops injectContext from losers and emits warning', () => {
+    const allowWithCtx = { result: 'allow' as const, injectContext: 'audit info' }
+    const defer = { result: 'defer' as const }
+    const { result, warnings } = reducePreToolUseVotes([
+      { engineResult: allowWithCtx, rank: 0 },
+      { engineResult: defer, rank: 2 },
+    ])
+    expect(result?.result).toBe('defer')
+    expect(result).not.toHaveProperty('injectContext')
+    expect(
+      warnings.some((w) => w.includes('additionalContext') || w.includes('injectContext')),
+    ).toBe(true)
+  })
+
+  it('defer wins — no warnings when losers have no updatedInput or context', () => {
+    const allow = { result: 'allow' as const }
+    const ask = { result: 'ask' as const, reason: 'confirm' }
+    const defer = { result: 'defer' as const }
+    const { result, warnings } = reducePreToolUseVotes([
+      { engineResult: allow, rank: 0 },
+      { engineResult: defer, rank: 2 },
+      { engineResult: ask, rank: 1 },
+    ])
+    expect(result?.result).toBe('defer')
+    expect(warnings).toEqual([])
+  })
+
+  it('deny merges injectContext from allow/ask losers AND winner, drops updatedInput', () => {
+    const denyWithCtx = {
+      result: 'block' as const,
+      reason: 'policy',
+      injectContext: 'deny-ctx',
+      updatedInput: { x: 1 },
+    }
+    const allowWithCtx = { result: 'allow' as const, injectContext: 'allow-ctx' }
+    const { result, warnings } = reducePreToolUseVotes([
+      { engineResult: allowWithCtx, rank: 0 },
+      { engineResult: denyWithCtx, rank: 3 },
+    ])
+    expect(result?.result).toBe('block')
+    expect(result?.injectContext).toContain('allow-ctx')
+    expect(result?.injectContext).toContain('deny-ctx')
+    expect(result).not.toHaveProperty('updatedInput')
+    expect(warnings).toEqual([])
+  })
+
+  it('ask winner propagates updatedInput from first allow loser when winner has none', () => {
+    const ask = { result: 'ask' as const, reason: 'confirm' }
+    const allowWithInput = { result: 'allow' as const, updatedInput: { cmd: 'ls' } }
+    const { result, warnings } = reducePreToolUseVotes([
+      { engineResult: ask, rank: 1 },
+      { engineResult: allowWithInput, rank: 0 },
+    ])
+    expect(result?.result).toBe('ask')
+    expect(result?.updatedInput).toEqual({ cmd: 'ls' })
+    expect(warnings).toEqual([])
+  })
+
+  it('ask aggregates injectContext from all allow losers (two-pass invariant)', () => {
+    // Multiple allow losers, each with context; first one also has updatedInput
+    const ask = { result: 'ask' as const, reason: 'confirm' }
+    const allowA = { result: 'allow' as const, updatedInput: { cmd: 'ls' }, injectContext: 'ctx-A' }
+    const allowB = { result: 'allow' as const, injectContext: 'ctx-B' }
+    const allowC = { result: 'allow' as const, injectContext: 'ctx-C' }
+    const { result, warnings } = reducePreToolUseVotes([
+      { engineResult: allowA, rank: 0 },
+      { engineResult: allowB, rank: 0 },
+      { engineResult: ask, rank: 1 },
+      { engineResult: allowC, rank: 0 },
+    ])
+    expect(result?.result).toBe('ask')
+    // updatedInput from first allow loser (allowA)
+    expect(result?.updatedInput).toEqual({ cmd: 'ls' })
+    // context from allow losers in vote order (A, B, C) joined
+    expect(result?.injectContext).toContain('ctx-A')
+    expect(result?.injectContext).toContain('ctx-B')
+    expect(result?.injectContext).toContain('ctx-C')
+    expect(warnings).toEqual([])
+  })
+
+  it('deny winner: block-loser context is excluded; allow-loser context is included', () => {
+    // blockA and blockB both have context; allow also has context.
+    // blockB is last-seen at rank 3 so it wins. blockA is a block-loser
+    // and must NOT contribute context. allow is an allow-loser and MUST contribute.
+    const blockA = { result: 'block' as const, reason: 'policy-A', injectContext: 'block-A-ctx' }
+    const blockB = { result: 'block' as const, reason: 'policy-B', injectContext: 'block-B-ctx' }
+    const allow = { result: 'allow' as const, injectContext: 'allow-ctx' }
+    const { result, warnings } = reducePreToolUseVotes([
+      { engineResult: blockA, rank: 3 },
+      { engineResult: blockB, rank: 3 },
+      { engineResult: allow, rank: 0 },
+    ])
+    expect(result?.result).toBe('block')
+    // Winner (blockB) context included
+    expect(result?.injectContext).toContain('block-B-ctx')
+    // Allow-loser context included
+    expect(result?.injectContext).toContain('allow-ctx')
+    // Block-loser (blockA) context must NOT be included
+    expect(result?.injectContext).not.toContain('block-A-ctx')
+    expect(warnings).toEqual([])
+  })
+
+  it('ask winner: ask-loser context is excluded; allow-loser context is included', () => {
+    // askA and askB both have context; allow also has context.
+    // askB is last-seen at rank 1 so it wins. askA is an ask-loser
+    // and must NOT contribute context. allow is an allow-loser and MUST contribute.
+    const askA = { result: 'ask' as const, reason: 'confirm-A', injectContext: 'ask-A-ctx' }
+    const askB = { result: 'ask' as const, reason: 'confirm-B', injectContext: 'ask-B-ctx' }
+    const allow = { result: 'allow' as const, injectContext: 'allow-ctx' }
+    const { result, warnings } = reducePreToolUseVotes([
+      { engineResult: askA, rank: 1 },
+      { engineResult: askB, rank: 1 },
+      { engineResult: allow, rank: 0 },
+    ])
+    expect(result?.result).toBe('ask')
+    // Winner (askB) context included
+    expect(result?.injectContext).toContain('ask-B-ctx')
+    // Allow-loser context included
+    expect(result?.injectContext).toContain('allow-ctx')
+    // Ask-loser (askA) context must NOT be included
+    expect(result?.injectContext).not.toContain('ask-A-ctx')
+    expect(warnings).toEqual([])
+  })
+
+  it('allow winner: both allow losers contribute context (regression anchor)', () => {
+    // allowA and allowB both have context. allowB is last-seen at rank 0 so it wins.
+    // Both allowA (loser) and allowB (winner) must contribute context in execution order.
+    const allowA = { result: 'allow' as const, injectContext: 'allow-A-ctx' }
+    const allowB = { result: 'allow' as const, injectContext: 'allow-B-ctx' }
+    const { result, warnings } = reducePreToolUseVotes([
+      { engineResult: allowA, rank: 0 },
+      { engineResult: allowB, rank: 0 },
+    ])
+    expect(result?.result).toBe('allow')
+    // Both contexts present in execution order
+    expect(result?.injectContext).toBe('allow-A-ctx\nallow-B-ctx')
+    expect(warnings).toEqual([])
+  })
+
+  // --- M3 QA gap tests ---
+
+  it('deny tie-break: last-seen wins; result.reason is from policy-B, policy-A context excluded', () => {
+    // Two block votes at rank 3 (tie). Last-seen (blockB) wins.
+    // Assert winner identity via reason field AND merged context composition.
+    const blockA = { result: 'block' as const, reason: 'policy-A', injectContext: 'ctx-A' }
+    const blockB = { result: 'block' as const, reason: 'policy-B', injectContext: 'ctx-B' }
+    const allow = { result: 'allow' as const, injectContext: 'allow-ctx' }
+    const { result, warnings } = reducePreToolUseVotes([
+      { engineResult: blockA, rank: 3 },
+      { engineResult: blockB, rank: 3 },
+      { engineResult: allow, rank: 0 },
+    ])
+    expect(result?.result).toBe('block')
+    // Last-seen block winner identity
+    expect(result?.reason).toBe('policy-B')
+    // Winner (blockB) context AND allow-loser context included
+    expect(result?.injectContext).toContain('ctx-B')
+    expect(result?.injectContext).toContain('allow-ctx')
+    // Block-loser (blockA) context must NOT be included
+    expect(result?.injectContext).not.toContain('ctx-A')
+    expect(warnings).toEqual([])
+  })
+
+  it('ask tie-break: last-seen wins; result.reason is confirm-B, ask-A context excluded', () => {
+    // Two ask votes at rank 1 (tie). Last-seen (askB) wins.
+    // Assert winner identity via reason field AND merged context composition.
+    const askA = { result: 'ask' as const, reason: 'confirm-A', injectContext: 'ask-ctx-A' }
+    const askB = { result: 'ask' as const, reason: 'confirm-B', injectContext: 'ask-ctx-B' }
+    const allow = { result: 'allow' as const, injectContext: 'allow-ctx' }
+    const { result, warnings } = reducePreToolUseVotes([
+      { engineResult: askA, rank: 1 },
+      { engineResult: askB, rank: 1 },
+      { engineResult: allow, rank: 0 },
+    ])
+    expect(result?.result).toBe('ask')
+    // Last-seen ask winner identity
+    expect(result?.reason).toBe('confirm-B')
+    // Winner (askB) context AND allow-loser context included
+    expect(result?.injectContext).toContain('ask-ctx-B')
+    expect(result?.injectContext).toContain('allow-ctx')
+    // Ask-loser (askA) context must NOT be included
+    expect(result?.injectContext).not.toContain('ask-ctx-A')
+    expect(warnings).toEqual([])
+  })
+
+  it('defer tie-break: two defer votes → merged result is {result: defer}, warnings empty', () => {
+    // Both losers have no updatedInput/context so no warnings are emitted.
+    const deferA = { result: 'defer' as const }
+    const deferB = { result: 'defer' as const }
+    const { result, warnings } = reducePreToolUseVotes([
+      { engineResult: deferA, rank: 2 },
+      { engineResult: deferB, rank: 2 },
+    ])
+    expect(result?.result).toBe('defer')
+    // Defer strips all extra fields — result is minimal
+    expect(result).not.toHaveProperty('updatedInput')
+    expect(result).not.toHaveProperty('injectContext')
+    expect(warnings).toEqual([])
+  })
+
+  it('allow tie-break: last-seen updatedInput wins (second allow carries distinct input)', () => {
+    // Two allow votes at rank 0 (tie). Last-seen (allowB) wins, so its updatedInput
+    // should appear in the merged result. allowA's updatedInput must NOT appear.
+    const allowA = { result: 'allow' as const, updatedInput: { cmd: 'first' } }
+    const allowB = { result: 'allow' as const, updatedInput: { cmd: 'second' } }
+    const { result, warnings } = reducePreToolUseVotes([
+      { engineResult: allowA, rank: 0 },
+      { engineResult: allowB, rank: 0 },
+    ])
+    expect(result?.result).toBe('allow')
+    // Winner is last-seen (allowB); its updatedInput takes precedence
+    expect(result?.updatedInput).toEqual({ cmd: 'second' })
+    expect(warnings).toEqual([])
+  })
+
+  it('skip sandwich: skip + allow + skip → allow wins; injectContext from allow preserved', () => {
+    // The >= tie-break must not promote a later skip over a genuine allow winner.
+    const skipA = { result: 'skip' as const }
+    const allow = { result: 'allow' as const, injectContext: 'middle' }
+    const skipB = { result: 'skip' as const }
+    const { result, warnings } = reducePreToolUseVotes([
+      { engineResult: skipA, rank: -1 },
+      { engineResult: allow, rank: 0 },
+      { engineResult: skipB, rank: -1 },
+    ])
+    expect(result?.result).toBe('allow')
+    expect(result?.injectContext).toBe('middle')
+    expect(warnings).toEqual([])
+  })
+
+  it('ask-loser context is included for deny winner (deny merges allow AND ask losers)', () => {
+    // Deny winner must include context from ask losers as well as allow losers.
+    const ask = { result: 'ask' as const, reason: 'a', injectContext: 'ask-ctx' }
+    const block = { result: 'block' as const, reason: 'policy', injectContext: 'deny-ctx' }
+    const allow = { result: 'allow' as const, injectContext: 'allow-ctx' }
+    const { result, warnings } = reducePreToolUseVotes([
+      { engineResult: ask, rank: 1 },
+      { engineResult: block, rank: 3 },
+      { engineResult: allow, rank: 0 },
+    ])
+    expect(result?.result).toBe('block')
+    expect(result?.injectContext).toContain('ask-ctx')
+    expect(result?.injectContext).toContain('deny-ctx')
+    expect(result?.injectContext).toContain('allow-ctx')
+    expect(warnings).toEqual([])
+  })
+
+  it('deny winner without context, allow loser with context → merged injectContext is allow-ctx', () => {
+    // The deny winner has no injectContext of its own. The allow loser does.
+    // Merged result must carry the allow-loser context.
+    const block = { result: 'block' as const, reason: 'policy' }
+    const allow = { result: 'allow' as const, injectContext: 'fallback-ctx' }
+    const { result, warnings } = reducePreToolUseVotes([
+      { engineResult: block, rank: 3 },
+      { engineResult: allow, rank: 0 },
+    ])
+    expect(result?.result).toBe('block')
+    expect(result?.injectContext).toBe('fallback-ctx')
+    expect(warnings).toEqual([])
   })
 })

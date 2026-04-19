@@ -7,7 +7,9 @@ import type { PermissionUpdateEntry } from './permissions.js'
 /** Union of all result discriminant values across all base result types. */
 export type ResultTag =
   | 'allow'
+  | 'ask'
   | 'block'
+  | 'defer'
   | 'skip'
   | 'success'
   | 'failure'
@@ -69,16 +71,52 @@ export type RetryResult = DebugFields & {
   result: 'retry'
 }
 
+/**
+ * PreToolUse `ask` decision. Upstream displays the permission prompt
+ * to the user with permissionDecisionReason as the prompt text.
+ * The source label ([Project]/[User]/[Plugin]/[Local]) is added by
+ * Claude Code — reason should disambiguate which hook asked.
+ */
+export type AskResult = DebugFields & {
+  result: 'ask'
+  /** Required. Shown to the user in the confirmation prompt. */
+  reason: string
+}
+
+/**
+ * PreToolUse `defer` decision. Pauses the tool call so a headless
+ * `claude -p` caller can resume via `claude -p --resume`. Only honored
+ * in -p mode AND only when the turn contains a single tool call.
+ * Otherwise Claude Code ignores this result.
+ *
+ * Upstream ignores reason / updatedInput / additionalContext for
+ * defer. This type forbids all three at compile time.
+ */
+export type DeferResult = DebugFields & {
+  result: 'defer'
+}
+
 // --- Per-event result types ---
 
-// Guard events — allow | block | skip
+// Guard events — allow | ask | block | defer | skip
 export type PreToolUseResult =
   | (AllowResult &
       InjectableContext & {
         /** Modified tool input to pass to subsequent hooks and/or Claude Code. */
         updatedInput?: Record<string, unknown>
+        /**
+         * Optional. When present, surfaced as
+         * hookSpecificOutput.permissionDecisionReason on allow.
+         * Shown to the user per upstream's decision-control contract.
+         */
+        reason?: string
+      })
+  | (AskResult &
+      InjectableContext & {
+        updatedInput?: Record<string, unknown>
       })
   | (BlockResult & InjectableContext)
+  | DeferResult
   | (SkipResult & InjectableContext)
 export type UserPromptSubmitResult = (AllowResult | BlockResult | SkipResult) &
   InjectableContext & { sessionTitle?: string }

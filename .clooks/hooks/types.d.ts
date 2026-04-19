@@ -152,13 +152,47 @@ export type StopResult = DebugFields & {
 export type RetryResult = DebugFields & {
   result: 'retry'
 }
+/**
+ * PreToolUse `ask` decision. Upstream displays the permission prompt
+ * to the user with permissionDecisionReason as the prompt text.
+ * The source label ([Project]/[User]/[Plugin]/[Local]) is added by
+ * Claude Code — reason should disambiguate which hook asked.
+ */
+export type AskResult = DebugFields & {
+  result: 'ask'
+  /** Required. Shown to the user in the confirmation prompt. */
+  reason: string
+}
+/**
+ * PreToolUse `defer` decision. Pauses the tool call so a headless
+ * `claude -p` caller can resume via `claude -p --resume`. Only honored
+ * in -p mode AND only when the turn contains a single tool call.
+ * Otherwise Claude Code ignores this result.
+ *
+ * Upstream ignores reason / updatedInput / additionalContext for
+ * defer. This type forbids all three at compile time.
+ */
+export type DeferResult = DebugFields & {
+  result: 'defer'
+}
 export type PreToolUseResult =
   | (AllowResult &
       InjectableContext & {
         /** Modified tool input to pass to subsequent hooks and/or Claude Code. */
         updatedInput?: Record<string, unknown>
+        /**
+         * Optional. When present, surfaced as
+         * hookSpecificOutput.permissionDecisionReason on allow.
+         * Shown to the user per upstream's decision-control contract.
+         */
+        reason?: string
+      })
+  | (AskResult &
+      InjectableContext & {
+        updatedInput?: Record<string, unknown>
       })
   | (BlockResult & InjectableContext)
+  | DeferResult
   | (SkipResult & InjectableContext)
 export type UserPromptSubmitResult = (AllowResult | BlockResult | SkipResult) &
   InjectableContext & {
@@ -222,15 +256,116 @@ export interface BaseContext {
   /** AbortSignal scoped to the current batch. Aborted when a parallel batch short-circuits. */
   signal: AbortSignal
 }
-export interface PreToolUseContext extends BaseContext {
+export interface BashToolInput {
+  command: string
+  description?: string
+  timeout?: number
+  runInBackground?: boolean
+}
+export interface WriteToolInput {
+  filePath: string
+  content: string
+}
+export interface EditToolInput {
+  filePath: string
+  oldString: string
+  newString: string
+  replaceAll?: boolean
+}
+export interface ReadToolInput {
+  filePath: string
+  offset?: number
+  limit?: number
+}
+export interface GlobToolInput {
+  pattern: string
+  path?: string
+}
+export interface GrepToolInput {
+  pattern: string
+  path?: string
+  glob?: string
+  outputMode?: 'content' | 'files_with_matches' | 'count' | (string & {})
+  '-i'?: boolean
+  multiline?: boolean
+}
+export interface WebFetchToolInput {
+  url: string
+  prompt: string
+}
+export interface WebSearchToolInput {
+  query: string
+  allowedDomains?: string[]
+  blockedDomains?: string[]
+}
+export interface AgentToolInput {
+  prompt: string
+  description: string
+  subagentType: string
+  model?: string
+}
+export interface AskUserQuestionToolInput {
+  questions: Array<{
+    question: string
+    header: string
+    options: Array<{
+      label: string
+    }>
+    multiSelect?: boolean
+  }>
+  answers?: Record<string, string>
+}
+export type PreToolUseContext = BaseContext & {
   event: 'PreToolUse'
-  toolName: string
-  /** Current tool input — may differ from originalToolInput if a previous hook returned updatedInput. */
-  toolInput: Record<string, unknown>
+  toolUseId: string
   /** The original tool input from Claude Code, before any hook modifications. */
   originalToolInput: Record<string, unknown>
-  toolUseId: string
-}
+} & (
+    | {
+        toolName: 'Bash'
+        toolInput: BashToolInput
+      }
+    | {
+        toolName: 'Write'
+        toolInput: WriteToolInput
+      }
+    | {
+        toolName: 'Edit'
+        toolInput: EditToolInput
+      }
+    | {
+        toolName: 'Read'
+        toolInput: ReadToolInput
+      }
+    | {
+        toolName: 'Glob'
+        toolInput: GlobToolInput
+      }
+    | {
+        toolName: 'Grep'
+        toolInput: GrepToolInput
+      }
+    | {
+        toolName: 'WebFetch'
+        toolInput: WebFetchToolInput
+      }
+    | {
+        toolName: 'WebSearch'
+        toolInput: WebSearchToolInput
+      }
+    | {
+        toolName: 'Agent'
+        toolInput: AgentToolInput
+      }
+    | {
+        toolName: 'AskUserQuestion'
+        toolInput: AskUserQuestionToolInput
+      }
+    | {
+        toolName: string
+        toolInput: Record<string, unknown>
+      }
+  )
 export interface UserPromptSubmitContext extends BaseContext {
   event: 'UserPromptSubmit'
   prompt: string

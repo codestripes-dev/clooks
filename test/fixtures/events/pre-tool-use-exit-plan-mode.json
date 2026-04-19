@@ -1,0 +1,10 @@
+{
+  "session_id": "test-session-002",
+  "hook_event_name": "PreToolUse",
+  "cwd": "/tmp/test",
+  "permission_mode": "plan",
+  "transcript_path": "/tmp/transcript.jsonl",
+  "tool_name": "ExitPlanMode",
+  "tool_input": {},
+  "tool_use_id": "toolu_02TEST"
+}

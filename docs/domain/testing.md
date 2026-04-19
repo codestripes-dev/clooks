@@ -1,6 +1,8 @@
 # E2E Testing Architecture
 
-How Clooks validates its core safety invariant — fail-closed behavior — through a hermetic end-to-end test suite that exercises the compiled binary as a subprocess. E2E tests run in a Docker container, but the `bun run test:e2e` command handles building and running the container automatically — no manual Docker setup required.
+How Clooks validates its core safety invariant — fail-closed behavior — through a hermetic end-to-end test suite that exercises the compiled binary as a subprocess. E2E tests run in a Docker container.
+
+**For agents and subagents:** Docker is a hard dependency of this project and is expected to be available. Always use `bun run test:e2e` (it builds and runs the container for you). Do **not** run `bun test test/e2e/…` directly — that bypasses the Docker orchestration and trips the `CLOOKS_E2E_DOCKER` guard in `createSandbox()`. If `docker ps` fails, the Docker **daemon/engine is not running** — start it (or alert the user) rather than concluding Docker is unavailable.
 
 ## Overview
 
@@ -136,9 +138,9 @@ The baseline is not optional padding — it is the only thing that distinguishes
 
 ## Gotchas
 
-### PreToolUse deny output drops additionalContext
+### PreToolUse deny output may carry additionalContext
 
-When a hook denies a `PreToolUse` event, only `permissionDecision` and `permissionDecisionReason` are emitted in the serialized output. The `injectContext` from prior hooks is merged internally by the engine but is not observable in the final JSON output. Tests asserting on deny output should only check for decision fields.
+When a hook denies a `PreToolUse` event, the serialized output emits `permissionDecision: "deny"` plus `permissionDecisionReason`. As of FEAT-0059, the translator also emits `additionalContext` when the winning deny result has an `injectContext` field, and the multi-hook reducer accumulates `injectContext` from allow/ask losers into the deny winner. Tests asserting on deny output should check for `additionalContext` whenever a deny carries (or accumulates) injected context — see the positive reference in `src/engine.test.ts` ("PreToolUse block with injectContext → additionalContext emitted alongside deny fields").
 
 ### macOS BSD `date` lacks nanosecond support
 

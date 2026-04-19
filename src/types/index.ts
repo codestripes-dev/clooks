@@ -16,7 +16,9 @@ export type {
   DebugFields,
   InjectableContext,
   AllowResult,
+  AskResult,
   BlockResult,
+  DeferResult,
   SkipResult,
   SuccessResult,
   FailureResult,
@@ -49,6 +51,7 @@ export type {
 export type {
   BaseContext,
   PreToolUseContext,
+  UnknownPreToolUseContext,
   UserPromptSubmitContext,
   PermissionRequestContext,
   PermissionDeniedContext,
@@ -69,6 +72,17 @@ export type {
   TeammateIdleContext,
   TaskCreatedContext,
   TaskCompletedContext,
+  // PreToolUse tool input types — narrow via ctx.toolName discriminant
+  BashToolInput,
+  WriteToolInput,
+  EditToolInput,
+  ReadToolInput,
+  GlobToolInput,
+  GrepToolInput,
+  WebFetchToolInput,
+  WebSearchToolInput,
+  AgentToolInput,
+  AskUserQuestionToolInput,
 } from './contexts.js'
 
 export type {
