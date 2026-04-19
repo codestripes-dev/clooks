@@ -33,6 +33,9 @@ fail-closed defaults — all built in.
 - **Write once, use anywhere** — TypeScript hooks with typed contexts and
   results. Author once, run on any project that vendors them.
 
+- **Live updates** — Edits to hook files take effect on the next event.
+  No session restart, no rebuild.
+
 - **Multi-layer config** — Layer hooks at user-wide, project, and personal-local
   scopes. Each layer can shadow, extend, or disable the others.
 
@@ -47,13 +50,13 @@ fail-closed defaults — all built in.
 
 ## Quick Start
 
-If you're using Claude Code, this is the fastest path:
+If you prefer to use plugins for Claude Code, this is the fastest path:
 
 ```
-/plugin marketplace add codestripes-dev/clooks-marketplace
-/plugin install clooks
-/plugin install clooks-core-hooks
-/plugin install clooks-project-hooks
+claude plugin marketplace add codestripes-dev/clooks-marketplace
+claude plugin install clooks
+claude plugin install clooks-core-hooks --scope user
+claude plugin install clooks-project-hooks --scope project
 ```
 
 Reload Claude Code, then run `/clooks:setup` when prompted. The six core
@@ -64,52 +67,39 @@ Prefer to install manually? See [Other install methods](#other-install-methods).
 
 ## Marketplace
 
-Clooks ships nine production-ready hooks across two packs, distributed as
-Claude Code plugins via [clooks-marketplace](https://github.com/codestripes-dev/clooks-marketplace).
-Add the marketplace once, then install any pack:
+The Quick Start above installs hooks from
+[clooks-marketplace](https://github.com/codestripes-dev/clooks-marketplace) —
+the runtime plus two packs (`clooks-core-hooks`, `clooks-project-hooks`)
+covering 9 production-ready hooks. Browse the repo for the full catalog
+and per-hook configuration.
+
+### Bring your own marketplace
+
+A marketplace is just a git repo with a `.claude-plugin/marketplace.json`
+manifest and one or more data-only plugins. Point Claude Code at your
+team's internal repo and every member gets the same hooks, auto-installed:
 
 ```
-/plugin marketplace add codestripes-dev/clooks-marketplace
-/plugin install <pack-name>
+claude plugin marketplace add my-org/internal-hooks
+claude plugin install <pack-name> --scope project
 ```
 
-### clooks-core-hooks — zero-config safety
-
-Drop-in hooks that catch the agent failure modes we keep running into:
-compound bash chains, destructive git operations, auto-confirmed prompts,
-bash that should be a Claude tool. No setup beyond installing the pack.
-
-| Hook | What it does |
-|------|-------------|
-| `no-compound-commands` | Blocks `&&`, `\|\|`, `;` in Bash. Escape: `ALLOW_COMPOUND=true` |
-| `no-destructive-git` | Blocks force push, `reset --hard`, `clean -f`, broad `git add`, and more |
-| `no-auto-confirm` | Blocks piped auto-responses (`yes \|`, `echo y \|`, `printf y \|`) |
-| `prefer-builtin-tools` | Blocks bash that duplicates Claude tools (`cat`→Read, `grep`→Grep, ...) |
-| `no-bare-mv` | Rewrites bare `mv` to `git mv` for tracked files |
-| `tmux-notifications` | Tmux pane attention signals on idle/permission prompts |
-
-### clooks-project-hooks — your conventions, enforced
-
-Hooks that encode decisions only you can make about your project: which
-package manager to use, which paths shouldn't be hand-edited, which CLI
-tools should go through your project scripts. Require setup in `clooks.yml`.
-
-| Hook | What it does |
-|------|-------------|
-| `js-package-manager-guard` | Blocks JS/TS package managers/runners not on your allowlist |
-| `no-edit-protected` | Blocks Write/Edit on protected paths (lockfiles, vendor, minified, custom globs) |
-| `prefer-project-scripts` | Redirects bare CLI calls to project scripts (`eslint src/` → `bun run lint`) |
+The same mechanism lets you ship hooks alongside an open-source project
+(enforce project conventions for contributors), distribute security
+hooks org-wide, or share a personal toolbox across machines.
 
 ### Vendoring & updates
 
 Installed packs are vendored into your repo under `.clooks/vendor/plugin/`
-and committed. Updates never happen silently — after `/plugin update`,
-run `clooks update plugin:<pack-name>` to pull the new version into your
+and committed. Updates never happen silently — after the plugin cache
+refreshes (e.g., via `claude plugin update`), run
+`clooks update plugin:<pack-name>` to pull the new version into your
 vendor directory, then review the diff before committing.
 
 ## Other install methods
 
-### Prebuilt binary
+<details>
+<summary><b>Prebuilt binary</b></summary>
 
 Download the binary for your platform from the GitHub releases page,
 put it on your PATH, then:
@@ -121,7 +111,10 @@ clooks init
 
 Available targets: `darwin-arm64`, `darwin-x64`, `linux-x64`, `linux-arm64`.
 
-### Build from source
+</details>
+
+<details>
+<summary><b>Build from source</b></summary>
 
 Requires [Bun](https://bun.sh).
 
@@ -134,6 +127,8 @@ mv dist/clooks ~/.local/bin/
 cd /your/project
 clooks init
 ```
+
+</details>
 
 ### Global (user-wide) setup
 
@@ -209,8 +204,11 @@ export const hook: ClooksHook = {
 }
 ```
 
-Every handler receives `(ctx, config)` and returns one of: `{ result: "allow" }`,
-`{ result: "block", reason: "..." }`, or `{ result: "skip" }`.
+Every handler receives `(ctx, config)` and returns a result appropriate
+for the event — guard events (like `PreToolUse`) use `allow`/`block`/`skip`;
+continuation events use `continue`/`stop`; implementation events use
+`success`/`failure`. See [Return values](#return-values) below for the
+full set, plus `injectContext` and `updatedInput` for steering the agent.
 
 ### 3. Register it
 
@@ -372,7 +370,8 @@ before any hook runs.
 Clooks aims for full parity with Claude Code's native hook system. Today
 it covers 22 of 26 events and all of the core return values.
 
-### Events
+<details>
+<summary><b>Events</b> — 22 of 26 Claude Code events supported</summary>
 
 | Event | Supported |
 |-------|:---------:|
@@ -405,7 +404,10 @@ it covers 22 of 26 events and all of the core return values.
 
 \* Planned — see [Roadmap](#roadmap).
 
-### Return values by event category
+</details>
+
+<details>
+<summary><b>Return values by event category</b></summary>
 
 | Category | Events | `allow`/`block`/`skip` | `injectContext` | `updatedInput` | `continue`/`stop` | `success`/`failure` |
 |----------|--------|:---:|:---:|:---:|:---:|:---:|
@@ -417,6 +419,8 @@ it covers 22 of 26 events and all of the core return values.
 ¹ Only on injectable events: PreToolUse, UserPromptSubmit, SessionStart, PostToolUse, PostToolUseFailure, Notification, SubagentStart. Returning `injectContext` on other events is silently ignored.
 
 ² Sequential `PreToolUse` only. Returning `updatedInput` from a parallel hook is a contract violation and blocks the action.
+
+</details>
 
 ### Hook handler types
 
@@ -580,7 +584,8 @@ A hook that exceeds its timeout is treated like any other crash — the
 
 ## CLI reference
 
-### Setup
+<details>
+<summary><b>Setup</b></summary>
 
 | Command | Description |
 |---------|-------------|
@@ -592,7 +597,10 @@ A hook that exceeds its timeout is treated like any other crash — the
 | `clooks uninstall --full` | Unhook **and** delete the `.clooks/` directory |
 | `clooks uninstall --force` | Skip confirmation prompts |
 
-### Authoring
+</details>
+
+<details>
+<summary><b>Authoring</b></summary>
 
 | Command | Description |
 |---------|-------------|
@@ -601,14 +609,20 @@ A hook that exceeds its timeout is treated like any other crash — the
 | `clooks types` | Extract / refresh `.clooks/hooks/types.d.ts` |
 | `clooks types --global` | Extract types to `~/.clooks/hooks/` |
 
-### Inspection
+</details>
+
+<details>
+<summary><b>Inspection</b></summary>
 
 | Command | Description |
 |---------|-------------|
 | `clooks config` | Show resolved configuration summary |
 | `clooks config --resolved` | Show fully merged config with provenance annotations |
 
-### Hook packs
+</details>
+
+<details>
+<summary><b>Hook packs</b></summary>
 
 | Command | Description |
 |---------|-------------|
@@ -631,15 +645,23 @@ clooks add https://github.com/someuser/security-hooks
 clooks update plugin:clooks-core-hooks
 ```
 
-### Other
+</details>
+
+<details>
+<summary><b>Other</b></summary>
 
 | Command | Description |
 |---------|-------------|
 | `clooks --version` (or `-v`) | Print version |
 
+</details>
+
 All commands accept `--json` for machine-readable output.
 
 ## Environment variables
+
+<details>
+<summary><b>Full list</b></summary>
 
 | Variable | Effect |
 |----------|--------|
@@ -649,9 +671,12 @@ All commands accept `--json` for machine-readable output.
 | `CLOOKS_HOME_ROOT=/path` | Override the home directory used for config resolution (mostly for tests) |
 | `CLOOKS_SILENCE_STALE_PLUGIN_ADVISORIES=true` | Suppress plugin drift advisories on `SessionStart` |
 
+</details>
+
 ## Development
 
-### Building
+<details>
+<summary><b>Building</b></summary>
 
 ```
 bun install
@@ -660,7 +685,10 @@ bun run build:darwin-arm64     # Cross-compile for macOS ARM64
 bun run build:darwin-x64       # Cross-compile for macOS x64
 ```
 
-### Testing
+</details>
+
+<details>
+<summary><b>Testing</b></summary>
 
 ```
 bun run test                   # Unit tests (co-located .test.ts files)
@@ -675,7 +703,10 @@ Source and tests are bind-mounted at runtime, so `test:e2e:run` picks up
 changes instantly without a rebuild. Only run `test:e2e:build` when
 dependencies change.
 
-### Other commands
+</details>
+
+<details>
+<summary><b>Other commands</b></summary>
 
 ```
 bun run typecheck              # Type-check with tsc
@@ -687,6 +718,8 @@ bun run format:check           # Prettier check (no write)
 bun run generate:types         # Regenerate hooks/types.d.ts from source
 bun run generate:schema        # Regenerate clooks.schema.json from source
 ```
+
+</details>
 
 ## Roadmap
 
