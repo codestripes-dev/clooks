@@ -1,11 +1,10 @@
-import { parseYamlFile } from "./parse.js"
-import { validateConfig } from "./validate.js"
-import { mergeConfigFiles, mergeThreeLayerConfig } from "./merge.js"
-import { resolveHookPath } from "./resolve.js"
-import { join } from "path"
-import { homedir } from "os"
-import type { HookName } from "../types/branded.js"
-import type { HookOrigin } from "./schema.js"
+import { parseYamlFile } from './parse.js'
+import { validateConfig } from './validate.js'
+import { mergeThreeLayerConfig } from './merge.js'
+import { resolveHookPath } from './resolve.js'
+import { join } from 'path'
+import { homedir } from 'os'
+import type { HookName } from '../types/branded.js'
 
 export type {
   ClooksConfig,
@@ -14,14 +13,14 @@ export type {
   GlobalConfig,
   ErrorMode,
   HookOrigin,
-} from "./schema.js"
+} from './schema.js'
 
 export interface LoadConfigOptions {
-  homeRoot?: string  // defaults to os.homedir()
+  homeRoot?: string // defaults to os.homedir()
 }
 
 export interface LoadConfigResult {
-  config: import("./schema.js").ClooksConfig
+  config: import('./schema.js').ClooksConfig
   shadows: HookName[]
   hasProjectConfig: boolean
 }
@@ -30,9 +29,7 @@ export interface LoadConfigResult {
  * Try to parse a YAML file, returning undefined if the file does not exist.
  * Throws on malformed YAML or non-object content.
  */
-async function tryParseYaml(
-  filePath: string,
-): Promise<Record<string, unknown> | undefined> {
+async function tryParseYaml(filePath: string): Promise<Record<string, unknown> | undefined> {
   if (!(await Bun.file(filePath).exists())) {
     return undefined
   }
@@ -53,9 +50,9 @@ export async function loadConfig(
   options?: LoadConfigOptions,
 ): Promise<LoadConfigResult | null> {
   const homeRoot = options?.homeRoot ?? homedir()
-  const homePath = join(homeRoot, ".clooks", "clooks.yml")
-  const projectPath = join(projectRoot, ".clooks", "clooks.yml")
-  const localPath = join(projectRoot, ".clooks", "clooks.local.yml")
+  const homePath = join(homeRoot, '.clooks', 'clooks.yml')
+  const projectPath = join(projectRoot, '.clooks', 'clooks.yml')
+  const localPath = join(projectRoot, '.clooks', 'clooks.local.yml')
 
   // When cwd is the home directory, home and project resolve to the same file.
   // Treat it as home-only to avoid false shadow warnings.
@@ -92,7 +89,7 @@ export async function loadConfig(
   // For home hooks, re-resolve paths with homeRoot base using the original
   // home hook uses (before any local override could have changed it)
   for (const [hookName, entry] of Object.entries(config.hooks)) {
-    if (entry.origin === "home") {
+    if (entry.origin === 'home') {
       const rawUses = homeHookUses.get(hookName)
       entry.resolvedPath = resolveHookPath(hookName as HookName, { uses: rawUses }, homeRoot)
     }

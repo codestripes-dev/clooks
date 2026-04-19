@@ -1,4 +1,4 @@
-import { z } from "zod"
+import { z } from 'zod'
 import {
   ClooksConfigSchema,
   HookEntrySchema,
@@ -8,16 +8,16 @@ import {
   type HookEntry,
   type EventEntry,
   type HookOrigin,
-} from "./schema.js"
-import type { EventName, HookName, Milliseconds } from "../types/branded.js"
-import { resolveHookPath, isPathLike } from "./resolve.js"
+} from './schema.js'
+import type { EventName, HookName, Milliseconds } from '../types/branded.js'
+import { resolveHookPath } from './resolve.js'
 import {
   CLAUDE_CODE_EVENTS,
   DEFAULT_TIMEOUT,
   DEFAULT_ON_ERROR,
   DEFAULT_MAX_FAILURES,
   DEFAULT_MAX_FAILURES_MESSAGE,
-} from "./constants.js"
+} from './constants.js'
 
 export function validateConfig(raw: Record<string, unknown>): ClooksConfig {
   const result = ClooksConfigSchema.safeParse(raw, { reportInput: true })
@@ -31,7 +31,7 @@ export function validateConfig(raw: Record<string, unknown>): ClooksConfig {
 }
 
 function transformToConfig(validated: z.output<typeof ClooksConfigSchema>): ClooksConfig {
-  const reservedKeys = new Set<string>(["version", "config", ...CLAUDE_CODE_EVENTS])
+  const reservedKeys = new Set<string>(['version', 'config', ...CLAUDE_CODE_EVENTS])
 
   // Global config with defaults
   const rawGlobal = validated.config
@@ -58,7 +58,7 @@ function transformToConfig(validated: z.output<typeof ClooksConfigSchema>): Cloo
       resolvedPath,
       config: (raw.config ?? {}) as Record<string, unknown>,
       parallel: raw.parallel ?? false,
-      origin: "project" as HookOrigin,
+      origin: 'project' as HookOrigin,
     }
 
     if (raw.uses !== undefined) entry.uses = raw.uses
@@ -107,12 +107,12 @@ function formatZodError(issues: z.ZodIssue[], raw: Record<string, unknown>): str
   const eventNames = new Set<string>([...CLAUDE_CODE_EVENTS])
 
   // Version field errors
-  if (topKey === "version") {
+  if (topKey === 'version') {
     return formatVersionError(issue)
   }
 
   // Global config errors
-  if (topKey === "config") {
+  if (topKey === 'config') {
     return formatGlobalConfigError(issue, raw)
   }
 
@@ -126,12 +126,12 @@ function formatZodError(issues: z.ZodIssue[], raw: Record<string, unknown>): str
 }
 
 function formatVersionError(issue: z.ZodIssue): string {
-  if (issue.code === "invalid_type" && issue.message.includes("undefined")) {
+  if (issue.code === 'invalid_type' && issue.message.includes('undefined')) {
     return `clooks: clooks.yml missing required "version" field`
   }
-  if (issue.code === "invalid_type") {
+  if (issue.code === 'invalid_type') {
     const match = issue.message.match(/received (\w+)/)
-    return `clooks: "version" must be a string, got ${match?.[1] ?? "unknown"}`
+    return `clooks: "version" must be a string, got ${match?.[1] ?? 'unknown'}`
   }
   return `clooks: "version" error: ${issue.message}`
 }
@@ -139,30 +139,30 @@ function formatVersionError(issue: z.ZodIssue): string {
 function formatGlobalConfigError(issue: z.ZodIssue, raw: Record<string, unknown>): string {
   const field = issue.path[1] as string | undefined
 
-  if (issue.code === "unrecognized_keys") {
+  if (issue.code === 'unrecognized_keys') {
     const keys = (issue as any).keys as string[]
     return `clooks: global config has unknown key "${keys[0]}". Known keys: maxFailures, maxFailuresMessage, onError, timeout`
   }
 
   // Non-object config
-  if (issue.code === "invalid_type" && field === undefined) {
+  if (issue.code === 'invalid_type' && field === undefined) {
     return `clooks: "config" must be an object`
   }
 
-  if (field === "timeout") {
+  if (field === 'timeout') {
     return `clooks: global config "timeout" must be a positive number`
   }
-  if (field === "onError") {
+  if (field === 'onError') {
     const rawVal = (raw?.config as Record<string, unknown> | undefined)?.onError
-    if (rawVal === "trace") {
+    if (rawVal === 'trace') {
       return `clooks: global config "onError" cannot be "trace" — trace is only allowed at hook or hook+event level`
     }
     return `clooks: global config "onError" must be "block" or "continue", got "${String(rawVal)}"`
   }
-  if (field === "maxFailures") {
+  if (field === 'maxFailures') {
     return `clooks: global config "maxFailures" must be a non-negative integer`
   }
-  if (field === "maxFailuresMessage") {
+  if (field === 'maxFailuresMessage') {
     return `clooks: global config "maxFailuresMessage" must be a string`
   }
 
@@ -171,29 +171,33 @@ function formatGlobalConfigError(issue: z.ZodIssue, raw: Record<string, unknown>
 
 function formatEventError(issue: z.ZodIssue, eventName: string): string {
   // Non-object event entry
-  if (issue.code === "invalid_type" && issue.path.length === 1) {
+  if (issue.code === 'invalid_type' && issue.path.length === 1) {
     return `clooks: entry "${eventName}" must be an object`
   }
 
-  if (issue.code === "custom") {
+  if (issue.code === 'custom') {
     return `clooks: ${issue.message}`
   }
 
   const field = issue.path[1]
-  if (field === "order") {
+  if (field === 'order') {
     return `clooks: event "${eventName}" has invalid "order": must be an array of non-empty strings`
   }
 
   return `clooks: entry "${eventName}" error: ${issue.message}`
 }
 
-function formatHookError(issue: z.ZodIssue, hookName: string, raw: Record<string, unknown>): string {
+function formatHookError(
+  issue: z.ZodIssue,
+  hookName: string,
+  raw: Record<string, unknown>,
+): string {
   // Non-object hook entry
-  if (issue.code === "invalid_type" && issue.path.length === 1) {
+  if (issue.code === 'invalid_type' && issue.path.length === 1) {
     return `clooks: entry "${hookName}" must be an object`
   }
 
-  if (issue.code === "unrecognized_keys") {
+  if (issue.code === 'unrecognized_keys') {
     const keys = (issue as any).keys as string[]
     const depth = issue.path.length
 
@@ -203,46 +207,46 @@ function formatHookError(issue: z.ZodIssue, hookName: string, raw: Record<string
     }
 
     // Inside hook.events.EventName
-    if (issue.path[1] === "events" && issue.path.length >= 3) {
+    if (issue.path[1] === 'events' && issue.path.length >= 3) {
       const eventKey = String(issue.path[2])
       return `clooks: hook "${hookName}" events.${eventKey} has unknown key "${keys[0]}". Known keys: enabled, onError`
     }
   }
 
-  if (issue.code === "custom") {
+  if (issue.code === 'custom') {
     return `clooks: ${issue.message}`
   }
 
   const field = issue.path[1] as string | undefined
 
-  if (field === "uses") {
+  if (field === 'uses') {
     return `clooks: hook "${hookName}" has invalid "uses": must be a non-empty string`
   }
-  if (field === "timeout") {
+  if (field === 'timeout') {
     return `clooks: hook "${hookName}" "timeout" must be a positive number`
   }
-  if (field === "onError") {
+  if (field === 'onError') {
     const rawVal = (raw[hookName] as Record<string, unknown> | undefined)?.onError
     return `clooks: hook "${hookName}" "onError" must be "block", "continue", or "trace", got "${String(rawVal)}"`
   }
-  if (field === "parallel") {
+  if (field === 'parallel') {
     return `clooks: hook "${hookName}" has invalid "parallel": must be a boolean`
   }
-  if (field === "maxFailures") {
+  if (field === 'maxFailures') {
     return `clooks: hook "${hookName}" has invalid "maxFailures": must be a non-negative integer`
   }
-  if (field === "maxFailuresMessage") {
+  if (field === 'maxFailuresMessage') {
     return `clooks: hook "${hookName}" has invalid "maxFailuresMessage": must be a string`
   }
-  if (field === "enabled") {
+  if (field === 'enabled') {
     return `clooks: hook "${hookName}" has invalid "enabled": must be a boolean`
   }
-  if (field === "config") {
+  if (field === 'config') {
     return `clooks: hook "${hookName}" has invalid "config": must be an object`
   }
-  if (field === "events") {
+  if (field === 'events') {
     // Unknown event name in the events sub-map (path depth 2: [hookName, "events"])
-    if (issue.code === "unrecognized_keys") {
+    if (issue.code === 'unrecognized_keys') {
       const keys = (issue as any).keys as string[]
       return `clooks: hook "${hookName}" has unknown event "${keys[0]}" in events sub-map`
     }
@@ -250,10 +254,10 @@ function formatHookError(issue: z.ZodIssue, hookName: string, raw: Record<string
     if (issue.path.length >= 3) {
       const eventKey = String(issue.path[2])
       const subField = issue.path[3]
-      if (subField === "onError") {
+      if (subField === 'onError') {
         return `clooks: hook "${hookName}" events.${eventKey} "onError" must be "block", "continue", or "trace"`
       }
-      if (subField === "enabled") {
+      if (subField === 'enabled') {
         return `clooks: hook "${hookName}" events.${eventKey} "enabled" must be a boolean`
       }
       return `clooks: hook "${hookName}" events.${eventKey} error: ${issue.message}`

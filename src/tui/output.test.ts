@@ -11,8 +11,9 @@ mock.module('@clack/prompts', () => ({
   outro: mock(() => {}),
 }))
 
-const { log, intro, outro } = await import('@clack/prompts')
-const { printIntro, printSuccess, printInfo, printWarning, printError, printOutro } = await import('./output.js')
+const { log } = await import('@clack/prompts')
+const { printIntro, printSuccess, printInfo, printWarning, printError, printOutro } =
+  await import('./output.js')
 
 describe('output', () => {
   describe('JSON mode suppression', () => {
