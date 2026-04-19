@@ -14,3 +14,10 @@ clooks.local.yml
 src/generated/
 
 coverage/
+
+# Internal planning & research (not published)
+docs/plans/
+docs/planned/
+docs/epics/
+docs/research/
+PRODUCT_EXPLORATION.md
