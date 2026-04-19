@@ -6,7 +6,7 @@ import { normalizeKeys } from '../normalize.js'
 import { loadConfig } from '../config/index.js'
 import type { LoadConfigResult } from '../config/index.js'
 import { loadAllHooks } from '../loader.js'
-import { INJECTABLE_EVENTS, isEventName } from '../config/constants.js'
+import { INJECTABLE_EVENTS, NOTIFY_ONLY_EVENTS, isEventName } from '../config/constants.js'
 import { DEFAULT_MAX_FAILURES } from '../config/constants.js'
 import {
   getFailurePath,
@@ -306,8 +306,15 @@ export async function runEngine(deps: RunEngineDeps = defaultDeps): Promise<void
     if (hooks.length === 0 && loadErrors.length === 0) {
       const earlyMessages = [...pluginSystemMessages, ...danglingWarnings]
       if (earlyMessages.length > 0) {
-        const output: ClaudeCodeOutput = { systemMessage: earlyMessages.join('\n') }
-        process.stdout.write(JSON.stringify(output) + '\n')
+        if (NOTIFY_ONLY_EVENTS.has(eventName)) {
+          // NOTIFY_ONLY: stdout is dropped upstream — re-route to stderr.
+          for (const msg of earlyMessages) {
+            process.stderr.write(`clooks: ${msg}\n`)
+          }
+        } else {
+          const output: ClaudeCodeOutput = { systemMessage: earlyMessages.join('\n') }
+          process.stdout.write(JSON.stringify(output) + '\n')
+        }
       }
       if (debug) {
         for (const line of engineDebugLines) {
@@ -373,8 +380,15 @@ export async function runEngine(deps: RunEngineDeps = defaultDeps): Promise<void
     if (matched.length === 0 && loadErrors.length === 0) {
       const earlyMessages = [...pluginSystemMessages, ...danglingWarnings, ...startupWarnings]
       if (earlyMessages.length > 0) {
-        const output: ClaudeCodeOutput = { systemMessage: earlyMessages.join('\n') }
-        process.stdout.write(JSON.stringify(output) + '\n')
+        if (NOTIFY_ONLY_EVENTS.has(eventName)) {
+          // NOTIFY_ONLY: stdout is dropped upstream — re-route to stderr.
+          for (const msg of earlyMessages) {
+            process.stderr.write(`clooks: ${msg}\n`)
+          }
+        } else {
+          const output: ClaudeCodeOutput = { systemMessage: earlyMessages.join('\n') }
+          process.stdout.write(JSON.stringify(output) + '\n')
+        }
       }
       if (debug) {
         for (const line of engineDebugLines) {
@@ -388,6 +402,10 @@ export async function runEngine(deps: RunEngineDeps = defaultDeps): Promise<void
     const normalized = normalizeKeys(payload)
     normalized.event = normalized.hookEventName
     delete normalized.hookEventName
+    if (eventName === 'PermissionDenied') {
+      normalized.denialReason = normalized.reason
+      delete normalized.reason
+    }
 
     // --- Startup validation: warn about hook-level trace on non-injectable events ---
     for (const loaded of hooks) {
@@ -504,8 +522,15 @@ export async function runEngine(deps: RunEngineDeps = defaultDeps): Promise<void
         ...systemMessages,
       ]
       if (allSystemMessages.length > 0) {
-        const output: ClaudeCodeOutput = { systemMessage: allSystemMessages.join('\n') }
-        process.stdout.write(JSON.stringify(output) + '\n')
+        if (NOTIFY_ONLY_EVENTS.has(eventName)) {
+          // NOTIFY_ONLY: stdout is dropped upstream — re-route to stderr.
+          for (const msg of allSystemMessages) {
+            process.stderr.write(`clooks: ${msg}\n`)
+          }
+        } else {
+          const output: ClaudeCodeOutput = { systemMessage: allSystemMessages.join('\n') }
+          process.stdout.write(JSON.stringify(output) + '\n')
+        }
       }
       process.exit(EXIT_OK)
     }
@@ -513,6 +538,9 @@ export async function runEngine(deps: RunEngineDeps = defaultDeps): Promise<void
     const translated = translateResult(eventName, lastResult)
 
     // --- Inject systemMessage into translated output ---
+    // NOTIFY_ONLY events: upstream drops stdout entirely, so wrapping a
+    // systemMessage into stdout would be lost. Re-route those messages to
+    // stderr (Claude Code's debug log) so authors can still discover problems.
     const allSystemMessages = [
       ...pluginSystemMessages,
       ...danglingWarnings,
@@ -520,13 +548,19 @@ export async function runEngine(deps: RunEngineDeps = defaultDeps): Promise<void
       ...systemMessages,
     ]
     if (allSystemMessages.length > 0) {
-      const systemMessage = allSystemMessages.join('\n')
-      if (translated.output) {
-        const parsed = JSON.parse(translated.output) as ClaudeCodeOutput
-        parsed.systemMessage = systemMessage
-        translated.output = JSON.stringify(parsed)
+      if (NOTIFY_ONLY_EVENTS.has(eventName)) {
+        for (const msg of allSystemMessages) {
+          process.stderr.write(`clooks: ${msg}\n`)
+        }
       } else {
-        translated.output = JSON.stringify({ systemMessage } as ClaudeCodeOutput)
+        const systemMessage = allSystemMessages.join('\n')
+        if (translated.output) {
+          const parsed = JSON.parse(translated.output) as ClaudeCodeOutput
+          parsed.systemMessage = systemMessage
+          translated.output = JSON.stringify(parsed)
+        } else {
+          translated.output = JSON.stringify({ systemMessage } as ClaudeCodeOutput)
+        }
       }
     }
 

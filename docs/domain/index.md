@@ -73,7 +73,7 @@ When creating or removing a domain doc, update the relevant table in this index.
 | CLI Architecture | `cli-architecture.md` | Dual-mode dispatch, Commander.js setup, TUI wrappers, JSON output, command patterns |
 | Config System | `config.md` | Config format, parsing, validation, merging, resolution rules |
 | Claude Code Hooks — Overview | `claude-code-hooks/overview.md` | Configuration schema, 4 handler types, hook locations, environment variables |
-| Claude Code Hooks — Events | `claude-code-hooks/events.md` | All 20 lifecycle events: matchers, input fields, decision control |
+| Claude Code Hooks — Events | `claude-code-hooks/events.md` | All 21 lifecycle events: matchers, input fields, decision control |
 | Claude Code Hooks — I/O Contract | `claude-code-hooks/io-contract.md` | Exit codes, JSON output, decision patterns, tool_input schemas |
 | Claude Code Hooks — Behavior & Gotchas | `claude-code-hooks/behavior-and-gotchas.md` | Execution model, async, session snapshot, known issues |
 | Cross-Agent Hooks | `cross-agent-hooks.md` | Hook systems across Claude Code, Cursor, Windsurf, VS Code Copilot with event mapping |

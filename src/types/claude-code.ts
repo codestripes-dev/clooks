@@ -83,6 +83,20 @@ export interface PermissionRequestInput extends ClaudeCodeCommonInput {
 }
 
 /**
+ * PermissionDenied event payload. Fires in auto mode when the
+ * permission classifier denies a tool call. Cannot reverse the
+ * denial; may return retry: true to hint that the model should
+ * retry. See docs/domain/raw-claude-ai/hook-docs/PermissionDenied.md.
+ */
+export interface PermissionDeniedInput extends ClaudeCodeCommonInput {
+  hook_event_name: 'PermissionDenied'
+  tool_name: string
+  tool_input: Record<string, unknown>
+  tool_use_id: string
+  reason: string
+}
+
+/**
  * Stop event payload. Sent when the main Claude Code agent has finished
  * responding. Hooks can block the stop and force Claude to continue.
  */
@@ -230,6 +244,43 @@ export interface PostCompactInput extends ClaudeCodeCommonInput {
   compact_summary: string
 }
 
+// --- Notify-only events (output ignored upstream) ---
+
+/**
+ * Error type for StopFailure. The seven documented upstream literals are
+ * enumerated; `(string & {})` keeps the union forward-compatible with
+ * any new error categories Claude Code introduces without requiring a
+ * Clooks release.
+ */
+export type StopFailureErrorType =
+  | 'rate_limit'
+  | 'authentication_failed'
+  | 'billing_error'
+  | 'invalid_request'
+  | 'server_error'
+  | 'max_output_tokens'
+  | 'unknown'
+  | (string & {})
+
+/**
+ * StopFailure event payload. Fires INSTEAD OF Stop when the turn ends
+ * due to an upstream API error (rate limit, auth, billing, server, etc.).
+ * Output and exit code are ignored upstream — hooks run purely for side
+ * effects (logging, alerting, recovery).
+ */
+export interface StopFailureInput extends ClaudeCodeCommonInput {
+  hook_event_name: 'StopFailure'
+  error: StopFailureErrorType
+  error_details?: string
+  /**
+   * For StopFailure, this is the rendered API error string
+   * (e.g., "API Error: Rate limit reached") — NOT Claude's
+   * conversational text as in Stop / SubagentStop. See `error_details`
+   * for additional structured detail.
+   */
+  last_assistant_message?: string
+}
+
 // --- Implementation events (author determines behavior) ---
 
 /**
@@ -293,7 +344,9 @@ export type ClaudeCodeInput =
   | UserPromptSubmitInput
   | SessionStartInput
   | PermissionRequestInput
+  | PermissionDeniedInput
   | StopInput
+  | StopFailureInput
   | SubagentStopInput
   | ConfigChangeInput
   | SessionEndInput
@@ -339,6 +392,17 @@ export interface PreToolUseOutput extends HookSpecificOutputBase {
 export interface UserPromptSubmitOutput extends HookSpecificOutputBase {
   hookEventName: 'UserPromptSubmit'
   sessionTitle?: string
+}
+
+/**
+ * The hookSpecificOutput field for PermissionDenied responses.
+ * retry: true signals the model may retry the tool call. Any
+ * other value (or absence) means the denial stands without a
+ * retry hint.
+ */
+export interface PermissionDeniedOutput extends HookSpecificOutputBase {
+  hookEventName: 'PermissionDenied'
+  retry?: boolean
 }
 
 /**

@@ -222,7 +222,7 @@ When hooks run sequentially, each hook sees the `toolInput` as modified by previ
 
 ## Events
 
-Clooks supports all 20 Claude Code hook events, organized into four categories:
+Clooks supports all 21 Claude Code hook events, organized into four categories:
 
 ### Guard Events
 

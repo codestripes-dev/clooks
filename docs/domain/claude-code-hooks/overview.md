@@ -106,7 +106,7 @@ Enterprise: `allowManagedHooksOnly` blocks user/project/plugin hooks.
 
 ## Related
 
-- [events.md](./events.md) — All 20 lifecycle events with input/output schemas
+- [events.md](./events.md) — All 21 lifecycle events with input/output schemas
 - [io-contract.md](./io-contract.md) — Exit codes, JSON output, decision control, tool_input schemas
 - [behavior-and-gotchas.md](./behavior-and-gotchas.md) — Execution model, async, session snapshot, known issues
 - [cross-agent-hooks.md](../cross-agent-hooks.md) — How other agents' hook systems compare

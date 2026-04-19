@@ -780,6 +780,95 @@ describe('translateResult', () => {
     expect(out.exitCode).toBe(2)
     expect(out.stderr).toContain('unknown result type')
   })
+
+  // --- NOTIFY_ONLY_EVENTS (StopFailure): translator short-circuits every ResultTag ---
+
+  it('StopFailure skip → exit 0, no output, no stderr', () => {
+    const out = translateResult('StopFailure', { result: 'skip' })
+    expect(out.exitCode).toBe(0)
+    expect(out.output).toBeUndefined()
+    expect(out.stderr).toBeUndefined()
+  })
+
+  it('StopFailure block with reason → exit 0, no output, no stderr (shadows unknown-result fallthrough)', () => {
+    const out = translateResult('StopFailure', {
+      result: 'block',
+      reason: 'author-returned block',
+    })
+    expect(out.exitCode).toBe(0)
+    expect(out.output).toBeUndefined()
+    expect(out.stderr).toBeUndefined()
+  })
+
+  it('StopFailure allow → exit 0, no output, no stderr', () => {
+    const out = translateResult('StopFailure', {
+      result: 'allow',
+    } as unknown as import('./engine/index.js').EngineResult)
+    expect(out.exitCode).toBe(0)
+    expect(out.output).toBeUndefined()
+    expect(out.stderr).toBeUndefined()
+  })
+
+  it('StopFailure continue with feedback → exit 0, no output, no stderr', () => {
+    const out = translateResult('StopFailure', {
+      result: 'continue',
+      feedback: 'retry me',
+    } as unknown as import('./engine/index.js').EngineResult)
+    expect(out.exitCode).toBe(0)
+    expect(out.output).toBeUndefined()
+    expect(out.stderr).toBeUndefined()
+  })
+
+  it('StopFailure success with path → exit 0, no output, no stderr', () => {
+    const out = translateResult('StopFailure', {
+      result: 'success',
+      path: '/tmp/x',
+    } as unknown as import('./engine/index.js').EngineResult)
+    expect(out.exitCode).toBe(0)
+    expect(out.output).toBeUndefined()
+    expect(out.stderr).toBeUndefined()
+  })
+
+  it('StopFailure failure with reason → exit 0, no output, no stderr (shadows EXIT_HOOK_FAILURE fallthrough)', () => {
+    const out = translateResult('StopFailure', {
+      result: 'failure',
+      reason: 'author-returned failure',
+    } as unknown as import('./engine/index.js').EngineResult)
+    expect(out.exitCode).toBe(0)
+    expect(out.output).toBeUndefined()
+    expect(out.stderr).toBeUndefined()
+  })
+
+  it('StopFailure stop with reason → exit 0, no output, no stderr', () => {
+    const out = translateResult('StopFailure', {
+      result: 'stop',
+      reason: 'author-returned stop',
+    } as unknown as import('./engine/index.js').EngineResult)
+    expect(out.exitCode).toBe(0)
+    expect(out.output).toBeUndefined()
+    expect(out.stderr).toBeUndefined()
+  })
+
+  it('StopFailure unknown result tag → exit 0 (translator early-return shadows fail-closed fallthrough)', () => {
+    const out = translateResult('StopFailure', {
+      result: 'bogus',
+    } as unknown as import('./engine/index.js').EngineResult)
+    expect(out.exitCode).toBe(0)
+    expect(out.output).toBeUndefined()
+    expect(out.stderr).toBeUndefined()
+  })
+
+  it('NOTIFY_ONLY_EVENTS branch precedes PreToolUse literal check (source-order invariant)', () => {
+    // If the NOTIFY_ONLY_EVENTS branch is moved below the PreToolUse check,
+    // a future event that upstream adds to both categories could be shadowed.
+    // This test proves the positional invariant.
+    const src = translateResult.toString()
+    const notifyIdx = src.indexOf('NOTIFY_ONLY_EVENTS')
+    const preToolIdx = src.indexOf('PreToolUse')
+    expect(notifyIdx).toBeGreaterThan(-1)
+    expect(preToolIdx).toBeGreaterThan(-1)
+    expect(notifyIdx).toBeLessThan(preToolIdx)
+  })
 })
 
 // --- matchHooksForEvent ---
@@ -2744,5 +2833,14 @@ describe('assertCategoryCompleteness', () => {
       ['SET_2', new Set<EventName>(['B' as EventName, 'C' as EventName])],
     ]
     expect(() => assertCategoryCompleteness(allEvents, categories)).not.toThrow()
+  })
+
+  it('StopFailure is a member of NOTIFY_ONLY_EVENTS and no other category', async () => {
+    const { NOTIFY_ONLY_EVENTS } = await import('./config/constants.js')
+    const { GUARD_EVENTS, OBSERVE_EVENTS, CONTINUATION_EVENTS } = await import('./engine/events.js')
+    expect(NOTIFY_ONLY_EVENTS.has('StopFailure' as EventName)).toBe(true)
+    expect(GUARD_EVENTS.has('StopFailure' as EventName)).toBe(false)
+    expect(OBSERVE_EVENTS.has('StopFailure' as EventName)).toBe(false)
+    expect(CONTINUATION_EVENTS.has('StopFailure' as EventName)).toBe(false)
   })
 })

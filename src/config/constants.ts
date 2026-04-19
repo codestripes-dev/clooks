@@ -1,6 +1,6 @@
 import type { EventName, Milliseconds } from '../types/branded.js'
 
-// The 20 Claude Code event names. These are reserved — they cannot be
+// The 22 Claude Code event names. These are reserved — they cannot be
 // used as hook names in clooks.yml because they have special meaning
 // as per-event configuration entries.
 //
@@ -14,12 +14,14 @@ export const CLAUDE_CODE_EVENTS: Set<EventName> = new Set<EventName>([
   'SessionStart',
   'SessionEnd',
   'Stop',
+  'StopFailure',
   'SubagentStop',
   'SubagentStart',
   'InstructionsLoaded',
   'PostToolUseFailure',
   'Notification',
   'PermissionRequest',
+  'PermissionDenied',
   'ConfigChange',
   'WorktreeCreate',
   'WorktreeRemove',
@@ -48,6 +50,11 @@ export const INJECTABLE_EVENTS: Set<EventName> = new Set<EventName>([
   'Notification',
   'SubagentStart',
 ])
+
+// Events whose stdout and exit code are dropped by Claude Code.
+// Hooks on these events run purely for side effects (logging, alerting).
+// The engine short-circuits translateResult() to EXIT_OK with no output.
+export const NOTIFY_ONLY_EVENTS: Set<EventName> = new Set<EventName>(['StopFailure'])
 
 // Default values for global config
 import type { ErrorMode } from './schema.js'

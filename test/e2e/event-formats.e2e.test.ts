@@ -1045,3 +1045,110 @@ any-hook: {}
     expect(result.stderr).toContain('missing or unrecognized')
   })
 })
+
+describe('event formats — StopFailure (NOTIFY_ONLY_EVENTS)', () => {
+  // SF-1. StopFailure skip → empty stdout, exit 0 (pure notify-only)
+  test('StopFailure skip → empty stdout, exit 0', () => {
+    sandbox = createSandbox()
+    sandbox.writeHook(
+      'stop-failure-skip.ts',
+      `
+export const hook = {
+  meta: { name: "stop-failure-skip" },
+  StopFailure() {
+    return { result: "skip" as const }
+  },
+}
+`,
+    )
+    sandbox.writeConfig(`
+version: "1.0.0"
+stop-failure-skip: {}
+`)
+    const result = sandbox.run([], { stdin: loadEvent('stop-failure.json') })
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout.trim()).toBe('')
+  })
+
+  // SF-2. StopFailure author-returned block → empty stdout, exit 0
+  // Proves the translator's NOTIFY_ONLY_EVENTS early-return drops the
+  // "block" result regardless of what the hook returns. Upstream drops output
+  // and exit code for StopFailure, so blocking is impossible.
+  test('StopFailure block (author-returned) → empty stdout, exit 0', () => {
+    sandbox = createSandbox()
+    sandbox.writeHook(
+      'stop-failure-block.ts',
+      `
+export const hook = {
+  meta: { name: "stop-failure-block" },
+  StopFailure() {
+    return { result: "block" as const, reason: "author says block" }
+  },
+}
+`,
+    )
+    sandbox.writeConfig(`
+version: "1.0.0"
+stop-failure-block: {}
+`)
+    const result = sandbox.run([], { stdin: loadEvent('stop-failure.json') })
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout.trim()).toBe('')
+  })
+
+  // SF-3. StopFailure crash with onError: continue → exit 0, stderr contains diagnostic
+  test('StopFailure crash with onError: continue → empty stdout, exit 0, stderr contains diagnostic', () => {
+    sandbox = createSandbox()
+    sandbox.writeHook(
+      'stop-failure-crash-continue.ts',
+      `
+export const hook = {
+  meta: { name: "stop-failure-crash-continue" },
+  StopFailure() {
+    throw new Error("alerting failed")
+  },
+}
+`,
+    )
+    sandbox.writeConfig(`
+version: "1.0.0"
+stop-failure-crash-continue:
+  onError: continue
+`)
+    const result = sandbox.run([], { stdin: loadEvent('stop-failure.json') })
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout.trim()).toBe('')
+    // Diagnostic surfaces via the systemMessage stream (onError: continue path).
+    expect(result.stderr).toContain('stop-failure-crash-continue')
+  })
+
+  // SF-4. StopFailure crash with no override (cascade → block) → soft-coerce proof.
+  // Engine writes one stderr warning containing "notify-only event",
+  // does NOT block the pipeline, and records the failure for maxFailures.
+  test('StopFailure crash with no override (cascade → block) → empty stdout, exit 0, stderr contains "notify-only event"', () => {
+    sandbox = createSandbox()
+    sandbox.writeHook(
+      'stop-failure-crash-block.ts',
+      `
+export const hook = {
+  meta: { name: "stop-failure-crash-block" },
+  StopFailure() {
+    throw new Error("alerting endpoint is down")
+  },
+}
+`,
+    )
+    // No onError override — global default cascades to "block".
+    sandbox.writeConfig(`
+version: "1.0.0"
+stop-failure-crash-block: {}
+`)
+    const result = sandbox.run([], { stdin: loadEvent('stop-failure.json') })
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout.trim()).toBe('')
+    // Exact soft-coerce anchor phrase — M1 baseline would not emit this.
+    expect(result.stderr).toContain('notify-only event')
+    expect(result.stderr).toContain('stop-failure-crash-block')
+    expect(result.stderr).toContain('StopFailure')
+  })
+})

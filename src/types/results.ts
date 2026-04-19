@@ -5,7 +5,15 @@
 import type { PermissionUpdateEntry } from './permissions.js'
 
 /** Union of all result discriminant values across all base result types. */
-export type ResultTag = 'allow' | 'block' | 'skip' | 'success' | 'failure' | 'continue' | 'stop'
+export type ResultTag =
+  | 'allow'
+  | 'block'
+  | 'skip'
+  | 'success'
+  | 'failure'
+  | 'continue'
+  | 'stop'
+  | 'retry'
 
 /** Optional debug info, only visible in debug mode. */
 export interface DebugFields {
@@ -57,6 +65,10 @@ export type StopResult = DebugFields & {
   reason: string
 }
 
+export type RetryResult = DebugFields & {
+  result: 'retry'
+}
+
 // --- Per-event result types ---
 
 // Guard events — allow | block | skip
@@ -84,6 +96,11 @@ export type SubagentStopResult = AllowResult | BlockResult | SkipResult
 export type ConfigChangeResult = AllowResult | BlockResult | SkipResult
 export type PreCompactResult = AllowResult | BlockResult | SkipResult
 
+// Notify-only events — skip only, output is dropped upstream
+// StopFailureResult is intentionally NOT intersected with InjectableContext:
+// upstream drops all output, so additionalContext would silently never reach Claude.
+export type StopFailureResult = SkipResult
+
 // Observe events — skip only
 export type SessionStartResult = SkipResult & InjectableContext
 export type SessionEndResult = SkipResult
@@ -96,6 +113,8 @@ export type NotificationResult = SkipResult & InjectableContext
 export type SubagentStartResult = SkipResult & InjectableContext
 export type WorktreeRemoveResult = SkipResult
 export type PostCompactResult = SkipResult
+
+export type PermissionDeniedResult = RetryResult | SkipResult
 
 // Implementation events — success | failure
 export type WorktreeCreateResult = SuccessResult | FailureResult

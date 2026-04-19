@@ -1,6 +1,6 @@
 # Claude Code Hooks — Events
 
-All 20 lifecycle events: when they fire, what they match on, what input they receive, and how to control their behavior.
+All 21 lifecycle events: when they fire, what they match on, what input they receive, and how to control their behavior.
 
 **Source:** Official Anthropic docs at `code.claude.com/docs/en/hooks`, verified 2026-03-08.
 
@@ -25,6 +25,7 @@ All 20 lifecycle events: when they fire, what they match on, what input they rec
 | `ConfigChange` | Yes | Command only | source: `user_settings`, `project_settings`, `local_settings`, `policy_settings`, `skills` |
 | `WorktreeCreate` | Yes | Command only | not supported |
 | `WorktreeRemove` | No | Command only | not supported |
+| `StopFailure` | No (output ignored upstream) | Command only | author-side via `ctx.error`: `rate_limit`, `authentication_failed`, `billing_error`, `invalid_request`, `server_error`, `max_output_tokens`, `unknown` |
 | `PreCompact` | Yes | Command only | trigger: `manual`, `auto` |
 | `PostCompact` | No | Command only | trigger: `manual`, `auto` |
 | `SessionEnd` | No | Command only | reason: `clear`, `resume`, `logout`, `prompt_input_exit`, `bypass_permissions_disabled`, `other` |
@@ -111,6 +112,22 @@ Deprecated: top-level `decision`/`reason`. Legacy `"approve"` → `"allow"`, `"b
 **Input:** `stop_hook_active` (check this to prevent infinite loops), `last_assistant_message`.
 **Output:** `decision: "block"` + `reason` (required — tells Claude why to continue).
 
+### StopFailure
+
+**Fires INSTEAD OF `Stop` when the turn ends due to an upstream API error** (rate limit, authentication failure, billing problem, server error, `max_output_tokens`, etc.).
+
+**Input:** `error` (one of `rate_limit`, `authentication_failed`, `billing_error`, `invalid_request`, `server_error`, `max_output_tokens`, `unknown`), optional `error_details`, optional `last_assistant_message`. **Semantic trap:** unlike `Stop` and `SubagentStop` where `last_assistant_message` carries Claude's final conversational text, for `StopFailure` it carries the rendered API error string (e.g., `"API Error: Rate limit reached"`). A handler copy-pasted from a `Stop` handler that parses this field as natural language will behave wrong.
+
+**Output:** **None.** Output and exit code are ignored upstream. Hooks run purely for side effects: log to a file, ping PagerDuty / Slack / Datadog, increment a Prometheus counter, kick off an automated key-rotation flow on `authentication_failed`, etc.
+
+**Filtering:** Upstream Claude Code exposes a matcher on the `error` field in `settings.json`, but **Clooks does not yet have a config-side matcher primitive** — tracked in FEAT-0055 (file-glob / literal-filename matcher). Until that lands, filter inside the handler: `if (ctx.error !== 'rate_limit') return ctx.skip()`. This is a known parity gap relative to raw `settings.json`, not an intentional design choice.
+
+**`onError: "block"` is silently coerced to "do not block" + a stderr warning.** The turn has already failed at the API layer; there is nothing left to block. If a `StopFailure` hook crashes and its resolved `onError` is `"block"`, the engine continues normally and writes a one-line warning to stderr (visible in Claude Code's debug log):
+
+    clooks: hook "<name>" onError: "block" cannot apply to StopFailure (notify-only event — output and exit code ignored upstream). Skipping; failure counted toward maxFailures.
+
+The failure still counts toward `maxFailures` so a chronically broken hook gets quarantined. To avoid the warning, set `onError` to anything other than `"block"` somewhere in the cascade — per-event, hook-level, or global. See the `NOTIFY_ONLY_EVENTS` exception below.
+
 ### TeammateIdle
 
 **Input:** `teammate_name`, `team_name`.
@@ -156,6 +173,16 @@ Deprecated: top-level `decision`/`reason`. Legacy `"approve"` → `"allow"`, `"b
 
 **Input:** `reason` (clear/resume/logout/prompt_input_exit/bypass_permissions_disabled/other).
 **Output:** None. Cleanup/logging only.
+
+## NOTIFY_ONLY events — exception to the fail-closed rule
+
+Clooks' core principle is **fail-closed**: a crashed hook blocks the action that triggered it, so authors discover bugs in their hooks before those bugs silently degrade safety. `StopFailure` is the documented exception. Output and exit code are ignored upstream because the turn has **already** failed at the API layer; there is nothing left to block. Clooks honors that contract by:
+
+- Always returning `EXIT_OK` from the engine for any `StopFailure` hook result (including author-returned `block`).
+- **Soft-coercing `onError: "block"`** at the hook-crash site: the engine writes a one-line warning to stderr and continues normally instead of attempting to block. Visible in Claude Code's debug log.
+- Continuing to apply the **circuit breaker** (`maxFailures`) — a repeatedly crashing alerting hook is an operational concern (rate-limited / spammed external endpoints), so quarantining stays uniform across event categories.
+
+Future events upstream may join this category; membership is keyed on the `NOTIFY_ONLY_EVENTS` set declared in `src/config/constants.ts` (alongside `INJECTABLE_EVENTS`) and registered in `src/engine/events.ts` via `assertCategoryCompleteness()`.
 
 ## Related
 

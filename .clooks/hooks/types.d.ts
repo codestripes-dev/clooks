@@ -7,6 +7,7 @@ type EventName =
   | 'SessionStart'
   | 'SessionEnd'
   | 'Stop'
+  | 'StopFailure'
   | 'SubagentStop'
   | 'SubagentStart'
   | 'InstructionsLoaded'
@@ -31,6 +32,7 @@ export type PermissionMode =
 export type SessionStartSource = 'startup' | 'resume' | 'clear' | 'compact' | (string & {})
 export type SessionEndReason =
   | 'clear'
+  | 'resume'
   | 'logout'
   | 'prompt_input_exit'
   | 'bypass_permissions_disabled'
@@ -57,6 +59,54 @@ export type ConfigChangeSource =
   | 'policy_settings'
   | 'skills'
   | (string & {})
+export type PermissionDestination =
+  | 'session'
+  | 'localSettings'
+  | 'projectSettings'
+  | 'userSettings'
+  | (string & {})
+export type PermissionRuleBehavior = 'allow' | 'deny' | 'ask' | (string & {})
+/** A single permission rule entry. `ruleContent` omitted = match the whole tool. */
+export interface PermissionRule {
+  toolName: string
+  ruleContent?: string
+}
+/** Discriminated by the `type` field. Used for both PermissionRequest's
+ *  `permission_suggestions` input and the `updatedPermissions` allow output. */
+export type PermissionUpdateEntry =
+  | {
+      type: 'addRules'
+      rules: PermissionRule[]
+      behavior: PermissionRuleBehavior
+      destination: PermissionDestination
+    }
+  | {
+      type: 'replaceRules'
+      rules: PermissionRule[]
+      behavior: PermissionRuleBehavior
+      destination: PermissionDestination
+    }
+  | {
+      type: 'removeRules'
+      rules: PermissionRule[]
+      behavior: PermissionRuleBehavior
+      destination: PermissionDestination
+    }
+  | {
+      type: 'setMode'
+      mode: PermissionMode
+      destination: PermissionDestination
+    }
+  | {
+      type: 'addDirectories'
+      directories: string[]
+      destination: PermissionDestination
+    }
+  | {
+      type: 'removeDirectories'
+      directories: string[]
+      destination: PermissionDestination
+    }
 /** Optional debug info, only visible in debug mode. */
 export interface DebugFields {
   debugMessage?: string
@@ -106,11 +156,14 @@ export type PreToolUseResult =
       })
   | (BlockResult & InjectableContext)
   | (SkipResult & InjectableContext)
-export type UserPromptSubmitResult = (AllowResult | BlockResult | SkipResult) & InjectableContext
+export type UserPromptSubmitResult = (AllowResult | BlockResult | SkipResult) &
+  InjectableContext & {
+    sessionTitle?: string
+  }
 export type PermissionRequestResult =
   | (AllowResult & {
       updatedInput?: Record<string, unknown>
-      updatedPermissions?: unknown[]
+      updatedPermissions?: PermissionUpdateEntry[]
     })
   | (BlockResult & {
       interrupt?: boolean
@@ -120,6 +173,7 @@ export type StopEventResult = AllowResult | BlockResult | SkipResult
 export type SubagentStopResult = AllowResult | BlockResult | SkipResult
 export type ConfigChangeResult = AllowResult | BlockResult | SkipResult
 export type PreCompactResult = AllowResult | BlockResult | SkipResult
+type StopFailureResult = SkipResult
 export type SessionStartResult = SkipResult & InjectableContext
 export type SessionEndResult = SkipResult
 export type InstructionsLoadedResult = SkipResult
@@ -141,6 +195,15 @@ export type WorktreeCreateResult = SuccessResult | FailureResult
 export type TeammateIdleResult = ContinueResult | StopResult | SkipResult
 export type TaskCreatedResult = ContinueResult | StopResult | SkipResult
 export type TaskCompletedResult = ContinueResult | StopResult | SkipResult
+type StopFailureErrorType =
+  | 'rate_limit'
+  | 'authentication_failed'
+  | 'billing_error'
+  | 'invalid_request'
+  | 'server_error'
+  | 'max_output_tokens'
+  | 'unknown'
+  | (string & {})
 export interface BaseContext {
   event: EventName
   sessionId: string
@@ -171,7 +234,7 @@ export interface PermissionRequestContext extends BaseContext {
   event: 'PermissionRequest'
   toolName: string
   toolInput: Record<string, unknown>
-  permissionSuggestions?: unknown[]
+  permissionSuggestions?: PermissionUpdateEntry[]
 }
 export interface StopContext extends BaseContext {
   event: 'Stop'
@@ -190,6 +253,18 @@ export interface ConfigChangeContext extends BaseContext {
   event: 'ConfigChange'
   source: ConfigChangeSource
   filePath?: string
+}
+interface StopFailureContext extends BaseContext {
+  event: 'StopFailure'
+  error: StopFailureErrorType
+  errorDetails?: string
+  /**
+   * For StopFailure, this is the rendered API error string
+   * (e.g., "API Error: Rate limit reached") — NOT Claude's
+   * conversational text as in Stop / SubagentStop. See `errorDetails`
+   * for additional structured detail.
+   */
+  lastAssistantMessage?: string
 }
 export interface SessionStartContext extends BaseContext {
   event: 'SessionStart'
@@ -230,7 +305,7 @@ export interface NotificationContext extends BaseContext {
   event: 'Notification'
   message: string
   title?: string
-  notificationType: NotificationType
+  notificationType?: NotificationType
 }
 export interface SubagentStartContext extends BaseContext {
   event: 'SubagentStart'
@@ -283,6 +358,7 @@ export interface EventContextMap extends Record<EventName, unknown> {
   SessionStart: SessionStartContext
   SessionEnd: SessionEndContext
   Stop: StopContext
+  StopFailure: StopFailureContext
   SubagentStop: SubagentStopContext
   SubagentStart: SubagentStartContext
   InstructionsLoaded: InstructionsLoadedContext
@@ -305,6 +381,7 @@ export interface EventResultMap extends Record<EventName, unknown> {
   SessionStart: SessionStartResult
   SessionEnd: SessionEndResult
   Stop: StopEventResult
+  StopFailure: StopFailureResult
   SubagentStop: SubagentStopResult
   SubagentStart: SubagentStartResult
   InstructionsLoaded: InstructionsLoadedResult
@@ -399,6 +476,7 @@ export interface ClooksHook<C extends Record<string, unknown> = Record<string, u
   WorktreeRemove?: (ctx: WorktreeRemoveContext, config: C) => MaybeAsync<WorktreeRemoveResult>
   PreCompact?: (ctx: PreCompactContext, config: C) => MaybeAsync<PreCompactResult>
   PostCompact?: (ctx: PostCompactContext, config: C) => MaybeAsync<PostCompactResult>
+  StopFailure?: (ctx: StopFailureContext, config: C) => MaybeAsync<StopFailureResult>
   WorktreeCreate?: (ctx: WorktreeCreateContext, config: C) => MaybeAsync<WorktreeCreateResult>
   TeammateIdle?: (ctx: TeammateIdleContext, config: C) => MaybeAsync<TeammateIdleResult>
   TaskCreated?: (ctx: TaskCreatedContext, config: C) => MaybeAsync<TaskCreatedResult>

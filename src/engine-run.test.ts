@@ -1671,4 +1671,161 @@ describe('runEngine', () => {
       expect(parsed.systemMessage).toBeUndefined()
     })
   })
+
+  describe('StopFailure: NOTIFY_ONLY soft-coerce', () => {
+    function stopFailurePayload(): Record<string, unknown> {
+      return {
+        session_id: 'abc',
+        transcript_path: '/tmp/t.jsonl',
+        cwd: '/tmp',
+        permission_mode: 'default',
+        hook_event_name: 'StopFailure',
+        error: 'rate_limit',
+        error_details: '429',
+        last_assistant_message: 'API Error: Rate limit reached',
+      }
+    }
+
+    it('sequential: crashed hook with cascaded onError=block → exit 0, stderr "notify-only event", failure recorded', async () => {
+      mockLoadConfig.mockResolvedValue({
+        config: makeConfig({ alerter: {} }),
+        shadows: [],
+        hasProjectConfig: true,
+      })
+      mockLoadAllHooks.mockResolvedValue({
+        loaded: [
+          makeLoadedHook('alerter', {
+            StopFailure: () => {
+              throw new Error('hook crashed')
+            },
+          }),
+        ],
+        loadErrors: [],
+      })
+      mockReadStdin.mockResolvedValue(stopFailurePayload())
+      await runEngine(makeDeps()).catch(() => {})
+
+      // Pipeline is NOT blocked: exit 0 with empty stdout (NOTIFY_ONLY translator).
+      expect(exitSpy).toHaveBeenCalledWith(0)
+      expect(getStdout()).toBe('')
+
+      // stderr contains the soft-coerce warning with the exact anchor phrase.
+      const stderr = getStderr()
+      expect(stderr).toContain('notify-only event')
+      expect(stderr).toContain('alerter')
+      expect(stderr).toContain('StopFailure')
+
+      // Failure was recorded toward maxFailures.
+      const { readFailures } = await import('./failures.js')
+      const failurePath = join(tempDir, '.clooks/.failures')
+      const state = await readFailures(failurePath)
+      expect(state[hn('alerter')]).toBeDefined()
+      expect(
+        state[hn('alerter')]?.['StopFailure' as unknown as import('./types/branded.js').EventName]
+          ?.consecutiveFailures,
+      ).toBe(1)
+    })
+
+    it('parallel: one crasher + one good hook → batch NOT short-circuited, good hook runs, stderr warning, failure recorded', async () => {
+      let goodRan = false
+      mockLoadConfig.mockResolvedValue({
+        config: makeConfig({
+          'alerter-a': { parallel: true },
+          'alerter-b': { parallel: true },
+        }),
+        shadows: [],
+        hasProjectConfig: true,
+      })
+      mockLoadAllHooks.mockResolvedValue({
+        loaded: [
+          makeLoadedHook('alerter-a', {
+            StopFailure: () => {
+              throw new Error('a crashed')
+            },
+          }),
+          makeLoadedHook('alerter-b', {
+            StopFailure: () => {
+              goodRan = true
+              return { result: 'skip' }
+            },
+          }),
+        ],
+        loadErrors: [],
+      })
+      mockReadStdin.mockResolvedValue(stopFailurePayload())
+      await runEngine(makeDeps()).catch(() => {})
+
+      expect(exitSpy).toHaveBeenCalledWith(0)
+      expect(getStdout()).toBe('')
+      // Good hook ran (batch not short-circuited by the crasher).
+      expect(goodRan).toBe(true)
+      // Warning emitted for the crasher.
+      const stderr = getStderr()
+      expect(stderr).toContain('notify-only event')
+      expect(stderr).toContain('alerter-a')
+
+      const { readFailures } = await import('./failures.js')
+      const failurePath = join(tempDir, '.clooks/.failures')
+      const state = await readFailures(failurePath)
+      expect(
+        state[hn('alerter-a')]?.['StopFailure' as unknown as import('./types/branded.js').EventName]
+          ?.consecutiveFailures,
+      ).toBe(1)
+      // The non-crashing hook must have NO recorded failure on StopFailure.
+      expect(
+        state[hn('alerter-b')]?.[
+          'StopFailure' as unknown as import('./types/branded.js').EventName
+        ],
+      ).toBeUndefined()
+    })
+
+    it('circuit breaker: at DEFAULT_MAX_FAILURES consecutive StopFailure crashes, degraded message appears', async () => {
+      // Pre-seed failures at the threshold so the next invocation trips it.
+      const { writeFailures, recordFailure } = await import('./failures.js')
+      const failurePath = join(tempDir, '.clooks/.failures')
+      let state: any = {}
+      state = recordFailure(state, hn('alerter'), 'StopFailure' as any, 'err')
+      state = recordFailure(state, hn('alerter'), 'StopFailure' as any, 'err')
+      await writeFailures(failurePath, state)
+
+      mockLoadConfig.mockResolvedValue({
+        config: makeConfig({ alerter: {} }),
+        shadows: [],
+        hasProjectConfig: true,
+      })
+      mockLoadAllHooks.mockResolvedValue({
+        loaded: [
+          makeLoadedHook('alerter', {
+            StopFailure: () => {
+              throw new Error('still broken')
+            },
+          }),
+        ],
+        loadErrors: [],
+      })
+      mockReadStdin.mockResolvedValue(stopFailurePayload())
+      await runEngine(makeDeps()).catch(() => {})
+
+      expect(exitSpy).toHaveBeenCalledWith(0)
+      expect(getStdout()).toBe('')
+      // Third consecutive crash → degraded message from DEFAULT_MAX_FAILURES_MESSAGE.
+      const stderr = getStderr()
+      expect(stderr).toContain('notify-only event')
+      // Degraded messages for NOTIFY_ONLY events surface via the stderr channel
+      // (there is no stdout JSON for this event).
+      expect(stderr).toContain('failed')
+      expect(stderr).toContain('alerter')
+      // Differentiate "quarantine happened" from "yet another soft-coerce":
+      // the default DEFAULT_MAX_FAILURES_MESSAGE contains the word "consecutive".
+      expect(stderr).toContain('consecutive')
+      // After the run, the hook should be at DEFAULT_MAX_FAILURES (3) consecutive failures.
+      const { readFailures } = await import('./failures.js')
+      const postState = await readFailures(failurePath)
+      expect(
+        postState[hn('alerter')]?.[
+          'StopFailure' as unknown as import('./types/branded.js').EventName
+        ]?.consecutiveFailures,
+      ).toBe(3)
+    })
+  })
 })
