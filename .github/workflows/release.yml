@@ -37,6 +37,17 @@ jobs:
         # installed via mise locally and is not available on CI runners.
         run: bun install --frozen-lockfile --ignore-scripts
 
+      - name: Generate derived files
+        # src/generated/clooks-types.d.ts.txt is imported at runtime by
+        # src/commands/init.ts (as a raw text import); src/generated/...
+        # schema files are imported by other modules. Both must exist
+        # before `bun test` runs, and before typecheck would fail on
+        # missing imports. Locally these files persist from prior builds;
+        # on a fresh CI checkout they are absent.
+        run: |
+          bun run scripts/generate-types.ts
+          bun run scripts/generate-schema.ts
+
       - name: Verify version matches tag
         if: github.event_name == 'push'
         run: |
@@ -86,8 +97,7 @@ jobs:
         run: |
           set -e
           mkdir -p dist
-          bun run scripts/generate-types.ts
-          bun run scripts/generate-schema.ts
+          # Generators already ran in the "Generate derived files" step.
           # set -e does NOT propagate into backgrounded jobs, and a bare
           # `wait` exits 0 even if children failed. Capture PIDs and wait
           # on each individually so a single failed cross-compile fails
