@@ -1152,3 +1152,158 @@ stop-failure-crash-block: {}
     expect(result.stderr).toContain('StopFailure')
   })
 })
+
+describe('event formats — PermissionDenied (FEAT-0058)', () => {
+  // PD-1. PermissionDenied retry outcome → hookSpecificOutput with retry: true
+  test('PermissionDenied retry → hookSpecificOutput with hookEventName and retry: true', () => {
+    sandbox = createSandbox()
+    sandbox.writeHook(
+      'pd-retry.ts',
+      `
+export const hook = {
+  meta: { name: "pd-retry" },
+  PermissionDenied() {
+    return { result: "retry" as const, debugMessage: "always retry" }
+  },
+}
+`,
+    )
+    sandbox.writeConfig(`
+version: "1.0.0"
+pd-retry: {}
+`)
+    const result = sandbox.run([], { stdin: loadEvent('permission-denied.json') })
+    expect(result.exitCode).toBe(0)
+    const output = JSON.parse(result.stdout)
+    expect(output.hookSpecificOutput).toBeDefined()
+    expect(output.hookSpecificOutput.hookEventName).toBe('PermissionDenied')
+    expect(output.hookSpecificOutput.retry).toBe(true)
+    expect(Object.keys(output.hookSpecificOutput).sort()).toEqual(['hookEventName', 'retry'])
+    expect(result.stdout).not.toContain('always retry') // debugMessage must not leak to stdout
+    // stderr must be clean — no errors
+    expect(result.stderr).not.toMatch(/Error:|stack trace|TypeError|ReferenceError/i)
+  })
+
+  // PD-2. PermissionDenied skip outcome → empty stdout, exit 0
+  test('PermissionDenied skip → empty stdout, exit 0', () => {
+    sandbox = createSandbox()
+    sandbox.writeHook(
+      'pd-skip.ts',
+      `
+export const hook = {
+  meta: { name: "pd-skip" },
+  PermissionDenied() {
+    return { result: "skip" as const }
+  },
+}
+`,
+    )
+    sandbox.writeConfig(`
+version: "1.0.0"
+pd-skip: {}
+`)
+    const result = sandbox.run([], { stdin: loadEvent('permission-denied.json') })
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout.trim()).toBe('')
+  })
+
+  // PD-3. PermissionDenied cascade-block (onError: block, hook throws) → systemMessage on stdout, exit 0
+  test('PermissionDenied crash with onError:block → systemMessage on stdout, exit 0', () => {
+    sandbox = createSandbox()
+    sandbox.writeHook(
+      'pd-crash.ts',
+      `
+export const hook = {
+  meta: { name: "pd-crash" },
+  PermissionDenied() {
+    throw new Error("boom")
+  },
+}
+`,
+    )
+    sandbox.writeConfig(`
+version: "1.0.0"
+config:
+  onError: block
+pd-crash: {}
+`)
+    const result = sandbox.run([], { stdin: loadEvent('permission-denied.json') })
+    expect(result.exitCode).toBe(0)
+    const output = JSON.parse(result.stdout)
+    // PermissionDenied is not injectable: cascade-block surfaces via systemMessage
+    expect(output.systemMessage).toBeDefined()
+    expect(output.systemMessage).toContain('boom')
+    expect(output.decision).toBeUndefined()
+    expect(output.hookSpecificOutput).toBeUndefined()
+  })
+
+  // PD-4. Two-hook OR-reduce: H1 returns skip, H2 returns retry → retry wins
+  test('PermissionDenied two-hook OR-reduce: skip + retry → retry wins', () => {
+    sandbox = createSandbox()
+    sandbox.writeHook(
+      'pd-h1-skip.ts',
+      `
+export const hook = {
+  meta: { name: "pd-h1-skip" },
+  PermissionDenied() {
+    return { result: "skip" as const }
+  },
+}
+`,
+    )
+    sandbox.writeHook(
+      'pd-h2-retry.ts',
+      `
+export const hook = {
+  meta: { name: "pd-h2-retry" },
+  PermissionDenied() {
+    return { result: "retry" as const }
+  },
+}
+`,
+    )
+    sandbox.writeConfig(`
+version: "1.0.0"
+pd-h1-skip: {}
+pd-h2-retry: {}
+`)
+    const result = sandbox.run([], { stdin: loadEvent('permission-denied.json') })
+    expect(result.exitCode).toBe(0)
+    const lines = result.stdout.trim().split('\n').filter(Boolean)
+    expect(lines).toHaveLength(1)
+    const output = JSON.parse(lines[0]!)
+    // retry wins over skip (OR-reduce: last non-skip wins)
+    expect(output.hookSpecificOutput).toBeDefined()
+    expect(output.hookSpecificOutput.hookEventName).toBe('PermissionDenied')
+    expect(output.hookSpecificOutput.retry).toBe(true)
+  })
+
+  // PD-5. ctx.denialReason is populated from wire 'reason' field
+  test("PermissionDenied ctx.denialReason is populated from wire 'reason' field", () => {
+    sandbox = createSandbox()
+    sandbox.writeHook(
+      'pd-denial-reason.ts',
+      `
+export const hook = {
+  meta: { name: "pd-denial-reason" },
+  PermissionDenied(ctx: any) {
+    if (ctx.denialReason.includes('Auto mode')) {
+      return { result: "retry" as const }
+    }
+    return { result: "skip" as const }
+  },
+}
+`,
+    )
+    sandbox.writeConfig(`
+version: "1.0.0"
+pd-denial-reason: {}
+`)
+    const result = sandbox.run([], { stdin: loadEvent('permission-denied.json') })
+    expect(result.exitCode).toBe(0)
+    const output = JSON.parse(result.stdout)
+    expect(output.hookSpecificOutput).toBeDefined()
+    expect(output.hookSpecificOutput.hookEventName).toBe('PermissionDenied')
+    expect(output.hookSpecificOutput.retry).toBe(true)
+  })
+})

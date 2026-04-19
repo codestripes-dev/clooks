@@ -14,6 +14,7 @@ type EventName =
   | 'PostToolUseFailure'
   | 'Notification'
   | 'PermissionRequest'
+  | 'PermissionDenied'
   | 'ConfigChange'
   | 'WorktreeCreate'
   | 'WorktreeRemove'
@@ -148,6 +149,9 @@ export type StopResult = DebugFields & {
   result: 'stop'
   reason: string
 }
+export type RetryResult = DebugFields & {
+  result: 'retry'
+}
 export type PreToolUseResult =
   | (AllowResult &
       InjectableContext & {
@@ -191,6 +195,7 @@ export type NotificationResult = SkipResult & InjectableContext
 export type SubagentStartResult = SkipResult & InjectableContext
 export type WorktreeRemoveResult = SkipResult
 export type PostCompactResult = SkipResult
+export type PermissionDeniedResult = RetryResult | SkipResult
 export type WorktreeCreateResult = SuccessResult | FailureResult
 export type TeammateIdleResult = ContinueResult | StopResult | SkipResult
 export type TaskCreatedResult = ContinueResult | StopResult | SkipResult
@@ -326,6 +331,15 @@ export interface PostCompactContext extends BaseContext {
   trigger: PreCompactTrigger
   compactSummary: string
 }
+export interface PermissionDeniedContext extends BaseContext {
+  event: 'PermissionDenied'
+  toolName: string
+  /** Tool input as provided to Claude Code. Keys are camelCase. */
+  toolInput: Record<string, unknown>
+  toolUseId: string
+  /** The classifier's explanation for why the tool call was denied. */
+  denialReason: string
+}
 export interface WorktreeCreateContext extends BaseContext {
   event: 'WorktreeCreate'
   name: string
@@ -365,6 +379,7 @@ export interface EventContextMap extends Record<EventName, unknown> {
   PostToolUseFailure: PostToolUseFailureContext
   Notification: NotificationContext
   PermissionRequest: PermissionRequestContext
+  PermissionDenied: PermissionDeniedContext
   ConfigChange: ConfigChangeContext
   WorktreeCreate: WorktreeCreateContext
   WorktreeRemove: WorktreeRemoveContext
@@ -388,6 +403,7 @@ export interface EventResultMap extends Record<EventName, unknown> {
   PostToolUseFailure: PostToolUseFailureResult
   Notification: NotificationResult
   PermissionRequest: PermissionRequestResult
+  PermissionDenied: PermissionDeniedResult
   ConfigChange: ConfigChangeResult
   WorktreeCreate: WorktreeCreateResult
   WorktreeRemove: WorktreeRemoveResult
@@ -476,6 +492,7 @@ export interface ClooksHook<C extends Record<string, unknown> = Record<string, u
   WorktreeRemove?: (ctx: WorktreeRemoveContext, config: C) => MaybeAsync<WorktreeRemoveResult>
   PreCompact?: (ctx: PreCompactContext, config: C) => MaybeAsync<PreCompactResult>
   PostCompact?: (ctx: PostCompactContext, config: C) => MaybeAsync<PostCompactResult>
+  PermissionDenied?: (ctx: PermissionDeniedContext, config: C) => MaybeAsync<PermissionDeniedResult>
   StopFailure?: (ctx: StopFailureContext, config: C) => MaybeAsync<StopFailureResult>
   WorktreeCreate?: (ctx: WorktreeCreateContext, config: C) => MaybeAsync<WorktreeCreateResult>
   TeammateIdle?: (ctx: TeammateIdleContext, config: C) => MaybeAsync<TeammateIdleResult>

@@ -199,6 +199,19 @@
       },
       "additionalProperties": {}
     },
+    "PermissionDenied": {
+      "type": "object",
+      "properties": {
+        "order": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "additionalProperties": {}
+    },
     "ConfigChange": {
       "type": "object",
       "properties": {
@@ -501,6 +514,19 @@
             "additionalProperties": false
           },
           "PermissionRequest": {
+            "type": "object",
+            "properties": {
+              "onError": {
+                "type": "string",
+                "enum": ["block", "continue", "trace"]
+              },
+              "enabled": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          },
+          "PermissionDenied": {
             "type": "object",
             "properties": {
               "onError": {
