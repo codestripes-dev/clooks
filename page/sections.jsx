@@ -1174,8 +1174,9 @@ function RoadmapSection({ accent }) {
     { k: 'curl | sh installer', status: 'planned', note: 'clooks.cc/install — plugin path works today' },
     { k: 'Prebuilt binaries', status: 'shipping', note: 'GitHub releases for darwin/linux, arm64 + x64' },
     { k: 'Cursor', status: 'planned', note: 'event mapping researched' },
-    { k: 'Windsurf', status: 'planned', note: 'event mapping researched' },
-    { k: 'VS Code Copilot', status: 'planned', note: 'event mapping researched' },
+    { k: 'Codex', status: 'planned', note: 'event mapping researched' },
+    { k: 'OpenCode', status: 'planned', note: 'event mapping researched' },
+    { k: 'OpenClaw', status: 'planned', note: 'event mapping researched' },
   ];
   const vp = useViewport();
   const cols = vp.isMobile ? 1 : vp.isTablet ? 2 : 3;
@@ -1253,7 +1254,7 @@ function FAQSection({ accent }) {
       a: 'We only have two core sets of Claude hooks right now — clooks-core-hooks and clooks-project-hooks, both living in codestripes-dev/clooks-marketplace. However, everyone can create their own clooks-hooks repositories and marketplaces Feel free to open up PRs if you have further hooks you\'d like to see added!',
     },
     {
-      q: 'What about other agents — Cursor, Windsurf, Copilot?',
+      q: 'What about other agents — Cursor, Codex, OpenCode, OpenClaw?',
       a: 'Planned. We\'d like clooks to be cross-agent down the line, but we need to research how to fit all APIs under one umbrella first.',
     },
   ];
