@@ -3,6 +3,8 @@
 
 // ---------- Copyable command box (used in Install tabs) ----------
 function CmdBox({ accent, cmd, slash, comment }) {
+  const vp = useViewport();
+  const wrap = vp.isMobile;
   const [copied, setCopied] = React.useState(false);
   const copy = async () => {
     let ok = false;
@@ -33,11 +35,18 @@ function CmdBox({ accent, cmd, slash, comment }) {
   return (
     <div style={{
       background: COL.bgCode, border: `1px solid ${COL.line}`,
-      fontFamily: 'JetBrains Mono, monospace', fontSize: 12.5,
+      fontFamily: 'JetBrains Mono, monospace', fontSize: wrap ? 9.5 : 12.5,
       color: COL.fg, alignSelf: 'start', position: 'relative',
       display: 'flex', alignItems: 'flex-start',
     }}>
-      <div style={{ flex: 1, padding: '14px 16px', overflowX: 'auto', whiteSpace: 'pre', minWidth: 0 }}>
+      <div style={{
+        flex: 1, padding: '14px 16px', minWidth: 0,
+        whiteSpace: wrap ? 'pre-wrap' : 'pre',
+        overflowX: wrap ? 'visible' : 'auto',
+        wordBreak: wrap ? 'break-all' : 'normal',
+        textIndent: wrap ? '-1.4em' : 0,
+        paddingLeft: wrap ? '2.6em' : '16px',
+      }}>
         {comment
           ? <span style={{ color: COL.fgDim }}>{cmd}</span>
           : <><span style={{ color: accent, marginRight: 10 }}>{slash ? '>' : '$'}</span>{cmd}</>}
@@ -71,8 +80,368 @@ function CmdBox({ accent, cmd, slash, comment }) {
   );
 }
 
+// ---------- Hook in action: animated terminal + synced hook source ----------
+function HookInActionSection({ accent }) {
+  const vp = useViewport();
+  const stack = vp.isMobile || vp.isTablet;
+  // Timeline (ms) of a single loop. Each tick advances the scene.
+  const SCENE = [
+    { at: 0,    step: 'idle',     highlight: null },
+    { at: 600,  step: 'typing',   highlight: null },
+    { at: 3200, step: 'sent',     highlight: null },
+    { at: 3800, step: 'pre-tool', highlight: 'guard' },   // ctx.tool !== 'Bash' check
+    { at: 4600, step: 'parse',    highlight: 'regex' },   // dangerous = /rm.../.test
+    { at: 5400, step: 'decide',   highlight: 'return' },  // returns block
+    { at: 6200, step: 'blocked',  highlight: 'return' },
+    { at: 7600, step: 'reply',    highlight: null },
+    { at: 10000, step: 'idle',    highlight: null },      // loop end
+  ];
+  const LOOP_MS = 10500;
+
+  const fullPrompt = 'clean up stale artifacts: rm -rf /tmp/build ~';
+  const HOLD_MS = 3000;
+  const [t, setT] = React.useState(0);
+  const [paused, setPaused] = React.useState(false);
+  const [inView, setInView] = React.useState(true);
+  const sectionRef = React.useRef(null);
+  const rafRef = React.useRef(0);
+  const accumRef = React.useRef(0);
+  const lastTsRef = React.useRef(0);
+  const holdRef = React.useRef(0);
+
+  React.useEffect(() => {
+    const el = sectionRef.current;
+    if (!el || typeof IntersectionObserver === 'undefined') return;
+    const obs = new IntersectionObserver(
+      (entries) => { for (const e of entries) setInView(e.isIntersecting); },
+      { threshold: 0.1 }
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    const loop = (now) => {
+      if (cancelled) return;
+      const frozen = paused || !inView;
+      if (frozen) {
+        lastTsRef.current = 0;
+        rafRef.current = requestAnimationFrame(loop);
+        return;
+      }
+      if (!lastTsRef.current) lastTsRef.current = now;
+      const dt = now - lastTsRef.current;
+      lastTsRef.current = now;
+
+      if (holdRef.current > 0) {
+        holdRef.current -= dt;
+        if (holdRef.current <= 0) {
+          holdRef.current = 0;
+          accumRef.current = 0;
+          setT(0);
+        }
+      } else {
+        accumRef.current += dt;
+        if (accumRef.current >= LOOP_MS) {
+          accumRef.current = LOOP_MS;
+          setT(10000);
+          holdRef.current = HOLD_MS;
+        } else {
+          setT(accumRef.current);
+        }
+      }
+      rafRef.current = requestAnimationFrame(loop);
+    };
+    rafRef.current = requestAnimationFrame(loop);
+    return () => { cancelled = true; cancelAnimationFrame(rafRef.current); };
+  }, [paused, inView]);
+
+  // Find current scene entry
+  const scene = SCENE.reduce((acc, s) => (t >= s.at ? s : acc), SCENE[0]);
+
+  // Typing progress for the prompt
+  const typingStart = 600, typingEnd = 3200;
+  const typed = (() => {
+    if (t < typingStart) return '';
+    if (t >= typingEnd) return fullPrompt;
+    const p = (t - typingStart) / (typingEnd - typingStart);
+    return fullPrompt.slice(0, Math.floor(p * fullPrompt.length));
+  })();
+
+  // Which terminal lines should be visible
+  const showSent     = t >= 3200;
+  const showPre      = t >= 4000;
+  const showBlocked  = t >= 6200;
+  const showReply    = t >= 7600;
+
+  // Source-code line highlights keyed by scene.highlight
+  // Our hook source is 19 lines. Line indices below are 0-based.
+  const HL = {
+    guard:  [10],       // if (ctx.tool !== 'Bash') return skip
+    regex:  [12, 13],   // const cmd / const dangerous = regex
+    return: [15, 16, 17], // return dangerous ? block : allow
+  };
+  const hlSet = new Set(scene.highlight ? HL[scene.highlight] : []);
+
+  const hookLines = [
+    [[TK.com, '// .clooks/hooks/no-rm-rf.ts']],
+    [[TK.kw, 'import type'], [TK.op, ' { '], [TK.ty, 'ClooksHook'], [TK.op, ' } '], [TK.kw, 'from'], [TK.str, " 'clooks'"]],
+    '',
+    [[TK.kw, 'export const'], [TK.fn, ' hook'], [TK.op, ': '], [TK.ty, 'ClooksHook'], [TK.op, ' = {']],
+    ['  ', [TK.prop, 'meta'], [TK.op, ': {']],
+    ['    ', [TK.prop, 'name'], [TK.op, ': '], [TK.str, "'no-rm-rf'"], [TK.op, ',']],
+    ['    ', [TK.prop, 'description'], [TK.op, ': '], [TK.str, "'Block destructive rm commands.'"], [TK.op, ',']],
+    ['  ', [TK.op, '},']],
+    '',
+    ['  ', [TK.fn, 'PreToolUse'], [TK.op, '('], [TK.ty, 'ctx'], [TK.op, ') {']],
+    ['    ', [TK.kw, 'if'], [TK.op, ' ('], [TK.ty, 'ctx'], [TK.op, '.tool '], [TK.op, '!== '], [TK.str, "'Bash'"], [TK.op, ') '], [TK.kw, 'return'], [TK.op, ' { '], [TK.prop, 'result'], [TK.op, ': '], [TK.str, "'skip'"], [TK.op, ' }']],
+    '',
+    ['    ', [TK.kw, 'const'], [TK.fn, ' cmd '], [TK.op, '= '], [TK.ty, 'ctx'], [TK.op, '.input.command '], [TK.op, '?? '], [TK.str, "''"]],
+    ['    ', [TK.kw, 'const'], [TK.fn, ' dangerous '], [TK.op, '= /'], [TK.str, 'rm\\s+-rf?\\s+(\\/|~|\\$HOME)'], [TK.op, '/.test(cmd)']],
+    '',
+    ['    ', [TK.kw, 'return'], [TK.fn, ' dangerous'],],
+    ['      ', [TK.op, '? { '], [TK.prop, 'result'], [TK.op, ': '], [TK.str, "'block'"], [TK.op, ', '], [TK.prop, 'reason'], [TK.op, ': '], [TK.str, "`refusing: ${cmd}`"], [TK.op, ' }']],
+    ['      ', [TK.op, ': { '], [TK.prop, 'result'], [TK.op, ': '], [TK.str, "'allow'"], [TK.op, ' }']],
+    ['  ', [TK.op, '},']],
+    [[TK.op, '}']],
+  ];
+
+  // Step ribbon under the title
+  const ribbon = [
+    { id: 'typing',  label: '01 · User prompt' },
+    { id: 'pre-tool', label: '02 · PreToolUse fires' },
+    { id: 'decide',  label: '03 · Hook returns block' },
+    { id: 'reply',   label: '04 · Claude relays reason' },
+  ];
+  const ribbonActive = (() => {
+    if (t < 3200) return 'typing';
+    if (t < 5400) return 'pre-tool';
+    if (t < 7600) return 'decide';
+    return 'reply';
+  })();
+
+  return (
+    <section
+      ref={sectionRef}
+      style={{
+        padding: bp(vp, { mobile: '64px 18px', tablet: '72px 24px', desktop: '96px 32px' }),
+        borderBottom: `1px solid ${COL.line}`, background: COL.bgElev,
+      }}
+      onPointerEnter={(e) => { if (e.pointerType === 'mouse') setPaused(true); }}
+      onPointerLeave={(e) => { if (e.pointerType === 'mouse') setPaused(false); }}
+    >
+      <div style={{ maxWidth: 1200, margin: '0 auto' }}>
+        <SectionLabel accent={accent}>Hook in action</SectionLabel>
+        <h2 style={{
+          fontSize: 'clamp(32px, 3.6vw, 46px)', lineHeight: 1.1,
+          letterSpacing: -1, fontWeight: 500, margin: '0 0 20px', maxWidth: 820,
+        }}>
+          What actually happens<br/>
+          <span style={{ color: COL.fgMute }}>between the prompt and the refusal.</span>
+        </h2>
+        <p style={{ fontSize: 15, color: COL.fgMute, maxWidth: 680, margin: '0 0 28px', lineHeight: 1.6 }}>
+          Left: a live Claude Code session. Right: the hook on disk.
+          As the PreToolUse event fires, the lines that decide the outcome light up.
+          Hover to pause.
+        </p>
+
+        {/* Step ribbon */}
+        <div style={{
+          display: vp.isMobile ? 'grid' : 'flex',
+          gridTemplateColumns: vp.isMobile ? '1fr 1fr' : undefined,
+          gap: 0, marginBottom: 24, borderTop: `1px solid ${COL.line}`,
+          borderBottom: `1px solid ${COL.line}`,
+        }}>
+          {ribbon.map((r, i) => {
+            const active = r.id === ribbonActive;
+            return (
+              <div key={r.id} style={{
+                flex: 1, padding: vp.isMobile ? '10px 12px' : '12px 16px',
+                borderLeft: (vp.isMobile ? (i % 2 === 0) : i === 0) ? 'none' : `1px solid ${COL.line}`,
+                borderTop: vp.isMobile && i >= 2 ? `1px solid ${COL.line}` : 'none',
+                background: active ? 'rgba(255,255,255,0.02)' : 'transparent',
+                position: 'relative',
+              }}>
+                <div style={{
+                  fontFamily: 'JetBrains Mono, monospace', fontSize: 11,
+                  letterSpacing: 0.6, color: active ? accent : COL.fgDim,
+                  transition: 'color 180ms ease',
+                }}>
+                  {r.label}
+                </div>
+                {active && (
+                  <div style={{
+                    position: 'absolute', left: 0, right: 0, bottom: -1, height: 2,
+                    background: accent,
+                  }}/>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: stack ? '1fr' : 'minmax(0, 1.2fr) minmax(0, 1fr)',
+          gap: 24, alignItems: 'start',
+        }}>
+          {/* Left: terminal */}
+          <div style={{
+            background: COL.bgCode, border: `1px solid ${COL.line}`,
+            fontFamily: 'JetBrains Mono, monospace', fontSize: 13, lineHeight: 1.6,
+          }}>
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '10px 14px', borderBottom: `1px solid ${COL.line}`,
+              fontSize: 11, color: COL.fgDim,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ display: 'inline-flex', gap: 6 }}>
+                  <span style={{ width: 8, height: 8, background: '#3f3f46', display: 'inline-block' }}/>
+                  <span style={{ width: 8, height: 8, background: '#3f3f46', display: 'inline-block' }}/>
+                  <span style={{ width: 8, height: 8, background: '#3f3f46', display: 'inline-block' }}/>
+                </span>
+                <span style={{ color: COL.fgMute }}>claude</span>
+              </div>
+              <div style={{ display: 'flex', gap: 12 }}>
+                <span style={{ color: scene.highlight ? accent : COL.fgDim, transition: 'color 200ms' }}>
+                  {scene.highlight ? 'PreToolUse · running' : 'idle'}
+                </span>
+              </div>
+            </div>
+            <div style={{ padding: '18px 18px 22px', color: COL.fg, minHeight: 260 }}>
+              {/* Prompt with typing caret */}
+              <div style={{ whiteSpace: 'pre-wrap' }}>
+                <span style={{ color: accent, marginRight: 10 }}>❯</span>
+                <span>{typed}</span>
+                {(t >= 600 && t < typingEnd) && (
+                  <span style={{
+                    display: 'inline-block', width: 7, height: 15,
+                    background: COL.fg, marginLeft: 2, verticalAlign: '-2px',
+                    animation: 'blink 1s steps(1) infinite',
+                  }}/>
+                )}
+              </div>
+
+              {showSent && <div style={{ height: 12 }}/>}
+
+              {showPre && (
+                <>
+                  <div style={{ color: COL.fgDim }}>  Ran 1 bash command</div>
+                  <div style={{ color: COL.fgDim }}>
+                    {'  ⎿  '}
+                    {showBlocked
+                      ? <span style={{ color: COL.red }}>PreToolUse:Bash hook returned blocking error</span>
+                      : <span style={{ color: accent }}>PreToolUse:Bash running no-rm-rf…</span>
+                    }
+                  </div>
+                </>
+              )}
+
+              {showBlocked && (
+                <div style={{ color: COL.fgDim }}>
+                  {'  ⎿  '}
+                  <span style={{ color: COL.fg }}>refusing: </span>
+                  <span style={{ color: COL.fg }}>rm -rf /tmp/build ~</span>
+                </div>
+              )}
+
+              {showReply && <div style={{ height: 12 }}/>}
+
+              {showReply && (
+                <>
+                  <div>
+                    <span style={{ color: accent, marginRight: 8 }}>●</span>
+                    <span>The </span>
+                    <span style={{ color: COL.fg }}>no-rm-rf</span>
+                    <span> hook blocked this. The trailing </span>
+                    <span style={{ color: COL.fg }}>~</span>
+                    <span> would have wiped your home directory.</span>
+                  </div>
+                  <div style={{ color: COL.fgMute, marginTop: 6 }}>
+                    Want me to run it without the <span style={{ color: COL.fg }}>~</span>?
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Right: hook source with line highlighting */}
+          <div style={{
+            background: COL.bgCode, border: `1px solid ${COL.line}`,
+            fontFamily: 'JetBrains Mono, monospace', fontSize: vp.isMobile ? 8.5 : 12.5,
+            lineHeight: 1.65, overflow: 'hidden',
+          }}>
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '10px 14px', borderBottom: `1px solid ${COL.line}`,
+              fontSize: 11, color: COL.fgDim,
+            }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ width: 10, height: 10, background: '#4a4a4a', display: 'inline-block' }}/>
+                no-rm-rf.ts
+              </span>
+              <span style={{ fontSize: 10, letterSpacing: 1, textTransform: 'uppercase', color: COL.fgDim }}>
+                typescript
+              </span>
+            </div>
+            <div style={{ display: 'flex', padding: '14px 0' }}>
+              <div style={{
+                padding: vp.isMobile ? '0 8px' : '0 12px', color: COL.fgFaint, textAlign: 'right',
+                borderRight: `1px solid ${COL.line}`, userSelect: 'none', minWidth: vp.isMobile ? 28 : 36,
+              }}>
+                {hookLines.map((_, i) => (
+                  <div key={i} style={{
+                    color: hlSet.has(i) ? accent : COL.fgFaint,
+                    transition: 'color 180ms ease',
+                  }}>{i + 1}</div>
+                ))}
+              </div>
+              <div style={{ padding: vp.isMobile ? '0 10px' : '0 0', flex: 1, minWidth: 0, overflowX: vp.isMobile ? 'visible' : 'auto' }}>
+                {hookLines.map((l, i) => {
+                  const on = hlSet.has(i);
+                  return (
+                    <div key={i} style={{
+                      whiteSpace: vp.isMobile ? 'pre-wrap' : 'pre',
+                      overflowWrap: vp.isMobile ? 'anywhere' : 'normal',
+                      minHeight: vp.isMobile ? 17.3 : 20.6,
+                      padding: '0 14px',
+                      background: on ? 'rgba(251,191,36,0.09)' : 'transparent',
+                      borderLeft: `2px solid ${on ? accent : 'transparent'}`,
+                      marginLeft: on ? 0 : 2,
+                      paddingLeft: on ? 12 : 14,
+                      transition: 'background 180ms ease, border-color 180ms ease',
+                    }}>
+                      {renderLine(l)}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            <div style={{
+              padding: '10px 14px', borderTop: `1px solid ${COL.line}`,
+              fontSize: 11, color: COL.fgDim, display: 'flex', justifyContent: 'space-between',
+            }}>
+              <span>
+                {scene.highlight === 'guard' && 'tool gate — not Bash? skip'}
+                {scene.highlight === 'regex' && 'regex match on ctx.input.command'}
+                {scene.highlight === 'return' && 'tagged result: block + reason'}
+                {!scene.highlight && 'waiting for PreToolUse'}
+              </span>
+              <span>{paused ? 'paused' : 'auto-replay'}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 // ---------- Problem: rm -rf story + pain list ----------
 function ProblemSection({ accent }) {
+  const vp = useViewport();
+  const cols = vp.isMobile ? 1 : vp.isTablet ? 2 : 3;
   const pains = [
     { n: '01', k: 'Silent failures',
       d: 'Claude Code only blocks on exit code 2. A guard hook that crashes — a typo, a missing dep — doesn\'t prevent the action. The dangerous op proceeds as if the hook were never there.' },
@@ -87,7 +456,10 @@ function ProblemSection({ accent }) {
   ];
 
   return (
-    <section id="problem" style={{ padding: '96px 32px', borderBottom: `1px solid ${COL.line}` }}>
+    <section id="problem" style={{
+      padding: bp(vp, { mobile: '64px 18px', tablet: '72px 24px', desktop: '96px 32px' }),
+      borderBottom: `1px solid ${COL.line}`,
+    }}>
       <div style={{ maxWidth: 1120, margin: '0 auto' }}>
         <SectionLabel accent={accent}>The gap</SectionLabel>
         <h2 style={{
@@ -100,7 +472,7 @@ function ProblemSection({ accent }) {
           Somebody's agent ran <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>rm -rf tests/ patches/ plan/ ~/</code>.
           The trailing <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>~/</code> wiped the Mac.
           There was a guard hook for exactly this. It threw an exception, exited non-zero-but-not-2, and Claude ran the command anyway.
-          Native hooks pass through on anything that isn't a clean exit 2 — fail-open by default. That's the first thing Clooks changes.
+          Native hooks pass through on anything that isn't a clean exit 2. A broken hook becomes a silent pass. That's the first thing Clooks changes.
         </p>
 
         {/* Quote-style incident card */}
@@ -123,19 +495,19 @@ function ProblemSection({ accent }) {
         </div>
 
         <div style={{
-          display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)',
+          display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`,
           borderTop: `1px solid ${COL.line}`,
         }}>
           {pains.map((p, i) => {
-            const row = Math.floor(i / 3);
-            const col = i % 3;
-            const totalRows = Math.ceil(pains.length / 3);
+            const row = Math.floor(i / cols);
+            const col = i % cols;
+            const totalRows = Math.ceil(pains.length / cols);
             return (
               <div key={p.n} style={{
-                padding: '28px 28px 28px 0',
-                borderRight: col !== 2 ? `1px solid ${COL.line}` : 'none',
+                padding: vp.isMobile ? '24px 0' : '28px 28px 28px 0',
+                borderRight: col !== cols - 1 && !vp.isMobile ? `1px solid ${COL.line}` : 'none',
                 borderBottom: row < totalRows - 1 ? `1px solid ${COL.line}` : 'none',
-                paddingLeft: col === 0 ? 0 : 28,
+                paddingLeft: col === 0 || vp.isMobile ? 0 : 28,
               }}>
                 <div style={{
                   fontSize: 12, color: accent, marginBottom: 10,
@@ -155,6 +527,8 @@ function ProblemSection({ accent }) {
 
 // ---------- Hook API anatomy ----------
 function HookAnatomySection({ accent }) {
+  const vp = useViewport();
+  const stack = vp.isMobile || vp.isTablet;
   const items = [
     { n: '01', k: 'meta',
       d: 'A name and optional description. Nothing else — no version, author, or permissions fields.' },
@@ -166,7 +540,8 @@ function HookAnatomySection({ accent }) {
 
   return (
     <section id="hook" style={{
-      padding: '96px 32px', borderBottom: `1px solid ${COL.line}`, background: COL.bgElev,
+      padding: bp(vp, { mobile: '64px 18px', tablet: '72px 24px', desktop: '96px 32px' }),
+      borderBottom: `1px solid ${COL.line}`, background: COL.bgElev,
     }}>
       <div style={{ maxWidth: 1120, margin: '0 auto' }}>
         <SectionLabel accent={accent}>Hook API</SectionLabel>
@@ -182,8 +557,12 @@ function HookAnatomySection({ accent }) {
           Each event is a method with a typed context and a tagged-result return. Config is validated with Zod, merged shallowly over your defaults.
         </p>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 48, alignItems: 'start' }}>
-          <div style={{ position: 'sticky', top: 100 }}>
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: stack ? 'minmax(0, 1fr)' : 'minmax(0, 1fr) minmax(0, 1fr)',
+          gap: stack ? 32 : 48, alignItems: 'start',
+        }}>
+          <div style={{ position: stack ? 'static' : 'sticky', top: 100, minWidth: 0 }}>
             <HookSnippet compact/>
           </div>
           <div>
@@ -216,6 +595,8 @@ function HookAnatomySection({ accent }) {
 
 // ---------- Config: .clooks/ layout + clooks.yml ----------
 function ConfigSection({ accent }) {
+  const vp = useViewport();
+  const stack = vp.isMobile || vp.isTablet;
   const treeLines = [
     [[TK.fn, 'your-project/']],
     [[TK.op, '├── '], [TK.fn, '.clooks/']],
@@ -250,7 +631,10 @@ function ConfigSection({ accent }) {
   ];
 
   return (
-    <section id="config" style={{ padding: '96px 32px', borderBottom: `1px solid ${COL.line}` }}>
+    <section id="config" style={{
+      padding: bp(vp, { mobile: '64px 18px', tablet: '72px 24px', desktop: '96px 32px' }),
+      borderBottom: `1px solid ${COL.line}`,
+    }}>
       <div style={{ maxWidth: 1120, margin: '0 auto' }}>
         <SectionLabel accent={accent}>Config</SectionLabel>
         <h2 style={{
@@ -267,7 +651,11 @@ function ConfigSection({ accent }) {
           Clone the repo on another machine — same hooks, same SHAs.
         </p>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 32 }}>
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: stack ? 'minmax(0, 1fr)' : 'minmax(0, 1fr) minmax(0, 1fr)',
+          gap: stack ? 28 : 32,
+        }}>
           <div>
             <div style={{
               fontSize: 11, color: COL.fgDim, marginBottom: 10,
@@ -290,6 +678,8 @@ function ConfigSection({ accent }) {
 
 // ---------- Install flow (replaces old Quickstart) ----------
 function InstallSection({ accent, tweaks }) {
+  const vp = useViewport();
+  const stack = vp.isMobile;
   const [path, setPath] = React.useState('plugin');
 
   const paths = {
@@ -331,7 +721,7 @@ function InstallSection({ accent, tweaks }) {
       label: 'Cloning a repo',
       blurb: 'Somebody on your team already ran init and committed .clooks/. You just need the runtime.',
       steps: [
-        { t: 'Clone the repo',
+        { t: 'Clone a repo that already uses clooks',
           cmd: 'git clone <repo> && cd <repo>',
           d: '.clooks/bin/entrypoint.sh and .claude/settings.json are already committed. The project hook config comes with the repo.' },
         { t: 'Open it in Claude Code',
@@ -352,29 +742,38 @@ function InstallSection({ accent, tweaks }) {
   const active = paths[path];
 
   return (
-    <section id="install" style={{ padding: '96px 32px', borderBottom: `1px solid ${COL.line}` }}>
+    <section id="install" style={{
+      padding: bp(vp, { mobile: '64px 18px', tablet: '72px 24px', desktop: '96px 32px' }),
+      borderBottom: `1px solid ${COL.line}`,
+    }}>
       <div style={{ maxWidth: 1120, margin: '0 auto' }}>
         <SectionLabel accent={accent}>Install</SectionLabel>
         <h2 style={{
           fontSize: 'clamp(32px, 3.6vw, 46px)', lineHeight: 1.1,
           letterSpacing: -1, fontWeight: 500, margin: '0 0 20px', maxWidth: 780,
         }}>
-          Three paths, one destination.
+          Three ways to install.
         </h2>
         <p style={{ fontSize: 15, color: COL.fgMute, maxWidth: 640, margin: '0 0 40px', lineHeight: 1.6 }}>
-          All three paths converge on a repo with a committed <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>.clooks/</code> directory and the Clooks binary on your PATH. Pick the one that fits your situation.
+          Each ends the same way: a committed <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>.clooks/</code> directory and the Clooks binary on your PATH.
         </p>
 
         <div style={{
-          display: 'flex', gap: 0, marginBottom: 0, borderBottom: `1px solid ${COL.line}`,
+          display: 'flex', gap: 0, marginBottom: 0,
+          borderBottom: `1px solid ${COL.line}`,
         }}>
           {Object.entries(paths).map(([key, p]) => (
             <button key={key} onClick={() => setPath(key)} style={{
               background: 'transparent', border: 'none', cursor: 'pointer',
-              padding: '12px 20px 14px', fontSize: 13, fontFamily: 'inherit',
+              padding: vp.isMobile ? '10px 8px 12px' : '12px 20px 14px',
+              fontSize: vp.isMobile ? 12 : 13, fontFamily: 'inherit',
+              whiteSpace: 'nowrap',
               color: path === key ? COL.fg : COL.fgMute,
               borderBottom: `2px solid ${path === key ? accent : 'transparent'}`,
               marginBottom: -1,
+              flex: vp.isMobile ? '1 1 0' : '0 0 auto',
+              textAlign: vp.isMobile ? 'center' : 'left',
+              minWidth: 0,
             }}>{p.label}</button>
           ))}
         </div>
@@ -387,8 +786,10 @@ function InstallSection({ accent, tweaks }) {
         <div style={{ display: 'grid', gap: 0 }}>
           {active.steps.map((s, i) => (
             <div key={i} style={{
-              display: 'grid', gridTemplateColumns: '64px 1fr 1.2fr', gap: 40,
-              padding: '28px 0', borderTop: `1px solid ${COL.line}`,
+              display: 'grid',
+              gridTemplateColumns: stack ? '40px minmax(0, 1fr)' : vp.isTablet ? '50px minmax(0, 1fr)' : '64px minmax(0, 1fr) minmax(0, 1.2fr)',
+              gap: stack ? 16 : vp.isTablet ? 24 : 40,
+              padding: stack ? '22px 0' : '28px 0', borderTop: `1px solid ${COL.line}`,
               alignItems: 'start',
             }}>
               <div style={{
@@ -397,15 +798,22 @@ function InstallSection({ accent, tweaks }) {
               }}>
                 0{i + 1}
               </div>
-              <div>
-                <div style={{ fontSize: 17, fontWeight: 500, color: COL.fg, marginBottom: 8, letterSpacing: -0.2 }}>
+              <div style={{ gridColumn: stack || vp.isTablet ? 'auto' : undefined, minWidth: 0 }}>
+                <div style={{ fontSize: stack ? 16 : 17, fontWeight: 500, color: COL.fg, marginBottom: 8, letterSpacing: -0.2 }}>
                   {s.t}
                 </div>
                 <div style={{ fontSize: 14, color: COL.fgMute, lineHeight: 1.55, maxWidth: 440 }}>
                   {s.d}
                 </div>
+                {(stack || vp.isTablet) && (
+                  <div style={{ marginTop: 14 }}>
+                    <CmdBox accent={accent} cmd={s.cmd} slash={s.slash} comment={s.comment}/>
+                  </div>
+                )}
               </div>
-              <CmdBox accent={accent} cmd={s.cmd} slash={s.slash} comment={s.comment}/>
+              {!stack && !vp.isTablet && (
+                <CmdBox accent={accent} cmd={s.cmd} slash={s.slash} comment={s.comment}/>
+              )}
             </div>
           ))}
           <div style={{ borderTop: `1px solid ${COL.line}` }}/>
@@ -414,19 +822,16 @@ function InstallSection({ accent, tweaks }) {
         <div style={{
           marginTop: 40, padding: '20px 24px',
           background: COL.bgSoft, border: `1px solid ${COL.line}`,
-          display: 'grid', gridTemplateColumns: '60px 1fr', gap: 16, alignItems: 'start',
+          display: 'grid',
+          gridTemplateColumns: stack ? '1fr' : '60px 1fr',
+          gap: stack ? 10 : 16, alignItems: 'start',
         }}>
           <span style={{
             color: accent, fontFamily: 'JetBrains Mono, monospace',
             fontSize: 11, letterSpacing: 1, textTransform: 'uppercase', paddingTop: 2,
           }}>Heads up</span>
           <div style={{ fontSize: 14, color: COL.fgMute, lineHeight: 1.65 }}>
-            <div style={{ marginBottom: 6 }}>
-              • Global mode: add <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>clooks init --global</code> to register hooks under <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>~/.clooks/</code> for every Claude Code session.
-            </div>
-            <div>
-              • Windows is deferred — Bun's compiled-binary story isn't stable there yet.
-            </div>
+            Global mode: add <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>clooks init --global</code> to register hooks under <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>~/.clooks/</code> for every Claude Code session.
           </div>
         </div>
       </div>
@@ -437,7 +842,7 @@ function InstallSection({ accent, tweaks }) {
 // ---------- Comparison table ----------
 function ComparisonSection({ accent }) {
   const rows = [
-    ['Failure mode',           'Fail-open on anything but exit 2',           'Fail-closed by default (configurable)'],
+    ['Failure mode',           'Lets the action through on anything but exit 2', 'Blocks the action when a hook errors (configurable)'],
     ['Language',               'Bash strings in JSON',                        'TypeScript, typed end to end'],
     ['Composition',            'All hooks parallel, no ordering',             'Parallel or sequential with explicit order'],
     ['Input modification',     'Not supported',                               'Sequential pipeline; hooks see previous updatedInput'],
@@ -445,8 +850,13 @@ function ComparisonSection({ accent }) {
     ['Distribution',           'Copy-paste from gists',                       'Marketplace, SHA-pinned, lockfile-verified'],
     ['Portability',            'Lives in your settings',                      'Vendored into .clooks/, committed'],
   ];
+  const vp = useViewport();
+  const stack = vp.isMobile;
   return (
-    <section style={{ padding: '96px 32px', borderBottom: `1px solid ${COL.line}`, background: COL.bgElev }}>
+    <section style={{
+      padding: bp(vp, { mobile: '64px 18px', tablet: '72px 24px', desktop: '96px 32px' }),
+      borderBottom: `1px solid ${COL.line}`, background: COL.bgElev,
+    }}>
       <div style={{ maxWidth: 1120, margin: '0 auto' }}>
         <SectionLabel accent={accent}>vs. native hooks</SectionLabel>
         <h2 style={{
@@ -456,26 +866,63 @@ function ComparisonSection({ accent }) {
           Seven concrete differences.
         </h2>
         <div style={{ border: `1px solid ${COL.line}` }}>
-          <div style={{
-            display: 'grid', gridTemplateColumns: '1.2fr 1.4fr 1.6fr',
-            padding: '14px 20px', borderBottom: `1px solid ${COL.line}`,
-            fontFamily: 'JetBrains Mono, monospace', fontSize: 11,
-            letterSpacing: 1, textTransform: 'uppercase', color: COL.fgDim,
-            background: COL.bgSoft,
-          }}>
-            <span/>
-            <span>Native hooks</span>
-            <span style={{ color: accent }}>Clooks</span>
-          </div>
+          {!stack && (
+            <div style={{
+              display: 'grid', gridTemplateColumns: '1.2fr 1.4fr 1.6fr',
+              padding: '14px 20px', borderBottom: `1px solid ${COL.line}`,
+              fontFamily: 'JetBrains Mono, monospace', fontSize: 11,
+              letterSpacing: 1, textTransform: 'uppercase', color: COL.fgDim,
+              background: COL.bgSoft,
+            }}>
+              <span/>
+              <span>Native hooks</span>
+              <span style={{ color: accent }}>Clooks</span>
+            </div>
+          )}
           {rows.map(([k, a, b], i) => (
             <div key={i} style={{
-              display: 'grid', gridTemplateColumns: '1.2fr 1.4fr 1.6fr',
-              padding: '18px 20px', borderBottom: i < rows.length - 1 ? `1px solid ${COL.line}` : 'none',
-              fontSize: 14, alignItems: 'start',
+              display: 'grid',
+              gridTemplateColumns: stack ? '1fr' : '1.2fr 1.4fr 1.6fr',
+              padding: stack ? '22px 18px' : '18px 20px',
+              borderBottom: i < rows.length - 1 ? `1px solid ${COL.line}` : 'none',
+              fontSize: 14, alignItems: 'start', gap: stack ? 0 : 0,
             }}>
-              <span style={{ color: COL.fg, fontWeight: 500 }}>{k}</span>
-              <span style={{ color: COL.fgMute }}>{a}</span>
-              <span style={{ color: COL.fg }}>{b}</span>
+              <span style={{
+                color: COL.fg,
+                fontWeight: stack ? 600 : 500,
+                fontSize: stack ? 17 : 14,
+                letterSpacing: stack ? -0.2 : 0,
+                marginBottom: stack ? 14 : 0,
+              }}>{k}</span>
+              {stack ? (
+                <>
+                  <div style={{
+                    fontFamily: 'JetBrains Mono, monospace', fontSize: 10, letterSpacing: 1,
+                    textTransform: 'uppercase', color: COL.fgFaint,
+                    borderLeft: `2px solid ${COL.lineStrong}`, paddingLeft: 10, marginBottom: 4,
+                  }}>Native</div>
+                  <span style={{
+                    color: COL.fgMute,
+                    borderLeft: `2px solid ${COL.lineStrong}`, paddingLeft: 10,
+                    display: 'block', paddingBottom: 14,
+                  }}>{a}</span>
+                  <div style={{
+                    fontFamily: 'JetBrains Mono, monospace', fontSize: 10, letterSpacing: 1,
+                    textTransform: 'uppercase', color: COL.fgFaint,
+                    borderLeft: `2px solid ${accent}`, paddingLeft: 10, marginBottom: 4,
+                  }}>Clooks</div>
+                  <span style={{
+                    color: COL.fg,
+                    borderLeft: `2px solid ${accent}`, paddingLeft: 10,
+                    display: 'block',
+                  }}>{b}</span>
+                </>
+              ) : (
+                <>
+                  <span style={{ color: COL.fgMute }}>{a}</span>
+                  <span style={{ color: COL.fg }}>{b}</span>
+                </>
+              )}
             </div>
           ))}
         </div>
@@ -486,8 +933,12 @@ function ComparisonSection({ accent }) {
 
 // ---------- Why not a plugin? ----------
 function WhyNotPluginSection({ accent }) {
+  const vp = useViewport();
   return (
-    <section style={{ padding: '96px 32px', borderBottom: `1px solid ${COL.line}` }}>
+    <section style={{
+      padding: bp(vp, { mobile: '64px 18px', tablet: '72px 24px', desktop: '96px 32px' }),
+      borderBottom: `1px solid ${COL.line}`,
+    }}>
       <div style={{ maxWidth: 820, margin: '0 auto' }}>
         <SectionLabel accent={accent}>Clarification</SectionLabel>
         <h2 style={{
@@ -497,18 +948,10 @@ function WhyNotPluginSection({ accent }) {
           Why isn't Clooks <em style={{ fontStyle: 'italic', color: COL.fgMute }}>just</em> a Claude Code plugin?
         </h2>
         <p style={{ fontSize: 16, color: COL.fgMute, lineHeight: 1.65, margin: '0 0 16px' }}>
-          It uses the plugin system for distribution — that's how you install it. But
-          the runtime itself can't live inside the plugin sandbox.
-        </p>
-        <p style={{ fontSize: 16, color: COL.fgMute, lineHeight: 1.65, margin: '0 0 16px' }}>
-          Plugins can't install binaries. Plugins can't rewrite
-          <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}> .claude/settings.json</code> to register
-          an entrypoint. Plugins can't run a TypeScript hook pipeline with a circuit breaker and a lockfile.
-          Clooks has to be a standalone binary that the plugin drops onto your PATH.
+          Clooks uses the plugin system for distribution — that's how you install it. But the runtime itself lives outside the plugin sandbox on purpose.
         </p>
         <p style={{ fontSize: 16, color: COL.fgMute, lineHeight: 1.65, margin: 0 }}>
-          The upside: the same binary works outside Claude Code. Cursor, Windsurf, and Copilot
-          support is mapped out but not yet implemented — tracking as planned.
+          A plugin <em>can</em> quietly download and install binaries on your machine, then wire them into your agent. You shouldn't be surprised by a binary landing on your machine just because you cloned a repo or installed a plugin. Clooks keeps that surface visible — the bash entrypoint sits in <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>.claude/settings.json</code>, the <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>.clooks/</code> directory is committed alongside your code, and pulling the runtime binary is an explicit step, not something the plugin does behind your back.
         </p>
       </div>
     </section>
@@ -526,15 +969,19 @@ function RoadmapSection({ accent }) {
     { k: 'Cursor', status: 'planned', note: 'event mapping researched' },
     { k: 'Windsurf', status: 'planned', note: 'event mapping researched' },
     { k: 'VS Code Copilot', status: 'planned', note: 'event mapping researched' },
-    { k: 'Windows', status: 'deferred', note: 'Bun compiled-binary issues' },
   ];
+  const vp = useViewport();
+  const cols = vp.isMobile ? 1 : vp.isTablet ? 2 : 3;
   const color = (s) =>
     s === 'shipping' ? COL.green :
     s === 'wip' ? accent :
     s === 'planned' ? COL.fgMute :
     COL.fgFaint;
   return (
-    <section style={{ padding: '96px 32px', borderBottom: `1px solid ${COL.line}`, background: COL.bgElev }}>
+    <section style={{
+      padding: bp(vp, { mobile: '64px 18px', tablet: '72px 24px', desktop: '96px 32px' }),
+      borderBottom: `1px solid ${COL.line}`, background: COL.bgElev,
+    }}>
       <div style={{ maxWidth: 1120, margin: '0 auto' }}>
         <SectionLabel accent={accent}>Roadmap</SectionLabel>
         <h2 style={{
@@ -544,14 +991,16 @@ function RoadmapSection({ accent }) {
           Where things stand at <code style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.85em' }}>v0.0.1</code>.
         </h2>
         <div style={{
-          display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 0,
+          display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: 0,
           border: `1px solid ${COL.line}`,
         }}>
-          {items.map((it, i) => (
+          {items.map((it, i) => {
+            const rem = items.length % cols || cols;
+            return (
             <div key={it.k} style={{
               padding: '22px 24px',
-              borderRight: i % 3 !== 2 ? `1px solid ${COL.line}` : 'none',
-              borderBottom: i < items.length - (items.length % 3 || 3) ? `1px solid ${COL.line}` : 'none',
+              borderRight: i % cols !== cols - 1 ? `1px solid ${COL.line}` : 'none',
+              borderBottom: i < items.length - rem ? `1px solid ${COL.line}` : 'none',
             }}>
               <div style={{
                 display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8,
@@ -568,7 +1017,8 @@ function RoadmapSection({ accent }) {
               <div style={{ fontSize: 15, color: COL.fg, marginBottom: 4, fontWeight: 500 }}>{it.k}</div>
               <div style={{ fontSize: 13, color: COL.fgMute, lineHeight: 1.5 }}>{it.note}</div>
             </div>
-          ))}
+          );
+          })}
         </div>
       </div>
     </section>
@@ -577,6 +1027,7 @@ function RoadmapSection({ accent }) {
 
 // ---------- FAQ ----------
 function FAQSection({ accent }) {
+  const vp = useViewport();
   const faqs = [
     {
       q: 'Why not just write bash?',
@@ -600,7 +1051,10 @@ function FAQSection({ accent }) {
     },
   ];
   return (
-    <section id="faq" style={{ padding: '96px 32px', borderBottom: `1px solid ${COL.line}` }}>
+    <section id="faq" style={{
+      padding: bp(vp, { mobile: '64px 18px', tablet: '72px 24px', desktop: '96px 32px' }),
+      borderBottom: `1px solid ${COL.line}`,
+    }}>
       <div style={{ maxWidth: 820, margin: '0 auto' }}>
         <SectionLabel accent={accent}>FAQ</SectionLabel>
         <h2 style={{
@@ -648,13 +1102,17 @@ function FAQItem({ q, a, accent, last }) {
 
 // ---------- Footer ----------
 function Footer({ accent }) {
+  const vp = useViewport();
+  const stack = vp.isMobile;
   return (
-    <footer style={{ padding: '60px 32px 40px' }}>
+    <footer style={{ padding: stack ? '48px 18px 32px' : '60px 32px 40px' }}>
       <div style={{
         maxWidth: 1120, margin: '0 auto',
-        display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 40,
+        display: 'grid',
+        gridTemplateColumns: stack ? '1fr 1fr' : vp.isTablet ? '1fr 1fr' : '2fr 1fr 1fr',
+        gap: stack ? 28 : 40,
       }}>
-        <div>
+        <div style={{ gridColumn: stack ? '1 / -1' : 'auto' }}>
           <Logo accent={accent}/>
           <p style={{ fontSize: 13, color: COL.fgMute, marginTop: 14, maxWidth: 300, lineHeight: 1.5 }}>
             A TypeScript hook runtime for Claude Code. Open source under MIT.
@@ -710,6 +1168,8 @@ function Footer({ accent }) {
 
 // ---------- Real captures: three annotated TUI transcripts ----------
 function CapturesSection({ accent }) {
+  const vp = useViewport();
+  const stack = vp.isMobile || vp.isTablet;
   const [active, setActive] = React.useState(0);
 
   // Token shorthands for terminal lines. Each line is an array of
@@ -742,7 +1202,7 @@ function CapturesSection({ accent }) {
     },
     {
       id: 'crash',
-      tab: '02 · Crash, fail-closed',
+      tab: '02 · Crash, blocked',
       title: 'A hook crashes. The action is blocked.',
       blurb: <>With <code style={codeInline}>onError: "block"</code> — the default — a runtime error aborts the tool call. Native hooks pass through on anything but a clean exit 2. Clooks doesn't.</>,
       meta: [
@@ -758,11 +1218,11 @@ function CapturesSection({ accent }) {
         [['d', '     '], ['r', 'Action blocked (onError: block).']],
         null,
         [['a', '● '], ['f', 'The "crashy-linter" hook crashed with a TypeError and blocked the']],
-        [['f', '  action per fail-closed behavior.']],
+        [['f', '  action. Native hooks would have let it through.']],
       ],
       annotations: [
         { label: 'Structured failure', color: accent, note: 'hook name, event, exception class, message — all captured' },
-        { label: 'Fail-closed', color: COL.red, note: 'action refused. Native hooks would have passed through.' },
+        { label: 'Blocked on crash', color: COL.red, note: 'action refused. Native hooks would have let it through.' },
       ],
     },
     {
@@ -795,7 +1255,10 @@ function CapturesSection({ accent }) {
   const cap = captures[active];
 
   return (
-    <section id="captures" style={{ padding: '96px 32px', borderBottom: `1px solid ${COL.line}`, background: COL.bgElev }}>
+    <section id="captures" style={{
+      padding: bp(vp, { mobile: '64px 18px', tablet: '72px 24px', desktop: '96px 32px' }),
+      borderBottom: `1px solid ${COL.line}`, background: COL.bgElev,
+    }}>
       <div style={{ maxWidth: 1120, margin: '0 auto' }}>
         <SectionLabel accent={accent}>Real captures</SectionLabel>
         <h2 style={{
@@ -810,15 +1273,22 @@ function CapturesSection({ accent }) {
 
         {/* Tabs */}
         <div style={{
-          display: 'flex', gap: 0, borderBottom: `1px solid ${COL.line}`, marginBottom: 28,
+          display: 'flex', gap: 0, marginBottom: 28,
         }}>
           {captures.map((c, i) => (
             <button key={c.id} onClick={() => setActive(i)} style={{
               background: 'transparent', border: 'none', cursor: 'pointer',
-              padding: '12px 20px 14px', fontSize: 13, fontFamily: 'inherit',
+              padding: vp.isMobile ? '10px 6px 12px' : '12px 20px 14px',
+              fontSize: vp.isMobile ? 11 : 13, fontFamily: 'inherit',
+              whiteSpace: 'nowrap',
               color: active === i ? COL.fg : COL.fgMute,
               borderBottom: `2px solid ${active === i ? accent : 'transparent'}`,
-              marginBottom: -1, letterSpacing: 0.2,
+              letterSpacing: 0.2,
+              flex: vp.isMobile ? '1 1 0' : '0 0 auto',
+              textAlign: vp.isMobile ? 'center' : 'left',
+              minWidth: 0,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
             }}>{c.tab}</button>
           ))}
         </div>
@@ -838,7 +1308,9 @@ function CapturesSection({ accent }) {
 
         {/* Main two-column: terminal on the left, annotations on the right */}
         <div style={{
-          display: 'grid', gridTemplateColumns: 'minmax(0, 1.6fr) minmax(0, 1fr)', gap: 32,
+          display: 'grid',
+          gridTemplateColumns: stack ? 'minmax(0, 1fr)' : 'minmax(0, 1.6fr) minmax(0, 1fr)',
+          gap: stack ? 24 : 32,
           alignItems: 'start',
         }}>
           <TerminalTranscript cap={cap} accent={accent}/>
@@ -887,6 +1359,7 @@ const codeInline = {
 };
 
 function TerminalTranscript({ cap, accent }) {
+  const vp = useViewport();
   const colorFor = (k) => ({
     a: accent,
     d: COL.fgDim,
@@ -902,7 +1375,7 @@ function TerminalTranscript({ cap, accent }) {
   return (
     <div style={{
       background: COL.bgCode, border: `1px solid ${COL.line}`,
-      fontFamily: 'JetBrains Mono, monospace', fontSize: 13, lineHeight: 1.6,
+      fontFamily: 'JetBrains Mono, monospace', fontSize: vp.isMobile ? 9 : 13, lineHeight: 1.6,
     }}>
       {/* Title bar */}
       <div style={{
@@ -946,8 +1419,828 @@ function TerminalTranscript({ cap, accent }) {
   );
 }
 
+// ---------- Hook demos: showcase third-party hooks and their visual effects ----------
+// First demo: tmux-notifications — visual tmux indicators for session state.
+// Three tmux status-bar vignettes (idle / permission / reset) next to the hook
+// source. Scenes auto-advance; hover to pause. Permission flash is animated.
+
+function TmuxWindowBar({ windows, flash = 0, paneDim = false, paneContent, accent }) {
+  // windows: [{ id, name, active, style: 'default'|'idleRed'|'alert' }]
+  // flash: 0..1 intensity for the permission-prompt pane flash
+  const paneBg = flash > 0 ? '#2a2a2a' : (paneDim ? '#0b0b0b' : '#0a0a0a');
+  return (
+    <div style={{
+      background: paneBg,
+      border: `1px solid ${COL.line}`,
+      fontFamily: 'JetBrains Mono, monospace', fontSize: 12,
+      transition: 'background 120ms linear',
+      display: 'flex', flexDirection: 'column',
+      minHeight: 200,
+    }}>
+      {/* Claude Code pane content */}
+      <div style={{ flex: 1, padding: '12px 14px 14px', color: COL.fgMute, fontSize: 12, lineHeight: 1.55 }}>
+        {paneContent}
+      </div>
+      {/* tmux status bar */}
+      <div style={{
+        background: '#1a1a1a', borderTop: `1px solid ${COL.line}`,
+        padding: '6px 10px', display: 'flex', alignItems: 'center', gap: 10,
+        fontSize: 11, color: COL.fgDim,
+      }}>
+        <span style={{ color: '#84cc16', fontWeight: 600 }}>[work]</span>
+        {windows.map((w, i) => {
+          const active = w.active;
+          let bg = 'transparent';
+          let fg = COL.fgMute;
+          let bold = 400;
+          if (w.style === 'idleRed') { fg = COL.red; }
+          if (w.style === 'alert')   { bg = COL.red; fg = '#fff'; bold = 700; }
+          if (active && w.style !== 'alert') { fg = w.style === 'idleRed' ? COL.red : COL.fg; }
+          return (
+            <span key={i} style={{
+              background: bg, color: fg, fontWeight: bold,
+              padding: '2px 8px',
+              transition: 'background 140ms linear, color 140ms linear',
+            }}>
+              {w.id}:{w.name}{active ? '*' : ''}
+            </span>
+          );
+        })}
+        <span style={{ marginLeft: 'auto', color: COL.fgFaint, fontSize: 10 }}>
+          {new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })} · 14:22
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function TmuxHookSection({ accent }) {
+  const vp = useViewport();
+  const stack = vp.isMobile || vp.isTablet;
+
+  // Animate the permission-prompt flash (scene 2): 2 quick flickers then rest.
+  const [tick, setTick] = React.useState(0);
+  const [paused, setPaused] = React.useState(false);
+  React.useEffect(() => {
+    if (paused) return;
+    const id = setInterval(() => setTick(t => (t + 1) % 40), 80);
+    return () => clearInterval(id);
+  }, [paused]);
+
+  // Flash pattern: ticks 0-2 on, 3-4 off, 5-7 on, 8-10 off, rest idle.
+  const flashOn = (tick >= 0 && tick < 3) || (tick >= 5 && tick < 8);
+
+  const [active, setActive] = React.useState(0);
+
+  const tmuxScenes = [
+    {
+      id: 'idle',
+      tag: '01 · Notification · idle_prompt',
+      title: 'Claude is waiting.',
+      desc: <>You asked a question, walked away, Claude finished and is parked at the prompt. The tab goes red and gets a <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>⏸</code> prefix.</>,
+      windows: [
+        { id: 1, name: 'c-api',     active: false, style: 'default' },
+        { id: 2, name: '⏸ c-clooks', active: true,  style: 'idleRed' },
+        { id: 3, name: 'logs',       active: false, style: 'default' },
+      ],
+      flash: 0,
+      paneDim: false,
+      pane: (
+        <>
+          <div><span style={{ color: accent }}>●</span> <span style={{ color: COL.fg }}>Wired the entrypoint through <code style={{ fontFamily: 'JetBrains Mono, monospace' }}>.clooks/bin/entrypoint.sh</code>.</span></div>
+          <div style={{ color: COL.fgMute, paddingLeft: 14 }}>Ready for your next instruction — want me to add a smoke test?</div>
+          <div style={{ height: 10 }}/>
+          <div style={{
+            border: `1px solid ${COL.lineStrong}`, padding: '8px 12px',
+            color: COL.fgDim, display: 'flex', alignItems: 'center', gap: 10,
+          }}>
+            <span style={{ color: accent }}>❯</span>
+            <span style={{ color: COL.fgDim }}>Try "run the tests"</span>
+            <span style={{
+              display: 'inline-block', width: 6, height: 13, background: COL.fgDim,
+              animation: 'blink 1s steps(1) infinite', marginLeft: -4,
+            }}/>
+          </div>
+          <div style={{ marginTop: 6, fontSize: 10.5, color: COL.fgFaint }}>
+            ? for help · / for commands
+          </div>
+        </>
+      ),
+      note: <>Tab: red text + <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>⏸</code> prefix.</>,
+    },
+    {
+      id: 'permission',
+      tag: '02 · Notification · permission_prompt',
+      title: 'Claude wants permission.',
+      desc: <>A tool call is blocked on your approval. The pane flashes twice and the tab flips to bold red — hard to miss from the next monitor over.</>,
+      windows: [
+        { id: 1, name: 'c-api',    active: false, style: 'default' },
+        { id: 2, name: 'c-clooks', active: true,  style: 'alert' },
+        { id: 3, name: 'logs',     active: false, style: 'default' },
+      ],
+      flash: flashOn ? 1 : 0,
+      paneDim: flashOn,
+      pane: (
+        <>
+          <div><span style={{ color: accent }}>●</span> <span style={{ color: COL.fg }}>I'll commit the staged changes.</span></div>
+          <div style={{ height: 10 }}/>
+          <div style={{
+            border: `1px solid ${COL.red}`,
+            background: 'rgba(248,113,113,0.04)',
+            padding: 0,
+          }}>
+            <div style={{
+              padding: '8px 12px', borderBottom: `1px solid ${COL.lineStrong}`,
+              fontSize: 11, letterSpacing: 0.8, textTransform: 'uppercase',
+              color: COL.red, fontWeight: 600,
+            }}>
+              Permission required · Bash
+            </div>
+            <div style={{ padding: '10px 12px', color: COL.fg, fontSize: 12 }}>
+              <div style={{ color: COL.fgMute, marginBottom: 6 }}>Run this command?</div>
+              <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>
+                git commit -m "wire entrypoint"
+              </code>
+            </div>
+            <div style={{
+              padding: '8px 12px', borderTop: `1px solid ${COL.line}`, display: 'flex', gap: 14,
+              fontSize: 11, color: COL.fgMute,
+            }}>
+              <span><span style={{ color: accent }}>1</span> Yes</span>
+              <span><span style={{ color: accent }}>2</span> Yes, always</span>
+              <span><span style={{ color: accent }}>3</span> No, tell Claude what to do differently</span>
+            </div>
+          </div>
+        </>
+      ),
+      note: <>Tab: red background, bold. Pane flashes twice.</>,
+    },
+    {
+      id: 'reset',
+      tag: '03 · UserPromptSubmit / PostToolUse',
+      title: 'Work is happening.',
+      desc: <>You replied, or a tool call completed. The tab snaps back to <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>c-clooks</code> — no signal needed.</>,
+      windows: [
+        { id: 1, name: 'c-api',    active: false, style: 'default' },
+        { id: 2, name: 'c-clooks', active: true,  style: 'default' },
+        { id: 3, name: 'logs',     active: false, style: 'default' },
+      ],
+      flash: 0,
+      paneDim: false,
+      pane: (
+        <>
+          <div style={{ color: COL.fgMute }}>
+            <span style={{ color: accent }}>❯</span>{' '}
+            <span style={{ color: COL.fg }}>run the tests</span>
+          </div>
+          <div style={{ height: 8 }}/>
+          <div><span style={{ color: accent }}>●</span> <span style={{ color: COL.fg }}>Running the test suite.</span></div>
+          <div style={{ color: COL.fgDim, paddingLeft: 14 }}>Bash · <span style={{ color: COL.fgMute }}>bun test</span></div>
+          <div style={{ color: COL.fgDim, paddingLeft: 14 }}>
+            {'  ⎿  '}<span style={{ color: COL.green }}>✓</span> runtime/pipeline.test.ts <span style={{ color: COL.fgFaint }}>(14 tests)</span>
+          </div>
+          <div style={{ color: COL.fgDim, paddingLeft: 14 }}>
+            {'  ⎿  '}<span style={{ color: COL.green }}>✓</span> config/schema.test.ts <span style={{ color: COL.fgFaint }}>(7 tests)</span>
+          </div>
+          <div style={{ color: COL.fgDim, paddingLeft: 14 }}>
+            {'  ⎿  '}<span style={{ color: accent }}>…</span> hooks/no-rm-rf.test.ts
+          </div>
+        </>
+      ),
+      note: <>Tab resets to default.</>,
+    },
+  ];
+
+  // Abridged hook source — real file adds a couple more tmux() calls
+  // inside the helpers and handles SessionEnd cleanup.
+  const tmuxHookLines = [
+    [[TK.com, '// .clooks/hooks/tmux-notifications.ts']],
+    [[TK.kw, 'import'], [TK.op, ' { '], [TK.fn, 'execSync'], [TK.op, ' } '], [TK.kw, 'from'], [TK.str, " 'child_process'"]],
+    [[TK.kw, 'import type'], [TK.op, ' { '], [TK.ty, 'ClooksHook'], [TK.op, ' } '], [TK.kw, 'from'], [TK.str, " 'clooks'"]],
+    '',
+    [[TK.kw, 'const'], [TK.fn, ' SKIP'], [TK.op, ' = { '], [TK.prop, 'result'], [TK.op, ': '], [TK.str, "'skip'"], [TK.op, ' } '], [TK.kw, 'as const']],
+    [[TK.kw, 'const'], [TK.fn, ' sleep'], [TK.op, ' = (ms: '], [TK.ty, 'number'], [TK.op, ') => '], [TK.kw, 'new'], [TK.fn, ' Promise'], [TK.op, '(r => '], [TK.fn, 'setTimeout'], [TK.op, '(r, ms))']],
+    '',
+    [[TK.kw, 'function'], [TK.fn, ' tmux'], [TK.op, '(cmd: '], [TK.ty, 'string'], [TK.op, ') {']],
+    ['  ', [TK.kw, 'try'], [TK.op, ' { '], [TK.fn, 'execSync'], [TK.op, '(`tmux ${cmd}`, { '], [TK.prop, 'stdio'], [TK.op, ': '], [TK.str, "'ignore'"], [TK.op, ' }) } '], [TK.kw, 'catch'], [TK.op, ' {}']],
+    [[TK.op, '}']],
+    '',
+    [[TK.kw, 'function'], [TK.fn, ' getWindowId'], [TK.op, '() {']],
+    ['  ', [TK.kw, 'const'], [TK.fn, ' pane'], [TK.op, ' = '], [TK.ty, 'process'], [TK.op, '.env.'], [TK.prop, 'TMUX_PANE']],
+    ['  ', [TK.kw, 'if'], [TK.op, ' (!pane) '], [TK.kw, 'return null']],
+    ['  ', [TK.kw, 'return'], [TK.fn, ' execSync'], [TK.op, '(`tmux display-message -t "${pane}" -p '], [TK.str, "'#{window_id}'"], [TK.op, '`, { '], [TK.prop, 'encoding'], [TK.op, ': '], [TK.str, "'utf8'"], [TK.op, ' }).trim()']],
+    [[TK.op, '}']],
+    '',
+    [[TK.kw, 'const'], [TK.fn, ' dirName'], [TK.op, ' = () => '], [TK.ty, 'process'], [TK.op, '.cwd().split('], [TK.str, "'/'"], [TK.op, ').pop() ?? '], [TK.str, "'unknown'"]],
+    '',
+    [[TK.kw, 'function'], [TK.fn, ' resetWindow'], [TK.op, '(w: '], [TK.ty, 'string'], [TK.op, ') {']],
+    ['  ', [TK.fn, 'tmux'], [TK.op, '(`set-window-option -t ${w} window-status-style default`)']],
+    ['  ', [TK.fn, 'tmux'], [TK.op, '(`rename-window -t ${w} "c-${'], [TK.fn, 'dirName'], [TK.op, '()}"`)']],
+    [[TK.op, '}']],
+    '',
+    [[TK.kw, 'async function'], [TK.fn, ' flashPane'], [TK.op, '() {']],
+    ['  ', [TK.kw, 'const'], [TK.fn, ' pane'], [TK.op, ' = '], [TK.ty, 'process'], [TK.op, '.env.'], [TK.prop, 'TMUX_PANE']],
+    ['  ', [TK.kw, 'for'], [TK.op, ' ('], [TK.kw, 'let'], [TK.fn, ' i'], [TK.op, ' = 0; i < 2; i++) {']],
+    ['    ', [TK.fn, 'tmux'], [TK.op, '(`select-pane -t "${pane}" -P '], [TK.str, "'bg=colour240'"], [TK.op, '`)']],
+    ['    ', [TK.kw, 'await'], [TK.fn, ' sleep'], [TK.op, '(150); '], [TK.fn, 'tmux'], [TK.op, '(`select-pane -t "${pane}" -P '], [TK.str, "'bg=default'"], [TK.op, '`)']],
+    ['    ', [TK.kw, 'await'], [TK.fn, ' sleep'], [TK.op, '(100)']],
+    ['  ', [TK.op, '}']],
+    [[TK.op, '}']],
+    '',
+    [[TK.kw, 'let'], [TK.fn, ' w'], [TK.op, ': '], [TK.ty, 'string']],
+    '',
+    [[TK.kw, 'export const'], [TK.fn, ' hook'], [TK.op, ': '], [TK.ty, 'ClooksHook'], [TK.op, ' = {']],
+    ['  ', [TK.prop, 'meta'], [TK.op, ': { '], [TK.prop, 'name'], [TK.op, ': '], [TK.str, "'tmux-notifications'"], [TK.op, ' },']],
+    '',
+    ['  ', [TK.fn, 'beforeHook'], [TK.op, '(event) {                '], [TK.com, '// lifecycle: runs before each handler']],
+    ['    ', [TK.kw, 'if'], [TK.op, ' (!'], [TK.ty, 'process'], [TK.op, '.env.'], [TK.prop, 'TMUX'], [TK.op, ') '], [TK.kw, 'return'], [TK.op, ' event.'], [TK.fn, 'respond'], [TK.op, '('], [TK.ty, 'SKIP'], [TK.op, ')']],
+    ['    ', [TK.kw, 'const'], [TK.fn, ' id'], [TK.op, ' = '], [TK.fn, 'getWindowId'], [TK.op, '()']],
+    ['    ', [TK.kw, 'if'], [TK.op, ' (!id) '], [TK.kw, 'return'], [TK.op, ' event.'], [TK.fn, 'respond'], [TK.op, '('], [TK.ty, 'SKIP'], [TK.op, ')']],
+    ['    w = id'],
+    ['  ', [TK.op, '},']],
+    '',
+    ['  ', [TK.kw, 'async'], [TK.fn, ' Notification'], [TK.op, '(ctx) {']],
+    ['    ', [TK.kw, 'if'], [TK.op, ' (ctx.'], [TK.prop, 'notificationType'], [TK.op, ' === '], [TK.str, "'idle_prompt'"], [TK.op, ') {']],
+    ['      ', [TK.fn, 'tmux'], [TK.op, '(`set-window-option -t ${w} window-status-style '], [TK.str, "'fg=red'"], [TK.op, '`)']],
+    ['      ', [TK.fn, 'tmux'], [TK.op, '(`rename-window -t ${w} "⏸ c-${'], [TK.fn, 'dirName'], [TK.op, '()}"`)']],
+    ['    ', [TK.op, '} '], [TK.kw, 'else if'], [TK.op, ' (']],
+    ['      ', [TK.op, 'ctx.'], [TK.prop, 'notificationType'], [TK.op, ' === '], [TK.str, "'permission_prompt'"], [TK.op, ' ||']],
+    ['      ', [TK.op, 'ctx.'], [TK.prop, 'notificationType'], [TK.op, ' === '], [TK.str, "'elicitation_dialog'"]],
+    ['    ', [TK.op, ') {']],
+    ['      ', [TK.fn, 'tmux'], [TK.op, '(`set-window-option -t ${w} window-status-style '], [TK.str, "'bg=red,fg=white,bold'"], [TK.op, '`)']],
+    ['      ', [TK.kw, 'await'], [TK.fn, ' flashPane'], [TK.op, '()']],
+    ['    ', [TK.op, '}']],
+    ['    ', [TK.kw, 'return'], [TK.ty, ' SKIP']],
+    ['  ', [TK.op, '},']],
+    '',
+    ['  ', [TK.fn, 'UserPromptSubmit'], [TK.op, '() { '], [TK.fn, 'resetWindow'], [TK.op, '(w); '], [TK.kw, 'return'], [TK.ty, ' SKIP'], [TK.op, ' },']],
+    ['  ', [TK.fn, 'PostToolUse'], [TK.op, '()      { '], [TK.fn, 'resetWindow'], [TK.op, '(w); '], [TK.kw, 'return'], [TK.ty, ' SKIP'], [TK.op, ' },']],
+    ['  ', [TK.fn, 'SessionStart'], [TK.op, '()     { '], [TK.fn, 'resetWindow'], [TK.op, '(w); '], [TK.kw, 'return'], [TK.ty, ' SKIP'], [TK.op, ' },']],
+    [[TK.op, '}']],
+  ];
+
+  // ---- demo 2: js-package-manager-guard ----
+  // Heavily simplified: the real file handles compound commands, VAR= prefixes,
+  // quoted strings, per-role suggestions (pm/runner/runtime), auto-extension
+  // (npm→npx+node, bun→bunx), additionalBlocked, and an unconfigured-session
+  // warning. Here we show only the core block flow.
+  const pkgHookLines = [
+    [[TK.com, '// .clooks/hooks/js-package-manager-guard.ts']],
+    [[TK.kw, 'import type'], [TK.op, ' { '], [TK.ty, 'ClooksHook'], [TK.op, ' } '], [TK.kw, 'from'], [TK.str, " 'clooks'"]],
+    '',
+    [[TK.kw, 'type'], [TK.ty, ' Config'], [TK.op, ' = { '], [TK.prop, 'allowed'], [TK.op, ': '], [TK.ty, 'string'], [TK.op, '[] }']],
+    '',
+    [[TK.kw, 'const'], [TK.fn, ' KNOWN'], [TK.op, ' = '], [TK.kw, 'new'], [TK.fn, ' Set'], [TK.op, '([']],
+    ['  ', [TK.str, "'npm'"], [TK.op, ', '], [TK.str, "'npx'"], [TK.op, ', '], [TK.str, "'node'"], [TK.op, ',']],
+    ['  ', [TK.str, "'yarn'"], [TK.op, ', '], [TK.str, "'pnpm'"], [TK.op, ', '], [TK.str, "'pnpx'"], [TK.op, ',']],
+    ['  ', [TK.str, "'bun'"], [TK.op, ', '], [TK.str, "'bunx'"], [TK.op, ', '], [TK.str, "'deno'"], [TK.op, ',']],
+    [[TK.op, '])']],
+    '',
+    [[TK.kw, 'const'], [TK.fn, ' firstWord'], [TK.op, ' = (cmd: '], [TK.ty, 'string'], [TK.op, ') =>']],
+    ['  cmd.', [TK.fn, 'trim'], [TK.op, '().'], [TK.fn, 'split'], [TK.op, '(/\\s+/)[0] ?? '], [TK.str, "''"]],
+    '',
+    [[TK.kw, 'export const'], [TK.fn, ' hook'], [TK.op, ': '], [TK.ty, 'ClooksHook'], [TK.op, '<'], [TK.ty, 'Config'], [TK.op, '> = {']],
+    ['  ', [TK.prop, 'meta'], [TK.op, ': {']],
+    ['    ', [TK.prop, 'name'], [TK.op, ': '], [TK.str, "'js-package-manager-guard'"], [TK.op, ',']],
+    ['    ', [TK.prop, 'config'], [TK.op, ': { '], [TK.prop, 'allowed'], [TK.op, ': [] },']],
+    ['  ', [TK.op, '},']],
+    '',
+    ['  ', [TK.fn, 'PreToolUse'], [TK.op, '(ctx, config) {']],
+    ['    ', [TK.kw, 'if'], [TK.op, ' (ctx.'], [TK.prop, 'toolName'], [TK.op, ' !== '], [TK.str, "'Bash'"], [TK.op, ') '], [TK.kw, 'return'], [TK.op, ' { '], [TK.prop, 'result'], [TK.op, ': '], [TK.str, "'skip'"], [TK.op, ' }']],
+    '',
+    ['    ', [TK.kw, 'const'], [TK.fn, ' tool'], [TK.op, '    = '], [TK.fn, 'firstWord'], [TK.op, '('], [TK.ty, 'String'], [TK.op, '(ctx.'], [TK.prop, 'toolInput'], [TK.op, '.command ?? '], [TK.str, "''"], [TK.op, '))']],
+    ['    ', [TK.kw, 'const'], [TK.fn, ' allowed'], [TK.op, ' = '], [TK.kw, 'new'], [TK.fn, ' Set'], [TK.op, '(config.'], [TK.prop, 'allowed'], [TK.op, ')']],
+    '',
+    ['    ', [TK.kw, 'if'], [TK.op, ' (!'], [TK.fn, 'KNOWN'], [TK.op, '.has(tool) || allowed.has(tool)) {']],
+    ['      ', [TK.kw, 'return'], [TK.op, ' { '], [TK.prop, 'result'], [TK.op, ': '], [TK.str, "'skip'"], [TK.op, ' }']],
+    ['    ', [TK.op, '}']],
+    '',
+    ['    ', [TK.kw, 'const'], [TK.fn, ' use'], [TK.op, ' = config.'], [TK.prop, 'allowed'], [TK.op, '[0] ?? '], [TK.str, "'<none>'"]],
+    ['    ', [TK.kw, 'return'], [TK.op, ' {']],
+    ['      ', [TK.prop, 'result'], [TK.op, ': '], [TK.str, "'block'"], [TK.op, ',']],
+    ['      ', [TK.prop, 'reason'], [TK.op, ': `This project uses '], [TK.str, "'${use}'"], [TK.op, '. Use '], [TK.str, "'${use}'"], [TK.op, ' instead of '], [TK.str, "'${tool}'"], [TK.op, '.`,']],
+    ['    ', [TK.op, '}']],
+    ['  ', [TK.op, '},']],
+    [[TK.op, '}']],
+  ];
+
+  // Plain Claude Code pane (no tmux bar) for non-tmux scenes.
+  const ccPane = (children) => (
+    <div style={{
+      background: COL.bgCode,
+      border: `1px solid ${COL.line}`,
+      fontFamily: 'JetBrains Mono, monospace', fontSize: 12,
+      color: COL.fgMute, lineHeight: 1.55,
+      padding: '14px 16px', minHeight: 200,
+    }}>
+      {children}
+    </div>
+  );
+
+  const blockBanner = (reason) => (
+    <>
+      <div style={{ color: COL.red }}>{'  ⎿  '}PreToolUse:Bash hook returned blocking error</div>
+      <div style={{ color: COL.fg, paddingLeft: 22 }}>{reason}</div>
+    </>
+  );
+
+  const pkgScenes = [
+    {
+      id: 'npm',
+      tag: '01 · PreToolUse · Bash',
+      title: 'Wrong package manager. Blocked and retried.',
+      pane: (
+        <>
+          <div><span style={{ color: accent }}>❯</span> <span style={{ color: COL.fg }}>add react-query to the project</span></div>
+          <div style={{ height: 8 }}/>
+          <div><span style={{ color: accent }}>●</span> <span style={{ color: COL.fg }}>I'll install @tanstack/react-query.</span></div>
+          <div style={{ color: COL.fgDim, paddingLeft: 14 }}>Bash · <span style={{ color: COL.fgMute }}>npm install @tanstack/react-query</span></div>
+          {blockBanner(<>This project uses <span style={{ color: COL.yellow }}>'bun'</span>. Use <span style={{ color: COL.yellow }}>'bun'</span> instead of <span style={{ color: COL.yellow }}>'npm'</span>.</>)}
+          <div style={{ height: 8 }}/>
+          <div><span style={{ color: accent }}>●</span> <span style={{ color: COL.fg }}>Got it — this project uses bun. Let me retry.</span></div>
+          <div style={{ color: COL.fgDim, paddingLeft: 14 }}>Bash · <span style={{ color: COL.fgMute }}>bun add @tanstack/react-query</span></div>
+          <div style={{ color: COL.fgDim, paddingLeft: 14 }}>
+            {'  ⎿  '}<span style={{ color: COL.green }}>✓</span> installed @tanstack/react-query@5.62.7
+          </div>
+        </>
+      ),
+      note: <>Reason string travels back. Claude self-corrects.</>,
+    },
+    {
+      id: 'node',
+      tag: '02 · PreToolUse · Bash',
+      title: 'Same guard catches the runtime.',
+      pane: (
+        <>
+          <div><span style={{ color: accent }}>❯</span> <span style={{ color: COL.fg }}>run the migration script</span></div>
+          <div style={{ height: 8 }}/>
+          <div><span style={{ color: accent }}>●</span> <span style={{ color: COL.fg }}>Running scripts/migrate.js.</span></div>
+          <div style={{ color: COL.fgDim, paddingLeft: 14 }}>Bash · <span style={{ color: COL.fgMute }}>node scripts/migrate.js</span></div>
+          {blockBanner(<>This project uses <span style={{ color: COL.yellow }}>'bun'</span>. Use <span style={{ color: COL.yellow }}>'bun'</span> instead of <span style={{ color: COL.yellow }}>'node'</span>.</>)}
+          <div style={{ height: 8 }}/>
+          <div><span style={{ color: accent }}>●</span> <span style={{ color: COL.fg }}>Using bun instead.</span></div>
+          <div style={{ color: COL.fgDim, paddingLeft: 14 }}>Bash · <span style={{ color: COL.fgMute }}>bun scripts/migrate.js</span></div>
+          <div style={{ color: COL.fgDim, paddingLeft: 14 }}>
+            {'  ⎿  '}<span style={{ color: COL.green }}>✓</span> Migrated 1,482 rows in 340ms
+          </div>
+        </>
+      ),
+      note: <>One rule, two symptoms — <span style={{ color: COL.fg }}>node</span> is in the known set.</>,
+    },
+  ];
+
+  const mvHookLines = [
+    [[TK.com, '// .clooks/hooks/no-bare-mv.ts']],
+    [[TK.kw, 'import type'], [TK.op, ' { '], [TK.ty, 'ClooksHook'], [TK.op, ' } '], [TK.kw, 'from'], [TK.str, " 'clooks'"]],
+    '',
+    [[TK.kw, 'const'], [TK.fn, ' startsWithMv'], [TK.op, ' = (cmd: '], [TK.ty, 'string'], [TK.op, ') =>']],
+    ['  /^\\s*', [TK.str, 'mv'], [TK.op, '(\\s|$)/.test(cmd)']],
+    '',
+    [[TK.kw, 'export const'], [TK.fn, ' hook'], [TK.op, ': '], [TK.ty, 'ClooksHook'], [TK.op, ' = {']],
+    ['  ', [TK.prop, 'meta'], [TK.op, ': {']],
+    ['    ', [TK.prop, 'name'], [TK.op, ': '], [TK.str, "'no-bare-mv'"], [TK.op, ',']],
+    ['    ', [TK.prop, 'description'], [TK.op, ': '], [TK.str, "'Rewrite bare mv to git mv.'"], [TK.op, ',']],
+    ['  ', [TK.op, '},']],
+    '',
+    ['  ', [TK.fn, 'PreToolUse'], [TK.op, '(ctx) {']],
+    ['    ', [TK.kw, 'if'], [TK.op, ' (ctx.'], [TK.prop, 'toolName'], [TK.op, ' !== '], [TK.str, "'Bash'"], [TK.op, ') '], [TK.kw, 'return'], [TK.op, ' { '], [TK.prop, 'result'], [TK.op, ': '], [TK.str, "'skip'"], [TK.op, ' }']],
+    ['    ', [TK.kw, 'const'], [TK.fn, ' cmd'], [TK.op, ' = '], [TK.ty, 'String'], [TK.op, '(ctx.'], [TK.prop, 'toolInput'], [TK.op, '.command ?? '], [TK.str, "''"], [TK.op, ')']],
+    ['    ', [TK.kw, 'if'], [TK.op, ' (!'], [TK.fn, 'startsWithMv'], [TK.op, '(cmd)) '], [TK.kw, 'return'], [TK.op, ' { '], [TK.prop, 'result'], [TK.op, ': '], [TK.str, "'skip'"], [TK.op, ' }']],
+    '',
+    ['    ', [TK.kw, 'const'], [TK.fn, ' rewritten'], [TK.op, ' = cmd.'], [TK.fn, 'replace'], [TK.op, '(/^\\s*mv\\b/, '], [TK.str, "'git mv'"], [TK.op, ')']],
+    ['    ', [TK.kw, 'return'], [TK.op, ' {']],
+    ['      ', [TK.prop, 'result'], [TK.op, ': '], [TK.str, "'updateInput'"], [TK.op, ',']],
+    ['      ', [TK.prop, 'updatedInput'], [TK.op, ': { ...ctx.'], [TK.prop, 'toolInput'], [TK.op, ', '], [TK.prop, 'command'], [TK.op, ': rewritten },']],
+    ['      ', [TK.prop, 'note'], [TK.op, ': '], [TK.str, "'rewrote mv → git mv'"], [TK.op, ',']],
+    ['    ', [TK.op, '}']],
+    ['  ', [TK.op, '},']],
+    [[TK.op, '}']],
+  ];
+
+  const rewriteNotice = (from, to) => (
+    <div style={{ color: COL.fgDim, paddingLeft: 14 }}>
+      <span style={{ color: COL.yellow }}>clooks</span> · no-bare-mv rewrote <span style={{ color: COL.fg }}>{from}</span> → <span style={{ color: COL.fg }}>{to}</span>
+    </div>
+  );
+
+  const mvScenes = [
+    {
+      id: 'rename',
+      tag: '01 · PreToolUse · Bash',
+      title: 'Bare mv, silently upgraded.',
+      pane: (
+        <>
+          <div><span style={{ color: accent }}>❯</span> <span style={{ color: COL.fg }}>rename src/auth/login.ts to session.ts</span></div>
+          <div style={{ height: 8 }}/>
+          <div><span style={{ color: accent }}>●</span> <span style={{ color: COL.fg }}>I'll rename the file.</span></div>
+          <div style={{ color: COL.fgDim, paddingLeft: 14 }}>Bash · <span style={{ color: COL.fgMute }}>mv src/auth/login.ts src/auth/session.ts</span></div>
+          {rewriteNotice('mv', 'git mv')}
+          <div style={{ color: COL.fgDim, paddingLeft: 14 }}>Bash · <span style={{ color: COL.fgMute }}>git mv src/auth/login.ts src/auth/session.ts</span></div>
+          <div style={{ color: COL.fgDim, paddingLeft: 14 }}>
+            {'  ⎿  '}<span style={{ color: COL.green }}>✓</span> renamed, history preserved
+          </div>
+        </>
+      ),
+      note: <>No block, no retry — the call runs once, already corrected.</>,
+    },
+    {
+      id: 'multi',
+      tag: '02 · PreToolUse · Bash',
+      title: 'Same rewrite, same pattern.',
+      pane: (
+        <>
+          <div><span style={{ color: accent }}>❯</span> <span style={{ color: COL.fg }}>move a.ts and b.ts into helpers/</span></div>
+          <div style={{ height: 8 }}/>
+          <div><span style={{ color: accent }}>●</span> <span style={{ color: COL.fg }}>Moving two files.</span></div>
+          <div style={{ color: COL.fgDim, paddingLeft: 14 }}>Bash · <span style={{ color: COL.fgMute }}>mv src/util/a.ts src/util/b.ts src/helpers/</span></div>
+          {rewriteNotice('mv', 'git mv')}
+          <div style={{ color: COL.fgDim, paddingLeft: 14 }}>Bash · <span style={{ color: COL.fgMute }}>git mv src/util/a.ts src/util/b.ts src/helpers/</span></div>
+          <div style={{ color: COL.fgDim, paddingLeft: 14 }}>
+            {'  ⎿  '}<span style={{ color: COL.green }}>✓</span> 2 files moved
+          </div>
+        </>
+      ),
+      note: <>Rewrite, not reject. Claude doesn't know the swap happened.</>,
+    },
+  ];
+
+  const demos = [
+    {
+      id: 'pkg',
+      tab: 'js-package-manager-guard',
+      filename: 'js-package-manager-guard.ts',
+      pack: 'clooks-project-hooks',
+      kind: 'transcript',
+      hookLines: pkgHookLines,
+      scenes: pkgScenes,
+      elided: <>Simplified for display.</>,
+      heading: <>Block with a reason,<br/><span style={{ color: COL.fgMute }}>let Claude retry.</span></>,
+      lead: <><code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>js-package-manager-guard</code> stops Claude from reaching for the wrong package manager. The block reason tells Claude what to do instead — it self-corrects on the next tool call.</>,
+    },
+    {
+      id: 'mv',
+      tab: 'no-bare-mv',
+      filename: 'no-bare-mv.ts',
+      pack: 'clooks-core-hooks',
+      kind: 'transcript',
+      hookLines: mvHookLines,
+      scenes: mvScenes,
+      elided: <>Simplified for display.</>,
+      heading: <>Rewrite the tool call,<br/><span style={{ color: COL.fgMute }}>don't block it.</span></>,
+      lead: <><code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>no-bare-mv</code> catches a plain <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>mv</code> and swaps it for <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>git mv</code> in flight. No block, no retry — the call runs once, with the rewrite already in place. A hook can edit, not just gate.</>,
+    },
+    {
+      id: 'tmux',
+      tab: 'tmux-notifications',
+      filename: 'tmux-notifications.ts',
+      pack: 'clooks-core-hooks',
+      kind: 'tmux',
+      hookLines: tmuxHookLines,
+      scenes: tmuxScenes,
+      elided: <>Simplified for display.</>,
+      heading: <>Paint your terminal,<br/><span style={{ color: COL.fgMute }}>skip the transcript.</span></>,
+      lead: <><code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>tmux-notifications</code> shells out to tmux to restyle the current window when Claude changes state. The signal lives in the status bar, not the transcript.</>,
+    },
+  ];
+  const demo = demos[active];
+
+  const [expanded, setExpanded] = React.useState(false);
+  React.useEffect(() => { setExpanded(false); }, [active]);
+
+  return (
+    <section id="demos" style={{
+      padding: bp(vp, { mobile: '64px 18px', tablet: '72px 24px', desktop: '96px 32px' }),
+      borderBottom: `1px solid ${COL.line}`,
+    }}
+    onPointerEnter={(e) => { if (e.pointerType === 'mouse') setPaused(true); }}
+    onPointerLeave={(e) => { if (e.pointerType === 'mouse') setPaused(false); }}
+    >
+      <div style={{ maxWidth: 1200, margin: '0 auto' }}>
+        <SectionLabel accent={accent}>Hook demos</SectionLabel>
+
+        {/* Tab bar — above the heading so each demo can set its own framing */}
+        <div style={{
+          display: 'flex', gap: 0, marginBottom: 32,
+        }}>
+          {demos.map((d, i) => (
+            <button key={d.id} onClick={() => setActive(i)} style={{
+              background: 'transparent', border: 'none', cursor: 'pointer',
+              padding: vp.isMobile ? '10px 6px 12px' : '12px 20px 14px',
+              fontSize: vp.isMobile ? 11 : 13,
+              fontFamily: 'JetBrains Mono, monospace',
+              whiteSpace: 'nowrap',
+              color: active === i ? COL.fg : COL.fgMute,
+              borderBottom: `2px solid ${active === i ? accent : 'transparent'}`,
+              letterSpacing: 0.2,
+              flex: vp.isMobile ? '1 1 0' : '0 0 auto',
+              textAlign: vp.isMobile ? 'center' : 'left',
+              minWidth: 0,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}>{d.tab}</button>
+          ))}
+        </div>
+
+        <h2 style={{
+          fontSize: 'clamp(32px, 3.6vw, 46px)', lineHeight: 1.1,
+          letterSpacing: -1, fontWeight: 500, margin: '0 0 14px', maxWidth: 860,
+        }}>
+          {demo.heading}
+        </h2>
+        <div style={{
+          fontFamily: 'JetBrains Mono, monospace', fontSize: 11.5,
+          letterSpacing: 0.6, color: COL.fgMute, marginBottom: 18,
+        }}>
+          from <a
+            href={`https://github.com/codestripes-dev/clooks-marketplace/tree/main/${demo.pack}`}
+            style={{ color: accent, textDecoration: 'none' }}
+          >{demo.pack}</a>
+        </div>
+        <p style={{ fontSize: 15, color: COL.fgMute, maxWidth: 640, margin: '0 0 40px', lineHeight: 1.65 }}>
+          {demo.lead}
+        </p>
+
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: stack ? 'minmax(0, 1fr)' : 'minmax(0, 1.1fr) minmax(0, 1fr)',
+          gap: stack ? 32 : 40, alignItems: 'start',
+        }}>
+          {/* Left: abridged hook source (collapsed by default) */}
+          <div style={{
+            background: COL.bgCode, border: `1px solid ${COL.line}`,
+            fontFamily: 'JetBrains Mono, monospace', fontSize: vp.isMobile ? 9 : 12,
+            lineHeight: 1.65, overflow: 'hidden',
+            position: stack ? 'static' : (expanded ? 'sticky' : 'static'), top: 96,
+          }}>
+            <button
+              type="button"
+              onClick={() => setExpanded(v => !v)}
+              style={{
+                all: 'unset', boxSizing: 'border-box', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                width: '100%', padding: '10px 14px',
+                borderBottom: expanded ? `1px solid ${COL.line}` : 'none',
+                fontSize: 11, color: COL.fgDim,
+                fontFamily: 'JetBrains Mono, monospace',
+              }}
+              aria-expanded={expanded}
+            >
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ width: 10, height: 10, background: '#4a4a4a', display: 'inline-block' }}/>
+                {demo.filename}
+              </span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10, fontSize: 10, letterSpacing: 1, textTransform: 'uppercase' }}>
+                <span>simplified</span>
+                <span style={{ color: accent, letterSpacing: 0.5, textTransform: 'none', fontSize: 11, whiteSpace: 'nowrap' }}>
+                  {expanded ? 'hide source\u00a0▴' : 'show source\u00a0▾'}
+                </span>
+              </span>
+            </button>
+            {expanded && (
+              <>
+                <div style={{ display: 'flex', padding: '14px 0' }}>
+                  <div style={{
+                    padding: vp.isMobile ? '0 8px' : '0 12px', color: COL.fgFaint, textAlign: 'right',
+                    borderRight: `1px solid ${COL.line}`, userSelect: 'none',
+                    minWidth: vp.isMobile ? 28 : 36,
+                  }}>
+                    {demo.hookLines.map((_, i) => <div key={i}>{i + 1}</div>)}
+                  </div>
+                  <div style={{ padding: vp.isMobile ? '0 10px' : '0 14px', flex: 1, minWidth: 0, overflowX: vp.isMobile ? 'visible' : 'auto' }}>
+                    {demo.hookLines.map((l, i) => (
+                      <div key={i} style={{
+                        whiteSpace: vp.isMobile ? 'pre-wrap' : 'pre',
+                        overflowWrap: vp.isMobile ? 'anywhere' : 'normal',
+                        minHeight: (vp.isMobile ? 9 : 12) * 1.65,
+                      }}>
+                        {renderLine(l)}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div style={{
+                  padding: '10px 14px', borderTop: `1px solid ${COL.line}`,
+                  fontSize: 10.5, color: COL.fgDim, letterSpacing: 0.3,
+                  display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap',
+                }}>
+                  <span>{demo.elided}</span>
+                  <span><a href="https://github.com/codestripes-dev/clooks-marketplace" style={{ color: accent, textDecoration: 'none' }}>full source →</a></span>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Right: scenes */}
+          <div>
+            {demo.scenes.map((s, i) => (
+              <div key={s.id} style={{
+                padding: '20px 0 28px',
+                borderTop: `1px solid ${COL.line}`,
+                borderBottom: i === demo.scenes.length - 1 ? `1px solid ${COL.line}` : 'none',
+              }}>
+                <div style={{
+                  fontFamily: 'JetBrains Mono, monospace', fontSize: 11,
+                  letterSpacing: 0.6, color: accent, marginBottom: 8,
+                }}>{s.tag}</div>
+                <div style={{
+                  fontSize: 17, color: COL.fg, fontWeight: 500, letterSpacing: -0.2,
+                  marginBottom: 14,
+                }}>{s.title}</div>
+
+                {demo.kind === 'tmux' ? (
+                  <TmuxWindowBar
+                    windows={s.windows}
+                    flash={s.flash}
+                    paneDim={s.paneDim}
+                    paneContent={s.pane}
+                    accent={accent}
+                  />
+                ) : (
+                  ccPane(s.pane)
+                )}
+
+                <div style={{
+                  marginTop: 12, fontSize: 12, color: COL.fgMute,
+                  fontFamily: 'JetBrains Mono, monospace', letterSpacing: 0.2,
+                }}>
+                  {s.note}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ---------- Scoped config (home / project / local) ----------
+function ScopedConfigSection({ accent }) {
+  const vp = useViewport();
+  const stack = vp.isMobile || vp.isTablet;
+
+  const layers = [
+    {
+      badge: 'HOME',
+      badgeColor: COL.fgMute,
+      path: '~/.clooks/clooks.yml',
+      annotation: 'Your personal default across every repo.',
+      lines: [
+        [[TK.prop, 'version'], [TK.op, ': '], [TK.str, '"1.0.0"']],
+        '',
+        [[TK.prop, 'js-package-manager-guard'], [TK.op, ':']],
+        ['  ', [TK.prop, 'config'], [TK.op, ':']],
+        ['    ', [TK.prop, 'allowed'], [TK.op, ': ['], [TK.str, '"bun"'], [TK.op, ']']],
+      ],
+      tag: <>You standardize on <span style={{ color: COL.fg }}>bun</span>.</>,
+    },
+    {
+      badge: 'PROJECT',
+      badgeColor: accent,
+      path: '.clooks/clooks.yml',
+      annotation: 'Committed with the repo. Every contributor runs this.',
+      lines: [
+        [[TK.prop, 'version'], [TK.op, ': '], [TK.str, '"1.0.0"']],
+        '',
+        [[TK.prop, 'js-package-manager-guard'], [TK.op, ':']],
+        ['  ', [TK.prop, 'config'], [TK.op, ':']],
+        ['    ', [TK.prop, 'allowed'], [TK.op, ': ['], [TK.str, '"pnpm"'], [TK.op, ']']],
+      ],
+      tag: <>This repo is a <span style={{ color: COL.fg }}>pnpm</span> shop. Replaces <code style={{ fontFamily: 'JetBrains Mono, monospace' }}>HOME</code>.</>,
+    },
+    {
+      badge: 'LOCAL',
+      badgeColor: COL.yellow,
+      path: '.clooks/clooks.local.yml',
+      annotation: <>Gitignored automatically by <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>clooks init</code>. Just you, just this checkout.</>,
+      lines: [
+        [[TK.prop, 'js-package-manager-guard'], [TK.op, ':']],
+        ['  ', [TK.prop, 'config'], [TK.op, ':']],
+        ['    ', [TK.prop, 'allowed'], [TK.op, ': ['], [TK.str, '"pnpm"'], [TK.op, ', '], [TK.str, '"npm"'], [TK.op, ']'], '  ', [TK.com, '# temp: CI repro']],
+      ],
+      tag: <>Temporarily allow <span style={{ color: COL.fg }}>npm</span> for today's repro. Replaces <code style={{ fontFamily: 'JetBrains Mono, monospace' }}>PROJECT</code>.</>,
+    },
+  ];
+
+  const resolvedLines = [
+    [[TK.prop, 'js-package-manager-guard'], [TK.op, ':']],
+    ['  ', [TK.prop, 'config'], [TK.op, ':']],
+    ['    ', [TK.prop, 'allowed'], [TK.op, ': ['], [TK.str, '"pnpm"'], [TK.op, ', '], [TK.str, '"npm"'], [TK.op, ']']],
+  ];
+
+  const ScopeRow = ({ layer, i, isLast }) => (
+    <div style={{
+      display: 'grid',
+      gridTemplateColumns: stack ? 'minmax(0, 1fr)' : '200px minmax(0, 1fr)',
+      gap: stack ? 14 : 32,
+      padding: stack ? '24px 0' : '28px 0',
+      borderTop: i === 0 ? `1px solid ${COL.line}` : 'none',
+      borderBottom: `1px solid ${COL.line}`,
+      alignItems: 'start',
+    }}>
+      <div style={{ minWidth: 0 }}>
+        <div style={{
+          display: 'inline-block',
+          fontFamily: 'JetBrains Mono, monospace', fontSize: 10.5,
+          letterSpacing: 1.2, textTransform: 'uppercase',
+          color: layer.badgeColor,
+          border: `1px solid ${layer.badgeColor}`,
+          padding: '3px 8px', marginBottom: 10,
+        }}>
+          {layer.badge}
+        </div>
+        <div style={{
+          fontFamily: 'JetBrains Mono, monospace', fontSize: 12,
+          color: COL.fg, marginBottom: 6, wordBreak: 'break-all',
+        }}>
+          {layer.path}
+        </div>
+        <div style={{ fontSize: 13, color: COL.fgMute, lineHeight: 1.55, maxWidth: 280 }}>
+          {layer.annotation}
+        </div>
+      </div>
+      <div style={{ minWidth: 0 }}>
+        <CodeCard lines={layer.lines} lineNumbers={false} compact/>
+        <div style={{
+          marginTop: 10, fontSize: 12, color: COL.fgMute,
+          fontFamily: 'JetBrains Mono, monospace', letterSpacing: 0.2,
+        }}>
+          {layer.tag}
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <section id="scoped-config" style={{
+      padding: bp(vp, { mobile: '64px 18px', tablet: '72px 24px', desktop: '96px 32px' }),
+      borderBottom: `1px solid ${COL.line}`,
+    }}>
+      <div style={{ maxWidth: 1120, margin: '0 auto' }}>
+        <SectionLabel accent={accent}>Scoped config</SectionLabel>
+        <h2 style={{
+          fontSize: 'clamp(32px, 3.6vw, 46px)', lineHeight: 1.1,
+          letterSpacing: -1, fontWeight: 500, margin: '0 0 20px', maxWidth: 820,
+        }}>
+          One hook, three scopes.<br/>
+          <span style={{ color: COL.fgMute }}>Home, project, and a local file nobody else sees.</span>
+        </h2>
+        <p style={{ fontSize: 15, color: COL.fgMute, maxWidth: 680, margin: '0 0 40px', lineHeight: 1.6 }}>
+          Clooks merges three config files in order: your home config, the project's committed config,
+          and a gitignored local file. The same hook — <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>js-package-manager-guard</code> —
+          behaves differently in each scope, and the last layer wins.
+        </p>
+
+        <div>
+          {layers.map((layer, i) => (
+            <ScopeRow key={layer.badge} layer={layer} i={i} isLast={i === layers.length - 1}/>
+          ))}
+
+          {/* Resolved */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: stack ? 'minmax(0, 1fr)' : '200px minmax(0, 1fr)',
+            gap: stack ? 14 : 32,
+            padding: stack ? '28px 0 0' : '32px 0 0',
+            alignItems: 'start',
+          }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{
+                display: 'inline-block',
+                fontFamily: 'JetBrains Mono, monospace', fontSize: 10.5,
+                letterSpacing: 1.2, textTransform: 'uppercase',
+                color: COL.bg || '#0a0a0a', background: accent,
+                padding: '3px 8px', marginBottom: 10,
+              }}>
+                Resolved
+              </div>
+              <div style={{ fontSize: 13, color: COL.fgMute, lineHeight: 1.55, maxWidth: 280 }}>
+                What the hook actually sees at runtime. The first entry in <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>allowed</code> is
+                what Claude gets told to use.
+              </div>
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <CodeCard lines={resolvedLines} lineNumbers={false} compact/>
+            </div>
+          </div>
+        </div>
+
+        <div style={{
+          marginTop: 36, padding: '14px 18px',
+          background: COL.bgSoft, border: `1px solid ${COL.line}`,
+          fontSize: 12.5, color: COL.fgMute, lineHeight: 1.6,
+        }}>
+          <span style={{ color: COL.fg, fontWeight: 500 }}>Arrays replace, they don't merge.</span>
+          {' '}Each layer fully replaces <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>allowed</code> from the layer beneath it —
+          there's no concatenation. Clooks prints a one-line warning on session start when a project hook shadows a home hook.
+        </div>
+      </div>
+    </section>
+  );
+}
+
 Object.assign(window, {
-  ProblemSection, HookAnatomySection, ConfigSection, InstallSection,
+  ProblemSection, HookInActionSection, HookAnatomySection, ConfigSection, InstallSection,
   ComparisonSection, WhyNotPluginSection, RoadmapSection, FAQSection,
-  CapturesSection, Footer,
+  CapturesSection, TmuxHookSection, ScopedConfigSection, Footer,
 });
