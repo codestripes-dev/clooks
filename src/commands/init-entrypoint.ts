@@ -38,14 +38,17 @@ const ENTRYPOINT_BODY =
   '# Locate the Clooks binary on PATH.\n' +
   'CLOOKS_BIN=$(command -v clooks 2>/dev/null) || true\n' +
   '\n' +
-  '# Bootstrap detection: block if binary not found (fail-closed).\n' +
+  '# Bootstrap advisory: allow the action to proceed and print install guidance.\n' +
+  '# A missing binary is a setup state, not a runtime failure — blocking here would\n' +
+  '# deadlock /clooks:setup itself, which invokes the Bash tool that this hook guards.\n' +
   'if [ -z "$CLOOKS_BIN" ]; then\n' +
   "  cat >&2 <<'MSG'\n" +
   '[clooks] Binary not found. This project uses Clooks but it is not installed.\n' +
-  'Install: curl -fsSL https://clooks.cc/install | bash\n' +
-  'Bypass:  export SKIP_CLOOKS=true\n' +
+  'Install (Claude Code): run /clooks:setup\n' +
+  'Install (manual):      https://github.com/codestripes-dev/clooks/releases/latest or check out https://clooks.cc\n' +
+  'Bypass:                export SKIP_CLOOKS=true\n' +
   'MSG\n' +
-  '  exit 2\n' +
+  '  exit 0\n' +
   'fi\n' +
   '\n' +
   '# Capture stdin so we can log it and replay it to the binary.\n' +

@@ -18,14 +18,17 @@ fi
 # Locate the Clooks binary on PATH.
 CLOOKS_BIN=$(command -v clooks 2>/dev/null) || true
 
-# Bootstrap detection: block if binary not found (fail-closed).
+# Bootstrap advisory: allow the action to proceed and print install guidance.
+# A missing binary is a setup state, not a runtime failure — blocking here would
+# deadlock /clooks:setup itself, which invokes the Bash tool that this hook guards.
 if [ -z "$CLOOKS_BIN" ]; then
   cat >&2 <<'MSG'
 [clooks] Binary not found. This project uses Clooks but it is not installed.
-Install: curl -fsSL https://clooks.cc/install | bash
-Bypass:  export SKIP_CLOOKS=true
+Install (Claude Code): run /clooks:setup
+Install (manual):      https://github.com/codestripes-dev/clooks/releases/latest or check out https://clooks.cc
+Bypass:                export SKIP_CLOOKS=true
 MSG
-  exit 2
+  exit 0
 fi
 
 # Capture stdin so we can log it and replay it to the binary.

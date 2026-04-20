@@ -39,7 +39,7 @@ crash-on-run: {}
 
   test('hook file that fails to import blocks the action', () => {
     sandbox = createSandbox()
-    sandbox.writeHook('broken.ts', 'export const hook = {')  // syntax error
+    sandbox.writeHook('broken.ts', 'export const hook = {') // syntax error
     sandbox.writeConfig(`version: "1.0.0"
 broken:
   maxFailures: 3
@@ -52,16 +52,20 @@ broken:
     expect(output.hookSpecificOutput.permissionDecision).toBe('deny')
   })
 
-  test('missing binary via entrypoint exits 2 with bootstrap message', () => {
+  test('missing binary via entrypoint exits 0 with bootstrap advisory', () => {
+    // Missing binary is a setup state, not a runtime failure. Exiting 0
+    // allows the tool call to proceed so /clooks:setup (which runs through
+    // the Bash tool this hook guards) can install the binary without deadlocking.
     sandbox = createSandbox()
     sandbox.writeEntrypoint(ENTRYPOINT_SCRIPT)
     sandbox.removeClooksBinary()
     const result = sandbox.runEntrypoint({
       stdin: loadEvent('pre-tool-use-bash.json'),
     })
-    expect(result.exitCode).toBe(2)
+    expect(result.exitCode).toBe(0)
     expect(result.stderr).toContain('Binary not found')
-    expect(result.stderr).toContain('clooks.cc/install')
+    expect(result.stderr).toContain('/clooks:setup')
+    expect(result.stderr).toContain('github.com/codestripes-dev/clooks/releases/latest')
     expect(result.stderr).toContain('SKIP_CLOOKS')
   })
 
@@ -78,10 +82,10 @@ broken:
   test('SKIP_CLOOKS=true bypasses everything', () => {
     sandbox = createSandbox()
     sandbox.writeEntrypoint(ENTRYPOINT_SCRIPT)
-    sandbox.removeClooksBinary()  // binary doesn't even exist
+    sandbox.removeClooksBinary() // binary doesn't even exist
     const result = sandbox.runEntrypoint({
       stdin: loadEvent('pre-tool-use-bash.json'),
-      env: { SKIP_CLOOKS: 'true' }
+      env: { SKIP_CLOOKS: 'true' },
     })
     expect(result.exitCode).toBe(0)
   })

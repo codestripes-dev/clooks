@@ -772,8 +772,10 @@ describe('entrypoint dedup behavior', () => {
       env: { HOME: fakeHome, PATH: '/usr/local/bin:/usr/bin:/bin' },
       stdin: Buffer.from('{}'),
     })
-    // Should exit 2 because the binary isn't installed
-    expect(proc.exitCode).toBe(2)
+    // Should exit 0 (allow) with install advisory on stderr — missing binary
+    // is a setup state, not a runtime failure. Blocking here would deadlock
+    // /clooks:setup, which invokes the Bash tool guarded by this hook.
+    expect(proc.exitCode).toBe(0)
     const stderr = proc.stderr.toString()
     expect(stderr).toContain('Binary not found')
   })

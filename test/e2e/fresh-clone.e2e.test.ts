@@ -29,12 +29,15 @@ allow-all: {}
     // Remove the binary to simulate a fresh clone where clooks is not installed.
     sandbox.removeClooksBinary()
 
-    // Step 1: Run entrypoint — should fail with bootstrap message (exit 2).
+    // Step 1: Run entrypoint — should print bootstrap advisory and exit 0 (allow).
+    // Missing binary is a setup state; exiting 0 lets /clooks:setup run through
+    // the Bash tool (which is itself guarded by this hook) without deadlocking.
     const event = loadEvent('pre-tool-use-bash.json')
     const failResult = sandbox.runEntrypoint({ stdin: event })
-    expect(failResult.exitCode).toBe(2)
+    expect(failResult.exitCode).toBe(0)
     expect(failResult.stderr).toContain('Binary not found')
-    expect(failResult.stderr).toContain('clooks.cc/install')
+    expect(failResult.stderr).toContain('/clooks:setup')
+    expect(failResult.stderr).toContain('github.com/codestripes-dev/clooks/releases/latest')
     expect(failResult.stderr).toContain('SKIP_CLOOKS')
 
     // Step 2: "Install" the binary — restore the symlink in the sandbox home.
