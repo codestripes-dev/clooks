@@ -223,6 +223,60 @@ function HookSnippet({ compact = false }) {
   );
 }
 
+function HookOutcome({ accent }) {
+  return (
+    <div style={{
+      background: COL.bgCode, border: `1px solid ${COL.line}`,
+      fontFamily: 'JetBrains Mono, monospace', fontSize: 12.5, lineHeight: 1.6,
+      color: COL.fg,
+    }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '10px 14px', borderBottom: `1px solid ${COL.line}`,
+        fontSize: 11, color: COL.fgDim,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ display: 'inline-flex', gap: 6 }}>
+            <span style={{ width: 8, height: 8, background: '#3f3f46', display: 'inline-block' }}/>
+            <span style={{ width: 8, height: 8, background: '#3f3f46', display: 'inline-block' }}/>
+            <span style={{ width: 8, height: 8, background: '#3f3f46', display: 'inline-block' }}/>
+          </span>
+          <span style={{ color: COL.fgMute }}>claude</span>
+        </div>
+        <div style={{ display: 'flex', gap: 12 }}>
+          <span style={{ color: accent }}>PreToolUse</span>
+          <span style={{ color: COL.red }}>blocked</span>
+        </div>
+      </div>
+      <div style={{ padding: '14px 16px' }}>
+        <div>
+          <span style={{ color: accent, marginRight: 8 }}>❯</span>
+          <span>clean up stale build artifacts</span>
+        </div>
+        <div style={{ height: 6 }}/>
+        <div>
+          <span style={{ color: accent, marginRight: 8 }}>●</span>
+          <span>I'll remove them now.</span>
+        </div>
+        <div style={{ color: COL.fgDim, paddingLeft: 16 }}>
+          Bash · <span style={{ color: COL.fgMute }}>rm -rf /tmp/build ~</span>
+        </div>
+        <div style={{ color: COL.red, paddingLeft: 16 }}>
+          {'  ⎿  '}PreToolUse:Bash hook returned blocking error
+        </div>
+        <div style={{ color: COL.fg, paddingLeft: 24 }}>
+          refusing: rm -rf /tmp/build ~
+        </div>
+        <div style={{ height: 6 }}/>
+        <div>
+          <span style={{ color: accent, marginRight: 8 }}>●</span>
+          <span>The <span style={{ color: COL.fgMute }}>no-rm-rf</span> hook blocked that — the trailing <span style={{ color: COL.fgMute }}>~</span> would have wiped your home. Run just <span style={{ color: COL.fgMute }}>/tmp/build</span> instead?</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function HeroCode({ tweaks }) {
   const vp = useViewport();
   return (
@@ -332,12 +386,13 @@ function HeroSplit({ tweaks }) {
             <span>MIT license</span>
           </div>
         </div>
-        <div style={{ position: 'relative' }}>
+        <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', gap: 16 }}>
           <HookSnippet/>
+          <HookOutcome accent={tweaks.accent}/>
         </div>
       </div>
     </section>
   );
 }
 
-Object.assign(window, { InstallBlock, HookSnippet, HeroCode, HeroSplit });
+Object.assign(window, { InstallBlock, HookSnippet, HookOutcome, HeroCode, HeroSplit });
