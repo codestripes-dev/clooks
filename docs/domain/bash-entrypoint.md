@@ -10,7 +10,7 @@ The script performs six steps in order:
 
 1. **Bypass check** — If `SKIP_CLOOKS=true`, exit 0 immediately (no binary invocation).
 2. **Binary location** — Look up `clooks` on PATH via `command -v clooks`.
-3. **Bootstrap detection** — If binary not found on PATH, print install instructions to stderr and exit 2 (block).
+3. **Bootstrap detection** — If binary not found on PATH, print install instructions to stderr and exit 0 (allow). Missing binary is a setup state, not a runtime failure — blocking here would deadlock `/clooks:setup`, whose install invocation runs through the same hook.
 4. **Stdin capture** — Read all of stdin into a variable (`STDIN_DATA=$(cat)`) so it can be logged and replayed.
 5. **Debug logging** — If `CLOOKS_DEBUG=true`, write the captured stdin JSON to `${CLOOKS_LOGDIR:-/tmp/clooks-debug}/<timestamp>.json` for replay/diagnosis. The engine also outputs debug info (loaded hooks, matched hooks per event, per-hook results) to both stderr and `additionalContext` so Claude can read it.
 6. **Delegation + exit code translation** — Pipe captured stdin to the binary (`echo "$STDIN_DATA" | "$CLOOKS_BIN"`). Exit codes 0 and 2 pass through; everything else becomes exit 2 (fail-closed).
@@ -25,7 +25,7 @@ The script performs six steps in order:
 
 ## Binary Location Strategy
 
-The binary is found via `command -v clooks` — a standard PATH lookup. The installer adds `clooks` to a directory on the user's PATH (e.g., `/usr/local/bin` or `~/.local/bin`).
+The binary is found via `command -v clooks` — a standard PATH lookup. The `/clooks:setup` installer writes to `~/.local/bin/clooks` (the XDG user-binary directory) and ensures it's on PATH. Users who install via other means (Homebrew, manual download to `/usr/local/bin`, etc.) work equally well — any directory on PATH is valid.
 
 The binary is a per-user global tool (like `git` or `node`). Hooks and config are per-project (in `.clooks/` within each project).
 
@@ -39,7 +39,7 @@ Clooks inverts Claude Code's native error handling:
 | Hook exits 2 | Block | Block |
 | Hook exits 1 (crash) | **Allow** (non-blocking error) | **Block** (fail-closed) |
 | Hook exits 137 (OOM kill) | **Allow** | **Block** (fail-closed) |
-| Binary missing | N/A | **Block** + install message |
+| Binary missing | N/A | **Allow** + install advisory (exit 0, stderr) |
 
 The translation logic: only exit codes 0 and 2 pass through unchanged. Any other exit code is converted to exit 2 with an error message on stderr.
 
@@ -79,7 +79,7 @@ The flag file is a simple empty file created by `clooks init --global`. Its pres
 
 A third entrypoint variant exists for the plugin distribution model. It lives at `clooks-marketplace/clooks/hooks/install-entrypoint.sh` in the plugin source, and at runtime resides in the Claude Code plugin cache (read-only).
 
-**What it does:** Fires on SessionStart only. Checks if the clooks binary exists at `~/bin/clooks` or on PATH. If found, exits 0 silently. If missing, exits 0 with JSON output containing `hookSpecificOutput` — a `systemMessage` shown to the user and `additionalContext` injected into Claude's context directing it to suggest `/clooks:setup`.
+**What it does:** Fires on SessionStart only. Checks if the clooks binary is on PATH via `command -v clooks`. If found, exits 0 silently. If missing, exits 0 with JSON output containing `hookSpecificOutput` — a `systemMessage` shown to the user and `additionalContext` injected into Claude's context directing it to suggest `/clooks:setup`.
 
 **Why exit 0 + JSON, not exit 2:** SessionStart ignores blocking errors (exit 2). The hooks config screen explicitly says "Blocking errors are ignored" for SessionStart. To surface a message, the hook must exit 0 and put the message in `hookSpecificOutput.systemMessage` (shown to user) and `hookSpecificOutput.additionalContext` (injected into Claude's context).
 
@@ -104,7 +104,7 @@ A third entrypoint variant exists for the plugin distribution model. It lives at
 | Events              | All                             | All                              | SessionStart only               |
 | Invokes binary?     | Yes                             | Yes                              | No                              |
 | Dedup checks        | Global flag file                | None (authoritative)             | None (no binary invocation)     |
-| Missing binary      | Exit 2 + install instructions   | Exit 2 + install instructions    | Exit 0 + JSON hookSpecificOutput |
+| Missing binary      | Exit 0 + install advisory (stderr) | Exit 0 + install advisory (stderr) | Exit 0 + JSON hookSpecificOutput |
 | Created by          | clooks init                     | clooks init --global             | Plugin install                  |
 | Purpose             | Event dispatch                  | Event dispatch (all projects)    | Bootstrap check                 |
 
