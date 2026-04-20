@@ -2295,95 +2295,85 @@ function TmuxHookSection({ accent }) {
 function ScopedConfigSection({ accent }) {
   const vp = useViewport();
   const stack = vp.isMobile || vp.isTablet;
+  const mono = { fontFamily: 'JetBrains Mono, monospace' };
 
   const layers = [
     {
       badge: 'HOME',
       badgeColor: COL.fgMute,
       path: '~/.clooks/clooks.yml',
-      annotation: 'Your personal default across every repo.',
+      caption: <>Machine-wide defaults plus your personal tooling.</>,
       lines: [
-        [[TK.prop, 'version'], [TK.op, ': '], [TK.str, '"1.0.0"']],
+        [[TK.prop, 'config'], [TK.op, ':']],
+        ['  ', [TK.prop, 'timeout'], [TK.op, ': '], [TK.num, '30000']],
+        ['  ', [TK.prop, 'onError'], [TK.op, ': '], [TK.str, 'block']],
         '',
         [[TK.prop, 'js-package-manager-guard'], [TK.op, ':']],
         ['  ', [TK.prop, 'config'], [TK.op, ':']],
         ['    ', [TK.prop, 'allowed'], [TK.op, ': ['], [TK.str, '"bun"'], [TK.op, ']']],
       ],
-      tag: <>You standardize on <span style={{ color: COL.fg }}>bun</span>.</>,
     },
     {
       badge: 'PROJECT',
       badgeColor: accent,
       path: '.clooks/clooks.yml',
-      annotation: 'Committed with the repo. Every contributor runs this.',
+      caption: <>Committed. Overrides <span style={{ color: COL.fg, ...mono }}>HOME</span> and adds team safety hooks.</>,
       lines: [
-        [[TK.prop, 'version'], [TK.op, ': '], [TK.str, '"1.0.0"']],
-        '',
         [[TK.prop, 'js-package-manager-guard'], [TK.op, ':']],
         ['  ', [TK.prop, 'config'], [TK.op, ':']],
         ['    ', [TK.prop, 'allowed'], [TK.op, ': ['], [TK.str, '"pnpm"'], [TK.op, ']']],
+        '',
+        [[TK.prop, 'secret-scanner'], [TK.op, ':']],
+        ['  ', [TK.prop, 'uses'], [TK.op, ': '], [TK.str, 'no-public-secrets']],
       ],
-      tag: <>This repo uses <span style={{ color: COL.fg }}>pnpm</span>. Replaces <code style={{ fontFamily: 'JetBrains Mono, monospace' }}>HOME</code>.</>,
     },
     {
       badge: 'LOCAL',
       badgeColor: COL.yellow,
       path: '.clooks/clooks.local.yml',
-      annotation: <>Gitignored automatically by <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>clooks init</code>. Applies only to your checkout.</>,
+      caption: <>Gitignored. Overrides <span style={{ color: COL.fg, ...mono }}>PROJECT</span>; mute hooks that bug you.</>,
       lines: [
         [[TK.prop, 'js-package-manager-guard'], [TK.op, ':']],
         ['  ', [TK.prop, 'config'], [TK.op, ':']],
-        ['    ', [TK.prop, 'allowed'], [TK.op, ': ['], [TK.str, '"pnpm"'], [TK.op, ', '], [TK.str, '"npm"'], [TK.op, ']'], '  ', [TK.com, '# temp: CI repro']],
+        ['    ', [TK.prop, 'allowed'], [TK.op, ': ['], [TK.str, '"pnpm"'], [TK.op, ', '], [TK.str, '"npm"'], [TK.op, ']']],
+        '',
+        [[TK.prop, 'secret-scanner'], [TK.op, ':']],
+        ['  ', [TK.prop, 'enabled'], [TK.op, ': '], [TK.kw, 'false']],
       ],
-      tag: <>Temporarily allow <span style={{ color: COL.fg }}>npm</span> for today's repro. Replaces <code style={{ fontFamily: 'JetBrains Mono, monospace' }}>PROJECT</code>.</>,
     },
   ];
 
   const resolvedLines = [
+    [[TK.prop, 'config'], [TK.op, ':']],
+    ['  ', [TK.prop, 'timeout'], [TK.op, ': '], [TK.num, '30000']],
+    ['  ', [TK.prop, 'onError'], [TK.op, ': '], [TK.str, 'block']],
+    '',
     [[TK.prop, 'js-package-manager-guard'], [TK.op, ':']],
     ['  ', [TK.prop, 'config'], [TK.op, ':']],
     ['    ', [TK.prop, 'allowed'], [TK.op, ': ['], [TK.str, '"pnpm"'], [TK.op, ', '], [TK.str, '"npm"'], [TK.op, ']']],
+    '',
+    [[TK.prop, 'secret-scanner'], [TK.op, ':']],
+    ['  ', [TK.prop, 'uses'], [TK.op, ': '], [TK.str, 'no-public-secrets']],
+    ['  ', [TK.prop, 'enabled'], [TK.op, ': '], [TK.kw, 'false']],
   ];
 
-  const ScopeRow = ({ layer, i, isLast }) => (
-    <div style={{
-      display: 'grid',
-      gridTemplateColumns: stack ? 'minmax(0, 1fr)' : '200px minmax(0, 1fr)',
-      gap: stack ? 14 : 32,
-      padding: stack ? '24px 0' : '28px 0',
-      borderTop: i === 0 ? `1px solid ${COL.line}` : 'none',
-      borderBottom: `1px solid ${COL.line}`,
-      alignItems: 'start',
-    }}>
-      <div style={{ minWidth: 0 }}>
-        <div style={{
-          display: 'inline-block',
-          fontFamily: 'JetBrains Mono, monospace', fontSize: 10.5,
-          letterSpacing: 1.2, textTransform: 'uppercase',
-          color: layer.badgeColor,
-          border: `1px solid ${layer.badgeColor}`,
-          padding: '3px 8px', marginBottom: 10,
+  const ScopeCard = ({ layer }) => (
+    <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <span style={{
+          ...mono, fontSize: 10.5, letterSpacing: 1.2, textTransform: 'uppercase',
+          color: layer.badgeColor, border: `1px solid ${layer.badgeColor}`,
+          padding: '3px 8px',
         }}>
           {layer.badge}
-        </div>
-        <div style={{
-          fontFamily: 'JetBrains Mono, monospace', fontSize: 12,
-          color: COL.fg, marginBottom: 6, wordBreak: 'break-all',
-        }}>
+        </span>
+        <span style={{ ...mono, fontSize: 12, color: COL.fg, wordBreak: 'break-all' }}>
           {layer.path}
-        </div>
-        <div style={{ fontSize: 13, color: COL.fgMute, lineHeight: 1.55, maxWidth: 280 }}>
-          {layer.annotation}
-        </div>
+        </span>
       </div>
-      <div style={{ minWidth: 0 }}>
-        <CodeCard lines={layer.lines} lineNumbers={false} compact/>
-        <div style={{
-          marginTop: 10, fontSize: 12, color: COL.fgMute,
-          fontFamily: 'JetBrains Mono, monospace', letterSpacing: 0.2,
-        }}>
-          {layer.tag}
-        </div>
+      <CodeCard lines={layer.lines} lineNumbers={false} compact/>
+      <div style={{ fontSize: 12.5, color: COL.fgMute, lineHeight: 1.5 }}>
+        {layer.caption}
       </div>
     </div>
   );
@@ -2397,59 +2387,41 @@ function ScopedConfigSection({ accent }) {
         <SectionLabel accent={accent}>Scoped config</SectionLabel>
         <h2 style={{
           fontSize: 'clamp(32px, 3.6vw, 46px)', lineHeight: 1.1,
-          letterSpacing: -1, fontWeight: 500, margin: '0 0 20px', maxWidth: 820,
+          letterSpacing: -1, fontWeight: 500, margin: '0 0 16px', maxWidth: 820,
         }}>
-          One hook, three scopes.<br/>
-          <span style={{ color: COL.fgMute }}>Home, project, and a local file just for you.</span>
+          Three files merge top-down.<br/>
+          <span style={{ color: COL.fgMute }}>Last write wins.</span>
         </h2>
-        <p style={{ fontSize: 15, color: COL.fgMute, maxWidth: 680, margin: '0 0 40px', lineHeight: 1.6 }}>
-          Clooks merges three config files in order: your home config, the project's committed config,
-          and a gitignored local file. The same hook — <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>js-package-manager-guard</code> —
-          behaves differently in each scope, and the last layer wins.
+        <p style={{ fontSize: 15, color: COL.fgMute, maxWidth: 680, margin: '0 0 32px', lineHeight: 1.6 }}>
+          The same hook — <code style={{ ...mono, color: COL.fg }}>js-package-manager-guard</code> — resolves differently
+          in each repo. Clooks reads home, then project, then local; arrays replace, they don't merge.
         </p>
 
-        <div>
-          {layers.map((layer, i) => (
-            <ScopeRow key={layer.badge} layer={layer} i={i} isLast={i === layers.length - 1}/>
-          ))}
-
-          {/* Resolved */}
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: stack ? 'minmax(0, 1fr)' : '200px minmax(0, 1fr)',
-            gap: stack ? 14 : 32,
-            padding: stack ? '28px 0 0' : '32px 0 0',
-            alignItems: 'start',
-          }}>
-            <div style={{ minWidth: 0 }}>
-              <div style={{
-                display: 'inline-block',
-                fontFamily: 'JetBrains Mono, monospace', fontSize: 10.5,
-                letterSpacing: 1.2, textTransform: 'uppercase',
-                color: COL.bg || '#0a0a0a', background: accent,
-                padding: '3px 8px', marginBottom: 10,
-              }}>
-                Resolved
-              </div>
-              <div style={{ fontSize: 13, color: COL.fgMute, lineHeight: 1.55, maxWidth: 280 }}>
-                What the hook actually sees at runtime. The first entry in <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>allowed</code> is
-                what Claude gets told to use.
-              </div>
-            </div>
-            <div style={{ minWidth: 0 }}>
-              <CodeCard lines={resolvedLines} lineNumbers={false} compact/>
-            </div>
-          </div>
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: stack ? 'minmax(0, 1fr)' : 'repeat(3, minmax(0, 1fr))',
+          gap: stack ? 24 : 20,
+        }}>
+          {layers.map((layer) => <ScopeCard key={layer.badge} layer={layer}/>)}
         </div>
 
         <div style={{
-          marginTop: 36, padding: '14px 18px',
-          background: COL.bgSoft, border: `1px solid ${COL.line}`,
-          fontSize: 12.5, color: COL.fgMute, lineHeight: 1.6,
+          marginTop: 32, padding: '24px 0 0',
+          borderTop: `1px solid ${COL.line}`,
+          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12,
         }}>
-          <span style={{ color: COL.fg, fontWeight: 500 }}>Arrays replace, they don't merge.</span>
-          {' '}Each layer fully replaces <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>allowed</code> from the layer beneath it —
-          there's no concatenation. Clooks prints a one-line warning on session start when a project hook shadows a home hook.
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{
+              ...mono, fontSize: 10.5, letterSpacing: 1.2, textTransform: 'uppercase',
+              color: COL.bg || '#0a0a0a', background: accent, padding: '3px 8px',
+            }}>
+              Resolved
+            </span>
+            <span style={{ fontSize: 12.5, color: COL.fgMute }}>what the hook sees</span>
+          </div>
+          <div style={{ width: '100%', maxWidth: 420, minWidth: 0 }}>
+            <CodeCard lines={resolvedLines} lineNumbers={false} compact/>
+          </div>
         </div>
       </div>
     </section>
