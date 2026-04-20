@@ -8,15 +8,7 @@
 // only the deployed dist/ drops it.
 
 import puppeteer from 'puppeteer'
-import {
-  copyFileSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from 'node:fs'
+import { cpSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const SRC = 'page'
@@ -25,10 +17,7 @@ const RENDER_TIMEOUT_MS = 15_000
 
 function copyPageToDist(): void {
   rmSync(OUT, { recursive: true, force: true })
-  mkdirSync(OUT, { recursive: true })
-  for (const entry of readdirSync(SRC, { withFileTypes: true })) {
-    if (entry.isFile()) copyFileSync(join(SRC, entry.name), join(OUT, entry.name))
-  }
+  cpSync(SRC, OUT, { recursive: true })
 }
 
 // Transpile every .jsx in dist/ to .js (classic React.createElement transform)
@@ -86,6 +75,10 @@ function transformIndexHtml(): void {
     writeFileSync(join(OUT, 'app.js'), transpiled)
     html = html.replace(inlineMatch[0], '<script src="app.js"></script>')
   }
+
+  // Defer all same-origin scripts — they become non-render-blocking while
+  // still executing in source order after parse.
+  html = html.replace(/<script src="([^"]+)"><\/script>/g, '<script defer src="$1"></script>')
 
   writeFileSync(indexPath, html)
 }
