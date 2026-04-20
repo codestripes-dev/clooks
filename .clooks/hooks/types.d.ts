@@ -1,4 +1,4 @@
-// Clooks v0.0.1 — generated type declarations
+// Clooks v0.1.0 — generated type declarations
 // Do not edit. Regenerate with: clooks types
 type EventName =
   | 'PreToolUse'
@@ -361,11 +361,23 @@ export type PreToolUseContext = BaseContext & {
         toolName: 'AskUserQuestion'
         toolInput: AskUserQuestionToolInput
       }
-    | {
-        toolName: string
-        toolInput: Record<string, unknown>
-      }
   )
+/**
+ * Context for a PreToolUse event where the tool name is not one of the 10
+ * known variants (e.g. MCP tools, ExitPlanMode, future upstream tools).
+ * Cast from `PreToolUseContext` when handling unknown tool names.
+ *
+ * @example
+ * const ctx = rawCtx as unknown as UnknownPreToolUseContext
+ * if (ctx.toolName.startsWith('mcp__')) { ... }
+ */
+export type UnknownPreToolUseContext = BaseContext & {
+  event: 'PreToolUse'
+  toolUseId: string
+  originalToolInput: Record<string, unknown>
+  toolName: string
+  toolInput: Record<string, unknown>
+}
 export interface UserPromptSubmitContext extends BaseContext {
   event: 'UserPromptSubmit'
   prompt: string
