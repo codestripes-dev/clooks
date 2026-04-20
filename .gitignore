@@ -26,4 +26,5 @@ docs/epics/*
 docs/findings/*
 !docs/findings/index.md
 docs/research/
+docs/CODE_QUALITY_BACKLOG.md
 PRODUCT_EXPLORATION.md
