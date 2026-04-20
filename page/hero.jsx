@@ -245,16 +245,16 @@ function HeroCode({ tweaks }) {
           letterSpacing: vp.isMobile ? -1 : -2,
           fontWeight: 500, margin: '0 0 24px', maxWidth: 980,
         }}>
-          A TypeScript hook runtime<br/>
+          TypeScript hooks<br/>
           <span style={{ color: COL.fgMute }}>for Claude Code.</span>
         </h1>
         <p style={{
           fontSize: vp.isMobile ? 16 : 18, lineHeight: 1.55, color: COL.fgMute,
           maxWidth: 640, margin: '0 0 40px',
         }}>
-          Write hooks once, run them safely, share them across projects and teams.
-          Clooks wraps Claude Code's native hooks — so a crashed hook blocks the action
-          instead of silently passing through.
+          Write hooks as small TypeScript files. Clooks runs them when Claude Code
+          edits files, runs commands, or finishes a session — and blocks the
+          action if a hook crashes.
         </p>
 
         <div style={{ maxWidth: 720, marginBottom: vp.isMobile ? 40 : 56 }}>
@@ -276,7 +276,7 @@ function HeroCode({ tweaks }) {
             fontFamily: 'JetBrains Mono, monospace', letterSpacing: 1,
             textTransform: 'uppercase',
           }}>
-            A hook, start to finish:
+            A real hook:
           </div>
           <HookSnippet/>
         </div>
@@ -318,8 +318,8 @@ function HeroSplit({ tweaks }) {
             <span style={{ color: COL.fgMute }}>for Claude Code.</span>
           </h1>
           <p style={{ fontSize: 17, lineHeight: 1.55, color: COL.fgMute, margin: '0 0 32px' }}>
-            Write hooks once, run them safely, share them across projects and teams.
-            Clooks wraps native hooks so a crash blocks — it doesn't pass through.
+            Write hooks as small TypeScript files. Clooks runs them when Claude Code
+            edits files or runs commands, and blocks the action if a hook crashes.
           </p>
           <InstallBlock cmd={tweaks.installCmd} accent={tweaks.accent}/>
           <div style={{

@@ -87,19 +87,19 @@ function HookInActionSection({ accent }) {
   // Timeline (ms) of a single loop. Each tick advances the scene.
   const SCENE = [
     { at: 0,    step: 'idle',     highlight: null },
-    { at: 600,  step: 'typing',   highlight: null },
-    { at: 3200, step: 'sent',     highlight: null },
-    { at: 3800, step: 'pre-tool', highlight: 'guard' },   // ctx.tool !== 'Bash' check
-    { at: 4600, step: 'parse',    highlight: 'regex' },   // dangerous = /rm.../.test
-    { at: 5400, step: 'decide',   highlight: 'return' },  // returns block
-    { at: 6200, step: 'blocked',  highlight: 'return' },
-    { at: 7600, step: 'reply',    highlight: null },
-    { at: 10000, step: 'idle',    highlight: null },      // loop end
+    { at: 300,  step: 'typing',   highlight: null },
+    { at: 2100, step: 'sent',     highlight: null },
+    { at: 2500, step: 'pre-tool', highlight: 'guard' },   // ctx.tool !== 'Bash' check
+    { at: 3000, step: 'parse',    highlight: 'regex' },   // dangerous = /rm.../.test
+    { at: 3500, step: 'decide',   highlight: 'return' },  // returns block
+    { at: 3900, step: 'blocked',  highlight: 'return' },
+    { at: 4800, step: 'reply',    highlight: null },
+    { at: 6200, step: 'idle',     highlight: null },      // loop end
   ];
-  const LOOP_MS = 10500;
+  const LOOP_MS = 6500;
 
   const fullPrompt = 'clean up stale artifacts: rm -rf /tmp/build ~';
-  const HOLD_MS = 3000;
+  const HOLD_MS = 1500;
   const [t, setT] = React.useState(0);
   const [paused, setPaused] = React.useState(false);
   const [inView, setInView] = React.useState(true);
@@ -145,7 +145,7 @@ function HookInActionSection({ accent }) {
         accumRef.current += dt;
         if (accumRef.current >= LOOP_MS) {
           accumRef.current = LOOP_MS;
-          setT(10000);
+          setT(6200);
           holdRef.current = HOLD_MS;
         } else {
           setT(accumRef.current);
@@ -161,7 +161,7 @@ function HookInActionSection({ accent }) {
   const scene = SCENE.reduce((acc, s) => (t >= s.at ? s : acc), SCENE[0]);
 
   // Typing progress for the prompt
-  const typingStart = 600, typingEnd = 3200;
+  const typingStart = 300, typingEnd = 2100;
   const typed = (() => {
     if (t < typingStart) return '';
     if (t >= typingEnd) return fullPrompt;
@@ -170,10 +170,10 @@ function HookInActionSection({ accent }) {
   })();
 
   // Which terminal lines should be visible
-  const showSent     = t >= 3200;
-  const showPre      = t >= 4000;
-  const showBlocked  = t >= 6200;
-  const showReply    = t >= 7600;
+  const showSent     = t >= 2100;
+  const showPre      = t >= 2600;
+  const showBlocked  = t >= 3900;
+  const showReply    = t >= 4800;
 
   // Source-code line highlights keyed by scene.highlight
   // Our hook source is 19 lines. Line indices below are 0-based.
@@ -215,9 +215,9 @@ function HookInActionSection({ accent }) {
     { id: 'reply',   label: '04 · Claude relays reason' },
   ];
   const ribbonActive = (() => {
-    if (t < 3200) return 'typing';
-    if (t < 5400) return 'pre-tool';
-    if (t < 7600) return 'decide';
+    if (t < 2100) return 'typing';
+    if (t < 3500) return 'pre-tool';
+    if (t < 4800) return 'decide';
     return 'reply';
   })();
 
@@ -237,13 +237,12 @@ function HookInActionSection({ accent }) {
           fontSize: 'clamp(32px, 3.6vw, 46px)', lineHeight: 1.1,
           letterSpacing: -1, fontWeight: 500, margin: '0 0 20px', maxWidth: 820,
         }}>
-          What actually happens<br/>
-          <span style={{ color: COL.fgMute }}>between the prompt and the refusal.</span>
+          A hook decides.<br/>
+          <span style={{ color: COL.fgMute }}>Step by step.</span>
         </h2>
         <p style={{ fontSize: 15, color: COL.fgMute, maxWidth: 680, margin: '0 0 28px', lineHeight: 1.6 }}>
-          Left: a live Claude Code session. Right: the hook on disk.
-          As the PreToolUse event fires, the lines that decide the outcome light up.
-          Hover to pause.
+          On the left, a Claude Code session. On the right, the hook file.
+          The highlighted lines are the ones running at each step. Hover to pause.
         </p>
 
         {/* Step ribbon */}
@@ -444,9 +443,9 @@ function ProblemSection({ accent }) {
   const cols = vp.isMobile ? 1 : vp.isTablet ? 2 : 3;
   const pains = [
     { n: '01', k: 'Silent failures',
-      d: 'Claude Code only blocks on exit code 2. A guard hook that crashes — a typo, a missing dep — doesn\'t prevent the action. The dangerous op proceeds as if the hook were never there.' },
+      d: 'Claude Code only blocks on exit code 2. A guard hook that crashes — a typo, a missing dep — doesn\'t prevent the action. The action runs as if the hook never ran.' },
     { n: '02', k: 'Bash inside JSON',
-      d: 'Native hooks are strings in .claude/settings.json. No schema, no types, no imports. You escape quotes until your jq pipeline works, then you pray.' },
+      d: 'Native hooks are bash strings inside .claude/settings.json. No schema, no types, no imports — every hook is a one-liner you quote by hand.' },
     { n: '03', k: 'No composition',
       d: 'All native hooks run in parallel. No ordering, no pipeline, no way for one hook to modify input before another sees it. (Open issue claude-code#15897.)' },
     { n: '04', k: 'No portability',
@@ -461,7 +460,7 @@ function ProblemSection({ accent }) {
       borderBottom: `1px solid ${COL.line}`,
     }}>
       <div style={{ maxWidth: 1120, margin: '0 auto' }}>
-        <SectionLabel accent={accent}>The gap</SectionLabel>
+        <SectionLabel accent={accent}>Problem</SectionLabel>
         <h2 style={{
           fontSize: 'clamp(32px, 3.6vw, 46px)', lineHeight: 1.1,
           letterSpacing: -1, fontWeight: 500, margin: '0 0 20px', maxWidth: 820,
@@ -469,10 +468,11 @@ function ProblemSection({ accent }) {
           The hook that was supposed<br/>to stop <code style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.85em', color: COL.red, background: 'rgba(248,113,113,0.08)', padding: '2px 8px' }}>rm -rf ~/</code> crashed.
         </h2>
         <p style={{ fontSize: 17, color: COL.fgMute, maxWidth: 680, margin: '0 0 40px', lineHeight: 1.55 }}>
-          Somebody's agent ran <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>rm -rf tests/ patches/ plan/ ~/</code>.
-          The trailing <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>~/</code> wiped the Mac.
-          There was a guard hook for exactly this. It threw an exception, exited non-zero-but-not-2, and Claude ran the command anyway.
-          Native hooks pass through on anything that isn't a clean exit 2. A broken hook becomes a silent pass. That's the first thing Clooks changes.
+          Somebody's agent ran <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>rm -rf tests/ patches/ plan/ ~/</code> —
+          the trailing <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>~/</code> wiped the Mac.
+          A guard hook was meant to catch it, but threw an exception and exited with a non-2 code.
+          Claude Code treats anything other than exit 2 as success, so the command ran. In Clooks,
+          a crashed hook blocks the action by default.
         </p>
 
         {/* Quote-style incident card */}
@@ -531,9 +531,9 @@ function HookAnatomySection({ accent }) {
   const stack = vp.isMobile || vp.isTablet;
   const items = [
     { n: '01', k: 'meta',
-      d: 'A name and optional description. Nothing else — no version, author, or permissions fields.' },
+      d: 'A name and optional description.' },
     { n: '02', k: 'Event methods',
-      d: 'One method per event. Subscribing is as simple as defining the method. 22 events available.' },
+      d: 'One method per event. Define the method to subscribe. 22 events available.' },
     { n: '03', k: 'Typed ctx, tagged result',
       d: 'ctx is narrowed per event. Return { result: "allow" | "block" | "skip" } — or "ask" | "defer" on PreToolUse. Unknown values are treated as failures.' },
   ];
@@ -549,12 +549,12 @@ function HookAnatomySection({ accent }) {
           fontSize: 'clamp(32px, 3.6vw, 46px)', lineHeight: 1.1,
           letterSpacing: -1, fontWeight: 500, margin: '0 0 20px', maxWidth: 780,
         }}>
-          Typed hooks as code.<br/>
-          <span style={{ color: COL.fgMute }}>One object, or many per file.</span>
+          A hook is an object.<br/>
+          <span style={{ color: COL.fgMute }}>One file. One or more hooks.</span>
         </h2>
         <p style={{ fontSize: 15, color: COL.fgMute, maxWidth: 640, margin: '0 0 56px', lineHeight: 1.6 }}>
-          Export one or more <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>ClooksHook</code> objects per file — group them by concern or split one-per-file, your call.
-          Each event is a method with a typed context and a tagged-result return. Config is validated with Zod, merged shallowly over your defaults.
+          Each file exports one or more <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>ClooksHook</code> objects.
+          Every event you handle is a method with a typed context and a typed return. Config is validated with Zod and merged over your defaults.
         </p>
 
         <div style={{
@@ -642,13 +642,13 @@ function ConfigSection({ accent }) {
           letterSpacing: -1, fontWeight: 500, margin: '0 0 20px', maxWidth: 780,
         }}>
           Everything lives in <code style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.85em' }}>.clooks/</code>.<br/>
-          <span style={{ color: COL.fgMute }}>Committed. Portable. Reviewable.</span>
+          <span style={{ color: COL.fgMute }}>Committed with the rest of your code.</span>
         </h2>
         <p style={{ fontSize: 15, color: COL.fgMute, maxWidth: 640, margin: '0 0 48px', lineHeight: 1.6 }}>
           <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>clooks init</code> writes a
-          self-contained folder. The entrypoint script is the only thing registered into
+          self-contained folder. Only the entrypoint script is registered into
           <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}> .claude/settings.json</code>.
-          Clone the repo on another machine — same hooks, same SHAs.
+          A teammate cloning the repo gets the same hooks at the same SHAs.
         </p>
 
         <div style={{
@@ -704,7 +704,7 @@ function InstallSection({ accent, tweaks }) {
     },
     binary: {
       label: 'Manual binary',
-      blurb: 'Skip the plugin and install the runtime yourself. Works the same post-init — the plugin path is just a convenience wrapper.',
+      blurb: 'Install the runtime yourself. The plugin path automates these same steps; the result is the same.',
       steps: [
         { t: 'Download the binary',
           cmd: 'open https://github.com/codestripes-dev/clooks/releases/latest',
@@ -863,7 +863,7 @@ function ComparisonSection({ accent }) {
           fontSize: 'clamp(28px, 3vw, 38px)', lineHeight: 1.15,
           letterSpacing: -0.8, fontWeight: 500, margin: '0 0 40px', maxWidth: 640,
         }}>
-          Seven concrete differences.
+          Clooks vs. native hooks.
         </h2>
         <div style={{ border: `1px solid ${COL.line}` }}>
           {!stack && (
@@ -940,7 +940,7 @@ function WhyNotPluginSection({ accent }) {
       borderBottom: `1px solid ${COL.line}`,
     }}>
       <div style={{ maxWidth: 820, margin: '0 auto' }}>
-        <SectionLabel accent={accent}>Clarification</SectionLabel>
+        <SectionLabel accent={accent}>On the plugin system</SectionLabel>
         <h2 style={{
           fontSize: 'clamp(28px, 3vw, 38px)', lineHeight: 1.15,
           letterSpacing: -0.8, fontWeight: 500, margin: '0 0 24px',
@@ -948,7 +948,7 @@ function WhyNotPluginSection({ accent }) {
           Why isn't Clooks <em style={{ fontStyle: 'italic', color: COL.fgMute }}>just</em> a Claude Code plugin?
         </h2>
         <p style={{ fontSize: 16, color: COL.fgMute, lineHeight: 1.65, margin: '0 0 16px' }}>
-          Clooks uses the plugin system for distribution — that's how you install it. But the runtime itself lives outside the plugin sandbox on purpose.
+          Clooks uses the plugin system for distribution. The runtime itself lives outside the plugin sandbox.
         </p>
         <p style={{ fontSize: 16, color: COL.fgMute, lineHeight: 1.65, margin: 0 }}>
           A plugin <em>can</em> quietly download and install binaries on your machine, then wire them into your agent. You shouldn't be surprised by a binary landing on your machine just because you cloned a repo or installed a plugin. Clooks keeps that surface visible — the bash entrypoint sits in <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>.claude/settings.json</code>, the <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>.clooks/</code> directory is committed alongside your code, and pulling the runtime binary is an explicit step, not something the plugin does behind your back.
@@ -1061,7 +1061,7 @@ function FAQSection({ accent }) {
           fontSize: 'clamp(28px, 3vw, 38px)', lineHeight: 1.15,
           letterSpacing: -0.8, fontWeight: 500, margin: '0 0 40px',
         }}>
-          Answers that come up often.
+          Common questions.
         </h2>
         <div>
           {faqs.map((f, i) => <FAQItem key={i} q={f.q} a={f.a} accent={accent} last={i === faqs.length - 1}/>)}
@@ -1166,7 +1166,7 @@ function Footer({ accent }) {
   );
 }
 
-// ---------- Real captures: three annotated TUI transcripts ----------
+// ---------- Captures: three annotated TUI transcripts ----------
 function CapturesSection({ accent }) {
   const vp = useViewport();
   const stack = vp.isMobile || vp.isTablet;
@@ -1204,7 +1204,7 @@ function CapturesSection({ accent }) {
       id: 'crash',
       tab: '02 · Crash, blocked',
       title: 'A hook crashes. The action is blocked.',
-      blurb: <>With <code style={codeInline}>onError: "block"</code> — the default — a runtime error aborts the tool call. Native hooks pass through on anything but a clean exit 2. Clooks doesn't.</>,
+      blurb: <>With <code style={codeInline}>onError: "block"</code> — the default — a runtime error aborts the tool call. The stack trace travels back in the hook output.</>,
       meta: [
         ['onError: block', accent], ['TypeError', 'red'],
       ],
@@ -1217,12 +1217,12 @@ function CapturesSection({ accent }) {
         [['d', '     '], ['mono', "(TypeError: undefined is not an object (evaluating '(void 0)[0]'))."]],
         [['d', '     '], ['r', 'Action blocked (onError: block).']],
         null,
-        [['a', '● '], ['f', 'The "crashy-linter" hook crashed with a TypeError and blocked the']],
-        [['f', '  action. Native hooks would have let it through.']],
+        [['a', '● '], ['f', 'The "crashy-linter" hook crashed with a TypeError and blocked']],
+        [['f', '  the tool call.']],
       ],
       annotations: [
         { label: 'Structured failure', color: accent, note: 'hook name, event, exception class, message — all captured' },
-        { label: 'Blocked on crash', color: COL.red, note: 'action refused. Native hooks would have let it through.' },
+        { label: 'Blocked on crash', color: COL.red, note: 'tool call refused, and the agent is told why.' },
       ],
     },
     {
@@ -1246,8 +1246,8 @@ function CapturesSection({ accent }) {
         [['f', '  was not found on the PATH.']],
       ],
       annotations: [
-        { label: 'Developer-delight', color: accent, note: 'hook failures surface in the agent loop — no silent passthrough' },
-        { label: 'Context injection', color: COL.green, note: 'the error is data the agent can reason about, not a dead exit code' },
+        { label: 'Failure as context', color: accent, note: 'hook failures surface in the agent loop, formatted for the model' },
+        { label: 'Context injection', color: COL.green, note: 'the error becomes context the agent can reason about' },
       ],
     },
   ];
@@ -1260,15 +1260,15 @@ function CapturesSection({ accent }) {
       borderBottom: `1px solid ${COL.line}`, background: COL.bgElev,
     }}>
       <div style={{ maxWidth: 1120, margin: '0 auto' }}>
-        <SectionLabel accent={accent}>Real captures</SectionLabel>
+        <SectionLabel accent={accent}>Captures</SectionLabel>
         <h2 style={{
           fontSize: 'clamp(32px, 3.6vw, 46px)', lineHeight: 1.1,
           letterSpacing: -1, fontWeight: 500, margin: '0 0 20px', maxWidth: 820,
         }}>
-          Three scenarios, captured from the TUI.
+          Three scenarios.
         </h2>
         <p style={{ fontSize: 15, color: COL.fgMute, maxWidth: 680, margin: '0 0 36px', lineHeight: 1.6 }}>
-          Recorded against a real Claude Code session.
+          Recorded from a Claude Code session.
         </p>
 
         {/* Tabs */}
@@ -1497,7 +1497,7 @@ function TmuxHookSection({ accent }) {
       id: 'idle',
       tag: '01 · Notification · idle_prompt',
       title: 'Claude is waiting.',
-      desc: <>You asked a question, walked away, Claude finished and is parked at the prompt. The tab goes red and gets a <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>⏸</code> prefix.</>,
+      desc: <>You asked a question and walked away. Claude finished and is back at the prompt. The tab turns red with a <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>⏸</code> prefix.</>,
       windows: [
         { id: 1, name: 'c-api',     active: false, style: 'default' },
         { id: 2, name: '⏸ c-clooks', active: true,  style: 'idleRed' },
@@ -1579,7 +1579,7 @@ function TmuxHookSection({ accent }) {
       id: 'reset',
       tag: '03 · UserPromptSubmit / PostToolUse',
       title: 'Work is happening.',
-      desc: <>You replied, or a tool call completed. The tab snaps back to <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>c-clooks</code> — no signal needed.</>,
+      desc: <>You replied, or a tool call finished. The tab resets to <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>c-clooks</code>.</>,
       windows: [
         { id: 1, name: 'c-api',    active: false, style: 'default' },
         { id: 2, name: 'c-clooks', active: true,  style: 'default' },
@@ -1860,7 +1860,7 @@ function TmuxHookSection({ accent }) {
           </div>
         </>
       ),
-      note: <>Rewrite, not reject. Claude doesn't know the swap happened.</>,
+      note: <>The shell sees the rewritten command; Claude never sees a block.</>,
     },
   ];
 
@@ -1886,8 +1886,8 @@ function TmuxHookSection({ accent }) {
       hookLines: mvHookLines,
       scenes: mvScenes,
       elided: <>Simplified for display.</>,
-      heading: <>Rewrite the tool call,<br/><span style={{ color: COL.fgMute }}>don't block it.</span></>,
-      lead: <><code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>no-bare-mv</code> catches a plain <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>mv</code> and swaps it for <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>git mv</code> in flight. No block, no retry — the call runs once, with the rewrite already in place. A hook can edit, not just gate.</>,
+      heading: <>Rewrite the tool call<br/><span style={{ color: COL.fgMute }}>instead of blocking.</span></>,
+      lead: <><code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>no-bare-mv</code> catches a plain <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>mv</code> and swaps it for <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>git mv</code> in flight. The tool call runs once with the rewritten command; the agent doesn't see a block.</>,
     },
     {
       id: 'tmux',
@@ -1898,14 +1898,14 @@ function TmuxHookSection({ accent }) {
       hookLines: tmuxHookLines,
       scenes: tmuxScenes,
       elided: <>Simplified for display.</>,
-      heading: <>Paint your terminal,<br/><span style={{ color: COL.fgMute }}>skip the transcript.</span></>,
-      lead: <><code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>tmux-notifications</code> shells out to tmux to restyle the current window when Claude changes state. The signal lives in the status bar, not the transcript.</>,
+      heading: <>Show agent state<br/><span style={{ color: COL.fgMute }}>in your terminal.</span></>,
+      lead: <><code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>tmux-notifications</code> restyles the current tmux window when Claude changes state — idle, asking for permission, or back to work. The status bar carries the signal.</>,
     },
   ];
   const demo = demos[active];
 
-  const [expanded, setExpanded] = React.useState(false);
-  React.useEffect(() => { setExpanded(false); }, [active]);
+  const [expanded, setExpanded] = React.useState(!vp.isMobile);
+  React.useEffect(() => { setExpanded(!vp.isMobile); }, [active, vp.isMobile]);
 
   return (
     <section id="demos" style={{
@@ -2106,13 +2106,13 @@ function ScopedConfigSection({ accent }) {
         ['  ', [TK.prop, 'config'], [TK.op, ':']],
         ['    ', [TK.prop, 'allowed'], [TK.op, ': ['], [TK.str, '"pnpm"'], [TK.op, ']']],
       ],
-      tag: <>This repo is a <span style={{ color: COL.fg }}>pnpm</span> shop. Replaces <code style={{ fontFamily: 'JetBrains Mono, monospace' }}>HOME</code>.</>,
+      tag: <>This repo uses <span style={{ color: COL.fg }}>pnpm</span>. Replaces <code style={{ fontFamily: 'JetBrains Mono, monospace' }}>HOME</code>.</>,
     },
     {
       badge: 'LOCAL',
       badgeColor: COL.yellow,
       path: '.clooks/clooks.local.yml',
-      annotation: <>Gitignored automatically by <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>clooks init</code>. Just you, just this checkout.</>,
+      annotation: <>Gitignored automatically by <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>clooks init</code>. Applies only to your checkout.</>,
       lines: [
         [[TK.prop, 'js-package-manager-guard'], [TK.op, ':']],
         ['  ', [TK.prop, 'config'], [TK.op, ':']],
@@ -2183,7 +2183,7 @@ function ScopedConfigSection({ accent }) {
           letterSpacing: -1, fontWeight: 500, margin: '0 0 20px', maxWidth: 820,
         }}>
           One hook, three scopes.<br/>
-          <span style={{ color: COL.fgMute }}>Home, project, and a local file nobody else sees.</span>
+          <span style={{ color: COL.fgMute }}>Home, project, and a local file just for you.</span>
         </h2>
         <p style={{ fontSize: 15, color: COL.fgMute, maxWidth: 680, margin: '0 0 40px', lineHeight: 1.6 }}>
           Clooks merges three config files in order: your home config, the project's committed config,
