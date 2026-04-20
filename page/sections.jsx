@@ -622,12 +622,47 @@ function HookAnatomySection({ accent }) {
   const vp = useViewport();
   const stack = vp.isMobile || vp.isTablet;
   const items = [
-    { n: '01', k: 'meta',
+    { n: '01', k: 'meta', hl: 'meta',
       d: 'A name and optional description.' },
-    { n: '02', k: 'Event methods',
+    { n: '02', k: 'Event methods', hl: 'events',
       d: 'One method per event. Define the method to subscribe. 22 events available.' },
-    { n: '03', k: 'Typed ctx, tagged result',
-      d: 'ctx is narrowed per event. Return { result: "allow" | "block" | "skip" } — or "ask" | "defer" on PreToolUse. Unknown values are treated as failures.' },
+    { n: '03', k: 'Typed ctx, tagged result', hl: 'result',
+      d: 'ctx is narrowed per event. Return { result: "allow" | "block" | "skip" | "updateInput" } — or "ask" | "defer" on PreToolUse. Unknown values are treated as failures.' },
+  ];
+  // Line indices into anatomyLines below, keyed by item.hl
+  const HL = {
+    meta:   [4, 5, 6, 7],
+    events: [9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23],
+    result: [9, 15, 16, 17, 18, 19, 20, 21, 22],
+  };
+  const [hovered, setHovered] = React.useState(null);
+  const hlSet = new Set(hovered ? HL[hovered] : []);
+  const anatomyLines = [
+    [[TK.com, '// .clooks/hooks/no-bare-mv.ts']],
+    [[TK.kw, 'import type'], [TK.op, ' { '], [TK.ty, 'ClooksHook'], [TK.op, ' } '], [TK.kw, 'from'], [TK.str, " 'clooks'"]],
+    '',
+    [[TK.kw, 'export const'], [TK.fn, ' hook'], [TK.op, ': '], [TK.ty, 'ClooksHook'], [TK.op, ' = {']],
+    ['  ', [TK.prop, 'meta'], [TK.op, ': {']],
+    ['    ', [TK.prop, 'name'], [TK.op, ': '], [TK.str, "'no-bare-mv'"], [TK.op, ',']],
+    ['    ', [TK.prop, 'description'], [TK.op, ': '], [TK.str, "'Rewrite bare mv to git mv.'"], [TK.op, ',']],
+    ['  ', [TK.op, '},']],
+    '',
+    ['  ', [TK.fn, 'PreToolUse'], [TK.op, '('], [TK.ty, 'ctx'], [TK.op, ') {']],
+    ['    ', [TK.kw, 'if'], [TK.op, ' (ctx.'], [TK.prop, 'toolName'], [TK.op, ' !== '], [TK.str, "'Bash'"], [TK.op, ') '], [TK.kw, 'return'], [TK.op, ' { '], [TK.prop, 'result'], [TK.op, ': '], [TK.str, "'skip'"], [TK.op, ' }']],
+    '',
+    ['    ', [TK.kw, 'const'], [TK.fn, ' cmd'], [TK.op, ' = '], [TK.ty, 'String'], [TK.op, '(ctx.'], [TK.prop, 'toolInput'], [TK.op, '.command ?? '], [TK.str, "''"], [TK.op, ')']],
+    ['    ', [TK.kw, 'if'], [TK.op, ' (!/^\\s*mv\\b/.test(cmd)) '], [TK.kw, 'return'], [TK.op, ' { '], [TK.prop, 'result'], [TK.op, ': '], [TK.str, "'skip'"], [TK.op, ' }']],
+    '',
+    ['    ', [TK.kw, 'return'], [TK.op, ' {']],
+    ['      ', [TK.prop, 'result'], [TK.op, ': '], [TK.str, "'updateInput'"], [TK.op, ',']],
+    ['      ', [TK.prop, 'updatedInput'], [TK.op, ': {']],
+    ['        ', [TK.op, '...ctx.'], [TK.prop, 'toolInput'], [TK.op, ',']],
+    ['        ', [TK.prop, 'command'], [TK.op, ': cmd.'], [TK.fn, 'replace'], [TK.op, '(/^\\s*mv\\b/, '], [TK.str, "'git mv'"], [TK.op, '),']],
+    ['      ', [TK.op, '},']],
+    ['      ', [TK.prop, 'note'], [TK.op, ': '], [TK.str, "'rewrote mv → git mv'"], [TK.op, ',']],
+    ['    ', [TK.op, '}']],
+    ['  ', [TK.op, '},']],
+    [[TK.op, '}']],
   ];
 
   return (
@@ -647,6 +682,7 @@ function HookAnatomySection({ accent }) {
         <p style={{ fontSize: 15, color: COL.fgMute, maxWidth: 640, margin: '0 0 56px', lineHeight: 1.6 }}>
           Each file exports one or more <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>ClooksHook</code> objects.
           Every event you handle is a method with a typed context and a typed return. Config is validated with Zod and merged over your defaults.
+          Hover a row below to see where it lives in the source.
         </p>
 
         <div style={{
@@ -655,28 +691,98 @@ function HookAnatomySection({ accent }) {
           gap: stack ? 32 : 48, alignItems: 'start',
         }}>
           <div style={{ position: stack ? 'static' : 'sticky', top: 100, minWidth: 0 }}>
-            <HookSnippet compact/>
-          </div>
-          <div>
-            {items.map(item => (
-              <div key={item.n} style={{
-                padding: '20px 0', borderBottom: `1px solid ${COL.line}`,
-                display: 'grid', gridTemplateColumns: '44px 1fr', gap: 20,
+            <div style={{
+              background: COL.bgCode, border: `1px solid ${COL.line}`,
+              fontFamily: 'JetBrains Mono, monospace',
+              fontSize: vp.isMobile ? 10 : 12.5,
+              lineHeight: 1.65, overflow: 'hidden',
+            }}>
+              <div style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '10px 14px', borderBottom: `1px solid ${COL.line}`,
+                fontSize: 11, color: COL.fgDim,
               }}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ width: 10, height: 10, background: '#4a4a4a', display: 'inline-block' }}/>
+                  no-bare-mv.ts
+                </span>
+                <span style={{ fontSize: 10, letterSpacing: 1, textTransform: 'uppercase', color: COL.fgDim }}>
+                  typescript
+                </span>
+              </div>
+              <div style={{ display: 'flex', padding: '14px 0' }}>
                 <div style={{
-                  fontFamily: 'JetBrains Mono, monospace', fontSize: 12,
-                  color: accent, paddingTop: 2,
-                }}>{item.n}</div>
-                <div>
-                  <div style={{ fontSize: 15, fontWeight: 500, color: COL.fg, marginBottom: 6 }}>
-                    {item.k}
-                  </div>
-                  <div style={{ fontSize: 14, color: COL.fgMute, lineHeight: 1.6 }}>
-                    {item.d}
-                  </div>
+                  padding: vp.isMobile ? '0 8px' : '0 12px', color: COL.fgFaint, textAlign: 'right',
+                  borderRight: `1px solid ${COL.line}`, userSelect: 'none',
+                  minWidth: vp.isMobile ? 28 : 36,
+                }}>
+                  {anatomyLines.map((_, i) => (
+                    <div key={i} style={{
+                      color: hlSet.has(i) ? accent : COL.fgFaint,
+                      transition: 'color 180ms ease',
+                    }}>{i + 1}</div>
+                  ))}
+                </div>
+                <div style={{ padding: 0, flex: 1, minWidth: 0, overflowX: vp.isMobile ? 'visible' : 'auto' }}>
+                  {anatomyLines.map((l, i) => {
+                    const on = hlSet.has(i);
+                    return (
+                      <div key={i} style={{
+                        whiteSpace: vp.isMobile ? 'pre-wrap' : 'pre',
+                        overflowWrap: vp.isMobile ? 'anywhere' : 'normal',
+                        minHeight: vp.isMobile ? 17 : 20.6,
+                        padding: '0 14px',
+                        background: on ? 'rgba(251,191,36,0.09)' : 'transparent',
+                        borderLeft: `2px solid ${on ? accent : 'transparent'}`,
+                        marginLeft: on ? 0 : 2,
+                        paddingLeft: on ? 12 : 14,
+                        transition: 'background 180ms ease, border-color 180ms ease',
+                      }}>
+                        {renderLine(l)}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
-            ))}
+            </div>
+          </div>
+          <div>
+            {items.map(item => {
+              const active = hovered === item.hl;
+              return (
+                <div
+                  key={item.n}
+                  onMouseEnter={() => setHovered(item.hl)}
+                  onMouseLeave={() => setHovered(null)}
+                  onFocus={() => setHovered(item.hl)}
+                  onBlur={() => setHovered(null)}
+                  tabIndex={0}
+                  style={{
+                    padding: '20px 12px', borderBottom: `1px solid ${COL.line}`,
+                    display: 'grid', gridTemplateColumns: '44px 1fr', gap: 20,
+                    cursor: 'pointer', outline: 'none',
+                    background: active ? 'rgba(255,255,255,0.02)' : 'transparent',
+                    borderLeft: `2px solid ${active ? accent : 'transparent'}`,
+                    marginLeft: active ? -14 : -12,
+                    paddingLeft: active ? 12 : 14,
+                    transition: 'background 180ms ease, border-color 180ms ease',
+                  }}
+                >
+                  <div style={{
+                    fontFamily: 'JetBrains Mono, monospace', fontSize: 12,
+                    color: accent, paddingTop: 2,
+                  }}>{item.n}</div>
+                  <div>
+                    <div style={{ fontSize: 15, fontWeight: 500, color: COL.fg, marginBottom: 6 }}>
+                      {item.k}
+                    </div>
+                    <div style={{ fontSize: 14, color: COL.fgMute, lineHeight: 1.6 }}>
+                      {item.d}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
 
@@ -692,12 +798,21 @@ function ConfigSection({ accent }) {
   const treeLines = [
     [[TK.fn, 'your-project/']],
     [[TK.op, '├── '], [TK.fn, '.clooks/']],
-    [[TK.op, '│   ├── '], [TK.prop, 'clooks.yml'],            [TK.com, '         # hooks + config (committed)']],
-    [[TK.op, '│   ├── '], [TK.prop, 'clooks.schema.json'],    [TK.com, '  # editor validation']],
-    [[TK.op, '│   ├── '], [TK.prop, 'hooks.lock'],            [TK.com, '         # pinned SHAs (committed)']],
-    [[TK.op, '│   ├── '], [TK.fn, 'bin/entrypoint.sh'],        [TK.com, '   # registered into .claude/settings.json']],
-    [[TK.op, '│   └── '], [TK.fn, 'hooks/'],                   [TK.com, '             # your .ts hooks + types.d.ts']],
-    [[TK.op, '└── '], [TK.fn, '.claude/settings.json'],        [TK.com, '   # auto-managed']],
+    [[TK.op, '│   ├── '], [TK.prop, 'clooks.yml'],                 [TK.com, '             # hooks + config']],
+    [[TK.op, '│   ├── '], [TK.prop, 'clooks.schema.json'],         [TK.com, '     # editor validation']],
+    [[TK.op, '│   ├── '], [TK.prop, 'hooks.lock'],                 [TK.com, '             # pinned SHAs (committed)']],
+    [[TK.op, '│   ├── '], [TK.fn, 'bin/entrypoint.sh'],             [TK.com, '      # registered in .claude/settings.json']],
+    [[TK.op, '│   ├── '], [TK.fn, 'hooks/'],                        [TK.com, '                 # your .ts hooks']],
+    [[TK.op, '│   │   ├── '], [TK.prop, 'no-rm-rf.ts']],
+    [[TK.op, '│   │   ├── '], [TK.prop, 'log-bash-commands.ts']],
+    [[TK.op, '│   │   └── '], [TK.prop, 'types.d.ts'],              [TK.com, '             # generated']],
+    [[TK.op, '│   └── '], [TK.fn, 'vendor/'],                       [TK.com, '                # installed marketplace hooks']],
+    [[TK.op, '│       ├── '], [TK.fn, 'clooks-core-hooks/']],
+    [[TK.op, '│       │   ├── '], [TK.prop, 'no-bare-mv.ts']],
+    [[TK.op, '│       │   └── '], [TK.prop, 'tmux-notifications.ts']],
+    [[TK.op, '│       └── '], [TK.fn, 'clooks-project-hooks/']],
+    [[TK.op, '│           └── '], [TK.prop, 'js-package-manager-guard.ts']],
+    [[TK.op, '└── '], [TK.fn, '.claude/settings.json'],             [TK.com, '    # auto-managed']],
   ];
 
   const ymlLines = [
