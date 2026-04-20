@@ -243,7 +243,6 @@ function HookInActionSection({ accent }) {
         </h2>
         <p style={{ fontSize: 15, color: COL.fgMute, maxWidth: 680, margin: '0 0 28px', lineHeight: 1.6 }}>
           On the left, a Claude Code session. On the right, the hook file.
-          The highlighted lines are the ones running at each step. Click a step to jump to it.
         </p>
 
         {/* Step ribbon — clickable */}
@@ -624,27 +623,37 @@ function HookAnatomySection({ accent }) {
   const items = [
     { n: '01', k: 'meta', hl: 'meta',
       d: 'A name and optional description.' },
-    { n: '02', k: 'Event methods', hl: 'events',
+    { n: '02', k: 'Lifecycle: beforeHook', hl: 'lifecycle',
+      d: 'Optional. Runs before every event method on this hook. Return event.respond(...) to short-circuit with a tagged result — otherwise fall through to the event method.' },
+    { n: '03', k: 'Event methods', hl: 'events',
       d: 'One method per event. Define the method to subscribe. 22 events available.' },
-    { n: '03', k: 'Typed ctx, tagged result', hl: 'result',
+    { n: '04', k: 'Typed ctx, tagged result', hl: 'result',
       d: 'ctx is narrowed per event. Return { result: "allow" | "block" | "skip" | "updateInput" } — or "ask" | "defer" on PreToolUse. Unknown values are treated as failures.' },
   ];
   // Line indices into anatomyLines below, keyed by item.hl
   const HL = {
-    meta:   [4, 5, 6, 7],
-    events: [9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23],
-    result: [9, 15, 16, 17, 18, 19, 20, 21, 22],
+    meta:      [5, 6, 7, 8],
+    lifecycle: [10, 11, 12, 13, 14],
+    events:    [16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30],
+    result:    [16, 22, 23, 24, 25, 26, 27, 28, 29],
   };
   const [hovered, setHovered] = React.useState(null);
   const hlSet = new Set(hovered ? HL[hovered] : []);
   const anatomyLines = [
     [[TK.com, '// .clooks/hooks/no-bare-mv.ts']],
+    [[TK.kw, 'import'], [TK.op, ' { '], [TK.fn, 'existsSync'], [TK.op, ' } '], [TK.kw, 'from'], [TK.str, " 'fs'"]],
     [[TK.kw, 'import type'], [TK.op, ' { '], [TK.ty, 'ClooksHook'], [TK.op, ' } '], [TK.kw, 'from'], [TK.str, " 'clooks'"]],
     '',
     [[TK.kw, 'export const'], [TK.fn, ' hook'], [TK.op, ': '], [TK.ty, 'ClooksHook'], [TK.op, ' = {']],
     ['  ', [TK.prop, 'meta'], [TK.op, ': {']],
     ['    ', [TK.prop, 'name'], [TK.op, ': '], [TK.str, "'no-bare-mv'"], [TK.op, ',']],
     ['    ', [TK.prop, 'description'], [TK.op, ': '], [TK.str, "'Rewrite bare mv to git mv.'"], [TK.op, ',']],
+    ['  ', [TK.op, '},']],
+    '',
+    ['  ', [TK.fn, 'beforeHook'], [TK.op, '('], [TK.ty, 'event'], [TK.op, ') {'], '  ', [TK.com, '// runs before every event method']],
+    ['    ', [TK.kw, 'if'], [TK.op, ' (!'], [TK.fn, 'existsSync'], [TK.op, '('], [TK.str, "'.git'"], [TK.op, ')) {']],
+    ['      ', [TK.kw, 'return'], [TK.op, ' event.'], [TK.fn, 'respond'], [TK.op, '({ '], [TK.prop, 'result'], [TK.op, ': '], [TK.str, "'skip'"], [TK.op, ' })']],
+    ['    ', [TK.op, '}']],
     ['  ', [TK.op, '},']],
     '',
     ['  ', [TK.fn, 'PreToolUse'], [TK.op, '('], [TK.ty, 'ctx'], [TK.op, ') {']],
