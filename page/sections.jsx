@@ -1053,12 +1053,13 @@ function InstallSection({ accent, tweaks }) {
           marginTop: 40, padding: '20px 24px',
           background: COL.bgSoft, border: `1px solid ${COL.line}`,
           display: 'grid',
-          gridTemplateColumns: stack ? '1fr' : '60px 1fr',
-          gap: stack ? 10 : 16, alignItems: 'start',
+          gridTemplateColumns: stack ? '1fr' : 'auto 1fr',
+          gap: stack ? 10 : 20, alignItems: 'start',
         }}>
           <span style={{
             color: accent, fontFamily: 'JetBrains Mono, monospace',
             fontSize: 11, letterSpacing: 1, textTransform: 'uppercase', paddingTop: 2,
+            whiteSpace: 'nowrap',
           }}>Heads up</span>
           <div style={{ fontSize: 14, color: COL.fgMute, lineHeight: 1.65 }}>
             Global mode: add <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>clooks init --global</code> to register hooks under <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>~/.clooks/</code> for every Claude Code session.
@@ -2340,7 +2341,7 @@ function ScopedConfigSection({ accent }) {
     },
     {
       badge: 'LOCAL',
-      badgeColor: COL.yellow,
+      badgeColor: COL.green,
       path: '.clooks/clooks.local.yml',
       caption: <>Gitignored. Loosen a team rule or mute a hook just for you.</>,
       lines: [
@@ -2436,7 +2437,7 @@ function ScopedConfigSection({ accent }) {
             {[
               { badge: 'HOME', color: COL.fgMute, text: 'Hooks you always want, available in every repo.' },
               { badge: 'PROJECT', color: accent, text: 'Team-owned hooks committed with the repo.' },
-              { badge: 'LOCAL', color: COL.yellow, text: 'Personal overrides that never leave your box.' },
+              { badge: 'LOCAL', color: COL.green, text: 'Personal overrides that never leave your box.' },
             ].map((row) => (
               <div key={row.badge} style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
                 <span style={{
