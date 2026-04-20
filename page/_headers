@@ -1,8 +1,25 @@
 /*
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
-  Permissions-Policy: interest-cohort=()
+  X-Frame-Options: DENY
+  Permissions-Policy: interest-cohort=(), geolocation=(), microphone=(), camera=()
+  Content-Security-Policy: base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; upgrade-insecure-requests
+
+/
+  Cache-Control: public, max-age=0, must-revalidate
+
+/index.html
+  Cache-Control: public, max-age=0, must-revalidate
+
+/favicon.svg
+  Cache-Control: public, max-age=86400
+
+/og-image.png
+  Cache-Control: public, max-age=86400
 
 /*.jsx
   Content-Type: text/plain; charset=utf-8
-  Cache-Control: public, max-age=3600
+  Cache-Control: public, max-age=300, must-revalidate
+
+/*.js
+  Cache-Control: public, max-age=300, must-revalidate
