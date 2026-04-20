@@ -17,9 +17,5 @@
 /og-image.png
   Cache-Control: public, max-age=86400
 
-/*.jsx
-  Content-Type: text/plain; charset=utf-8
-  Cache-Control: public, max-age=300, must-revalidate
-
 /*.js
   Cache-Control: public, max-age=300, must-revalidate
