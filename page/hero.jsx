@@ -1,6 +1,8 @@
 // Hero + install block + real ClooksHook snippet
 
 function InstallBlock({ cmd, accent, autoType = true, lines = [] }) {
+  const vp = useViewport();
+  const wrap = vp.isMobile;
   // Three-step install: add marketplace → install+enable plugin → scaffold
   const steps = [
     {
@@ -101,7 +103,7 @@ function InstallBlock({ cmd, accent, autoType = true, lines = [] }) {
   return (
     <div style={{
       background: COL.bgCode, border: `1px solid ${COL.line}`,
-      fontFamily: 'JetBrains Mono, monospace', fontSize: 13, lineHeight: 1.6,
+      fontFamily: 'JetBrains Mono, monospace', fontSize: wrap ? 9 : 13, lineHeight: 1.6,
     }}>
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -131,7 +133,7 @@ function InstallBlock({ cmd, accent, autoType = true, lines = [] }) {
           )}
         </button>
       </div>
-      <div style={{ padding: '16px 18px', overflowX: 'auto' }}>
+      <div style={{ padding: '16px 18px', overflowX: wrap ? 'visible' : 'auto' }}>
         {steps.map((step, si) => {
           const s = state[si];
           if (s.phase === 'idle') return null;
@@ -140,7 +142,13 @@ function InstallBlock({ cmd, accent, autoType = true, lines = [] }) {
           const showDone = s.phase === 'done';
           return (
             <div key={si} style={{ marginTop: si === 0 ? 0 : 14 }}>
-              <div style={{ color: COL.fg, whiteSpace: 'pre' }}>
+              <div style={{
+                color: COL.fg,
+                whiteSpace: wrap ? 'pre-wrap' : 'pre',
+                overflowWrap: wrap ? 'anywhere' : 'normal',
+                textIndent: wrap ? '-1.4em' : 0,
+                paddingLeft: wrap ? '1.4em' : 0,
+              }}>
                 <span style={{ color: accent, marginRight: 10 }}>$</span>
                 <span>{s.typed}</span>
                 {showCaret && (
@@ -216,8 +224,12 @@ function HookSnippet({ compact = false }) {
 }
 
 function HeroCode({ tweaks }) {
+  const vp = useViewport();
   return (
-    <section style={{ padding: '96px 32px 80px', borderBottom: `1px solid ${COL.line}` }}>
+    <section style={{
+      padding: bp(vp, { mobile: '56px 18px 48px', tablet: '72px 24px 60px', desktop: '96px 32px 80px' }),
+      borderBottom: `1px solid ${COL.line}`,
+    }}>
       <div style={{ maxWidth: 1120, margin: '0 auto' }}>
         <div style={{
           fontFamily: 'JetBrains Mono, monospace', fontSize: 11, letterSpacing: 2,
@@ -228,14 +240,16 @@ function HeroCode({ tweaks }) {
           v0.0.1 · pre-release · Claude Code
         </div>
         <h1 style={{
-          fontSize: 'clamp(44px, 6vw, 76px)', lineHeight: 1.02,
-          letterSpacing: -2, fontWeight: 500, margin: '0 0 24px', maxWidth: 980,
+          fontSize: bp(vp, { mobile: 40, tablet: 56, desktop: 'clamp(44px, 6vw, 76px)' }),
+          lineHeight: 1.02,
+          letterSpacing: vp.isMobile ? -1 : -2,
+          fontWeight: 500, margin: '0 0 24px', maxWidth: 980,
         }}>
           A TypeScript hook runtime<br/>
           <span style={{ color: COL.fgMute }}>for Claude Code.</span>
         </h1>
         <p style={{
-          fontSize: 18, lineHeight: 1.55, color: COL.fgMute,
+          fontSize: vp.isMobile ? 16 : 18, lineHeight: 1.55, color: COL.fgMute,
           maxWidth: 640, margin: '0 0 40px',
         }}>
           Write hooks once, run them safely, share them across projects and teams.
@@ -243,7 +257,7 @@ function HeroCode({ tweaks }) {
           instead of silently passing through.
         </p>
 
-        <div style={{ maxWidth: 720, marginBottom: 56 }}>
+        <div style={{ maxWidth: 720, marginBottom: vp.isMobile ? 40 : 56 }}>
           <InstallBlock cmd={tweaks.installCmd} accent={tweaks.accent}/>
           <div style={{
             marginTop: 14, fontSize: 12, color: COL.fgDim,
@@ -272,11 +286,18 @@ function HeroCode({ tweaks }) {
 }
 
 function HeroSplit({ tweaks }) {
+  const vp = useViewport();
+  const stack = vp.isMobile || vp.isTablet;
   return (
-    <section style={{ padding: '96px 32px 80px', borderBottom: `1px solid ${COL.line}` }}>
+    <section style={{
+      padding: bp(vp, { mobile: '56px 18px 48px', tablet: '72px 24px 60px', desktop: '96px 32px 80px' }),
+      borderBottom: `1px solid ${COL.line}`,
+    }}>
       <div style={{
         maxWidth: 1200, margin: '0 auto',
-        display: 'grid', gridTemplateColumns: '1fr 1.1fr', gap: 56, alignItems: 'start',
+        display: 'grid',
+        gridTemplateColumns: stack ? 'minmax(0, 1fr)' : 'minmax(0, 1fr) minmax(0, 1.1fr)',
+        gap: stack ? 40 : 56, alignItems: 'start',
       }}>
         <div>
           <div style={{
@@ -288,8 +309,10 @@ function HeroSplit({ tweaks }) {
             v0.0.1 · pre-release
           </div>
           <h1 style={{
-            fontSize: 'clamp(40px, 4.4vw, 60px)', lineHeight: 1.05,
-            letterSpacing: -1.6, fontWeight: 500, margin: '0 0 22px',
+            fontSize: bp(vp, { mobile: 38, tablet: 52, desktop: 'clamp(40px, 4.4vw, 60px)' }),
+            lineHeight: 1.05,
+            letterSpacing: vp.isMobile ? -1 : -1.6,
+            fontWeight: 500, margin: '0 0 22px',
           }}>
             TypeScript hooks<br/>
             <span style={{ color: COL.fgMute }}>for Claude Code.</span>

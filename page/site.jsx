@@ -4,7 +4,8 @@
 const TWEAKS = /*EDITMODE-BEGIN*/{
   "accent": "#fbbf24",
   "installCmd": "claude plugin marketplace add codestripes-dev/clooks-marketplace",
-  "heroVariant": "split"
+  "heroVariant": "split",
+  "viewport": "full"
 }/*EDITMODE-END*/;
 
 const COL = {
@@ -65,7 +66,7 @@ function TweaksPanel({ tweaks, setTweaks, visible }) {
           }}
         />
       </div>
-      <div>
+      <div style={{ marginBottom: 14 }}>
         <label style={{ display: 'block', color: COL.fgMute, marginBottom: 6 }}>Hero layout</label>
         <div style={{ display: 'flex', gap: 6 }}>
           {[{ id: 'code', label: 'Stacked' }, { id: 'split', label: 'Split' }].map(v => (
@@ -80,6 +81,32 @@ function TweaksPanel({ tweaks, setTweaks, visible }) {
               {v.label}
             </button>
           ))}
+        </div>
+      </div>
+      <div style={{ borderTop: `1px solid ${COL.line}`, paddingTop: 14 }}>
+        <label style={{ display: 'block', color: COL.fgMute, marginBottom: 6 }}>
+          Viewport <span style={{ color: COL.fgFaint }}>· simulate</span>
+        </label>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 4 }}>
+          {Object.entries(VIEWPORT_PRESETS).map(([k, p]) => {
+            const on = tweaks.viewport === k;
+            return (
+              <button key={k} onClick={() => update({ viewport: k })}
+                style={{
+                  padding: '8px 4px', fontSize: 10, letterSpacing: 0.6,
+                  textTransform: 'uppercase',
+                  background: on ? tweaks.accent : 'transparent',
+                  color: on ? '#0a0a0a' : COL.fg,
+                  border: `1px solid ${on ? tweaks.accent : COL.line}`,
+                  cursor: 'pointer', fontFamily: 'inherit', fontWeight: on ? 600 : 400,
+                }}>
+                {p.label}
+                <div style={{ fontSize: 9, opacity: 0.7, marginTop: 2, letterSpacing: 0.4 }}>
+                  {p.width ? `${p.width}px` : 'live'}
+                </div>
+              </button>
+            );
+          })}
         </div>
       </div>
     </div>
@@ -101,6 +128,7 @@ function Logo({ accent }) {
 }
 
 function Nav({ accent }) {
+  const vp = useViewport();
   const linkStyle = { color: COL.fgMute, fontSize: 13, textDecoration: 'none', padding: '6px 0' };
   return (
     <header style={{
@@ -110,26 +138,41 @@ function Nav({ accent }) {
       WebkitBackdropFilter: 'blur(10px)',
     }}>
       <div style={{
-        maxWidth: 1120, margin: '0 auto', padding: '16px 32px',
+        maxWidth: 1120, margin: '0 auto',
+        padding: bp(vp, { mobile: '14px 18px', tablet: '16px 24px', desktop: '16px 32px' }),
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
       }}>
         <Logo accent={accent} />
-        <nav style={{ display: 'flex', alignItems: 'center', gap: 28 }}>
-          <a href="#problem" style={linkStyle}>Why</a>
-          <a href="#hook" style={linkStyle}>Hook API</a>
-          <a href="#config" style={linkStyle}>Config</a>
-          <a href="#install" style={linkStyle}>Install</a>
-          <a href="#faq" style={linkStyle}>FAQ</a>
-          <a href="https://github.com/codestripes-dev/clooks" style={linkStyle}>
+        <nav style={{
+          display: 'flex', alignItems: 'center',
+          gap: bp(vp, { mobile: 12, tablet: 20, desktop: 28 }),
+        }}>
+          {!vp.isMobile && !vp.isTablet && (
+            <>
+              <a href="#problem" style={linkStyle}>Why</a>
+              <a href="#hook" style={linkStyle}>Hook API</a>
+              <a href="#config" style={linkStyle}>Config</a>
+              <a href="#install" style={linkStyle}>Install</a>
+              <a href="#faq" style={linkStyle}>FAQ</a>
+            </>
+          )}
+          {vp.isTablet && (
+            <>
+              <a href="#hook" style={linkStyle}>Hook API</a>
+              <a href="#install" style={linkStyle}>Install</a>
+            </>
+          )}
+          <a href="https://github.com/codestripes-dev/clooks" style={linkStyle} aria-label="GitHub">
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-              GitHub
+              {!vp.isMobile && 'GitHub'}
             </span>
           </a>
           <a href="#install" style={{
             fontSize: 13, color: COL.bg, background: accent,
-            padding: '7px 14px', textDecoration: 'none', fontWeight: 500,
-          }}>Install →</a>
+            padding: vp.isMobile ? '6px 10px' : '7px 14px',
+            textDecoration: 'none', fontWeight: 500,
+          }}>Install{vp.isMobile ? '' : ' →'}</a>
         </nav>
       </div>
     </header>
@@ -152,10 +195,14 @@ function SectionLabel({ accent, children }) {
 // Generic code block with a fake title bar + line numbers
 // Each line is either a string (raw) or an array of [color, text] tuples
 function CodeCard({ title, badge, badgeColor, lines, lineNumbers = true, compact = false, maxWidth }) {
+  const vp = useViewport();
+  const shrink = vp.isMobile;
+  const baseSize = compact ? 12 : 13;
+  const fontSize = shrink ? 8.5 : baseSize;
   return (
     <div style={{
       background: COL.bgCode, border: `1px solid ${COL.line}`,
-      fontFamily: 'JetBrains Mono, monospace', fontSize: compact ? 12 : 13,
+      fontFamily: 'JetBrains Mono, monospace', fontSize,
       lineHeight: 1.65, overflow: 'hidden', maxWidth,
     }}>
       {(title || badge) && (
@@ -176,15 +223,19 @@ function CodeCard({ title, badge, badgeColor, lines, lineNumbers = true, compact
       <div style={{ display: 'flex', padding: '14px 0' }}>
         {lineNumbers && (
           <div style={{
-            padding: '0 12px', color: COL.fgFaint, textAlign: 'right',
-            borderRight: `1px solid ${COL.line}`, userSelect: 'none', minWidth: 36,
+            padding: shrink ? '0 8px' : '0 12px', color: COL.fgFaint, textAlign: 'right',
+            borderRight: `1px solid ${COL.line}`, userSelect: 'none', minWidth: shrink ? 28 : 36,
           }}>
             {lines.map((_, i) => <div key={i}>{i + 1}</div>)}
           </div>
         )}
-        <div style={{ padding: '0 14px', flex: 1, overflowX: 'auto' }}>
+        <div style={{ padding: shrink ? '0 10px' : '0 14px', flex: 1, minWidth: 0, overflowX: shrink ? 'visible' : 'auto' }}>
           {lines.map((l, i) => (
-            <div key={i} style={{ whiteSpace: 'pre', minHeight: compact ? 19.8 : 21.45 }}>
+            <div key={i} style={{
+              whiteSpace: shrink ? 'pre-wrap' : 'pre',
+              minHeight: fontSize * 1.65,
+              overflowWrap: shrink ? 'anywhere' : 'normal',
+            }}>
               {renderLine(l)}
             </div>
           ))}
