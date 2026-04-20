@@ -25,7 +25,7 @@
     "test:e2e": "bun run test:e2e:build && bun run test:e2e:run",
     "deploy:local": "bun run build && cp dist/clooks $(command -v clooks)",
     "typecheck": "tsc --noEmit",
-    "prepare": "lefthook install"
+    "prepare": "[ \"$CF_PAGES\" = \"1\" ] || lefthook install"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
