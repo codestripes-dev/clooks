@@ -96,18 +96,21 @@ function HookInActionSection({ accent }) {
     { at: 4800, step: 'reply',    highlight: null },
     { at: 6200, step: 'idle',     highlight: null },      // loop end
   ];
-  const LOOP_MS = 6500;
+  const END_MS = 6200;
 
   const fullPrompt = 'clean up stale artifacts: rm -rf /tmp/build ~';
-  const HOLD_MS = 1500;
   const [t, setT] = React.useState(0);
-  const [paused, setPaused] = React.useState(false);
   const [inView, setInView] = React.useState(true);
   const sectionRef = React.useRef(null);
   const rafRef = React.useRef(0);
   const accumRef = React.useRef(0);
   const lastTsRef = React.useRef(0);
-  const holdRef = React.useRef(0);
+
+  const jumpTo = React.useCallback((ms) => {
+    accumRef.current = ms;
+    lastTsRef.current = 0;
+    setT(ms);
+  }, []);
 
   React.useEffect(() => {
     const el = sectionRef.current;
@@ -124,8 +127,7 @@ function HookInActionSection({ accent }) {
     let cancelled = false;
     const loop = (now) => {
       if (cancelled) return;
-      const frozen = paused || !inView;
-      if (frozen) {
+      if (!inView) {
         lastTsRef.current = 0;
         rafRef.current = requestAnimationFrame(loop);
         return;
@@ -134,28 +136,15 @@ function HookInActionSection({ accent }) {
       const dt = now - lastTsRef.current;
       lastTsRef.current = now;
 
-      if (holdRef.current > 0) {
-        holdRef.current -= dt;
-        if (holdRef.current <= 0) {
-          holdRef.current = 0;
-          accumRef.current = 0;
-          setT(0);
-        }
-      } else {
-        accumRef.current += dt;
-        if (accumRef.current >= LOOP_MS) {
-          accumRef.current = LOOP_MS;
-          setT(6200);
-          holdRef.current = HOLD_MS;
-        } else {
-          setT(accumRef.current);
-        }
+      if (accumRef.current < END_MS) {
+        accumRef.current = Math.min(END_MS, accumRef.current + dt);
+        setT(accumRef.current);
       }
       rafRef.current = requestAnimationFrame(loop);
     };
     rafRef.current = requestAnimationFrame(loop);
     return () => { cancelled = true; cancelAnimationFrame(rafRef.current); };
-  }, [paused, inView]);
+  }, [inView]);
 
   // Find current scene entry
   const scene = SCENE.reduce((acc, s) => (t >= s.at ? s : acc), SCENE[0]);
@@ -207,18 +196,32 @@ function HookInActionSection({ accent }) {
     [[TK.op, '}']],
   ];
 
-  // Step ribbon under the title
+  // Step ribbon under the title. Each stage owns a 25% slice of the progress bar.
+  // `at` is the t (ms) the animation jumps to on click.
   const ribbon = [
-    { id: 'typing',  label: '01 · User prompt' },
-    { id: 'pre-tool', label: '02 · PreToolUse fires' },
-    { id: 'decide',  label: '03 · Hook returns block' },
-    { id: 'reply',   label: '04 · Claude relays reason' },
+    { id: 'typing',   at: 0,    label: '01 · User prompt' },
+    { id: 'pre-tool', at: 2100, label: '02 · PreToolUse fires' },
+    { id: 'decide',   at: 3500, label: '03 · Hook returns block' },
+    { id: 'reply',    at: 4800, label: '04 · Claude relays reason' },
+  ];
+  // Stage ranges in t-space (ms). Each stage maps to 25% of the progress bar.
+  const stageRanges = [
+    [0, 2100],
+    [2100, 3500],
+    [3500, 4800],
+    [4800, END_MS],
   ];
   const ribbonActive = (() => {
-    if (t < 2100) return 'typing';
-    if (t < 3500) return 'pre-tool';
-    if (t < 4800) return 'decide';
+    if (t < stageRanges[1][0]) return 'typing';
+    if (t < stageRanges[2][0]) return 'pre-tool';
+    if (t < stageRanges[3][0]) return 'decide';
     return 'reply';
+  })();
+  const progressPct = (() => {
+    const idx = stageRanges.findIndex(([, b]) => t < b);
+    if (idx === -1) return 100;
+    const [a, b] = stageRanges[idx];
+    return idx * 25 + ((Math.max(t, a) - a) / (b - a)) * 25;
   })();
 
   return (
@@ -228,8 +231,6 @@ function HookInActionSection({ accent }) {
         padding: bp(vp, { mobile: '64px 18px', tablet: '72px 24px', desktop: '96px 32px' }),
         borderBottom: `1px solid ${COL.line}`, background: COL.bgElev,
       }}
-      onPointerEnter={(e) => { if (e.pointerType === 'mouse') setPaused(true); }}
-      onPointerLeave={(e) => { if (e.pointerType === 'mouse') setPaused(false); }}
     >
       <div style={{ maxWidth: 1200, margin: '0 auto' }}>
         <SectionLabel accent={accent}>Hook in action</SectionLabel>
@@ -242,49 +243,59 @@ function HookInActionSection({ accent }) {
         </h2>
         <p style={{ fontSize: 15, color: COL.fgMute, maxWidth: 680, margin: '0 0 28px', lineHeight: 1.6 }}>
           On the left, a Claude Code session. On the right, the hook file.
-          The highlighted lines are the ones running at each step. Hover to pause.
+          The highlighted lines are the ones running at each step. Click a step to jump to it.
         </p>
 
-        {/* Step ribbon */}
+        {/* Step ribbon — clickable */}
         <div style={{
           display: vp.isMobile ? 'grid' : 'flex',
           gridTemplateColumns: vp.isMobile ? '1fr 1fr' : undefined,
-          gap: 0, marginBottom: 24, borderTop: `1px solid ${COL.line}`,
-          borderBottom: `1px solid ${COL.line}`,
+          gap: 0, borderTop: `1px solid ${COL.line}`,
         }}>
           {ribbon.map((r, i) => {
             const active = r.id === ribbonActive;
             return (
-              <div key={r.id} style={{
-                flex: 1, padding: vp.isMobile ? '10px 12px' : '12px 16px',
-                borderLeft: (vp.isMobile ? (i % 2 === 0) : i === 0) ? 'none' : `1px solid ${COL.line}`,
-                borderTop: vp.isMobile && i >= 2 ? `1px solid ${COL.line}` : 'none',
-                background: active ? 'rgba(255,255,255,0.02)' : 'transparent',
-                position: 'relative',
-              }}>
-                <div style={{
+              <button
+                key={r.id}
+                type="button"
+                onClick={() => jumpTo(r.at)}
+                style={{
+                  all: 'unset', boxSizing: 'border-box', cursor: 'pointer',
+                  flex: 1, padding: vp.isMobile ? '10px 12px' : '12px 16px',
+                  borderLeft: (vp.isMobile ? (i % 2 === 0) : i === 0) ? 'none' : `1px solid ${COL.line}`,
+                  borderTop: vp.isMobile && i >= 2 ? `1px solid ${COL.line}` : 'none',
+                  background: active ? 'rgba(255,255,255,0.02)' : 'transparent',
                   fontFamily: 'JetBrains Mono, monospace', fontSize: 11,
                   letterSpacing: 0.6, color: active ? accent : COL.fgDim,
-                  transition: 'color 180ms ease',
-                }}>
-                  {r.label}
-                </div>
-                {active && (
-                  <div style={{
-                    position: 'absolute', left: 0, right: 0, bottom: -1, height: 2,
-                    background: accent,
-                  }}/>
-                )}
-              </div>
+                  transition: 'color 180ms ease, background 180ms ease',
+                }}
+                aria-pressed={active}
+              >
+                {r.label}
+              </button>
             );
           })}
         </div>
 
+        {/* Progress bar — spans all stages */}
         <div style={{
-          display: 'grid',
-          gridTemplateColumns: stack ? '1fr' : 'minmax(0, 1.2fr) minmax(0, 1fr)',
-          gap: 24, alignItems: 'start',
+          height: 3, background: 'rgba(255,255,255,0.06)',
+          borderBottom: `1px solid ${COL.line}`, marginBottom: 24, position: 'relative',
         }}>
+          <div style={{
+            position: 'absolute', top: 0, left: 0, bottom: 0,
+            width: `${progressPct}%`,
+            background: accent,
+          }}/>
+        </div>
+
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: stack ? '1fr' : 'minmax(0, 1.2fr) minmax(0, 1fr)',
+            gap: 24, alignItems: 'start',
+          }}
+        >
           {/* Left: terminal */}
           <div style={{
             background: COL.bgCode, border: `1px solid ${COL.line}`,
@@ -314,7 +325,7 @@ function HookInActionSection({ accent }) {
               <div style={{ whiteSpace: 'pre-wrap' }}>
                 <span style={{ color: accent, marginRight: 10 }}>❯</span>
                 <span>{typed}</span>
-                {(t >= 600 && t < typingEnd) && (
+                {(t >= typingStart && t < typingEnd) && (
                   <span style={{
                     display: 'inline-block', width: 7, height: 15,
                     background: COL.fg, marginLeft: 2, verticalAlign: '-2px',
@@ -428,7 +439,6 @@ function HookInActionSection({ accent }) {
                 {scene.highlight === 'return' && 'tagged result: block + reason'}
                 {!scene.highlight && 'waiting for PreToolUse'}
               </span>
-              <span>{paused ? 'paused' : 'auto-replay'}</span>
             </div>
           </div>
         </div>
@@ -440,7 +450,19 @@ function HookInActionSection({ accent }) {
 // ---------- Problem: rm -rf story + pain list ----------
 function ProblemSection({ accent }) {
   const vp = useViewport();
+  const stack = vp.isMobile || vp.isTablet;
   const cols = vp.isMobile ? 1 : vp.isTablet ? 2 : 3;
+  const brokenHookLines = [
+    [[TK.com, '#!/bin/bash']],
+    [[TK.com, '# .claude/hooks/no-rm-rf.sh']],
+    '',
+    [[TK.fn, 'cmd'], [TK.op, '=$('], 'jq -r ', [TK.str, "'.tool_input.command'"], [TK.op, ')']],
+    '',
+    [[TK.kw, 'if'], ' ', [TK.fn, 'echo'], ' ', [TK.str, '"$cmd"'], ' | ', [COL.red, 'rg'], ' ', [TK.str, "'^rm\\s+-rf'"], '; ', [TK.kw, 'then']],
+    ['  ', [TK.fn, 'echo'], ' ', [TK.str, '"refusing rm -rf"'], ' >&2'],
+    ['  ', [TK.kw, 'exit'], ' ', [TK.num, '2']],
+    [[TK.kw, 'fi']],
+  ];
   const pains = [
     { n: '01', k: 'Silent failures',
       d: 'Claude Code only blocks on exit code 2. A guard hook that crashes — a typo, a missing dep — doesn\'t prevent the action. The action runs as if the hook never ran.' },
@@ -459,37 +481,107 @@ function ProblemSection({ accent }) {
       padding: bp(vp, { mobile: '64px 18px', tablet: '72px 24px', desktop: '96px 32px' }),
       borderBottom: `1px solid ${COL.line}`,
     }}>
-      <div style={{ maxWidth: 1120, margin: '0 auto' }}>
+      <div style={{ maxWidth: 1200, margin: '0 auto' }}>
         <SectionLabel accent={accent}>Problem</SectionLabel>
-        <h2 style={{
-          fontSize: 'clamp(32px, 3.6vw, 46px)', lineHeight: 1.1,
-          letterSpacing: -1, fontWeight: 500, margin: '0 0 20px', maxWidth: 820,
-        }}>
-          The hook that was supposed<br/>to stop <code style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.85em', color: COL.red, background: 'rgba(248,113,113,0.08)', padding: '2px 8px' }}>rm -rf ~/</code> crashed.
-        </h2>
-        <p style={{ fontSize: 17, color: COL.fgMute, maxWidth: 680, margin: '0 0 40px', lineHeight: 1.55 }}>
-          Somebody's agent ran <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>rm -rf tests/ patches/ plan/ ~/</code> —
-          the trailing <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>~/</code> wiped the Mac.
-          A guard hook was meant to catch it, but threw an exception and exited with a non-2 code.
-          Claude Code treats anything other than exit 2 as success, so the command ran. In Clooks,
-          a crashed hook blocks the action by default.
-        </p>
 
-        {/* Quote-style incident card */}
+        {/* 2-col: narrative + quote on left, broken hook + transcript on right */}
         <div style={{
-          border: `1px solid ${COL.line}`, background: COL.bgSoft,
-          padding: '24px 28px', margin: '0 0 64px',
-          display: 'grid', gridTemplateColumns: '20px 1fr', gap: 18,
-          maxWidth: 820,
+          display: 'grid',
+          gridTemplateColumns: stack ? 'minmax(0, 1fr)' : 'minmax(0, 1fr) minmax(0, 1.1fr)',
+          gap: stack ? 40 : 56, margin: '0 0 64px',
+          alignItems: 'start',
         }}>
-          <div style={{ width: 2, background: COL.red, alignSelf: 'stretch' }}/>
           <div>
-            <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 12, color: COL.fgDim, marginBottom: 8 }}>
-              claude-code · issue #15897
+            <h2 style={{
+              fontSize: 'clamp(28px, 3.2vw, 42px)', lineHeight: 1.1,
+              letterSpacing: -1, fontWeight: 500, margin: '0 0 20px',
+            }}>
+              The hook that was supposed<br/>to stop <code style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.85em', color: COL.red, background: 'rgba(248,113,113,0.08)', padding: '2px 8px' }}>rm -rf ~/</code> crashed.
+            </h2>
+            <p style={{ fontSize: 16, color: COL.fgMute, margin: '0 0 32px', lineHeight: 1.6 }}>
+              Somebody's agent ran <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>rm -rf tests/ patches/ plan/ ~/</code> —
+              the trailing <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>~/</code> wiped the Mac.
+              A guard hook was meant to catch it, but threw an exception and exited with a non-2 code.
+              Claude Code treats anything other than exit 2 as success, so the command ran. In Clooks,
+              a crashed hook blocks the action by default.
+            </p>
+
+            <div style={{
+              border: `1px solid ${COL.line}`, background: COL.bgSoft,
+              padding: '22px 26px',
+              display: 'grid', gridTemplateColumns: '20px 1fr', gap: 18,
+            }}>
+              <div style={{ width: 2, background: COL.red, alignSelf: 'stretch' }}/>
+              <div>
+                <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 12, color: COL.fgDim, marginBottom: 8 }}>
+                  claude-code · issue #15897
+                </div>
+                <div style={{ fontSize: 14.5, color: COL.fg, lineHeight: 1.55 }}>
+                  "All hooks run in parallel. There is no ordering guarantee, no way to
+                  chain modifications, no way to know which one blocked."
+                </div>
+              </div>
             </div>
-            <div style={{ fontSize: 15, color: COL.fg, lineHeight: 1.55 }}>
-              "All hooks run in parallel. There is no ordering guarantee, no way to
-              chain modifications, no way to know which one blocked."
+          </div>
+
+          {/* Broken hook + transcript */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0 }}>
+            <CodeCard
+              title="no-rm-rf.sh"
+              badge="bash"
+              badgeColor={COL.fgDim}
+              lines={brokenHookLines}
+              compact
+            />
+
+            <div style={{
+              background: COL.bgCode, border: `1px solid ${COL.line}`,
+              fontFamily: 'JetBrains Mono, monospace', fontSize: 12.5, lineHeight: 1.6,
+              color: COL.fg,
+            }}>
+              <div style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '10px 14px', borderBottom: `1px solid ${COL.line}`,
+                fontSize: 11, color: COL.fgDim,
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ display: 'inline-flex', gap: 6 }}>
+                    <span style={{ width: 8, height: 8, background: '#3f3f46', display: 'inline-block' }}/>
+                    <span style={{ width: 8, height: 8, background: '#3f3f46', display: 'inline-block' }}/>
+                    <span style={{ width: 8, height: 8, background: '#3f3f46', display: 'inline-block' }}/>
+                  </span>
+                  <span style={{ color: COL.fgMute }}>claude</span>
+                </div>
+                <div style={{ display: 'flex', gap: 12 }}>
+                  <span style={{ color: accent }}>PreToolUse</span>
+                  <span style={{ color: COL.red }}>exit 127</span>
+                </div>
+              </div>
+              <div style={{ padding: '14px 16px' }}>
+                <div>
+                  <span style={{ color: accent, marginRight: 8 }}>❯</span>
+                  <span>clean up stale artifacts</span>
+                </div>
+                <div style={{ height: 6 }}/>
+                <div>
+                  <span style={{ color: accent, marginRight: 8 }}>●</span>
+                  <span>Removing them now.</span>
+                </div>
+                <div style={{ color: COL.fgDim, paddingLeft: 16 }}>
+                  Bash · <span style={{ color: COL.fgMute }}>rm -rf /tmp/build ~</span>
+                </div>
+                <div style={{ color: COL.red, paddingLeft: 16 }}>
+                  {'  ⎿  '}Hook execution failed: <span style={{ color: COL.fg }}>rg: command not found</span>
+                </div>
+                <div style={{ color: COL.fgDim, paddingLeft: 16 }}>
+                  {'  ⎿  '}<span style={{ color: COL.green }}>✓</span> removed /tmp/build
+                </div>
+                <div style={{ height: 6 }}/>
+                <div>
+                  <span style={{ color: accent, marginRight: 8 }}>●</span>
+                  <span style={{ color: COL.red }}>Done — and cleared your home directory too.</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
