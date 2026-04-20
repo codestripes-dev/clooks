@@ -17,7 +17,7 @@ function InstallBlock({ cmd, accent, autoType = true, lines = [] }) {
     {
       cmd: 'claude plugin install clooks@clooks-marketplace',
       output: [
-        ['→ Installed ', ['muted', 'clooks@1.2.0'], ', enabled in this project.'],
+        ['→ Installed ', ['muted', `clooks@${window.CLOOKS_VERSION}`], ', enabled in this project.'],
       ],
       doneLabel: '✓ enabled.',
       typeSpeed: 12,
@@ -27,7 +27,7 @@ function InstallBlock({ cmd, accent, autoType = true, lines = [] }) {
       cmd: '/clooks:setup',
       output: [
         ['→ Created ', ['code', '.clooks/clooks.yml'], ', ', ['code', '.clooks/hooks/'], ', ', ['code', '.clooks/lockfile.json']],
-        ['→ Installed ', ['muted', 'clooks-core-hooks@1.2.0'], ' (3 hooks)'],
+        ['→ Installed ', ['muted', `clooks-core-hooks@${window.CLOOKS_VERSION}`], ' (3 hooks)'],
       ],
       doneLabel: '✓ ready.',
       typeSpeed: 14,
@@ -291,7 +291,7 @@ function HeroCode({ tweaks }) {
           display: 'flex', alignItems: 'center', gap: 10,
         }}>
           <span style={{ width: 24, height: 1, background: tweaks.accent, display: 'inline-block' }}/>
-          v0.0.1 · pre-release · Claude Code
+          v{window.CLOOKS_VERSION} · pre-release · Claude Code
         </div>
         <h1 style={{
           fontSize: bp(vp, { mobile: 40, tablet: 56, desktop: 'clamp(44px, 6vw, 76px)' }),
@@ -360,7 +360,7 @@ function HeroSplit({ tweaks }) {
             display: 'flex', alignItems: 'center', gap: 10,
           }}>
             <span style={{ width: 24, height: 1, background: tweaks.accent, display: 'inline-block' }}/>
-            v0.0.1 · pre-release
+            v{window.CLOOKS_VERSION} · pre-release
           </div>
           <h1 style={{
             fontSize: bp(vp, { mobile: 38, tablet: 52, desktop: 'clamp(40px, 4.4vw, 60px)' }),

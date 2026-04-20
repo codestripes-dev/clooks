@@ -395,39 +395,46 @@ function HookInActionSection({ accent }) {
                 typescript
               </span>
             </div>
-            <div style={{ display: 'flex', padding: '14px 0' }}>
-              <div style={{
-                padding: vp.isMobile ? '0 8px' : '0 12px', color: COL.fgFaint, textAlign: 'right',
-                borderRight: `1px solid ${COL.line}`, userSelect: 'none', minWidth: vp.isMobile ? 28 : 36,
-              }}>
-                {hookLines.map((_, i) => (
-                  <div key={i} style={{
-                    color: hlSet.has(i) ? accent : COL.fgFaint,
-                    transition: 'color 180ms ease',
-                  }}>{i + 1}</div>
-                ))}
-              </div>
-              <div style={{ padding: vp.isMobile ? '0 10px' : '0 0', flex: 1, minWidth: 0, overflowX: vp.isMobile ? 'visible' : 'auto' }}>
-                {hookLines.map((l, i) => {
-                  const on = hlSet.has(i);
-                  return (
-                    <div key={i} style={{
-                      whiteSpace: vp.isMobile ? 'pre-wrap' : 'pre',
-                      overflowWrap: vp.isMobile ? 'anywhere' : 'normal',
-                      minHeight: vp.isMobile ? 17.3 : 20.6,
-                      padding: '0 14px',
-                      background: on ? 'rgba(251,191,36,0.09)' : 'transparent',
-                      borderLeft: `2px solid ${on ? accent : 'transparent'}`,
-                      marginLeft: on ? 0 : 2,
-                      paddingLeft: on ? 12 : 14,
-                      transition: 'background 180ms ease, border-color 180ms ease',
-                    }}>
-                      {renderLine(l)}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+            {(() => {
+              const srcFont = vp.isMobile ? 8.5 : 12.5;
+              const lineH = srcFont * 1.65;
+              return (
+                <div style={{ display: 'flex', padding: '14px 0' }}>
+                  <div style={{
+                    padding: vp.isMobile ? '0 8px' : '0 12px', color: COL.fgFaint, textAlign: 'right',
+                    borderRight: `1px solid ${COL.line}`, userSelect: 'none', minWidth: vp.isMobile ? 28 : 36,
+                  }}>
+                    {hookLines.map((_, i) => (
+                      <div key={i} style={{
+                        minHeight: lineH,
+                        color: hlSet.has(i) ? accent : COL.fgFaint,
+                        transition: 'color 180ms ease',
+                      }}>{i + 1}</div>
+                    ))}
+                  </div>
+                  <div style={{ padding: vp.isMobile ? '0 10px' : '0 0', flex: 1, minWidth: 0, overflowX: vp.isMobile ? 'visible' : 'auto' }}>
+                    {hookLines.map((l, i) => {
+                      const on = hlSet.has(i);
+                      return (
+                        <div key={i} style={{
+                          whiteSpace: vp.isMobile ? 'pre-wrap' : 'pre',
+                          overflowWrap: vp.isMobile ? 'anywhere' : 'normal',
+                          minHeight: lineH,
+                          padding: '0 14px',
+                          background: on ? 'rgba(251,191,36,0.09)' : 'transparent',
+                          borderLeft: `2px solid ${on ? accent : 'transparent'}`,
+                          marginLeft: on ? 0 : 2,
+                          paddingLeft: on ? 12 : 14,
+                          transition: 'background 180ms ease, border-color 180ms ease',
+                        }}>
+                          {renderLine(l)}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
             <div style={{
               padding: '10px 14px', borderTop: `1px solid ${COL.line}`,
               fontSize: 11, color: COL.fgDim, display: 'flex', justifyContent: 'space-between',
@@ -719,40 +726,47 @@ function HookAnatomySection({ accent }) {
                   typescript
                 </span>
               </div>
-              <div style={{ display: 'flex', padding: '14px 0' }}>
-                <div style={{
-                  padding: vp.isMobile ? '0 8px' : '0 12px', color: COL.fgFaint, textAlign: 'right',
-                  borderRight: `1px solid ${COL.line}`, userSelect: 'none',
-                  minWidth: vp.isMobile ? 28 : 36,
-                }}>
-                  {anatomyLines.map((_, i) => (
-                    <div key={i} style={{
-                      color: hlSet.has(i) ? accent : COL.fgFaint,
-                      transition: 'color 180ms ease',
-                    }}>{i + 1}</div>
-                  ))}
-                </div>
-                <div style={{ padding: 0, flex: 1, minWidth: 0, overflowX: vp.isMobile ? 'visible' : 'auto' }}>
-                  {anatomyLines.map((l, i) => {
-                    const on = hlSet.has(i);
-                    return (
-                      <div key={i} style={{
-                        whiteSpace: vp.isMobile ? 'pre-wrap' : 'pre',
-                        overflowWrap: vp.isMobile ? 'anywhere' : 'normal',
-                        minHeight: vp.isMobile ? 17 : 20.6,
-                        padding: '0 14px',
-                        background: on ? 'rgba(251,191,36,0.09)' : 'transparent',
-                        borderLeft: `2px solid ${on ? accent : 'transparent'}`,
-                        marginLeft: on ? 0 : 2,
-                        paddingLeft: on ? 12 : 14,
-                        transition: 'background 180ms ease, border-color 180ms ease',
-                      }}>
-                        {renderLine(l)}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
+              {(() => {
+                const srcFont = vp.isMobile ? 10 : 12.5;
+                const lineH = srcFont * 1.65;
+                return (
+                  <div style={{ display: 'flex', padding: '14px 0' }}>
+                    <div style={{
+                      padding: vp.isMobile ? '0 8px' : '0 12px', color: COL.fgFaint, textAlign: 'right',
+                      borderRight: `1px solid ${COL.line}`, userSelect: 'none',
+                      minWidth: vp.isMobile ? 28 : 36,
+                    }}>
+                      {anatomyLines.map((_, i) => (
+                        <div key={i} style={{
+                          minHeight: lineH,
+                          color: hlSet.has(i) ? accent : COL.fgFaint,
+                          transition: 'color 180ms ease',
+                        }}>{i + 1}</div>
+                      ))}
+                    </div>
+                    <div style={{ padding: 0, flex: 1, minWidth: 0, overflowX: vp.isMobile ? 'visible' : 'auto' }}>
+                      {anatomyLines.map((l, i) => {
+                        const on = hlSet.has(i);
+                        return (
+                          <div key={i} style={{
+                            whiteSpace: vp.isMobile ? 'pre-wrap' : 'pre',
+                            overflowWrap: vp.isMobile ? 'anywhere' : 'normal',
+                            minHeight: lineH,
+                            padding: '0 14px',
+                            background: on ? 'rgba(251,191,36,0.09)' : 'transparent',
+                            borderLeft: `2px solid ${on ? accent : 'transparent'}`,
+                            marginLeft: on ? 0 : 2,
+                            paddingLeft: on ? 12 : 14,
+                            transition: 'background 180ms ease, border-color 180ms ease',
+                          }}>
+                            {renderLine(l)}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           </div>
           <div>
@@ -1180,7 +1194,6 @@ function RoadmapSection({ accent }) {
     { k: 'Claude Code', status: 'shipping', note: 'primary target, working today' },
     { k: 'clooks test', status: 'wip', note: 'runner in progress — co-located .test.ts files today' },
     { k: 'clooks manage (TUI)', status: 'planned', note: 'interactive marketplace browser' },
-    { k: 'curl | sh installer', status: 'planned', note: 'clooks.cc/install — plugin path works today' },
     { k: 'Prebuilt binaries', status: 'shipping', note: 'GitHub releases for darwin/linux, arm64 + x64' },
     { k: 'Cursor', status: 'planned', note: 'event mapping researched' },
     { k: 'Codex', status: 'planned', note: 'event mapping researched' },
@@ -1205,7 +1218,7 @@ function RoadmapSection({ accent }) {
           fontSize: 'clamp(28px, 3vw, 38px)', lineHeight: 1.15,
           letterSpacing: -0.8, fontWeight: 500, margin: '0 0 40px', maxWidth: 640,
         }}>
-          Where things stand at <code style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.85em' }}>v0.0.1</code>.
+          Where things stand at <code style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.85em' }}>v{window.CLOOKS_VERSION}</code>.
         </h2>
         <div style={{
           display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: 0,
@@ -1338,7 +1351,7 @@ function Footer({ accent }) {
             marginTop: 20, fontSize: 11, color: COL.fgFaint,
             fontFamily: 'JetBrains Mono, monospace',
           }}>
-            clooks v0.0.1 · built with bun · by Joe Degler
+            clooks v{window.CLOOKS_VERSION} · built with bun · by Joe Degler
           </div>
         </div>
         {[
@@ -2308,16 +2321,14 @@ function ScopedConfigSection({ accent }) {
         ['  ', [TK.prop, 'timeout'], [TK.op, ': '], [TK.num, '30000']],
         ['  ', [TK.prop, 'onError'], [TK.op, ': '], [TK.str, 'block']],
         '',
-        [[TK.prop, 'js-package-manager-guard'], [TK.op, ':']],
-        ['  ', [TK.prop, 'config'], [TK.op, ':']],
-        ['    ', [TK.prop, 'allowed'], [TK.op, ': ['], [TK.str, '"bun"'], [TK.op, ']']],
+        [[TK.prop, 'no-bare-mv'], [TK.op, ': {}']],
       ],
     },
     {
       badge: 'PROJECT',
       badgeColor: accent,
       path: '.clooks/clooks.yml',
-      caption: <>Committed. Overrides <span style={{ color: COL.fg, ...mono }}>HOME</span> and adds team safety hooks.</>,
+      caption: <>Committed. Team picks a package manager and pins a shared secret scanner.</>,
       lines: [
         [[TK.prop, 'js-package-manager-guard'], [TK.op, ':']],
         ['  ', [TK.prop, 'config'], [TK.op, ':']],
@@ -2331,7 +2342,7 @@ function ScopedConfigSection({ accent }) {
       badge: 'LOCAL',
       badgeColor: COL.yellow,
       path: '.clooks/clooks.local.yml',
-      caption: <>Gitignored. Overrides <span style={{ color: COL.fg, ...mono }}>PROJECT</span>; mute hooks that bug you.</>,
+      caption: <>Gitignored. Loosen a team rule or mute a hook just for you.</>,
       lines: [
         [[TK.prop, 'js-package-manager-guard'], [TK.op, ':']],
         ['  ', [TK.prop, 'config'], [TK.op, ':']],
@@ -2348,6 +2359,8 @@ function ScopedConfigSection({ accent }) {
     ['  ', [TK.prop, 'timeout'], [TK.op, ': '], [TK.num, '30000']],
     ['  ', [TK.prop, 'onError'], [TK.op, ': '], [TK.str, 'block']],
     '',
+    [[TK.prop, 'no-bare-mv'], [TK.op, ': {}']],
+    '',
     [[TK.prop, 'js-package-manager-guard'], [TK.op, ':']],
     ['  ', [TK.prop, 'config'], [TK.op, ':']],
     ['    ', [TK.prop, 'allowed'], [TK.op, ': ['], [TK.str, '"pnpm"'], [TK.op, ', '], [TK.str, '"npm"'], [TK.op, ']']],
@@ -2355,6 +2368,12 @@ function ScopedConfigSection({ accent }) {
     [[TK.prop, 'secret-scanner'], [TK.op, ':']],
     ['  ', [TK.prop, 'uses'], [TK.op, ': '], [TK.str, 'no-public-secrets']],
     ['  ', [TK.prop, 'enabled'], [TK.op, ': '], [TK.kw, 'false']],
+  ];
+
+  const maxLines = Math.max(...layers.map((l) => l.lines.length));
+  const padLines = (lines) => [
+    ...lines,
+    ...Array(Math.max(0, maxLines - lines.length)).fill(''),
   ];
 
   const ScopeCard = ({ layer }) => (
@@ -2371,7 +2390,7 @@ function ScopedConfigSection({ accent }) {
           {layer.path}
         </span>
       </div>
-      <CodeCard lines={layer.lines} lineNumbers={false} compact/>
+      <CodeCard lines={padLines(layer.lines)} lineNumbers={false} compact/>
       <div style={{ fontSize: 12.5, color: COL.fgMute, lineHeight: 1.5 }}>
         {layer.caption}
       </div>
@@ -2393,8 +2412,8 @@ function ScopedConfigSection({ accent }) {
           <span style={{ color: COL.fgMute }}>Last write wins.</span>
         </h2>
         <p style={{ fontSize: 15, color: COL.fgMute, maxWidth: 680, margin: '0 0 32px', lineHeight: 1.6 }}>
-          The same hook — <code style={{ ...mono, color: COL.fg }}>js-package-manager-guard</code> — resolves differently
-          in each repo. Clooks reads home, then project, then local; arrays replace, they don't merge.
+          Each layer adds its own hooks and can override the ones beneath. Personal defaults in home,
+          team rules in the repo, and a gitignored local file for the exceptions only you need.
         </p>
 
         <div style={{
@@ -2408,18 +2427,42 @@ function ScopedConfigSection({ accent }) {
         <div style={{
           marginTop: 32, padding: '24px 0 0',
           borderTop: `1px solid ${COL.line}`,
-          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12,
+          display: 'grid',
+          gridTemplateColumns: stack ? 'minmax(0, 1fr)' : 'minmax(0, 1fr) 420px',
+          gap: stack ? 20 : 48,
+          alignItems: 'center',
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{
-              ...mono, fontSize: 10.5, letterSpacing: 1.2, textTransform: 'uppercase',
-              color: COL.bg || '#0a0a0a', background: accent, padding: '3px 8px',
-            }}>
-              Resolved
-            </span>
-            <span style={{ fontSize: 12.5, color: COL.fgMute }}>what the hook sees</span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0, maxWidth: 460 }}>
+            {[
+              { badge: 'HOME', color: COL.fgMute, text: 'Hooks you always want, available in every repo.' },
+              { badge: 'PROJECT', color: accent, text: 'Team-owned hooks committed with the repo.' },
+              { badge: 'LOCAL', color: COL.yellow, text: 'Personal overrides that never leave your box.' },
+            ].map((row) => (
+              <div key={row.badge} style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
+                <span style={{
+                  ...mono, fontSize: 10.5, letterSpacing: 1.2, textTransform: 'uppercase',
+                  color: row.color, border: `1px solid ${row.color}`,
+                  padding: '3px 8px', flexShrink: 0,
+                  minWidth: 72, textAlign: 'center',
+                }}>
+                  {row.badge}
+                </span>
+                <span style={{ fontSize: 14, color: COL.fg, lineHeight: 1.55, paddingTop: 1 }}>
+                  {row.text}
+                </span>
+              </div>
+            ))}
           </div>
-          <div style={{ width: '100%', maxWidth: 420, minWidth: 0 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{
+                ...mono, fontSize: 10.5, letterSpacing: 1.2, textTransform: 'uppercase',
+                color: COL.bg || '#0a0a0a', background: accent, padding: '3px 8px',
+              }}>
+                Resolved
+              </span>
+              <span style={{ fontSize: 12.5, color: COL.fgMute }}>what Clooks sees</span>
+            </div>
             <CodeCard lines={resolvedLines} lineNumbers={false} compact/>
           </div>
         </div>
