@@ -5,7 +5,7 @@
 // updatedInput. If it fails: lets the bare `mv` through.
 
 import { spawnSync } from 'child_process'
-import type { ClooksHook } from '../../src/types'
+import type { ClooksHook } from './types'
 
 // Matches bare `mv` at the start of a command or after whitespace,
 // but not `git mv` or partial words like `mvn`
@@ -23,7 +23,7 @@ export function isBareMove(command: string): boolean {
 
 /** Replace the first bare `mv` with `git mv`. */
 export function rewriteToGitMv(command: string): string {
-  return command.replace(/\bmv\s/, 'git mv ')
+  return command.replace(/(?:^|\s)mv\s/, (match) => match.replace('mv ', 'git mv '))
 }
 
 /** Run the rewritten command as a dry-run by injecting `-n` after `git mv`. */

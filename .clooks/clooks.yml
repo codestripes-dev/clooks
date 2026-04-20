@@ -8,6 +8,37 @@ domain-doc-size: {}
 
 debug-payload:  {}
 
-no-bare-mv: {}
-
 no-clooks-uninstall: {}
+
+no-compound-commands: {}
+
+no-destructive-git:
+  uses: ./.clooks/vendor/plugin/clooks-core-hooks/no-destructive-git.ts
+
+prefer-builtin-tools:
+  uses: ./.clooks/vendor/plugin/clooks-core-hooks/prefer-builtin-tools.ts
+
+no-auto-confirm:
+  uses: ./.clooks/vendor/plugin/clooks-core-hooks/no-auto-confirm.ts
+
+js-package-manager-guard:
+  uses: ./.clooks/vendor/plugin/clooks-project-hooks/js-package-manager-guard.ts
+  config:
+    allowed: ["bun"]
+
+no-edit-protected:
+  uses: ./.clooks/vendor/plugin/clooks-project-hooks/no-edit-protected.ts
+
+prefer-project-scripts:
+  uses: ./.clooks/vendor/plugin/clooks-project-hooks/prefer-project-scripts.ts
+  config:
+    mappings:
+      - match: "(?<![\\w-])eslint(?![\\w-])"
+        recommend: "bun run lint"
+      - match: "(?<![\\w-])prettier(?![\\w-])"
+        recommend: "bun run format"
+      - match: "(?<![\\w-])tsc(?![\\w-])"
+        recommend: "bun run typecheck"
+
+no-bare-mv:
+  uses: ./.clooks/vendor/plugin/clooks-core-hooks/no-bare-mv.ts

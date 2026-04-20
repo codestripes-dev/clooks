@@ -220,5 +220,10 @@
         ]
       }
     ]
+  },
+  "enabledPlugins": {
+    "clooks@clooks-marketplace": true,
+    "clooks-core-hooks@clooks-marketplace": true,
+    "clooks-project-hooks@clooks-marketplace": true
   }
 }

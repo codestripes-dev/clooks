@@ -6,6 +6,7 @@ dist/
 *.tsbuildinfo
 .clooks/hook.log
 .clooks/.failures
+.clooks/bin/clooks
 # Clooks
 clooks.local.yml
 .clooks/.cache/
