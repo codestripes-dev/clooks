@@ -16,8 +16,14 @@ src/generated/
 coverage/
 
 # Internal planning & research (not published)
-docs/plans/
-docs/planned/
-docs/epics/
+# Keep workflow meta-docs; ignore everything else in these folders.
+docs/plans/*
+!docs/plans/PLANS.md
+docs/planned/*
+!docs/planned/FEATURES.md
+docs/epics/*
+!docs/epics/EPICS.md
+docs/findings/*
+!docs/findings/index.md
 docs/research/
 PRODUCT_EXPLORATION.md
