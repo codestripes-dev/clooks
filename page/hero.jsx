@@ -24,7 +24,7 @@ function InstallBlock({ cmd, accent, autoType = true, lines = [] }) {
       runMs: 500,
     },
     {
-      cmd: '/clooks:setup',
+      cmd: 'claude /clooks:setup',
       output: [
         ['→ Created ', ['code', '.clooks/clooks.yml'], ', ', ['code', '.clooks/hooks/'], ', ', ['code', '.clooks/lockfile.json']],
         ['→ Installed ', ['muted', `clooks-core-hooks@${window.CLOOKS_VERSION}`], ' (3 hooks)'],
@@ -71,7 +71,7 @@ function InstallBlock({ cmd, accent, autoType = true, lines = [] }) {
   }, [state.map(s => s.phase).join(',')]);
 
   const copy = async () => {
-    const parts = steps.map((s, i) => i === steps.length - 1 ? `claude ${s.cmd}` : s.cmd);
+    const parts = steps.map(s => s.cmd);
     const text = parts.join(' && ');
     let ok = false;
     try {
