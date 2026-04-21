@@ -1,0 +1,20 @@
+# Clooks
+
+> A hook runtime for AI coding agents. Write hooks in TypeScript with typed contracts, not bash scripts. Starting with Claude Code; cross-agent support for Cursor, Windsurf, and VS Code Copilot is planned.
+
+Clooks sits between the native hook system of an AI coding agent and user-defined hook scripts. A small bash entrypoint in the agent's config invokes a compiled Bun binary (~15ms) that reads `.clooks/clooks.yml` and runs matching TypeScript hooks. Hooks are fail-closed by default: a crash blocks the agent's action rather than silently passing through.
+
+Hooks are one `.ts` file each, export a `meta` descriptor (name, events, typed config schema) plus a default handler, and are addressed by marketplace coordinates like `githubuser/repo:Hook@sha`. Installed hooks are vendored into the project and pinned via `.clooks/hooks.lock`, so cloning the repo gives you a reproducible hook setup with no network step.
+
+Supported platforms: macOS and Linux. Windows is deferred.
+
+## Links
+
+- [Landing page](https://clooks.cc/): product overview, install command, hook examples, FAQ
+- [GitHub: clooks](https://github.com/codestripes-dev/clooks): source for the CLI and runtime
+- [GitHub: clooks-marketplace](https://github.com/codestripes-dev/clooks-marketplace): registry index + curated hook packs
+
+## Contact
+
+- Author: Joe Degler (joe@clooks.cc)
+- License: MIT
