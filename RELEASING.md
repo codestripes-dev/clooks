@@ -1,6 +1,6 @@
 # Releasing Clooks
 
-Clooks releases are cut by pushing a git tag of the form `vMAJOR.MINOR.PATCH`. A GitHub Actions workflow (`.github/workflows/release.yml`) handles the rest: cross-compiling binaries for 5 platforms, smoke-testing the darwin-arm64 binary on a macOS runner, generating SHA-256 checksums, and publishing a draft release on GitHub.
+Clooks releases are cut by pushing a git tag of the form `vMAJOR.MINOR.PATCH`. A GitHub Actions workflow (`.github/workflows/release.yml`) handles the rest: cross-compiling binaries for 5 platforms, signing + notarizing the darwin binaries with an Apple Developer ID, smoke-testing the darwin-arm64 binary on a macOS runner, generating SHA-256 checksums, and publishing a draft release on GitHub.
 
 ## Cutting a release
 
@@ -23,7 +23,7 @@ Clooks releases are cut by pushing a git tag of the form `vMAJOR.MINOR.PATCH`. A
        git tag vX.Y.Z
        git push origin vX.Y.Z
 
-5. Watch the workflow run (`gh run watch` or via the Actions tab). Expect roughly 2 minutes to completion. All three jobs (`build`, `smoke-darwin`, `publish`) must go green.
+5. Watch the workflow run (`gh run watch` or via the Actions tab). Expect roughly 3–5 minutes to completion (notarization usually accounts for 1–2 minutes of that). All three jobs (`build`, `sign-and-smoke-darwin`, `publish`) must go green.
 
 6. A draft release appears on the Releases page with 6 assets:
 
@@ -55,12 +55,15 @@ Tag with a hyphen suffix (for example `v0.2.0-rc.1`). The workflow auto-flags th
 - **Wrong version number:** delete the tag (`git push origin :refs/tags/vX.Y.Z`) and the draft release (`gh release delete vX.Y.Z`), fix the bump commit, tag again. You can reuse the version number because the draft was not published.
 - **Already-published release has a bug:** publish a new patch release (`v0.1.2`). Do not retroactively edit a published release — users may already have downloaded it.
 
+## Apple Developer ID signing
+
+Darwin binaries are signed + notarized on tag pushes. The `sign-and-smoke-darwin` job requires six repo secrets: `APPLE_DEVELOPER_ID_P12_BASE64`, `APPLE_DEVELOPER_ID_P12_PASSWORD`, `APPLE_DEVELOPER_ID_CERT_NAME`, `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_NOTARY_PASSWORD`. `workflow_dispatch` runs skip signing.
+
 ## Scope of this workflow
 
 Intentionally minimal. This release workflow does NOT provide:
 
 - SLSA / build provenance attestations
-- Mac codesigning or notarization (Gatekeeper may quarantine binaries; document `xattr -d com.apple.quarantine clooks-darwin-*` for users if they report issues)
 - `.tar.gz` archives
 - Homebrew tap / Scoop / `curl | sh` installer (planned as FEAT-0028 follow-up work)
 - E2E tests as a release gate (the workflow only runs unit tests + lint + typecheck)

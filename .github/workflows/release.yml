@@ -132,7 +132,7 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
-  smoke-darwin:
+  sign-and-smoke-darwin:
     needs: build
     runs-on: macos-latest
     steps:
@@ -140,6 +140,63 @@ jobs:
         with:
           name: clooks-dist
           path: dist/
+
+      # Signing + notarization only run on tag pushes; workflow_dispatch
+      # produces unsigned binaries.
+      - name: Import Developer ID signing certificate
+        if: github.event_name == 'push'
+        uses: apple-actions/import-codesign-certs@b610f78488812c1e56b20e6df63ec42d833f2d14 # v6.0.0
+        with:
+          p12-file-base64: ${{ secrets.APPLE_DEVELOPER_ID_P12_BASE64 }}
+          p12-password: ${{ secrets.APPLE_DEVELOPER_ID_P12_PASSWORD }}
+
+      - name: Sign darwin binaries
+        if: github.event_name == 'push'
+        env:
+          CERT_NAME: ${{ secrets.APPLE_DEVELOPER_ID_CERT_NAME }}
+        run: |
+          set -e
+          # --force replaces Bun's ad-hoc signature. --options runtime
+          # and --timestamp are both required by notarization.
+          for arch in arm64 x64; do
+            binary="dist/clooks-darwin-$arch"
+            chmod +x "$binary"
+            codesign --force --timestamp --options runtime \
+              --sign "$CERT_NAME" \
+              "$binary"
+            codesign --verify --strict --verbose=2 "$binary"
+          done
+
+      - name: Notarize darwin binaries
+        if: github.event_name == 'push'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_NOTARY_PASSWORD: ${{ secrets.APPLE_NOTARY_PASSWORD }}
+        run: |
+          set -e
+          # notarytool requires a container; ditto preserves xattrs better
+          # than zip. Bare Mach-O can't be stapled — Gatekeeper fetches
+          # the ticket online on first launch.
+          for arch in arm64 x64; do
+            binary="dist/clooks-darwin-$arch"
+            zip_path="dist/clooks-darwin-$arch.zip"
+            ditto -c -k --keepParent "$binary" "$zip_path"
+            xcrun notarytool submit "$zip_path" \
+              --apple-id "$APPLE_ID" \
+              --team-id "$APPLE_TEAM_ID" \
+              --password "$APPLE_NOTARY_PASSWORD" \
+              --wait
+            rm "$zip_path"
+          done
+
+      - name: Regenerate checksums after signing
+        if: github.event_name == 'push'
+        # Signing mutates the binary, so build-job checksums are stale.
+        working-directory: dist
+        run: |
+          sha256sum clooks-* > checksums.txt
+          cat checksums.txt
 
       - name: Smoke test darwin-arm64 binary
         run: |
@@ -167,14 +224,36 @@ jobs:
           fi
           echo "darwin-arm64 smoke test passed"
 
+      - name: Verify Developer ID signature
+        if: github.event_name == 'push'
+        run: |
+          set -e
+          codesign --verify --strict --verbose=2 dist/clooks-darwin-arm64
+          codesign --verify --strict --verbose=2 dist/clooks-darwin-x64
+          echo "--- Signature details (arm64) ---"
+          codesign -dvv dist/clooks-darwin-arm64 2>&1 || true
+          echo "--- Signature details (x64) ---"
+          codesign -dvv dist/clooks-darwin-x64 2>&1 || true
+
+      - name: Upload final dist artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: clooks-dist-final
+          path: dist/
+          retention-days: 1
+          if-no-files-found: error
+
   publish:
-    needs: [build, smoke-darwin]
+    needs: [build, sign-and-smoke-darwin]
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: clooks-dist
+          # clooks-dist-final contains the signed + notarized darwin
+          # binaries plus the untouched linux binaries, and a checksums.txt
+          # regenerated after signing so hashes match what ships.
+          name: clooks-dist-final
           path: dist/
 
       - name: Publish draft release
