@@ -43,11 +43,28 @@ function transpileJsxFiles(): void {
   }
 }
 
+// Inline vendor/fonts/fonts.css into <style> and rewrite relative url()s to be
+// index-relative. Kills one render-blocking request on the critical path —
+// the browser discovers the woff2 refs directly from the HTML parse instead
+// of waiting for fonts.css to download + parse.
+function inlineFontsCss(html: string): string {
+  const cssPath = join(OUT, 'vendor', 'fonts', 'fonts.css')
+  const css = readFileSync(cssPath, 'utf8').replace(/url\(([^)]+)\)/g, 'url(vendor/fonts/$1)')
+  const linkTag = '<link rel="stylesheet" href="vendor/fonts/fonts.css"/>'
+  if (!html.includes(linkTag)) {
+    throw new Error(`Expected index.html to contain ${linkTag}`)
+  }
+  rmSync(cssPath)
+  return html.replace(linkTag, `<style>${css}</style>`)
+}
+
 // Rewrite dist/index.html to drop Babel Standalone, swap .jsx refs to .js,
 // and extract the inline <script type="text/babel"> App block into app.js.
 function transformIndexHtml(): void {
   const indexPath = join(OUT, 'index.html')
   let html = readFileSync(indexPath, 'utf8')
+
+  html = inlineFontsCss(html)
 
   html = html.replace(
     /\n?<script src="https:\/\/unpkg\.com\/@babel\/standalone[^"]*"[^>]*><\/script>/g,
