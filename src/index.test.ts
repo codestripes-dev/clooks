@@ -8,6 +8,6 @@ describe('index', () => {
   })
 
   test('VERSION follows semver format', () => {
-    expect(VERSION).toMatch(/^\d+\.\d+\.\d+$/)
+    expect(VERSION).toMatch(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/)
   })
 })
