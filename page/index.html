@@ -55,6 +55,13 @@
   button:focus-visible, a:focus-visible, input:focus-visible {
     outline: 1px solid currentColor; outline-offset: 2px;
   }
+  .section {
+    padding: 72px 32px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+  @media (max-width: 959px) { .section { padding: 56px 24px; } }
+  @media (max-width: 639px) { .section { padding: 48px 18px; } }
+  .section--elev { background: #0f0f0f; }
 </style>
 </head>
 <body>
@@ -80,13 +87,14 @@
         <ProblemSection accent={tweaks.accent}/>
         <HookInActionSection accent={tweaks.accent}/>
         <HookAnatomySection accent={tweaks.accent}/>
-        <ConfigSection accent={tweaks.accent}/>
         <CapturesSection accent={tweaks.accent}/>
-        <TmuxHookSection accent={tweaks.accent}/>
+        <ConfigSection accent={tweaks.accent}/>
+        <OrderingSection accent={tweaks.accent}/>
         <ScopedConfigSection accent={tweaks.accent}/>
+        <TmuxHookSection accent={tweaks.accent}/>
+        <ComparisonSection accent={tweaks.accent}/>
         <InstallSection accent={tweaks.accent} tweaks={tweaks}/>
         <WhyNotPluginSection accent={tweaks.accent}/>
-        <ComparisonSection accent={tweaks.accent}/>
         <FAQSection accent={tweaks.accent}/>
         <Footer accent={tweaks.accent}/>
       </ViewportFrame>
