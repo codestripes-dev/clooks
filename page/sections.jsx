@@ -646,6 +646,71 @@ function HookAnatomySection({ accent }) {
   };
   const [hovered, setHovered] = React.useState(null);
   const hlSet = new Set(hovered ? HL[hovered] : []);
+
+  // ----- Reuse panel data: same hook, configured three ways -----
+  const reuseConfigs = [
+    {
+      repo: 'platform-api',
+      path: '.clooks/clooks.yml',
+      summary: <>Shared repo. Ship the defaults — every rule on.</>,
+      lines: [
+        [[TK.com, '# All 13 rules default to true.']],
+        [[TK.prop, 'no-destructive-git'], [TK.op, ': {}']],
+      ],
+    },
+    {
+      repo: 'scratch-pad',
+      path: '.clooks/clooks.yml',
+      summary: <>Solo repo. Trust local ops; keep the blast-radius blocks.</>,
+      lines: [
+        [[TK.prop, 'no-destructive-git'], [TK.op, ':']],
+        ['  ', [TK.prop, 'config'], [TK.op, ':']],
+        ['    ', [TK.prop, 'reset-hard'], [TK.op, ': '], [TK.kw, 'false']],
+        ['    ', [TK.prop, 'clean-force'], [TK.op, ': '], [TK.kw, 'false']],
+        ['    ', [TK.prop, 'stash-drop'], [TK.op, ': '], [TK.kw, 'false']],
+      ],
+    },
+    {
+      repo: 'acme-corp/monorepo',
+      path: '.clooks/clooks.yml',
+      summary: <>Team default plus one house rule: open a PR, don't push to main.</>,
+      lines: [
+        [[TK.prop, 'no-destructive-git'], [TK.op, ':']],
+        ['  ', [TK.prop, 'config'], [TK.op, ':']],
+        ['    ', [TK.prop, 'additionalRules'], [TK.op, ':']],
+        ['      - ', [TK.prop, 'match'], [TK.op, ': '], [TK.str, "'push.*\\s(main|master)\\b'"]],
+        ['        ', [TK.prop, 'message'], [TK.op, ': '], [TK.str, "'Open a PR first.'"]],
+      ],
+    },
+  ];
+  const reuseMaxLines = Math.max(...reuseConfigs.map((c) => c.lines.length));
+  const padReuse = (lines) => [
+    ...lines,
+    ...Array(Math.max(0, reuseMaxLines - lines.length)).fill(''),
+  ];
+  const ReuseCard = ({ cfg }) => (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <span style={{
+          fontFamily: 'JetBrains Mono, monospace',
+          fontSize: 10.5, letterSpacing: 1.2, textTransform: 'uppercase',
+          color: accent, border: `1px solid ${accent}`, padding: '3px 8px',
+        }}>
+          {cfg.repo}
+        </span>
+        <span style={{
+          fontFamily: 'JetBrains Mono, monospace', fontSize: 12,
+          color: COL.fgMute, wordBreak: 'break-all',
+        }}>
+          {cfg.path}
+        </span>
+      </div>
+      <CodeCard lines={padReuse(cfg.lines)} lineNumbers={false} compact/>
+      <div style={{ fontSize: 13, color: COL.fgMute, lineHeight: 1.55 }}>
+        {cfg.summary}
+      </div>
+    </div>
+  );
   const anatomyLines = [
     [[TK.com, '// .clooks/hooks/no-bare-mv.ts']],
     [[TK.kw, 'import'], [TK.op, ' { '], [TK.fn, 'existsSync'], [TK.op, ' } '], [TK.kw, 'from'], [TK.str, " 'fs'"]],
@@ -806,6 +871,40 @@ function HookAnatomySection({ accent }) {
                 </div>
               );
             })}
+          </div>
+        </div>
+
+        <div style={{
+          marginTop: stack ? 56 : 80,
+          paddingTop: stack ? 48 : 64,
+          borderTop: `1px solid ${COL.line}`,
+        }}>
+          <div style={{
+            fontFamily: 'JetBrains Mono, monospace', fontSize: 11, letterSpacing: 2,
+            textTransform: 'uppercase', color: COL.fgDim, marginBottom: 18,
+            display: 'flex', alignItems: 'center', gap: 10,
+          }}>
+            <span style={{ width: 24, height: 1, background: COL.fgDim, display: 'inline-block' }}/>
+            Write once. Configure everywhere.
+          </div>
+          <h3 style={{
+            fontSize: 'clamp(22px, 2.4vw, 30px)', lineHeight: 1.2,
+            letterSpacing: -0.6, fontWeight: 500, margin: '0 0 14px', maxWidth: 760,
+          }}>
+            Same hook. Three repos. Three dials.
+          </h3>
+          <p style={{ fontSize: 14.5, color: COL.fgMute, maxWidth: 680, margin: '0 0 36px', lineHeight: 1.6 }}>
+            A hook's <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>meta.config</code> is
+            its public dial. Here's <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>no-destructive-git</code>
+            {' '}— thirteen toggles and a rule array — reshaped in three repos without touching a line of source.
+          </p>
+
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: stack ? 'minmax(0, 1fr)' : 'repeat(3, minmax(0, 1fr))',
+            gap: stack ? 24 : 20,
+          }}>
+            {reuseConfigs.map((cfg) => <ReuseCard key={cfg.repo} cfg={cfg}/>)}
           </div>
         </div>
 
@@ -2189,15 +2288,55 @@ function TmuxHookSection({ accent }) {
 
         <div style={{
           display: 'grid',
-          gridTemplateColumns: stack ? 'minmax(0, 1fr)' : 'minmax(0, 1.1fr) minmax(0, 1fr)',
+          gridTemplateColumns: stack ? 'minmax(0, 1fr)' : 'minmax(0, 1fr) minmax(0, 1.1fr)',
           gap: stack ? 32 : 40, alignItems: 'start',
         }}>
-          {/* Left: abridged hook source (collapsed by default) */}
+          {/* Left: scenes (the demo — primary content) */}
+          <div>
+            {demo.scenes.map((s, i) => (
+              <div key={s.id} style={{
+                padding: '20px 0 28px',
+                borderTop: `1px solid ${COL.line}`,
+                borderBottom: i === demo.scenes.length - 1 ? `1px solid ${COL.line}` : 'none',
+              }}>
+                <div style={{
+                  fontFamily: 'JetBrains Mono, monospace', fontSize: 11,
+                  letterSpacing: 0.6, color: accent, marginBottom: 8,
+                }}>{s.tag}</div>
+                <div style={{
+                  fontSize: 17, color: COL.fg, fontWeight: 500, letterSpacing: -0.2,
+                  marginBottom: 14,
+                }}>{s.title}</div>
+
+                {demo.kind === 'tmux' ? (
+                  <TmuxWindowBar
+                    windows={s.windows}
+                    flash={s.flash}
+                    paneDim={s.paneDim}
+                    paneContent={s.pane}
+                    accent={accent}
+                  />
+                ) : (
+                  ccPane(s.pane)
+                )}
+
+                <div style={{
+                  marginTop: 12, fontSize: 12, color: COL.fgMute,
+                  fontFamily: 'JetBrains Mono, monospace', letterSpacing: 0.2,
+                }}>
+                  {s.note}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Right (desktop) / top (stacked): abridged hook source, collapsed by default. */}
           <div style={{
             background: COL.bgCode, border: `1px solid ${COL.line}`,
             fontFamily: 'JetBrains Mono, monospace', fontSize: vp.isMobile ? 9 : 12,
             lineHeight: 1.65, overflow: 'hidden',
             position: stack ? 'static' : (expanded ? 'sticky' : 'static'), top: 96,
+            order: stack ? -1 : 0,
           }}>
             <button
               type="button"
@@ -2255,45 +2394,6 @@ function TmuxHookSection({ accent }) {
                 </div>
               </>
             )}
-          </div>
-
-          {/* Right: scenes */}
-          <div>
-            {demo.scenes.map((s, i) => (
-              <div key={s.id} style={{
-                padding: '20px 0 28px',
-                borderTop: `1px solid ${COL.line}`,
-                borderBottom: i === demo.scenes.length - 1 ? `1px solid ${COL.line}` : 'none',
-              }}>
-                <div style={{
-                  fontFamily: 'JetBrains Mono, monospace', fontSize: 11,
-                  letterSpacing: 0.6, color: accent, marginBottom: 8,
-                }}>{s.tag}</div>
-                <div style={{
-                  fontSize: 17, color: COL.fg, fontWeight: 500, letterSpacing: -0.2,
-                  marginBottom: 14,
-                }}>{s.title}</div>
-
-                {demo.kind === 'tmux' ? (
-                  <TmuxWindowBar
-                    windows={s.windows}
-                    flash={s.flash}
-                    paneDim={s.paneDim}
-                    paneContent={s.pane}
-                    accent={accent}
-                  />
-                ) : (
-                  ccPane(s.pane)
-                )}
-
-                <div style={{
-                  marginTop: 12, fontSize: 12, color: COL.fgMute,
-                  fontFamily: 'JetBrains Mono, monospace', letterSpacing: 0.2,
-                }}>
-                  {s.note}
-                </div>
-              </div>
-            ))}
           </div>
         </div>
       </div>
@@ -2373,26 +2473,54 @@ function ScopedConfigSection({ accent }) {
     ...Array(Math.max(0, maxLines - lines.length)).fill(''),
   ];
 
-  const ScopeCard = ({ layer }) => (
-    <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <span style={{
-          ...mono, fontSize: 10.5, letterSpacing: 1.2, textTransform: 'uppercase',
-          color: layer.badgeColor, border: `1px solid ${layer.badgeColor}`,
-          padding: '3px 8px',
-        }}>
-          {layer.badge}
-        </span>
-        <span style={{ ...mono, fontSize: 12, color: COL.fg, wordBreak: 'break-all' }}>
-          {layer.path}
-        </span>
+  // Which resolved lines each layer contributes to. A layer "contributes" to a line
+  // when its config touches that key or value in the merged tree. Shared keys
+  // (6, 7, 10) appear under both PROJECT and LOCAL because both declare the hook.
+  // Line 8 is LOCAL-only because its rendered value is LOCAL's (PROJECT's was overridden).
+  const LAYER_LINES = {
+    HOME:    [0, 1, 2, 4],
+    PROJECT: [6, 7, 10, 11],
+    LOCAL:   [6, 7, 8, 10, 12],
+  };
+  const layerColor = { HOME: COL.fgMute, PROJECT: accent, LOCAL: COL.green };
+  const [hoveredLayer, setHoveredLayer] = React.useState(null);
+  const hlSet = new Set(hoveredLayer ? LAYER_LINES[hoveredLayer] : []);
+  const hoverColor = hoveredLayer ? layerColor[hoveredLayer] : null;
+
+  const ScopeCard = ({ layer }) => {
+    const active = hoveredLayer === layer.badge;
+    return (
+      <div
+        onMouseEnter={() => setHoveredLayer(layer.badge)}
+        onMouseLeave={() => setHoveredLayer(null)}
+        style={{
+          minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10,
+          padding: 10, margin: -10,
+          borderLeft: `2px solid ${active ? layer.badgeColor : 'transparent'}`,
+          background: active ? 'rgba(255,255,255,0.015)' : 'transparent',
+          transition: 'background 180ms ease, border-color 180ms ease',
+          cursor: 'default',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <span style={{
+            ...mono, fontSize: 10.5, letterSpacing: 1.2, textTransform: 'uppercase',
+            color: layer.badgeColor, border: `1px solid ${layer.badgeColor}`,
+            padding: '3px 8px',
+          }}>
+            {layer.badge}
+          </span>
+          <span style={{ ...mono, fontSize: 12, color: COL.fg, wordBreak: 'break-all' }}>
+            {layer.path}
+          </span>
+        </div>
+        <CodeCard lines={padLines(layer.lines)} lineNumbers={false} compact/>
+        <div style={{ fontSize: 12.5, color: COL.fgMute, lineHeight: 1.5 }}>
+          {layer.caption}
+        </div>
       </div>
-      <CodeCard lines={padLines(layer.lines)} lineNumbers={false} compact/>
-      <div style={{ fontSize: 12.5, color: COL.fgMute, lineHeight: 1.5 }}>
-        {layer.caption}
-      </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <section id="scoped-config" style={{
@@ -2429,26 +2557,42 @@ function ScopedConfigSection({ accent }) {
           gap: stack ? 20 : 48,
           alignItems: 'center',
         }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0, maxWidth: 460 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0, maxWidth: 460 }}>
             {[
               { badge: 'HOME', color: COL.fgMute, text: 'Hooks you always want, available in every repo.' },
               { badge: 'PROJECT', color: accent, text: 'Team-owned hooks committed with the repo.' },
               { badge: 'LOCAL', color: COL.green, text: 'Personal overrides that never leave your box.' },
-            ].map((row) => (
-              <div key={row.badge} style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
-                <span style={{
-                  ...mono, fontSize: 10.5, letterSpacing: 1.2, textTransform: 'uppercase',
-                  color: row.color, border: `1px solid ${row.color}`,
-                  padding: '3px 8px', flexShrink: 0,
-                  minWidth: 72, textAlign: 'center',
-                }}>
-                  {row.badge}
-                </span>
-                <span style={{ fontSize: 14, color: COL.fg, lineHeight: 1.55, paddingTop: 1 }}>
-                  {row.text}
-                </span>
-              </div>
-            ))}
+            ].map((row) => {
+              const active = hoveredLayer === row.badge;
+              return (
+                <div
+                  key={row.badge}
+                  onMouseEnter={() => setHoveredLayer(row.badge)}
+                  onMouseLeave={() => setHoveredLayer(null)}
+                  style={{
+                    display: 'flex', gap: 14, alignItems: 'flex-start',
+                    padding: '10px 12px', margin: '-2px -12px',
+                    borderLeft: `2px solid ${active ? row.color : 'transparent'}`,
+                    paddingLeft: active ? 10 : 12,
+                    background: active ? 'rgba(255,255,255,0.025)' : 'transparent',
+                    transition: 'background 180ms ease, border-color 180ms ease, padding 180ms ease',
+                    cursor: 'default',
+                  }}
+                >
+                  <span style={{
+                    ...mono, fontSize: 10.5, letterSpacing: 1.2, textTransform: 'uppercase',
+                    color: row.color, border: `1px solid ${row.color}`,
+                    padding: '3px 8px', flexShrink: 0,
+                    minWidth: 72, textAlign: 'center',
+                  }}>
+                    {row.badge}
+                  </span>
+                  <span style={{ fontSize: 14, color: COL.fg, lineHeight: 1.55, paddingTop: 1 }}>
+                    {row.text}
+                  </span>
+                </div>
+              );
+            })}
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -2458,9 +2602,36 @@ function ScopedConfigSection({ accent }) {
               }}>
                 Resolved
               </span>
-              <span style={{ fontSize: 12.5, color: COL.fgMute }}>what Clooks sees</span>
+              <span style={{ fontSize: 12.5, color: COL.fgMute }}>
+                {hoveredLayer
+                  ? <>showing lines from <span style={{ color: hoverColor }}>{hoveredLayer}</span></>
+                  : 'what Clooks sees'}
+              </span>
             </div>
-            <CodeCard lines={resolvedLines} lineNumbers={false} compact/>
+            <div style={{
+              background: COL.bgCode, border: `1px solid ${COL.line}`,
+              fontFamily: 'JetBrains Mono, monospace', fontSize: 12,
+              lineHeight: 1.65, overflow: 'hidden',
+            }}>
+              <div style={{ padding: '14px 0' }}>
+                {resolvedLines.map((l, i) => {
+                  const on = hlSet.has(i);
+                  return (
+                    <div key={i} style={{
+                      whiteSpace: 'pre-wrap', overflowWrap: 'anywhere',
+                      minHeight: 12 * 1.65,
+                      padding: '0 14px',
+                      background: on ? `${hoverColor}22` : 'transparent',
+                      borderLeft: `2px solid ${on ? hoverColor : 'transparent'}`,
+                      paddingLeft: on ? 12 : 14,
+                      transition: 'background 180ms ease, border-color 180ms ease',
+                    }}>
+                      {renderLine(l)}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         </div>
       </div>
