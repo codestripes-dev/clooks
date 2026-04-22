@@ -911,7 +911,6 @@ function ConfigSection({ accent }) {
     [[TK.op, '├── '], [TK.fn, '.clooks/']],
     [[TK.op, '│   ├── '], [TK.prop, 'clooks.yml'],                 [TK.com, '             # hooks + config']],
     [[TK.op, '│   ├── '], [TK.prop, 'clooks.schema.json'],         [TK.com, '     # editor validation']],
-    [[TK.op, '│   ├── '], [TK.prop, 'hooks.lock'],                 [TK.com, '             # pinned SHAs (committed)']],
     [[TK.op, '│   ├── '], [TK.fn, 'bin/entrypoint.sh'],             [TK.com, '      # bash launcher']],
     [[TK.op, '│   ├── '], [TK.fn, 'hooks/'],                        [TK.com, '                 # your .ts hooks']],
     [[TK.op, '│   │   ├── '], [TK.prop, 'no-rm-rf.ts']],
@@ -963,7 +962,7 @@ function ConfigSection({ accent }) {
           <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>clooks init</code> writes a
           self-contained folder. Only the entrypoint script is registered into
           <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}> .claude/settings.json</code>.
-          A teammate cloning the repo gets the same hooks at the same{'\u00a0'}SHAs.
+          A teammate cloning the repo gets the same hooks as they're checked{'\u00a0'}in.
         </p>
 
         <div style={{
@@ -1336,7 +1335,7 @@ function ComparisonSection({ accent }) {
     ['Composition',            'All hooks parallel, no ordering',             'Parallel or sequential with explicit order'],
     ['Input modification',     'Not supported',                               'Sequential pipeline; hooks see previous updatedInput'],
     ['Retries',                'Per invocation only',                         'Circuit breaker auto-disables after N failures'],
-    ['Distribution',           'Copy-paste from gists',                       'Marketplace, SHA-pinned, lockfile-verified'],
+    ['Distribution',           'Copy-paste from gists',                       'Install via marketplace CLI'],
     ['Portability',            'Lives in your settings',                      'Vendored into .clooks/, committed'],
   ];
   const vp = useViewport();
