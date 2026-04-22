@@ -473,7 +473,7 @@ function ProblemSection({ accent }) {
     { n: '01', k: 'Silent failures',
       d: 'Claude Code only blocks on exit code 2. A guard hook that crashes — a typo, a missing dep — doesn\'t prevent the action. The action runs as if the hook never ran.' },
     { n: '02', k: 'Bash inside JSON',
-      d: 'Native hooks are bash strings inside .claude/settings.json. No schema, no types, no imports — every hook is a one-liner you quote by hand.' },
+      d: 'Native hooks are bash strings inside .claude/settings.json. No schema, no types, no imports — every hook is a one-liner you quote by\u00a0hand.' },
     { n: '03', k: 'No composition',
       d: 'All native hooks run in parallel. No ordering, no pipeline, no way for one hook to modify input before another sees it. (Open issue claude-code#15897.)' },
     { n: '04', k: 'No portability',
@@ -509,7 +509,7 @@ function ProblemSection({ accent }) {
               the trailing <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>~/</code> wiped the Mac.
               A guard hook was meant to catch it, but threw an exception and exited with a non-2 code.
               Claude Code treats anything other than exit 2 as success, so the command ran. In Clooks,
-              a crashed hook blocks the action by default.
+              a crashed hook blocks the action by{'\u00a0'}default.
             </p>
 
             <div style={{
@@ -631,9 +631,9 @@ function HookAnatomySection({ accent }) {
     { n: '01', k: 'meta', hl: 'meta',
       d: 'A name and optional description.' },
     { n: '02', k: 'Lifecycle: beforeHook', hl: 'lifecycle',
-      d: 'Optional. Runs before every event method on this hook. Return event.respond(...) to short-circuit with a tagged result — otherwise fall through to the event method.' },
+      d: 'Optional. Runs before every event method on this hook. Return event.respond(...) to short-circuit with a tagged result — otherwise fall through to the event\u00a0method.' },
     { n: '03', k: 'Event methods', hl: 'events',
-      d: 'One method per event. Define the method to subscribe. 22 events available.' },
+      d: 'One method per event. Define the method to subscribe. 22 events\u00a0available.' },
     { n: '04', k: 'Typed ctx, tagged result', hl: 'result',
       d: 'ctx is narrowed per event. Return { result: "allow" | "block" | "skip" | "updateInput" } — or "ask" | "defer" on PreToolUse. Unknown values are treated as failures.' },
   ];
@@ -673,7 +673,7 @@ function HookAnatomySection({ accent }) {
     {
       repo: 'acme-corp/monorepo',
       path: '.clooks/clooks.yml',
-      summary: <>Team default plus one house rule: open a PR, don't push to main.</>,
+      summary: <>Team default plus one house rule: open a PR, don't push to{'\u00a0'}main.</>,
       lines: [
         [[TK.prop, 'no-destructive-git'], [TK.op, ':']],
         ['  ', [TK.prop, 'config'], [TK.op, ':']],
@@ -758,12 +758,12 @@ function HookAnatomySection({ accent }) {
           letterSpacing: -1, fontWeight: 500, margin: '0 0 20px', maxWidth: 780,
         }}>
           A hook is an object.<br/>
-          <span style={{ color: COL.fgMute }}>One file. One or more hooks.</span>
+          <span style={{ color: COL.fgMute }}>One file. One or more{'\u00a0'}hooks.</span>
         </h2>
         <p style={{ fontSize: 15, color: COL.fgMute, maxWidth: 640, margin: '0 0 56px', lineHeight: 1.6 }}>
           Each file exports one or more <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>ClooksHook</code> objects.
           Every event you handle is a method with a typed context and a typed return. Config is validated with Zod and merged over your defaults.
-          Hover a row below to see where it lives in the source.
+          Hover a row below to see where it lives in the{'\u00a0'}source.
         </p>
 
         <div style={{
@@ -891,7 +891,7 @@ function HookAnatomySection({ accent }) {
             fontSize: 'clamp(22px, 2.4vw, 30px)', lineHeight: 1.2,
             letterSpacing: -0.6, fontWeight: 500, margin: '0 0 14px', maxWidth: 760,
           }}>
-            Same hook. Three repos. Three dials.
+            Same hook. Three repos. Three{'\u00a0'}dials.
           </h3>
           <p style={{ fontSize: 14.5, color: COL.fgMute, maxWidth: 680, margin: '0 0 36px', lineHeight: 1.6 }}>
             A hook's <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>meta.config</code> is
@@ -971,13 +971,13 @@ function ConfigSection({ accent }) {
           letterSpacing: -1, fontWeight: 500, margin: '0 0 20px', maxWidth: 780,
         }}>
           Everything lives in <code style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.85em' }}>.clooks/</code>.<br/>
-          <span style={{ color: COL.fgMute }}>Committed with the rest of your code.</span>
+          <span style={{ color: COL.fgMute }}>Committed with the rest of your{'\u00a0'}code.</span>
         </h2>
         <p style={{ fontSize: 15, color: COL.fgMute, maxWidth: 640, margin: '0 0 48px', lineHeight: 1.6 }}>
           <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>clooks init</code> writes a
           self-contained folder. Only the entrypoint script is registered into
           <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}> .claude/settings.json</code>.
-          A teammate cloning the repo gets the same hooks at the same SHAs.
+          A teammate cloning the repo gets the same hooks at the same{'\u00a0'}SHAs.
         </p>
 
         <div style={{
@@ -1014,21 +1014,21 @@ function InstallSection({ accent, tweaks }) {
   const paths = {
     plugin: {
       label: 'Plugin (fastest)',
-      blurb: 'Install through the Claude Code plugin system. The plugin is a bootstrap — it registers a SessionStart hook that tells Claude to run /clooks:setup, which downloads the binary and runs clooks init in your project.',
+      blurb: 'Install through the Claude Code plugin system. The plugin is a bootstrap — it registers a SessionStart hook that tells Claude to run /clooks:setup, which downloads the binary and runs clooks init in your\u00a0project.',
       steps: [
         { t: 'Add the marketplace',
           cmd: 'claude plugin marketplace add codestripes-dev/clooks-marketplace',
           d: 'A separate repo that hosts plugin metadata and points at source.' },
         { t: 'Install the clooks plugin',
           cmd: 'claude plugin install clooks@clooks-marketplace',
-          d: 'Bootstrap only. Drops a SessionStart hook and the /clooks:setup skill. Does not put the runtime on PATH — reload Claude Code to activate.' },
+          d: 'Bootstrap only. Drops a SessionStart hook and the /clooks:setup skill. Does not put the runtime on PATH — reload Claude Code to\u00a0activate.' },
         { t: 'Run /clooks:setup',
           cmd: '/clooks:setup',
-          d: 'Runs inside Claude Code. Downloads the latest release binary for your platform, places it on PATH, and runs clooks init in the current project.',
+          d: 'Runs inside Claude Code. Downloads the latest release binary for your platform, places it on PATH, and runs clooks init in the current\u00a0project.',
           slash: true },
         { t: 'Optional — install a hook pack',
           cmd: 'claude plugin install clooks-core-hooks --scope user',
-          d: 'Six ready-made safety and quality hooks, including no-rm-rf. Use --scope user to apply them everywhere on this machine; use --scope project to commit the plugin entry to this repo so teammates get it too.' },
+          d: 'Six ready-made safety and quality hooks, including no-rm-rf. Use --scope user to apply them everywhere on this machine; use --scope project to commit the plugin entry to this repo so teammates get it\u00a0too.' },
       ],
     },
     binary: {
@@ -1084,7 +1084,7 @@ function InstallSection({ accent, tweaks }) {
           Three ways to install.
         </h2>
         <p style={{ fontSize: 15, color: COL.fgMute, maxWidth: 640, margin: '0 0 40px', lineHeight: 1.6 }}>
-          Each ends the same way: a committed <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>.clooks/</code> directory and the Clooks binary on your PATH.
+          Each ends the same way: a committed <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>.clooks/</code> directory and the Clooks binary on your{'\u00a0'}PATH.
         </p>
 
         <div style={{
@@ -1141,7 +1141,9 @@ function InstallSection({ accent, tweaks }) {
                 )}
               </div>
               {!stack && !vp.isTablet && (
-                <CmdBox accent={accent} cmd={s.cmd} slash={s.slash} comment={s.comment}/>
+                <div style={{ alignSelf: 'center' }}>
+                  <CmdBox accent={accent} cmd={s.cmd} slash={s.slash} comment={s.comment}/>
+                </div>
               )}
             </div>
           ))}
@@ -1278,7 +1280,7 @@ function WhyNotPluginSection({ accent }) {
           Why isn't Clooks <em style={{ fontStyle: 'italic', color: COL.fgMute }}>just</em> a Claude Code plugin?
         </h2>
         <p style={{ fontSize: 16, color: COL.fgMute, lineHeight: 1.65, margin: '0 0 16px' }}>
-          Clooks uses the plugin system for distribution. The runtime itself lives outside the plugin sandbox.
+          Clooks uses the plugin system for distribution. The runtime itself lives outside the plugin{'\u00a0'}sandbox.
         </p>
         <p style={{ fontSize: 16, color: COL.fgMute, lineHeight: 1.65, margin: 0 }}>
           A plugin <em>can</em> quietly download and install binaries on your machine, then wire them into your agent. You shouldn't be surprised by a binary landing on your machine just because you cloned a repo or installed a plugin. Clooks keeps that surface visible — the bash entrypoint sits in <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>.claude/settings.json</code>, the <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>.clooks/</code> directory is committed alongside your code, and pulling the runtime binary is an explicit step, not something the plugin does behind your back.
@@ -1510,7 +1512,7 @@ function CapturesSection({ accent }) {
     {
       id: 'block',
       tab: '01 · Intended block',
-      title: 'A hook refuses a destructive command.',
+      title: 'A hook refuses a destructive\u00a0command.',
       blurb: <>The <code style={codeInline}>no-rm-rf</code> hook returns <code style={codeInline}>{`{ result: "block", reason }`}</code>. Claude reads the reason, stops, and surfaces it back to the user.</>,
       meta: [
         ['PreToolUse', accent], ['Bash', 'fg'],
@@ -1526,8 +1528,8 @@ function CapturesSection({ accent }) {
         [['f', '  '], ['mono', 'rm -rf /tmp/stale-cache-demo']],
       ],
       annotations: [
-        { label: 'Clooks output', color: accent, note: 'reason string from the hook appears as the blocking error' },
-        { label: 'Claude\'s reply', color: COL.green, note: 'reads the reason and relays it back to the user unprompted' },
+        { label: 'Clooks output', color: accent, note: 'reason string from the hook appears as the blocking\u00a0error' },
+        { label: 'Claude\'s reply', color: COL.green, note: 'reads the reason and relays it back to the user\u00a0unprompted' },
       ],
     },
     {
@@ -2074,7 +2076,7 @@ function TmuxHookSection({ accent }) {
     {
       id: 'npm',
       tag: '01 · PreToolUse · Bash',
-      title: 'Wrong package manager. Blocked and retried.',
+      title: 'Wrong package manager. Blocked and\u00a0retried.',
       pane: (
         <>
           <div><span style={{ color: accent }}>❯</span> <span style={{ color: COL.fg }}>add react-query to the project</span></div>
@@ -2111,7 +2113,7 @@ function TmuxHookSection({ accent }) {
           </div>
         </>
       ),
-      note: <>One rule, two symptoms — <span style={{ color: COL.fg }}>node</span> is in the known set.</>,
+      note: <>One rule, two symptoms — <span style={{ color: COL.fg }}>node</span> is in the known{'\u00a0'}set.</>,
     },
   ];
 

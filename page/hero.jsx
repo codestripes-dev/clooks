@@ -308,7 +308,7 @@ function HeroCode({ tweaks }) {
         }}>
           Write hooks as small TypeScript files. Clooks runs them when Claude Code
           edits files, runs commands, or finishes a session — and blocks the
-          action if a hook crashes.
+          action if a hook{'\u00a0'}crashes.
         </p>
 
         <div style={{ maxWidth: 720, marginBottom: vp.isMobile ? 40 : 56 }}>
@@ -373,7 +373,7 @@ function HeroSplit({ tweaks }) {
           </h1>
           <p style={{ fontSize: 17, lineHeight: 1.55, color: COL.fgMute, margin: '0 0 32px' }}>
             Write hooks as small TypeScript files. Clooks runs them when Claude Code
-            edits files or runs commands, and blocks the action if a hook crashes.
+            edits files or runs commands, and blocks the action if a hook{'\u00a0'}crashes.
           </p>
           <InstallBlock cmd={tweaks.installCmd} accent={tweaks.accent}/>
           <div style={{
