@@ -42,3 +42,6 @@ prefer-project-scripts:
 
 no-bare-mv:
   uses: ./.clooks/vendor/plugin/clooks-core-hooks/no-bare-mv.ts
+
+no-rm-rf:
+  uses: ./.clooks/vendor/plugin/clooks-core-hooks/no-rm-rf.ts
