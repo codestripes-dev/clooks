@@ -173,22 +173,64 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_NOTARY_PASSWORD: ${{ secrets.APPLE_NOTARY_PASSWORD }}
+        timeout-minutes: 40
         run: |
           set -e
-          # notarytool requires a container; ditto preserves xattrs better
-          # than zip. Bare Mach-O can't be stapled — Gatekeeper fetches
-          # the ticket online on first launch.
-          for arch in arm64 x64; do
+          # arm64 and x64 submit in parallel — independent on Apple's side
+          # once the team is past first-submission deep review. ditto
+          # preserves xattrs; bare Mach-O can't be stapled, so Gatekeeper
+          # fetches the ticket online on first launch.
+          notarize_one() (
+            set +e
+            arch="$1"
             binary="dist/clooks-darwin-$arch"
             zip_path="dist/clooks-darwin-$arch.zip"
-            ditto -c -k --keepParent "$binary" "$zip_path"
+            out_path="dist/notarize-$arch.json"
+            ditto -c -k --keepParent "$binary" "$zip_path" || exit 1
             xcrun notarytool submit "$zip_path" \
               --apple-id "$APPLE_ID" \
               --team-id "$APPLE_TEAM_ID" \
               --password "$APPLE_NOTARY_PASSWORD" \
-              --wait
-            rm "$zip_path"
+              --wait \
+              --timeout 30m \
+              --output-format json > "$out_path"
+            code=$?
+            rm -f "$zip_path"
+            exit $code
+          )
+
+          notarize_one arm64 & pid_arm64=$!
+          notarize_one x64   & pid_x64=$!
+
+          fail=0
+          wait "$pid_arm64" || fail=1
+          wait "$pid_x64"   || fail=1
+
+          for arch in arm64 x64; do
+            out_path="dist/notarize-$arch.json"
+            echo "--- notarize $arch ---"
+            if [[ ! -f "$out_path" ]]; then
+              echo "::error::No notarize output for $arch"
+              fail=1
+              continue
+            fi
+            cat "$out_path"
+            id=$(jq -r '.id // empty' "$out_path")
+            status=$(jq -r '.status // "Unknown"' "$out_path")
+            if [[ "$status" != "Accepted" ]]; then
+              echo "::error::Notarization failed for $arch (status: $status, id: $id)"
+              if [[ -n "$id" ]]; then
+                xcrun notarytool log "$id" \
+                  --apple-id "$APPLE_ID" \
+                  --team-id "$APPLE_TEAM_ID" \
+                  --password "$APPLE_NOTARY_PASSWORD" || true
+              fi
+              fail=1
+            fi
+            rm -f "$out_path"
           done
+
+          [[ $fail -eq 0 ]] || exit 1
 
       - name: Regenerate checksums after signing
         if: github.event_name == 'push'
