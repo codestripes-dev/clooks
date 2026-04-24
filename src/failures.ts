@@ -1,8 +1,9 @@
-import { join, dirname } from "path"
-import { unlink } from "fs/promises"
-import { mkdirSync } from "fs"
-import { createHash } from "crypto"
-import type { EventName, HookName } from "./types/branded.js"
+import { join, dirname } from 'path'
+import { unlink } from 'fs/promises'
+import { mkdirSync } from 'fs'
+import { createHash } from 'crypto'
+import type { EventName, HookName } from './types/branded.js'
+import { isPlainObject } from 'lodash-es'
 
 /**
  * Synthetic event key for load/import errors.
@@ -10,7 +11,7 @@ import type { EventName, HookName } from "./types/branded.js"
  * accumulate failures in a single counter regardless of which event triggered
  * the invocation. This avoids the N-events × threshold multiplication problem.
  */
-export const LOAD_ERROR_EVENT = "__load__" as EventName
+export const LOAD_ERROR_EVENT = '__load__' as EventName
 
 export interface HookEventFailure {
   consecutiveFailures: number
@@ -20,10 +21,6 @@ export interface HookEventFailure {
 
 // Top-level: hook name → event name → failure data
 export type FailureState = Record<HookName, Partial<Record<EventName, HookEventFailure>>>
-
-function isPlainObject(val: unknown): val is Record<string, unknown> {
-  return val !== null && typeof val === "object" && !Array.isArray(val)
-}
 
 /**
  * Computes the failure state file path.
@@ -40,13 +37,10 @@ export function getFailurePath(
   hasProjectConfig: boolean,
 ): string {
   if (hasProjectConfig) {
-    return join(projectRoot, ".clooks/.failures")
+    return join(projectRoot, '.clooks/.failures')
   }
-  const hash = createHash("sha256")
-    .update(projectRoot)
-    .digest("hex")
-    .slice(0, 12)
-  return join(homeRoot, ".clooks/failures", `${hash}.json`)
+  const hash = createHash('sha256').update(projectRoot).digest('hex').slice(0, 12)
+  return join(homeRoot, '.clooks/failures', `${hash}.json`)
 }
 
 export async function readFailures(failurePath: string): Promise<FailureState> {
@@ -86,15 +80,12 @@ export async function readFailures(failurePath: string): Promise<FailureState> {
   return parsed as FailureState
 }
 
-export async function writeFailures(
-  failurePath: string,
-  state: FailureState,
-): Promise<void> {
+export async function writeFailures(failurePath: string, state: FailureState): Promise<void> {
   if (Object.keys(state).length === 0) {
     try {
       await unlink(failurePath)
     } catch (e: unknown) {
-      if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e
+      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e
     }
     return
   }
@@ -103,7 +94,7 @@ export async function writeFailures(
   // ~/.clooks/failures/ may not exist yet)
   mkdirSync(dirname(failurePath), { recursive: true })
 
-  await Bun.write(failurePath, JSON.stringify(state, null, 2) + "\n")
+  await Bun.write(failurePath, JSON.stringify(state, null, 2) + '\n')
 }
 
 export function recordFailure(

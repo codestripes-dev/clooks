@@ -12,6 +12,7 @@ import type { HookName } from '../types/branded.js'
 import { getCtx } from '../tui/context.js'
 import { jsonSuccess } from '../tui/json-envelope.js'
 import { printIntro, printSuccess, printInfo, printError, printOutro } from '../tui/output.js'
+import { isPlainObject } from 'lodash-es'
 
 type LoadConfigFn = (
   projectRoot: string,
@@ -24,10 +25,6 @@ async function tryParseYaml(filePath: string): Promise<Record<string, unknown> |
     return undefined
   }
   return parseYamlFile(filePath)
-}
-
-function isPlainObject(val: unknown): val is Record<string, unknown> {
-  return val !== null && typeof val === 'object' && !Array.isArray(val)
 }
 
 interface LayerValue {
@@ -177,7 +174,7 @@ async function buildResolved(
 
   /** Compute the display source path for a hook. */
   function computeSourcePath(hookName: string, hookData: unknown, origin: HookOrigin): string {
-    const hookFields = isPlainObject(hookData) ? hookData : {}
+    const hookFields = isPlainObject(hookData) ? (hookData as Record<string, unknown>) : {}
     const entry = { uses: typeof hookFields.uses === 'string' ? hookFields.uses : undefined }
     if (origin === 'home') {
       const resolved = resolveHookPath(hookName as HookName, entry, homeRoot)
@@ -202,7 +199,7 @@ async function buildResolved(
     projectRoot: string,
     homeRoot: string,
   ): boolean {
-    const hookFields = isPlainObject(hookData) ? hookData : {}
+    const hookFields = isPlainObject(hookData) ? (hookData as Record<string, unknown>) : {}
     const entry = { uses: typeof hookFields.uses === 'string' ? hookFields.uses : undefined }
     const basePath = origin === 'home' ? homeRoot : projectRoot
     const resolved = resolveHookPath(hookName as HookName, entry, basePath)
@@ -224,7 +221,7 @@ async function buildResolved(
     // If shadowed, emit the home entry first (marked as shadowed)
     if (isShadowed) {
       const homeData = homeHooks[name]
-      const homeFields = isPlainObject(homeData) ? homeData : {}
+      const homeFields = isPlainObject(homeData) ? (homeData as Record<string, unknown>) : {}
       hooks.push({
         name,
         origin: 'home',
@@ -238,7 +235,9 @@ async function buildResolved(
     // Emit the active entry (project if shadowed, else whichever exists)
     if (inProject) {
       const projectData = projectHooks[name]
-      const projectFields = isPlainObject(projectData) ? projectData : {}
+      const projectFields = isPlainObject(projectData)
+        ? (projectData as Record<string, unknown>)
+        : {}
       const hook: ResolvedHook = {
         name,
         origin: 'project',
@@ -258,7 +257,7 @@ async function buildResolved(
       hooks.push(hook)
     } else if (inHome) {
       const homeData = homeHooks[name]
-      const homeFields = isPlainObject(homeData) ? homeData : {}
+      const homeFields = isPlainObject(homeData) ? (homeData as Record<string, unknown>) : {}
       const hook: ResolvedHook = {
         name,
         origin: 'home',
@@ -279,7 +278,7 @@ async function buildResolved(
     } else if (name in localHooks) {
       // Hook exists only in local config (e.g., local-scoped plugin registration)
       const localData = localHooks[name]
-      const localFields = isPlainObject(localData) ? localData : {}
+      const localFields = isPlainObject(localData) ? (localData as Record<string, unknown>) : {}
       const hook: ResolvedHook = {
         name,
         origin: 'local',

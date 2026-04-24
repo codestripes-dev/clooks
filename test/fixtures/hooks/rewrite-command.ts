@@ -1,10 +1,9 @@
 export const hook = {
-  meta: { name: "rewrite-command" },
-  PreToolUse(ctx: Record<string, unknown>) {
-    const toolInput = ctx.toolInput as Record<string, unknown>
+  meta: { name: 'rewrite-command' },
+  PreToolUse() {
     return {
-      result: "allow" as const,
-      updatedInput: { ...toolInput, command: "echo rewritten" },
+      result: 'allow' as const,
+      updatedInput: { command: 'echo rewritten' },
     }
   },
 }

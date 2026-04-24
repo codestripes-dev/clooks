@@ -102,7 +102,28 @@ export type DeferResult = DebugFields & {
 export type PreToolUseResult =
   | (AllowResult &
       InjectableContext & {
-        /** Modified tool input to pass to subsequent hooks and/or Claude Code. */
+        /**
+         * Partial patch applied to the running tool input. The engine merges
+         * this object onto the current `toolInput` via shallow spread, then
+         * strips keys whose value is the literal `null`.
+         *
+         * - `null` = explicit unset; the key is removed post-merge.
+         * - `undefined` / absent = no change on that key.
+         *
+         * With multiple sequential hooks, each hook's patch composes onto the
+         * merge-so-far: hook B's `ctx.toolInput` reflects the running state
+         * after every prior patch. Upstream Claude Code still receives a full
+         * replacement object on the wire — the engine merges the patches
+         * internally before translation.
+         *
+         * ```ts
+         * // ✗ Wrong — undefined is treated as "no patch," the field is left unchanged.
+         * return { result: 'allow', updatedInput: { timeout: undefined } }
+         *
+         * // ✓ Right — null explicitly unsets.
+         * return { result: 'allow', updatedInput: { timeout: null } }
+         * ```
+         */
         updatedInput?: Record<string, unknown>
         /**
          * Optional. When present, surfaced as
@@ -113,6 +134,28 @@ export type PreToolUseResult =
       })
   | (AskResult &
       InjectableContext & {
+        /**
+         * Partial patch applied to the running tool input. The engine merges
+         * this object onto the current `toolInput` via shallow spread, then
+         * strips keys whose value is the literal `null`.
+         *
+         * - `null` = explicit unset; the key is removed post-merge.
+         * - `undefined` / absent = no change on that key.
+         *
+         * With multiple sequential hooks, each hook's patch composes onto the
+         * merge-so-far: hook B's `ctx.toolInput` reflects the running state
+         * after every prior patch. Upstream Claude Code still receives a full
+         * replacement object on the wire — the engine merges the patches
+         * internally before translation.
+         *
+         * ```ts
+         * // ✗ Wrong — undefined is treated as "no patch," the field is left unchanged.
+         * return { result: 'allow', updatedInput: { timeout: undefined } }
+         *
+         * // ✓ Right — null explicitly unsets.
+         * return { result: 'allow', updatedInput: { timeout: null } }
+         * ```
+         */
         updatedInput?: Record<string, unknown>
       })
   | (BlockResult & InjectableContext)
@@ -122,6 +165,28 @@ export type UserPromptSubmitResult = (AllowResult | BlockResult | SkipResult) &
   InjectableContext & { sessionTitle?: string }
 export type PermissionRequestResult =
   | (AllowResult & {
+      /**
+       * Partial patch applied to the running tool input. The engine merges
+       * this object onto the current `toolInput` via shallow spread, then
+       * strips keys whose value is the literal `null`.
+       *
+       * - `null` = explicit unset; the key is removed post-merge.
+       * - `undefined` / absent = no change on that key.
+       *
+       * With multiple sequential hooks, each hook's patch composes onto the
+       * merge-so-far: hook B's `ctx.toolInput` reflects the running state
+       * after every prior patch. Upstream Claude Code still receives a full
+       * replacement object on the wire — the engine merges the patches
+       * internally before translation.
+       *
+       * ```ts
+       * // ✗ Wrong — undefined is treated as "no patch," the field is left unchanged.
+       * return { result: 'allow', updatedInput: { timeout: undefined } }
+       *
+       * // ✓ Right — null explicitly unsets.
+       * return { result: 'allow', updatedInput: { timeout: null } }
+       * ```
+       */
       updatedInput?: Record<string, unknown>
       updatedPermissions?: PermissionUpdateEntry[]
     })

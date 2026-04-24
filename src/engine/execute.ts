@@ -15,6 +15,7 @@ import type { ExecutionGroup } from '../ordering.js'
 import { runHookLifecycle, LifecycleMetaCache } from '../lifecycle.js'
 import type { LifecycleResult } from '../lifecycle.js'
 import type { EngineResult } from './types.js'
+import { omitBy, isNull } from 'lodash-es'
 
 // --- PreToolUse vote collector types and helpers ---
 
@@ -40,7 +41,10 @@ export function rankPreToolUseResult(r: EngineResult): number {
   }
 }
 
-export function reducePreToolUseVotes(votes: PreToolUseVote[]): {
+export function reducePreToolUseVotes(
+  votes: PreToolUseVote[],
+  mergedToolInput?: Record<string, unknown>,
+): {
   result?: EngineResult
   warnings: string[]
 } {
@@ -116,22 +120,15 @@ export function reducePreToolUseVotes(votes: PreToolUseVote[]): {
   }
 
   if (winner.engineResult.result === 'ask') {
-    // Ask: keep both context and updatedInput from winner + allow losers.
-    // Two-pass to avoid early-return context-loss: pass 1 finds the
-    // updatedInput to propagate (first allow loser with one, used only
-    // if the winner has none); pass 2 accumulates context from EVERY
-    // allow loser in vote (execution) order.
-    let propagatedInput: Record<string, unknown> | undefined = winner.engineResult.updatedInput
-      ? { ...(winner.engineResult.updatedInput as Record<string, unknown>) }
-      : undefined
-    if (!propagatedInput) {
-      for (const l of losers) {
-        if (l.engineResult.result === 'allow' && l.engineResult.updatedInput) {
-          propagatedInput = l.engineResult.updatedInput as Record<string, unknown>
-          break
-        }
-      }
-    }
+    // Ask: keep context from winner + allow losers. The `mergedToolInput`
+    // argument carries the authoritative full-shape merged input; the raw
+    // `updatedInput` fields on votes are partial patches and must not be
+    // emitted directly.
+    const hasAnyUpdatedInput =
+      winner.engineResult.updatedInput !== undefined ||
+      losers.some(
+        (l) => l.engineResult.result === 'allow' && l.engineResult.updatedInput !== undefined,
+      )
     // Iterate in vote (execution) order: collect context from winner and allow losers only.
     // Ask-loser context must NOT contribute (per FEAT-0059 D2 per-winner table, lines 750-756).
     for (const v of votes) {
@@ -148,7 +145,13 @@ export function reducePreToolUseVotes(votes: PreToolUseVote[]): {
     }
     const merged: EngineResult = { ...winner.engineResult }
     if (accumulatedContext.length > 0) merged.injectContext = accumulatedContext.join('\n')
-    if (propagatedInput) merged.updatedInput = propagatedInput
+    // The spread above carries the winner's raw partial patch onto `merged`;
+    // overwrite or strip so only the full-shape merged input reaches the wire.
+    if (hasAnyUpdatedInput && mergedToolInput) {
+      merged.updatedInput = mergedToolInput
+    } else {
+      delete merged.updatedInput
+    }
     return { result: merged, warnings }
   }
 
@@ -167,6 +170,20 @@ export function reducePreToolUseVotes(votes: PreToolUseVote[]): {
     }
     const merged: EngineResult = { ...winner.engineResult }
     if (accumulatedContext.length > 0) merged.injectContext = accumulatedContext.join('\n')
+    // Same spread-carries-partial-patch concern as the ask branch above.
+    const hasAnyUpdatedInput =
+      winner.engineResult.updatedInput !== undefined ||
+      votes.some(
+        (v) =>
+          v !== winner &&
+          v.engineResult.result === 'allow' &&
+          v.engineResult.updatedInput !== undefined,
+      )
+    if (hasAnyUpdatedInput && mergedToolInput) {
+      merged.updatedInput = mergedToolInput
+    } else {
+      delete merged.updatedInput
+    }
     return { result: merged, warnings }
   }
 
@@ -565,6 +582,15 @@ export async function executeHooks(
       // Ask — PreToolUse: push vote and continue; non-PreToolUse: fall through to allow path.
       if (resultObj.result === 'ask') {
         if (eventName === 'PreToolUse') {
+          // Ask hooks can carry updatedInput. Merge it into pipeline state
+          // so subsequent sequential hooks and the reducer see the accumulated input.
+          if (resultObj.updatedInput) {
+            const base = (currentToolInput ?? {}) as Record<string, unknown>
+            currentToolInput = omitBy({ ...base, ...resultObj.updatedInput }, isNull) as Record<
+              string,
+              unknown
+            >
+          }
           preToolUseVotes.push({ engineResult: resultObj, rank: rankPreToolUseResult(resultObj) })
           continue
         }
@@ -574,6 +600,7 @@ export async function executeHooks(
       }
 
       // Defer — PreToolUse: push vote and continue; non-PreToolUse: fall through to allow path.
+      // No updatedInput merge: DeferResult forbids the field at the type level.
       if (resultObj.result === 'defer') {
         if (eventName === 'PreToolUse') {
           preToolUseVotes.push({ engineResult: resultObj, rank: rankPreToolUseResult(resultObj) })
@@ -587,8 +614,16 @@ export async function executeHooks(
       // Allow or other non-skip result: update pipeline state.
       // PermissionDenied's retry-wins semantic is handled by this "last non-skip"
       // reducer — no short-circuit occurs because retry carries no block/updatedInput.
+      //
+      // Patch-merge: hooks return a partial patch. Spread it onto the running tool
+      // input and strip `null` values (explicit-unset sentinel). `undefined` is
+      // already absent after spread, which is the "no patch on this key" case.
       if (resultObj.updatedInput) {
-        currentToolInput = resultObj.updatedInput
+        const base = (currentToolInput ?? {}) as Record<string, unknown>
+        currentToolInput = omitBy({ ...base, ...resultObj.updatedInput }, isNull) as Record<
+          string,
+          unknown
+        >
       }
       if (resultObj.injectContext) {
         accumulatedInjectContext.push(resultObj.injectContext)
@@ -997,7 +1032,13 @@ export async function executeHooks(
       // votes array and emit the canonical merged result. Joining the
       // outer accumulator here would double-count context — see the
       // runner-integration explanation above.
-      const { result: reduced, warnings } = reducePreToolUseVotes(preToolUseVotes)
+      // Identity check is "did any hook touch updatedInput," not value-equality.
+      // Reliable because each patch-merge allocates a fresh object — even a
+      // content-equal merge produces a reference-distinct result.
+      const { result: reduced, warnings } = reducePreToolUseVotes(
+        preToolUseVotes,
+        currentToolInput !== originalToolInput ? currentToolInput : undefined,
+      )
       if (warnings.length > 0) systemMessages.push(...warnings)
       if (reduced) {
         lastResult = reduced

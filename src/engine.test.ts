@@ -1974,10 +1974,10 @@ describe('sequential pipeline: updatedInput', () => {
     // Hook B should have received the original toolInput as originalToolInput
     expect(capturedCtx?.originalToolInput).toEqual({ file_path: '/original' })
 
-    // M3: The reducer is authoritative for the final result. Winner is hookB (last-seen allow).
-    // HookB returned no updatedInput, so the final result has no updatedInput.
-    // (updatedInput from hookA's vote is not propagated by the allow reducer — winner's own updatedInput only)
-    expect(result.lastResult?.updatedInput).toBeUndefined()
+    // Reducer emits the merged currentToolInput when any hook contributed one.
+    // Winner (hookB) has no patch of its own, but hookA's patch merges onto the
+    // original and that full-shape object reaches the wire.
+    expect(result.lastResult?.updatedInput).toEqual({ file_path: '/modified' })
   })
 
   it('originalToolInput stays frozen across chain (M3: reducer is authoritative for final result)', async () => {
@@ -2013,9 +2013,9 @@ describe('sequential pipeline: updatedInput', () => {
     // originalToolInput is always the original
     expect(capturedCtxC?.originalToolInput).toEqual({ file_path: '/original' })
 
-    // M3: Reducer is authoritative. Winner is hookC (last-seen allow, no updatedInput).
-    // Allow winner's own updatedInput only — hookC returned none.
-    expect(result.lastResult?.updatedInput).toBeUndefined()
+    // Final wire payload is the cumulative merge of hookA's and hookB's patches
+    // onto the original, even though hookC (the winner) contributed no patch.
+    expect(result.lastResult?.updatedInput).toEqual({ file_path: '/step2', extra: 'b' })
   })
 
   it('block in middle does NOT stop chain (M3 collect-all: all PreToolUse hooks run, deny wins)', async () => {
@@ -2805,9 +2805,9 @@ describe('integration: full pipeline', () => {
     expect(result.lastResult?.result).toBe('allow')
     // Formatter saw scanner's updatedInput (sequential live state still propagated to subsequent hooks)
     expect(result.lastResult?.injectContext).toBe('scanned\nformatted:scanned-cmd')
-    // M3: reducer is authoritative. Winner is formatter (last allow, no updatedInput returned).
-    // updatedInput from scanner's vote is not propagated — allow winner's own only.
-    expect(result.lastResult?.updatedInput).toBeUndefined()
+    // Wire payload is scanner's patch merged onto the original, even though
+    // the winner (formatter) contributed no patch.
+    expect(result.lastResult?.updatedInput).toEqual({ command: 'scanned-cmd' })
   })
 
   it('full pipeline with unordered hooks', async () => {
@@ -3241,32 +3241,40 @@ describe('reducePreToolUseVotes', () => {
     expect(warnings).toEqual([])
   })
 
-  it('ask winner propagates updatedInput from first allow loser when winner has none', () => {
+  it('ask winner emits merged mergedToolInput when an allow loser contributed updatedInput', () => {
     const ask = { result: 'ask' as const, reason: 'confirm' }
     const allowWithInput = { result: 'allow' as const, updatedInput: { cmd: 'ls' } }
-    const { result, warnings } = reducePreToolUseVotes([
-      { engineResult: ask, rank: 1 },
-      { engineResult: allowWithInput, rank: 0 },
-    ])
+    const merged = { cmd: 'ls' }
+    const { result, warnings } = reducePreToolUseVotes(
+      [
+        { engineResult: ask, rank: 1 },
+        { engineResult: allowWithInput, rank: 0 },
+      ],
+      merged,
+    )
     expect(result?.result).toBe('ask')
     expect(result?.updatedInput).toEqual({ cmd: 'ls' })
     expect(warnings).toEqual([])
   })
 
   it('ask aggregates injectContext from all allow losers (two-pass invariant)', () => {
-    // Multiple allow losers, each with context; first one also has updatedInput
+    // Multiple allow losers, each with context; first one also has updatedInput.
     const ask = { result: 'ask' as const, reason: 'confirm' }
     const allowA = { result: 'allow' as const, updatedInput: { cmd: 'ls' }, injectContext: 'ctx-A' }
     const allowB = { result: 'allow' as const, injectContext: 'ctx-B' }
     const allowC = { result: 'allow' as const, injectContext: 'ctx-C' }
-    const { result, warnings } = reducePreToolUseVotes([
-      { engineResult: allowA, rank: 0 },
-      { engineResult: allowB, rank: 0 },
-      { engineResult: ask, rank: 1 },
-      { engineResult: allowC, rank: 0 },
-    ])
+    const merged = { cmd: 'ls' }
+    const { result, warnings } = reducePreToolUseVotes(
+      [
+        { engineResult: allowA, rank: 0 },
+        { engineResult: allowB, rank: 0 },
+        { engineResult: ask, rank: 1 },
+        { engineResult: allowC, rank: 0 },
+      ],
+      merged,
+    )
     expect(result?.result).toBe('ask')
-    // updatedInput from first allow loser (allowA)
+    // updatedInput from the merged tool input threaded into the reducer
     expect(result?.updatedInput).toEqual({ cmd: 'ls' })
     // context from allow losers in vote order (A, B, C) joined
     expect(result?.injectContext).toContain('ctx-A')
@@ -3395,17 +3403,21 @@ describe('reducePreToolUseVotes', () => {
     expect(warnings).toEqual([])
   })
 
-  it('allow tie-break: last-seen updatedInput wins (second allow carries distinct input)', () => {
-    // Two allow votes at rank 0 (tie). Last-seen (allowB) wins, so its updatedInput
-    // should appear in the merged result. allowA's updatedInput must NOT appear.
+  it('allow tie-break: reducer emits mergedToolInput (post-merge state reflects last-seen patch)', () => {
+    // Two allow votes at rank 0 (tie). Last-seen wins because the spread at the
+    // engine merge site applies patches in order — the reducer just emits the
+    // resulting `mergedToolInput`.
     const allowA = { result: 'allow' as const, updatedInput: { cmd: 'first' } }
     const allowB = { result: 'allow' as const, updatedInput: { cmd: 'second' } }
-    const { result, warnings } = reducePreToolUseVotes([
-      { engineResult: allowA, rank: 0 },
-      { engineResult: allowB, rank: 0 },
-    ])
+    const merged = { cmd: 'second' }
+    const { result, warnings } = reducePreToolUseVotes(
+      [
+        { engineResult: allowA, rank: 0 },
+        { engineResult: allowB, rank: 0 },
+      ],
+      merged,
+    )
     expect(result?.result).toBe('allow')
-    // Winner is last-seen (allowB); its updatedInput takes precedence
     expect(result?.updatedInput).toEqual({ cmd: 'second' })
     expect(warnings).toEqual([])
   })

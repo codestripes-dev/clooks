@@ -1,9 +1,6 @@
 import type { HookOrigin } from './schema.js'
 import { classifyConfigKeys } from './classify.js'
-
-function isPlainObject(val: unknown): val is Record<string, unknown> {
-  return val !== null && typeof val === 'object' && !Array.isArray(val)
-}
+import { isPlainObject } from 'lodash-es'
 
 function assertOrderElementIsString(
   element: unknown,

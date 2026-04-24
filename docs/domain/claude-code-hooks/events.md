@@ -67,6 +67,7 @@ All 22 lifecycle events: when they fire, what they match on, what input they rec
 - `permissionDecision`: `"allow"` (bypass), `"deny"` (block), `"ask"` (prompt user), `"defer"` (pause for headless caller; `-p` mode only, v2.1.89+)
 - `permissionDecisionReason`: for allow/ask → shown to user; for deny → shown to Claude; ignored for defer
 - `updatedInput`: modified tool input before execution; ignored for defer
+  - **Clooks divergence:** hooks return a **partial patch**, not a full replacement. The engine shallow-merges the patch onto the running `toolInput` and strips keys whose value is literal `null` (the explicit-unset sentinel). `undefined` / absent keys mean "no change on this key." Upstream Claude Code still receives a full replacement object on the wire — the merge happens inside the engine before translation. **Null-propagation rule:** when hook A's patch sets a key to `null`, hook B sees that key as **absent** from `ctx.toolInput`, not as the literal `null`. Authors who try to detect a prior-hook unset with `ctx.toolInput.field === null` will always miss; check for `undefined` (or `'field' in ctx.toolInput`) instead.
 - `additionalContext`: added to Claude's context; ignored for defer
 
 Deprecated: top-level `decision`/`reason`. Legacy `"approve"` → `"allow"`, `"block"` → `"deny"`.
@@ -86,6 +87,7 @@ Deprecated: top-level `decision`/`reason`. Legacy `"approve"` → `"allow"`, `"b
 **Output via `hookSpecificOutput.decision`:**
 - `behavior`: `"allow"` or `"deny"`
 - `updatedInput`: for allow — modified tool input
+  - **Clooks divergence:** same partial-patch semantics as `PreToolUse`. Hooks return a partial patch, not a full replacement; the engine shallow-merges onto the running `toolInput` and strips keys whose value is literal `null` (the explicit-unset sentinel). `undefined` / absent keys mean "no change." Upstream Claude Code still receives a full replacement object on the wire. **Null-propagation rule:** when hook A's patch sets a key to `null`, hook B sees that key as **absent** from `ctx.toolInput`, not as the literal `null` — compare against `undefined`, never `null`. Parallel `PermissionRequest` hooks must not return `updatedInput` (contract violation, blocks the action).
 - `updatedPermissions`: array of `PermissionUpdateEntry` (discriminated by `type`: `addRules` / `replaceRules` / `removeRules` each carry `rules: PermissionRule[]` and `behavior: "allow" | "deny" | "ask"`; `setMode` carries `mode: PermissionMode`; `addDirectories` / `removeDirectories` carry `directories: string[]`. Every entry has `destination: "session" | "localSettings" | "projectSettings" | "userSettings"`). A hook may echo a `permission_suggestions` entry into `updatedPermissions` verbatim (the "always allow" pattern).
 - `message`: for deny — tells Claude why
 - `interrupt`: for deny — if `true`, stops Claude entirely

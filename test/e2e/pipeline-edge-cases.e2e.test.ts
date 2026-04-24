@@ -137,7 +137,7 @@ PreToolUse:
       expect(output.hookSpecificOutput.updatedInput.added).toBe('mutated')
     })
 
-    test('3: updatedInput as non-object (string) passes through unchecked', () => {
+    test('3: updatedInput as non-object (string) is spread by patch-merge (not validated)', () => {
       sandbox = createSandbox()
 
       sandbox.writeHook(
@@ -161,8 +161,12 @@ string-input: {}
       const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
       expect(result.exitCode).toBe(0)
       const output = JSON.parse(result.stdout)
-      // Engine doesn't validate updatedInput type — passes through as-is
-      expect(output.hookSpecificOutput.updatedInput).toBe('not-an-object')
+      // The engine does not validate the type of `updatedInput`. Spreading a
+      // string primitive yields character-indexed keys; the original base keys
+      // still merge through.
+      expect(output.hookSpecificOutput.updatedInput).toBeDefined()
+      expect(typeof output.hookSpecificOutput.updatedInput).toBe('object')
+      expect(output.hookSpecificOutput.updatedInput.command).toBe('ls -la')
     })
 
     test('4: contract violation in parallel group prevents subsequent sequential group', () => {

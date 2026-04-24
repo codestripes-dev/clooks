@@ -90,14 +90,14 @@ if (ctx.toolName.startsWith('mcp__')) {
 
 `PreToolUseContext` also includes two fields for the tool input pipeline:
 
-- `toolInput: <per-tool interface>` — The current tool input (typed per `toolName`), which may differ from the original if a previous sequential hook returned `updatedInput`.
+- `toolInput: <per-tool interface>` — The current tool input (typed per `toolName`), reflecting the **merge-so-far** across all prior sequential hook patches in execution order. Each prior hook's `updatedInput` is shallow-merged onto the running `toolInput`; keys whose patch value was literal `null` are stripped post-merge. **Null-propagation rule:** when hook A's patch sets a key to `null`, hook B sees that key as **absent** from `ctx.toolInput` (not as the literal `null`) — `stripNulls` runs at every merge step inside the engine, not only at the wire boundary. Comparing `ctx.toolInput.field === null` will never match a prior-hook unset; test for `ctx.toolInput.field === undefined` (or `'field' in ctx.toolInput`) instead.
 - `originalToolInput: Record<string, unknown>` — The original tool input from Claude Code, before any hook modifications. Always reflects the unmodified input, even after multiple hooks have modified `toolInput`.
 
 `PostToolUseContext` and `PostToolUseFailureContext` also include `originalToolInput?: Record<string, unknown>`. The engine adds this field for all tool events (any event whose normalized payload contains `toolInput`). It is optional on post-tool events because it is engine-injected, not contractually guaranteed by Claude Code for these event types.
 
 `PreToolUseResult` (the `AllowResult` variant only) includes:
 
-- `updatedInput?: Record<string, unknown>` — Modified tool input to pass to subsequent hooks and/or Claude Code. Only sequential hooks may return this field. **Contract rule: parallel hooks must not return `updatedInput`.** If a parallel hook returns `updatedInput`, the engine treats it as a contract violation — it blocks the pipeline and records a failure through the circuit breaker, regardless of the hook's `onError` configuration.
+- `updatedInput?: Record<string, unknown>` — **Partial patch** shallow-merged onto the running `toolInput`, not a full replacement. `null`-valued keys are an **explicit unset sentinel** — stripped post-merge. `undefined` / absent keys mean "no change on this key." With multiple sequential hooks, each hook's patch composes onto the merge-so-far; hook B's `ctx.toolInput` reflects the accumulated state from every prior patch. **Null-propagation rule:** when hook A's patch sets a key to `null`, hook B sees that key as absent from `ctx.toolInput` (not as the literal `null`). Upstream Claude Code still receives a full replacement object on the wire — the engine merges the patches internally before translation. **Contract rule: parallel hooks must not return `updatedInput`.** This applies to both parallel `PreToolUse` **and** parallel `PermissionRequest` hooks. If either does, the engine treats it as a contract violation — it blocks the pipeline and records a failure through the circuit breaker, regardless of the hook's `onError` configuration.
 
 ### InjectableContext
 

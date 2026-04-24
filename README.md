@@ -208,7 +208,9 @@ Every handler receives `(ctx, config)` and returns a result appropriate
 for the event — guard events (like `PreToolUse`) use `allow`/`block`/`skip`;
 continuation events use `continue`/`stop`; implementation events use
 `success`/`failure`. See [Return values](#return-values) below for the
-full set, plus `injectContext` and `updatedInput` for steering the agent.
+full set, plus `injectContext` for steering the agent and `updatedInput`
+— a **partial patch** merged onto the running `toolInput` (`null` keys
+are an explicit-unset sentinel; `undefined` / absent means "no change").
 
 ### 3. Register it
 
@@ -232,7 +234,7 @@ Clooks supports most of the same return values as native Claude Code hooks:
 | `result: "continue"` / `"stop"` | Continue or halt an ongoing operation | Continuation events (TeammateIdle, TaskCreated, TaskCompleted) |
 | `result: "success"` / `"failure"` | Report outcome of work performed on the agent's behalf | Implementation events (WorktreeCreate) |
 | `injectContext: "..."` | Adds text to the agent's conversation | PreToolUse, UserPromptSubmit, SessionStart, PostToolUse, PostToolUseFailure, Notification, SubagentStart |
-| `updatedInput: { ... }` | Modifies the tool's input before it runs | Sequential PreToolUse only |
+| `updatedInput: { ... }` | Partial patch merged onto the running `toolInput`; keys set to `null` are unset post-merge, `undefined` / absent keys are left unchanged | Sequential PreToolUse or PermissionRequest |
 
 Clooks-specific extras layered on top:
 
@@ -418,7 +420,7 @@ it covers 22 of 26 events and all of the core return values.
 
 ¹ Only on injectable events: PreToolUse, UserPromptSubmit, SessionStart, PostToolUse, PostToolUseFailure, Notification, SubagentStart. Returning `injectContext` on other events is silently ignored.
 
-² Sequential `PreToolUse` only. Returning `updatedInput` from a parallel hook is a contract violation and blocks the action.
+² Sequential `PreToolUse` or sequential `PermissionRequest` only. `updatedInput` is a **partial patch** — the engine shallow-merges it onto the running `toolInput`, then strips keys whose value is `null` (the explicit-unset sentinel). `undefined` / absent keys mean "no change on this key." Upstream Claude Code still receives a full replacement object on the wire — the engine performs the merge internally. Returning `updatedInput` from a parallel `PreToolUse` **or** parallel `PermissionRequest` hook is a contract violation and blocks the action.
 
 </details>
 
@@ -460,7 +462,7 @@ fast-logger:
 **Parallel hooks** run concurrently:
 - All see the same `toolInput` (state at group start)
 - `block` from any hook short-circuits the rest of the batch
-- `updatedInput` is forbidden — returning it from a parallel hook blocks the action
+- `updatedInput` is forbidden on parallel `PreToolUse` **and** parallel `PermissionRequest` hooks — returning it from either is a contract violation and blocks the action
 
 ### Lifecycle hooks
 
