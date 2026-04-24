@@ -33,9 +33,16 @@ function transpileJsxFiles(): void {
       },
     }),
   })
-  for (const entry of readdirSync(OUT)) {
-    if (!entry.endsWith('.jsx')) continue
-    const src = join(OUT, entry)
+  const walk = (dir: string): string[] => {
+    const out: string[] = []
+    for (const entry of readdirSync(dir)) {
+      const full = join(dir, entry)
+      if (statSync(full).isDirectory()) out.push(...walk(full))
+      else if (entry.endsWith('.jsx')) out.push(full)
+    }
+    return out
+  }
+  for (const src of walk(OUT)) {
     const out = src.replace(/\.jsx$/, '.js')
     const code = transpiler.transformSync(readFileSync(src, 'utf8'))
     writeFileSync(out, code)

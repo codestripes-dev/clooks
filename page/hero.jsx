@@ -291,7 +291,7 @@ function HeroCode({ tweaks }) {
           display: 'flex', alignItems: 'center', gap: 10,
         }}>
           <span style={{ width: 24, height: 1, background: tweaks.accent, display: 'inline-block' }}/>
-          v{window.CLOOKS_VERSION} · pre-release · Claude Code
+          v{window.CLOOKS_VERSION}
         </div>
         <h1 style={{
           fontSize: bp(vp, { mobile: 40, tablet: 56, desktop: 'clamp(44px, 6vw, 76px)' }),
@@ -360,7 +360,7 @@ function HeroSplit({ tweaks }) {
             display: 'flex', alignItems: 'center', gap: 10,
           }}>
             <span style={{ width: 24, height: 1, background: tweaks.accent, display: 'inline-block' }}/>
-            v{window.CLOOKS_VERSION} · pre-release
+            v{window.CLOOKS_VERSION}
           </div>
           <h1 style={{
             fontSize: bp(vp, { mobile: 38, tablet: 52, desktop: 'clamp(40px, 4.4vw, 60px)' }),
