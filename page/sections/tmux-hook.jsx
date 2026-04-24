@@ -389,7 +389,7 @@ function TmuxHookSection({ accent }) {
     ['    ', [TK.kw, 'const'], [TK.fn, ' rewritten'], [TK.op, ' = cmd.'], [TK.fn, 'replace'], [TK.op, '(/^\\s*mv\\b/, '], [TK.str, "'git mv'"], [TK.op, ')']],
     ['    ', [TK.kw, 'return'], [TK.op, ' {']],
     ['      ', [TK.prop, 'result'], [TK.op, ': '], [TK.str, "'updateInput'"], [TK.op, ',']],
-    ['      ', [TK.prop, 'updatedInput'], [TK.op, ': { ...ctx.'], [TK.prop, 'toolInput'], [TK.op, ', '], [TK.prop, 'command'], [TK.op, ': rewritten },']],
+    ['      ', [TK.prop, 'updatedInput'], [TK.op, ': { '], [TK.prop, 'command'], [TK.op, ': rewritten },']],
     ['      ', [TK.prop, 'note'], [TK.op, ': '], [TK.str, "'rewrote mv → git mv'"], [TK.op, ',']],
     ['    ', [TK.op, '}']],
     ['  ', [TK.op, '},']],
