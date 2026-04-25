@@ -142,19 +142,21 @@ export type Result<T extends ResultTag> = {
 } & DebugMessage;
 /**
  * Per-tool DU arm shape for tool-keyed events that lack a Clooks-internal
- * `originalToolInput` field. Used by `PermissionRequestVariant`,
- * `PostToolUseVariant`, and `PostToolUseFailureVariant`.
+ * `originalToolInput` field. Used by the `PermissionRequest`, `PostToolUse`,
+ * and `PostToolUseFailure` mapped-type contexts (see `ToolInputMap` in
+ * `./contexts.js`).
  */
 export type ToolVariant<N extends string, I> = {
 	toolName: N;
 	toolInput: I;
 };
 /**
- * Per-tool DU arm shape for `PreToolUseVariant` only. Adds the
- * Clooks-internal `originalToolInput` field, which mirrors `toolInput`
- * shape exactly (the engine synthesizes it pre-normalization). Not used
- * by other tool-keyed events — Claude Code's wire payload does not carry
- * this field on PostToolUse / PostToolUseFailure / PermissionRequest.
+ * Per-tool DU arm shape for the `PreToolUse` mapped-type context only.
+ * Adds the Clooks-internal `originalToolInput` field, which mirrors
+ * `toolInput` shape exactly (the engine synthesizes it pre-normalization).
+ * Not used by other tool-keyed events — Claude Code's wire payload does
+ * not carry this field on PostToolUse / PostToolUseFailure /
+ * PermissionRequest.
  */
 export type ToolVariantWithOriginal<N extends string, I> = ToolVariant<N, I> & {
 	originalToolInput: I;
