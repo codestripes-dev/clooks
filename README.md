@@ -16,11 +16,11 @@ as one `command` hook per event, then dispatches to your TypeScript:
 export const hook: ClooksHook = {
   meta: { name: "no-rm-rf" },
   PreToolUse(ctx) {
-    if (ctx.toolName !== "Bash") return { result: "skip" }
+    if (ctx.toolName !== "Bash") return ctx.skip()
     if (ctx.toolInput.command?.includes("rm -rf /")) {
-      return { result: "block", reason: "Dangerous rm" }
+      return ctx.block({ reason: "Dangerous rm" })
     }
-    return { result: "allow" }
+    return ctx.allow({ updatedInput: { timeout: 60000 } })
   },
 }
 ```
@@ -187,19 +187,16 @@ export const hook: ClooksHook = {
   },
 
   PreToolUse(ctx) {
-    if (ctx.toolName !== "Bash") return { result: "skip" }
+    if (ctx.toolName !== "Bash") return ctx.skip()
 
     const command =
       typeof ctx.toolInput.command === "string" ? ctx.toolInput.command : ""
 
     if (command.includes("rm -rf /")) {
-      return {
-        result: "block",
-        reason: "Blocked dangerous rm command",
-      }
+      return ctx.block({ reason: "Blocked dangerous rm command" })
     }
 
-    return { result: "allow" }
+    return ctx.allow()
   },
 }
 ```
@@ -484,12 +481,12 @@ export const hook: ClooksHook = {
 
   Notification(ctx) {
     setTmuxStatus("attention")
-    return { result: "allow" }
+    return ctx.skip()
   },
 
   PreToolUse(ctx) {
     resetTmuxStatus()
-    return { result: "allow" }
+    return ctx.skip()
   },
 }
 ```

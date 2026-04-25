@@ -14,6 +14,41 @@ import type {
 } from './branded.js'
 import type { StopFailureErrorType } from './claude-code.js'
 import type { PermissionUpdateEntry } from './permissions.js'
+import type { Patch } from './patch.js'
+import type { PreToolUseResult, PermissionRequestResult } from './results.js'
+import type {
+  DebugMessage,
+  Inject,
+  Reason,
+  Interrupt,
+  UpdatedPermissions,
+  Allow,
+  Ask,
+  Block,
+  Skip,
+} from './method-primitives.js'
+import type {
+  UserPromptSubmitDecisionMethods,
+  StopDecisionMethods,
+  SubagentStopDecisionMethods,
+  ConfigChangeDecisionMethods,
+  PreCompactDecisionMethods,
+  PostToolUseDecisionMethods,
+  PermissionDeniedDecisionMethods,
+  SessionStartDecisionMethods,
+  SessionEndDecisionMethods,
+  InstructionsLoadedDecisionMethods,
+  PostToolUseFailureDecisionMethods,
+  NotificationDecisionMethods,
+  SubagentStartDecisionMethods,
+  WorktreeRemoveDecisionMethods,
+  PostCompactDecisionMethods,
+  StopFailureDecisionMethods,
+  WorktreeCreateDecisionMethods,
+  TeammateIdleDecisionMethods,
+  TaskCreatedDecisionMethods,
+  TaskCompletedDecisionMethods,
+} from './decision-methods.js'
 
 export interface BaseContext {
   event: EventName
@@ -95,7 +130,40 @@ export interface AskUserQuestionToolInput {
   answers?: Record<string, string>
 }
 
-export type PreToolUseContext = BaseContext & {
+/**
+ * Per-variant decision-method set for `PreToolUseContext`. Intersected onto each
+ * tool-arm of the DU so that `ctx.allow({ updatedInput })` receives a typed
+ * `Patch<NarrowedToolInput>` after a `ctx.toolName` discriminant check.
+ *
+ * The methods are pure value constructors — see `src/engine/context-methods.ts`.
+ */
+export type PreToolUseDecisionMethods<Input> = Allow<
+  { updatedInput?: Patch<Input>; reason?: string } & DebugMessage & Inject,
+  PreToolUseResult
+> &
+  Ask<{ reason: string; updatedInput?: Patch<Input> } & DebugMessage & Inject, PreToolUseResult> &
+  Block<Reason & Inject, PreToolUseResult> & {
+    /**
+     * Only honored in `claude -p` mode AND only when the turn contains a single
+     * tool call. Otherwise upstream Claude Code logs a warning and ignores this.
+     * Requires Claude Code v2.1.89+.
+     *
+     * Upstream ignores `reason`, `updatedInput`, and `additionalContext` for
+     * `defer` — the opts bag carries only `debugMessage`.
+     */
+    defer(opts?: DebugMessage): PreToolUseResult
+  } & Skip<DebugMessage & Inject, PreToolUseResult>
+
+/**
+ * Distributes `PreToolUseDecisionMethods<V['toolInput']>` over each variant of
+ * the input DU `V`. Required because TS does not narrow method-parameter types
+ * unless the methods are declared per-variant of the discriminated union.
+ */
+type WithPreToolUseMethods<V> = V extends { toolInput: infer Input }
+  ? V & PreToolUseDecisionMethods<Input>
+  : never
+
+type PreToolUseVariant = BaseContext & {
   event: 'PreToolUse'
   toolUseId: string
   /** The original tool input from Claude Code, before any hook modifications. */
@@ -113,6 +181,8 @@ export type PreToolUseContext = BaseContext & {
     | { toolName: 'AskUserQuestion'; toolInput: AskUserQuestionToolInput }
   )
 
+export type PreToolUseContext = WithPreToolUseMethods<PreToolUseVariant>
+
 /**
  * Context for a PreToolUse event where the tool name is not one of the 10
  * known variants (e.g. MCP tools, ExitPlanMode, future upstream tools).
@@ -128,44 +198,105 @@ export type UnknownPreToolUseContext = BaseContext & {
   originalToolInput: Record<string, unknown>
   toolName: string
   toolInput: Record<string, unknown>
-}
+} & PreToolUseDecisionMethods<Record<string, unknown>>
 
-export interface UserPromptSubmitContext extends BaseContext {
+export type UserPromptSubmitContext = BaseContext & {
   event: 'UserPromptSubmit'
   prompt: string
-}
+} & UserPromptSubmitDecisionMethods
 
-export interface PermissionRequestContext extends BaseContext {
+/**
+ * Per-variant decision-method set for `PermissionRequestContext`. Intersected
+ * onto each tool-arm of the DU so that `permCtx.allow({ updatedInput })`
+ * receives a typed `Patch<NarrowedToolInput>` after a `permCtx.toolName`
+ * discriminant check. Mirrors the `PreToolUseDecisionMethods` pattern.
+ *
+ * `PermissionRequestResult` only models three result tags (allow / block /
+ * skip) — there is no `ask` / `defer` here.
+ */
+export type PermissionRequestDecisionMethods<Input> = Allow<
+  { updatedInput?: Patch<Input> } & UpdatedPermissions & DebugMessage,
+  PermissionRequestResult
+> &
+  Block<Reason & Interrupt, PermissionRequestResult> &
+  Skip<DebugMessage, PermissionRequestResult>
+
+/**
+ * Distributes `PermissionRequestDecisionMethods<V['toolInput']>` over each
+ * variant of the input DU `V`. See the comment on `WithPreToolUseMethods` for
+ * the rationale.
+ */
+type WithPermissionRequestMethods<V> = V extends { toolInput: infer Input }
+  ? V & PermissionRequestDecisionMethods<Input>
+  : never
+
+type PermissionRequestVariant = BaseContext & {
   event: 'PermissionRequest'
+  /**
+   * Permission update suggestions surfaced by Claude Code. Stays at the outer
+   * context level (not per-variant) — Claude Code attaches it to every
+   * permission request regardless of tool. See PLAN-FEAT-0063 Decision Log
+   * "permissionSuggestions stays at the outer PermissionRequestContext level."
+   */
+  permissionSuggestions?: PermissionUpdateEntry[]
+} & (
+    | { toolName: 'Bash'; toolInput: BashToolInput }
+    | { toolName: 'Write'; toolInput: WriteToolInput }
+    | { toolName: 'Edit'; toolInput: EditToolInput }
+    | { toolName: 'Read'; toolInput: ReadToolInput }
+    | { toolName: 'Glob'; toolInput: GlobToolInput }
+    | { toolName: 'Grep'; toolInput: GrepToolInput }
+    | { toolName: 'WebFetch'; toolInput: WebFetchToolInput }
+    | { toolName: 'WebSearch'; toolInput: WebSearchToolInput }
+    | { toolName: 'Agent'; toolInput: AgentToolInput }
+    | { toolName: 'AskUserQuestion'; toolInput: AskUserQuestionToolInput }
+  )
+
+export type PermissionRequestContext = WithPermissionRequestMethods<PermissionRequestVariant>
+
+/**
+ * Context for a PermissionRequest event where the tool name is not one of the
+ * 10 known variants (e.g. MCP tools, future upstream tools). Sibling to
+ * `UnknownPreToolUseContext`. Cast from raw ctx when handling unknown tool
+ * names.
+ *
+ * @example
+ * const ctx = rawCtx as unknown as UnknownPermissionRequestContext
+ * if (ctx.toolName.startsWith('mcp__')) {
+ *   return ctx.allow({ updatedInput: { ... } })
+ * }
+ */
+export type UnknownPermissionRequestContext = BaseContext & {
+  event: 'PermissionRequest'
+  permissionSuggestions?: PermissionUpdateEntry[]
   toolName: string
   toolInput: Record<string, unknown>
-  permissionSuggestions?: PermissionUpdateEntry[]
-}
+} & PermissionRequestDecisionMethods<Record<string, unknown>>
 
-export interface StopContext extends BaseContext {
+export type StopContext = BaseContext & {
   event: 'Stop'
   stopHookActive: boolean
   lastAssistantMessage: string
-}
+} & StopDecisionMethods
 
-export interface SubagentStopContext extends BaseContext {
+export type SubagentStopContext = BaseContext & {
   event: 'SubagentStop'
   stopHookActive: boolean
   agentId: string
   agentType: string
   agentTranscriptPath: string
   lastAssistantMessage: string
-}
+} & SubagentStopDecisionMethods
 
-export interface ConfigChangeContext extends BaseContext {
+export type ConfigChangeContext = BaseContext & {
   event: 'ConfigChange'
   source: ConfigChangeSource
   filePath?: string
-}
+} & ConfigChangeDecisionMethods
 
 // --- Notify-only events ---
 
-export interface StopFailureContext extends BaseContext {
+export type StopFailureContext = BaseContext & {
   event: 'StopFailure'
   error: StopFailureErrorType
   errorDetails?: string
@@ -176,22 +307,22 @@ export interface StopFailureContext extends BaseContext {
    * for additional structured detail.
    */
   lastAssistantMessage?: string
-}
+} & StopFailureDecisionMethods
 
 // --- Observe events ---
 
-export interface SessionStartContext extends BaseContext {
+export type SessionStartContext = BaseContext & {
   event: 'SessionStart'
   source: SessionStartSource
   model?: string
-}
+} & SessionStartDecisionMethods
 
-export interface SessionEndContext extends BaseContext {
+export type SessionEndContext = BaseContext & {
   event: 'SessionEnd'
   reason: SessionEndReason
-}
+} & SessionEndDecisionMethods
 
-export interface InstructionsLoadedContext extends BaseContext {
+export type InstructionsLoadedContext = BaseContext & {
   event: 'InstructionsLoaded'
   filePath: string
   memoryType: InstructionsMemoryType
@@ -199,18 +330,18 @@ export interface InstructionsLoadedContext extends BaseContext {
   globs?: string[]
   triggerFilePath?: string
   parentFilePath?: string
-}
+} & InstructionsLoadedDecisionMethods
 
-export interface PostToolUseContext extends BaseContext {
+export type PostToolUseContext = BaseContext & {
   event: 'PostToolUse'
   toolName: string
   toolInput: Record<string, unknown>
   toolResponse: unknown
   toolUseId: string
   originalToolInput?: Record<string, unknown>
-}
+} & PostToolUseDecisionMethods
 
-export interface PostToolUseFailureContext extends BaseContext {
+export type PostToolUseFailureContext = BaseContext & {
   event: 'PostToolUseFailure'
   toolName: string
   toolInput: Record<string, unknown>
@@ -218,39 +349,39 @@ export interface PostToolUseFailureContext extends BaseContext {
   error: string
   isInterrupt?: boolean
   originalToolInput?: Record<string, unknown>
-}
+} & PostToolUseFailureDecisionMethods
 
-export interface NotificationContext extends BaseContext {
+export type NotificationContext = BaseContext & {
   event: 'Notification'
   message: string
   title?: string
   notificationType?: NotificationType
-}
+} & NotificationDecisionMethods
 
-export interface SubagentStartContext extends BaseContext {
+export type SubagentStartContext = BaseContext & {
   event: 'SubagentStart'
   agentId: string
   agentType: string
-}
+} & SubagentStartDecisionMethods
 
-export interface WorktreeRemoveContext extends BaseContext {
+export type WorktreeRemoveContext = BaseContext & {
   event: 'WorktreeRemove'
   worktreePath: string
-}
+} & WorktreeRemoveDecisionMethods
 
-export interface PreCompactContext extends BaseContext {
+export type PreCompactContext = BaseContext & {
   event: 'PreCompact'
   trigger: PreCompactTrigger
   customInstructions: string
-}
+} & PreCompactDecisionMethods
 
-export interface PostCompactContext extends BaseContext {
+export type PostCompactContext = BaseContext & {
   event: 'PostCompact'
   trigger: PreCompactTrigger
   compactSummary: string
-}
+} & PostCompactDecisionMethods
 
-export interface PermissionDeniedContext extends BaseContext {
+export type PermissionDeniedContext = BaseContext & {
   event: 'PermissionDenied'
   toolName: string
   /** Tool input as provided to Claude Code. Keys are camelCase. */
@@ -258,37 +389,37 @@ export interface PermissionDeniedContext extends BaseContext {
   toolUseId: string
   /** The classifier's explanation for why the tool call was denied. */
   denialReason: string
-}
+} & PermissionDeniedDecisionMethods
 
 // --- Implementation events ---
 
-export interface WorktreeCreateContext extends BaseContext {
+export type WorktreeCreateContext = BaseContext & {
   event: 'WorktreeCreate'
   name: string
-}
+} & WorktreeCreateDecisionMethods
 
 // --- Continuation events ---
 
-export interface TeammateIdleContext extends BaseContext {
+export type TeammateIdleContext = BaseContext & {
   event: 'TeammateIdle'
   teammateName: string
   teamName: string
-}
+} & TeammateIdleDecisionMethods
 
-export interface TaskCreatedContext extends BaseContext {
+export type TaskCreatedContext = BaseContext & {
   event: 'TaskCreated'
   taskId: string
   taskSubject: string
   taskDescription?: string
   teammateName?: string
   teamName?: string
-}
+} & TaskCreatedDecisionMethods
 
-export interface TaskCompletedContext extends BaseContext {
+export type TaskCompletedContext = BaseContext & {
   event: 'TaskCompleted'
   taskId: string
   taskSubject: string
   taskDescription?: string
   teammateName?: string
   teamName?: string
-}
+} & TaskCompletedDecisionMethods

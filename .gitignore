@@ -7,6 +7,7 @@ dist/
 .clooks/hook.log
 .clooks/.failures
 .clooks/bin/clooks
+.claude/scheduled_tasks.lock
 # Clooks
 clooks.local.yml
 .clooks/.cache/

@@ -78,7 +78,11 @@ When creating or removing a domain doc, update the relevant table in this index.
 | Claude Code Hooks — Behavior & Gotchas | `claude-code-hooks/behavior-and-gotchas.md` | Execution model, async, session snapshot, known issues |
 | Cross-Agent Hooks | `cross-agent-hooks.md` | Hook systems across Claude Code, Cursor, Windsurf, VS Code Copilot with event mapping |
 | Global Hooks | `global-hooks.md` | User-wide hooks architecture: directory structure, config scoping, merge semantics, failure state, shadow warnings |
-| Hook Type System | `hook-type-system.md` | ClooksHook contract, per-event context/result types, branded strings, file organization |
+| Hook Type System — Index | `hook-type-system.md` | Index pointing to focused sub-docs: patterns, decision methods, lifecycle, .d.ts bundle |
+| Hook Type System — Patterns | `hook-type-system/patterns.md` | Event categories, ResultTag/ExitCode, BaseContext, tool-event pipeline, branded strings, normalization, runtime validation |
+| Hook Type System — Decision Methods | `hook-type-system/decision-methods.md` | Per-event decision methods, runtime attachment, type-composition primitive vocabulary, worked composition example |
+| Hook Type System — Lifecycle Types | `hook-type-system/lifecycle-types.md` | `beforeHook` / `afterHook`, `BeforeHookEvent` / `AfterHookEvent`, `HookEventMeta` |
+| Hook Type System — `.d.ts` Bundle | `hook-type-system/dts-bundle.md` | Bundle generation, binary embedding, hook-author imports |
 | Vendoring — Overview | `vendoring/overview.md` | Core vendoring concepts, vendor directory layout, formats, registration, V0 limitations |
 | Vendoring — clooks add | `vendoring/clooks-add.md` | `clooks add` workflow (blob URL + repo URL), multi-hook packs, manifest format |
 | Vendoring — Plugin Vendoring | `vendoring/plugin-vendoring.md` | Plugin cache discovery, plugin hook vendoring, scope-based routing |

@@ -22,6 +22,7 @@ import type {
 } from './claude-code.js'
 import type { NotificationContext, SessionEndContext } from './contexts.js'
 import type { PermissionUpdateEntry } from './permissions.js'
+import { createContext } from '../testing/create-context.js'
 
 /**
  * Exhaustively switches on hook_event_name and returns a string built from
@@ -446,49 +447,28 @@ describe('ClaudeCodeInput discriminated union narrowing', () => {
 })
 
 describe('camelCase *Context narrowing (M2 optionality + enum widening)', () => {
-  const baseCtx = {
-    sessionId: 'sess-1',
-    cwd: '/tmp/proj',
-    permissionMode: 'default' as const,
-    transcriptPath: '/tmp/proj/.claude/transcript.jsonl',
-    parallel: false,
-    signal: new AbortController().signal,
-  }
-
   test('NotificationContext.notificationType may be undefined', () => {
     // M2: the field was required; upstream treats it as optional. This test
     // pins the optionality at the camelCase layer so a future tightening
-    // triggers a typecheck failure.
-    const ctx: NotificationContext = {
-      ...baseCtx,
-      event: 'Notification',
-      message: 'no type',
-    }
+    // triggers a typecheck failure. M3: migrated to createContext so the
+    // attached decision-method properties satisfy the *Context type.
+    const ctx: NotificationContext = createContext('Notification', { message: 'no type' })
     expect(ctx.notificationType).toBeUndefined()
     // Regression: a present value still types.
-    const withType: NotificationContext = {
-      ...baseCtx,
-      event: 'Notification',
+    const withType: NotificationContext = createContext('Notification', {
       message: 'typed',
       notificationType: 'permission_prompt',
-    }
+    })
     expect(withType.notificationType).toBe('permission_prompt')
   })
 
   test('SessionEndContext.reason narrows "resume"', () => {
     // M2: the branded SessionEndReason gained "resume" to match upstream.
-    const ctx: SessionEndContext = {
-      ...baseCtx,
-      event: 'SessionEnd',
-      reason: 'resume',
-    }
+    // M3: migrated to createContext.
+    const ctx: SessionEndContext = createContext('SessionEnd', { reason: 'resume' })
     expect(ctx.reason).toBe('resume')
     // Regression: pre-existing values still narrow (string literal preserved).
-    const logout: SessionEndContext = {
-      ...baseCtx,
-      event: 'SessionEnd',
-      reason: 'logout',
-    }
+    const logout: SessionEndContext = createContext('SessionEnd', { reason: 'logout' })
     expect(logout.reason).toBe('logout')
   })
 })

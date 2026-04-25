@@ -61,14 +61,26 @@ Must choose one approach per hook: exit codes alone, OR exit 0 with JSON. Claude
 
 ### Decision Control Patterns
 
-| Events | Pattern | Key Fields |
-|--------|---------|------------|
-| UserPromptSubmit, PostToolUse, PostToolUseFailure, Stop, SubagentStop, ConfigChange, PreCompact | Top-level `decision` | `decision: "block"`, `reason`. UserPromptSubmit also supports `hookSpecificOutput.sessionTitle` (sets session title, equivalent to /rename; may combine with block or allow/skip) |
-| TeammateIdle, TaskCompleted | Exit code or `continue` | Exit 2 blocks with stderr. `{"continue": false, "stopReason": "..."}` stops entirely |
-| PreToolUse | `hookSpecificOutput` | `hookEventName` (required), `permissionDecision` (`"allow"` / `"deny"` / `"ask"` / `"defer"`), `permissionDecisionReason`, `updatedInput`, `additionalContext`. Multi-hook execution model: all registered PreToolUse hooks run to completion (no short-circuit on deny); results are reduced via `deny > defer > ask > allow` precedence. Crashed hooks under `onError: "block"` still short-circuit — a crash does not participate in the reduction. **Clooks divergence:** hooks return `updatedInput` as a partial patch; the engine shallow-merges onto the pipeline's running `toolInput` and strips keys whose value is literal `null` (explicit-unset sentinel). The wire payload sent upstream to Claude Code is always the full merged object. |
-| PermissionRequest | `hookSpecificOutput` | `hookEventName` (required), `decision.behavior`, `decision.updatedInput`, `decision.updatedPermissions` (array of `PermissionUpdateEntry` — six variants per `src/types/permissions.ts`), `decision.message`, `decision.interrupt`. **Clooks divergence:** same partial-patch semantics for `decision.updatedInput` — engine merges the patch onto the pipeline's running `toolInput`, strips `null` keys post-merge, and emits the full merged object on the wire. |
-| WorktreeCreate | stdout path | Print absolute path. Non-zero exit fails |
-| WorktreeRemove, Notification, SessionEnd, PostCompact, InstructionsLoaded | None | Side effects only |
+Clooks hook handlers use the `ctx.<verb>(...)` decision-method idiom. The table
+below lists the legal verbs per event; the runtime translates these to the
+upstream wire shapes (`hookSpecificOutput.permissionDecision`, top-level
+`decision`, exit codes, etc.) inside `src/engine/translate.ts`. See
+[events.md](./events.md) for per-event opts-bag fields.
+
+| Event(s) | Decision methods on `ctx` |
+|----------|---------------------------|
+| `PreToolUse` | `ctx.allow({ updatedInput?, reason?, injectContext?, debugMessage? })`, `ctx.ask({ reason, updatedInput?, injectContext?, debugMessage? })`, `ctx.block({ reason, injectContext?, debugMessage? })`, `ctx.defer({ debugMessage? })` (`-p` + single-tool-call only), `ctx.skip({ injectContext?, debugMessage? })`. Multi-hook reduction: all hooks run to completion (no short-circuit on deny) — results are reduced via `deny > defer > ask > allow` precedence. Crashed hooks under `onError: "block"` still short-circuit. **Clooks divergence:** `updatedInput` is a partial patch (`Patch<ToolInput>`); the engine merges onto the pipeline's running `toolInput` and strips `null`-valued keys post-merge. The wire payload upstream is always the full merged object. |
+| `PermissionRequest` | `ctx.allow({ updatedInput?, updatedPermissions?, debugMessage? })`, `ctx.block({ reason, interrupt?, debugMessage? })`, `ctx.skip({ debugMessage? })`. **Clooks divergence:** same partial-patch semantics for `updatedInput` — engine merges, strips `null`, and emits full replacement on the wire. `updatedPermissions` is `PermissionUpdateEntry[]` (six variants per `src/types/permissions.ts`). |
+| `UserPromptSubmit` | `ctx.allow({ sessionTitle?, injectContext?, debugMessage? })`, `ctx.block({ reason, sessionTitle?, injectContext?, debugMessage? })`, `ctx.skip({ sessionTitle?, injectContext?, debugMessage? })`. `sessionTitle` is equivalent to running `/rename`; available on every arm per upstream's `hookSpecificOutput` shape. |
+| `Stop`, `SubagentStop` | `ctx.allow({ debugMessage? })`, `ctx.block({ reason, debugMessage? })` (`reason` tells Claude *why to continue* — prevents the stop), `ctx.skip({ debugMessage? })`. The `stop` verb does NOT exist here — it belongs to continuation events. |
+| `ConfigChange`, `PreCompact` | `ctx.allow({ debugMessage? })`, `ctx.block({ reason, debugMessage? })`, `ctx.skip({ debugMessage? })`. ConfigChange caveat: `policy_settings` blocks are downgraded to `skip` upstream — Clooks emits a `systemMessage` warning. |
+| `PostToolUse` | `ctx.block({ reason, injectContext?, updatedMCPToolOutput?, debugMessage? })` (post-hoc feedback — the action already ran, cannot be undone), `ctx.skip({ injectContext?, updatedMCPToolOutput?, debugMessage? })`. `updatedMCPToolOutput` is MCP-only; built-in tools silently ignore it. |
+| `PermissionDenied` | `ctx.retry({ debugMessage? })` (adds a retry hint — does NOT reverse the denial), `ctx.skip({ debugMessage? })`. Auto-mode only. |
+| `WorktreeCreate` | `ctx.success({ path, debugMessage? })`, `ctx.failure({ reason, debugMessage? })`. `path` must be the absolute path to the created worktree. |
+| `TeammateIdle`, `TaskCreated`, `TaskCompleted` | `ctx.continue({ feedback, debugMessage? })`, `ctx.stop({ reason, debugMessage? })`, `ctx.skip({ debugMessage? })`. Same `continue` verb, three semantics: TeammateIdle → "keep working past idle"; TaskCreated → "don't create the task; feed feedback to model"; TaskCompleted → "don't mark complete; feed feedback to model". |
+| `SessionStart`, `SubagentStart`, `Notification`, `PostToolUseFailure` | `ctx.skip({ injectContext?, debugMessage? })`. Observe-only with context injection. |
+| `SessionEnd`, `InstructionsLoaded`, `PostCompact`, `WorktreeRemove` | `ctx.skip({ debugMessage? })`. Observe-only without `additionalContext` upstream. |
+| `StopFailure` | `ctx.skip({ debugMessage? })`. Notify-only — output is dropped upstream by Claude Code; the method exists for API uniformity. Side-effects (logging, alerts) inside the handler still run. |
 
 ### HTTP Response Handling
 

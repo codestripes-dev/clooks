@@ -1,8 +1,9 @@
 // Base result types and per-event result types.
-// Each base result is intersected with DebugFields.
-// InjectableContext is intersected where Claude Code supports additionalContext.
+// Each base result is intersected with DebugMessage.
+// Inject is intersected where Claude Code supports additionalContext.
 
 import type { PermissionUpdateEntry } from './permissions.js'
+import type { DebugMessage, Inject } from './method-primitives.js'
 
 /** Union of all result discriminant values across all base result types. */
 export type ResultTag =
@@ -17,57 +18,43 @@ export type ResultTag =
   | 'stop'
   | 'retry'
 
-/** Optional debug info, only visible in debug mode. */
-export interface DebugFields {
-  debugMessage?: string
-}
-
-/**
- * Text injected into the agent's conversation.
- * Maps to Claude Code's `additionalContext` output field.
- * Only available on events whose Claude Code contract supports it.
- */
-export interface InjectableContext {
-  injectContext?: string
-}
-
-export type AllowResult = DebugFields & {
+export type AllowResult = DebugMessage & {
   result: 'allow'
 }
 
-export type BlockResult = DebugFields & {
+export type BlockResult = DebugMessage & {
   result: 'block'
   /** Required. Shown to the agent (guard events) or user (continuation events). */
   reason: string
 }
 
-export type SkipResult = DebugFields & {
+export type SkipResult = DebugMessage & {
   result: 'skip'
 }
 
-export type SuccessResult = DebugFields & {
+export type SuccessResult = DebugMessage & {
   result: 'success'
   /** Absolute path to the created worktree. */
   path: string
 }
 
-export type FailureResult = DebugFields & {
+export type FailureResult = DebugMessage & {
   result: 'failure'
   reason: string
 }
 
-export type ContinueResult = DebugFields & {
+export type ContinueResult = DebugMessage & {
   result: 'continue'
   /** Required. Tells the teammate what to do next. */
   feedback: string
 }
 
-export type StopResult = DebugFields & {
+export type StopResult = DebugMessage & {
   result: 'stop'
   reason: string
 }
 
-export type RetryResult = DebugFields & {
+export type RetryResult = DebugMessage & {
   result: 'retry'
 }
 
@@ -77,7 +64,7 @@ export type RetryResult = DebugFields & {
  * The source label ([Project]/[User]/[Plugin]/[Local]) is added by
  * Claude Code — reason should disambiguate which hook asked.
  */
-export type AskResult = DebugFields & {
+export type AskResult = DebugMessage & {
   result: 'ask'
   /** Required. Shown to the user in the confirmation prompt. */
   reason: string
@@ -92,7 +79,7 @@ export type AskResult = DebugFields & {
  * Upstream ignores reason / updatedInput / additionalContext for
  * defer. This type forbids all three at compile time.
  */
-export type DeferResult = DebugFields & {
+export type DeferResult = DebugMessage & {
   result: 'defer'
 }
 
@@ -101,7 +88,7 @@ export type DeferResult = DebugFields & {
 // Guard events — allow | ask | block | defer | skip
 export type PreToolUseResult =
   | (AllowResult &
-      InjectableContext & {
+      Inject & {
         /**
          * Partial patch applied to the running tool input. The engine merges
          * this object onto the current `toolInput` via shallow spread, then
@@ -118,10 +105,10 @@ export type PreToolUseResult =
          *
          * ```ts
          * // ✗ Wrong — undefined is treated as "no patch," the field is left unchanged.
-         * return { result: 'allow', updatedInput: { timeout: undefined } }
+         * return ctx.allow({ updatedInput: { timeout: undefined } })
          *
          * // ✓ Right — null explicitly unsets.
-         * return { result: 'allow', updatedInput: { timeout: null } }
+         * return ctx.allow({ updatedInput: { timeout: null } })
          * ```
          */
         updatedInput?: Record<string, unknown>
@@ -133,7 +120,7 @@ export type PreToolUseResult =
         reason?: string
       })
   | (AskResult &
-      InjectableContext & {
+      Inject & {
         /**
          * Partial patch applied to the running tool input. The engine merges
          * this object onto the current `toolInput` via shallow spread, then
@@ -150,19 +137,19 @@ export type PreToolUseResult =
          *
          * ```ts
          * // ✗ Wrong — undefined is treated as "no patch," the field is left unchanged.
-         * return { result: 'allow', updatedInput: { timeout: undefined } }
+         * return ctx.allow({ updatedInput: { timeout: undefined } })
          *
          * // ✓ Right — null explicitly unsets.
-         * return { result: 'allow', updatedInput: { timeout: null } }
+         * return ctx.allow({ updatedInput: { timeout: null } })
          * ```
          */
         updatedInput?: Record<string, unknown>
       })
-  | (BlockResult & InjectableContext)
+  | (BlockResult & Inject)
   | DeferResult
-  | (SkipResult & InjectableContext)
+  | (SkipResult & Inject)
 export type UserPromptSubmitResult = (AllowResult | BlockResult | SkipResult) &
-  InjectableContext & { sessionTitle?: string }
+  Inject & { sessionTitle?: string }
 export type PermissionRequestResult =
   | (AllowResult & {
       /**
@@ -200,20 +187,20 @@ export type ConfigChangeResult = AllowResult | BlockResult | SkipResult
 export type PreCompactResult = AllowResult | BlockResult | SkipResult
 
 // Notify-only events — skip only, output is dropped upstream
-// StopFailureResult is intentionally NOT intersected with InjectableContext:
+// StopFailureResult is intentionally NOT intersected with Inject:
 // upstream drops all output, so additionalContext would silently never reach Claude.
 export type StopFailureResult = SkipResult
 
 // Observe events — skip only
-export type SessionStartResult = SkipResult & InjectableContext
+export type SessionStartResult = SkipResult & Inject
 export type SessionEndResult = SkipResult
 export type InstructionsLoadedResult = SkipResult
 export type PostToolUseResult =
-  | (SkipResult & InjectableContext & { updatedMCPToolOutput?: unknown })
-  | (BlockResult & InjectableContext & { updatedMCPToolOutput?: unknown })
-export type PostToolUseFailureResult = SkipResult & InjectableContext
-export type NotificationResult = SkipResult & InjectableContext
-export type SubagentStartResult = SkipResult & InjectableContext
+  | (SkipResult & Inject & { updatedMCPToolOutput?: unknown })
+  | (BlockResult & Inject & { updatedMCPToolOutput?: unknown })
+export type PostToolUseFailureResult = SkipResult & Inject
+export type NotificationResult = SkipResult & Inject
+export type SubagentStartResult = SkipResult & Inject
 export type WorktreeRemoveResult = SkipResult
 export type PostCompactResult = SkipResult
 

@@ -1,11 +1,13 @@
+// Fixture migrated to ctx.<verb>(...) form per FEAT-0063 M4.
+type AllowCtx = {
+  toolInput: Record<string, unknown>
+  allow: (opts: { injectContext: string }) => { result: 'allow'; injectContext: string }
+}
+
 export const hook = {
-  meta: { name: "read-command" },
-  PreToolUse(ctx: Record<string, unknown>) {
-    const toolInput = ctx.toolInput as Record<string, unknown>
-    const command = typeof toolInput.command === "string" ? toolInput.command : "unknown"
-    return {
-      result: "allow" as const,
-      injectContext: `read-command saw: ${command}`,
-    }
+  meta: { name: 'read-command' },
+  PreToolUse(ctx: AllowCtx) {
+    const command = typeof ctx.toolInput.command === 'string' ? ctx.toolInput.command : 'unknown'
+    return ctx.allow({ injectContext: `read-command saw: ${command}` })
   },
 }

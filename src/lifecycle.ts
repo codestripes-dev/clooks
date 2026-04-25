@@ -7,6 +7,7 @@ import type { EventName } from './types/branded.js'
 import type { LoadedHook } from './loader.js'
 import { getGitRoot, getGitBranch } from './git.js'
 import { VERSION } from './version.js'
+import { attachDecisionMethods } from './engine/context-methods.js'
 
 export function createRespondCallback<T>(): {
   respond: (result: T) => void
@@ -102,6 +103,12 @@ export async function runHookLifecycle(
   ) => unknown
 
   async function lifecycle(): Promise<LifecycleResult> {
+    // Attach decision-method constructors to the per-hook context BEFORE any
+    // phase runs. Both `beforeHook` and the main handler observe the same
+    // (mutated) `context` object reference. Idempotent — safe even if the
+    // engine ever attaches earlier.
+    attachDecisionMethods(eventName, context)
+
     // --- beforeHook phase ---
     if (hasBeforeHook) {
       const meta = await metaCache.buildMeta(loaded)

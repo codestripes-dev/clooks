@@ -52,7 +52,7 @@ describe('lifecycle types', () => {
   test('AfterHookEvent.respond rejects mismatched result for observe events', () => {
     const handler = (event: AfterHookEvent) => {
       if (event.type === 'SessionStart') {
-        // @ts-expect-error — SessionStartResult is SkipResult & InjectableContext, not BlockResult
+        // @ts-expect-error — SessionStartResult is SkipResult & Inject, not BlockResult
         event.respond({ result: 'block', reason: 'nope' })
       }
     }

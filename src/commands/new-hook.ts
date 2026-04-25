@@ -5,13 +5,59 @@ import os from 'os'
 import { getCtx } from '../tui/context.js'
 import { jsonSuccess } from '../tui/json-envelope.js'
 import {
-  printIntro, printSuccess, printInfo, printWarning, printError, printOutro
+  printIntro,
+  printSuccess,
+  printInfo,
+  printWarning,
+  printError,
+  printOutro,
 } from '../tui/output.js'
 import { promptText, promptSelect, isNonInteractive } from '../tui/prompts.js'
 
 const KEBAB_CASE_RE = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/
 
-function hookTemplate(hookName: string): string {
+// Closed list of events — mirrors `EventName` in src/types/branded.ts.
+// Kept inline to avoid pulling type-system imports into the CLI command.
+const EVENT_NAMES = [
+  'PreToolUse',
+  'PostToolUse',
+  'UserPromptSubmit',
+  'SessionStart',
+  'SessionEnd',
+  'Stop',
+  'StopFailure',
+  'SubagentStop',
+  'SubagentStart',
+  'InstructionsLoaded',
+  'PostToolUseFailure',
+  'Notification',
+  'PermissionRequest',
+  'PermissionDenied',
+  'ConfigChange',
+  'WorktreeCreate',
+  'WorktreeRemove',
+  'PreCompact',
+  'PostCompact',
+  'TeammateIdle',
+  'TaskCreated',
+  'TaskCompleted',
+] as const
+type ScaffoldEventName = (typeof EVENT_NAMES)[number]
+
+// Default handler body for the chosen event. Models the decision-method
+// idiom (FEAT-0063) so first-time authors see `ctx.<verb>(...)` in the
+// generated file rather than plain-object returns.
+function defaultBody(event: ScaffoldEventName): string {
+  if (event === 'WorktreeCreate') {
+    return "    return ctx.success({ path: '' })"
+  }
+  if (event === 'TeammateIdle' || event === 'TaskCreated' || event === 'TaskCompleted') {
+    return '    return ctx.continue()'
+  }
+  return '    return ctx.skip()'
+}
+
+function hookTemplate(hookName: string, event: ScaffoldEventName = 'PreToolUse'): string {
   return [
     "import type { ClooksHook } from './types'",
     '',
@@ -22,9 +68,17 @@ function hookTemplate(hookName: string): string {
     `    name: '${hookName}',`,
     '    config: {},',
     '  },',
+    '',
+    `  ${event}(ctx) {`,
+    defaultBody(event),
+    '  },',
     '}',
     '',
   ].join('\n')
+}
+
+function isScaffoldEvent(v: string): v is ScaffoldEventName {
+  return (EVENT_NAMES as readonly string[]).includes(v)
 }
 
 export function createNewHookCommand(): Command {
@@ -32,7 +86,8 @@ export function createNewHookCommand(): Command {
     .description('Scaffold a new hook file')
     .option('--name <name>', 'Hook name (kebab-case)')
     .option('--scope <scope>', 'Hook scope: project or user', 'project')
-    .action(async (opts: { name?: string; scope: string }, cmd: Command) => {
+    .option('--event <event>', 'Event name for the default handler (e.g. PreToolUse)', 'PreToolUse')
+    .action(async (opts: { name?: string; scope: string; event: string }, cmd: Command) => {
       const ctx = getCtx(cmd)
 
       try {
@@ -41,8 +96,7 @@ export function createNewHookCommand(): Command {
 
         if (!hookName) {
           if (isNonInteractive(ctx)) {
-            const message =
-              'Hook name is required in non-interactive mode. Use --name <name>.'
+            const message = 'Hook name is required in non-interactive mode. Use --name <name>.'
             printError(ctx, 'new-hook', message)
             process.exit(1)
           }
@@ -51,9 +105,7 @@ export function createNewHookCommand(): Command {
           hookName = await promptText(ctx, {
             message: 'Hook name (kebab-case):',
             validate: (v: string) =>
-              KEBAB_CASE_RE.test(v)
-                ? undefined
-                : 'Must be kebab-case (e.g., my-hook)',
+              KEBAB_CASE_RE.test(v) ? undefined : 'Must be kebab-case (e.g., my-hook)',
           })
         }
 
@@ -84,15 +136,21 @@ export function createNewHookCommand(): Command {
           process.exit(1)
         }
 
+        // --- Validate event ---
+        const event = opts.event
+        if (!isScaffoldEvent(event)) {
+          const message = `Invalid event "${event}". Must be one of the 22 known Claude Code event names.`
+          printError(ctx, 'new-hook', message)
+          process.exit(1)
+        }
+
         // --- Determine target path ---
         const root = scope === 'user' ? os.homedir() : process.cwd()
         const hooksDir = join(root, '.clooks', 'hooks')
         const hookPath = join(hooksDir, `${hookName}.ts`)
 
         const displayPath =
-          scope === 'user'
-            ? `~/.clooks/hooks/${hookName}.ts`
-            : `.clooks/hooks/${hookName}.ts`
+          scope === 'user' ? `~/.clooks/hooks/${hookName}.ts` : `.clooks/hooks/${hookName}.ts`
 
         // --- Refuse to overwrite ---
         if (existsSync(hookPath)) {
@@ -103,16 +161,20 @@ export function createNewHookCommand(): Command {
 
         // --- Write hook file ---
         mkdirSync(hooksDir, { recursive: true })
-        writeFileSync(hookPath, hookTemplate(hookName))
+        writeFileSync(hookPath, hookTemplate(hookName, event))
 
         // --- Warnings (TUI only, non-blocking) ---
         if (!existsSync(join(hooksDir, 'types.d.ts'))) {
-          printWarning(ctx, "types.d.ts not found. Run 'clooks types' to generate type declarations.")
+          printWarning(
+            ctx,
+            "types.d.ts not found. Run 'clooks types' to generate type declarations.",
+          )
         }
 
-        const configPath = scope === 'user'
-          ? join(os.homedir(), '.clooks', 'clooks.yml')
-          : join(process.cwd(), '.clooks', 'clooks.yml')
+        const configPath =
+          scope === 'user'
+            ? join(os.homedir(), '.clooks', 'clooks.yml')
+            : join(process.cwd(), '.clooks', 'clooks.yml')
         if (!existsSync(configPath)) {
           printWarning(ctx, "No clooks.yml found. Run 'clooks init' to set up the project.")
         }
@@ -120,7 +182,7 @@ export function createNewHookCommand(): Command {
         // --- Output ---
         if (ctx.json) {
           process.stdout.write(
-            jsonSuccess('new-hook', { path: displayPath, name: hookName }) + '\n'
+            jsonSuccess('new-hook', { path: displayPath, name: hookName }) + '\n',
           )
           return
         }
@@ -132,7 +194,10 @@ export function createNewHookCommand(): Command {
         }
 
         printSuccess(ctx, `Created ${displayPath}`)
-        printInfo(ctx, 'Next: add event handlers (e.g., PreToolUse, PostToolUse) and register in clooks.yml')
+        printInfo(
+          ctx,
+          'Next: add event handlers (e.g., PreToolUse, PostToolUse) and register in clooks.yml',
+        )
         printOutro(ctx, 'Done.')
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e)

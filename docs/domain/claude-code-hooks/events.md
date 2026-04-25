@@ -99,12 +99,12 @@ Fires only in auto mode when the permission classifier denies a tool call (does 
 **Input:** `tool_name`, `tool_input`, `tool_use_id`, `reason` (classifier's explanation).
 **Output:** `hookSpecificOutput.retry: true` (optional) — tells the model it may retry the denied tool call. The denial itself is not reversible. No `additionalContext` channel.
 
-Clooks exposes this as the `retry` result primitive: `return { result: 'retry' }` emits the hint; `return { result: 'skip' }` lets the denial stand without a hint. Multi-hook reduction is OR-based (any retry wins); all hooks run to completion (no short-circuit) so audit-log hooks fire even when another hook also requests retry. Cascade-block (crashed hook under `onError: block`) surfaces as a `systemMessage` — the denial still stands.
+Clooks exposes this as the `retry` result primitive: `return ctx.retry()` emits the hint; `return ctx.skip()` lets the denial stand without a hint. Multi-hook reduction is OR-based (any retry wins); all hooks run to completion (no short-circuit) so audit-log hooks fire even when another hook also requests retry. Cascade-block (crashed hook under `onError: block`) surfaces as a `systemMessage` — the denial still stands.
 
 ### PostToolUse
 
 **Input:** `tool_name`, `tool_input`, `tool_response` (schema varies by tool, not officially documented), `tool_use_id`.
-**Output:** `decision: "block"` + `reason` (post-hoc feedback to Claude — the action has already run, cannot be undone). Also: `additionalContext` (injected for Claude), `updatedMCPToolOutput` (MCP tools only — replaces output). Hook authors may return `{result: "block", reason: "..."}` to surface a block decision; `onError: block` cascade also produces the same shape.
+**Output:** Post-hoc feedback to Claude via `ctx.block({ reason, injectContext?, updatedMCPToolOutput? })` — the action has already run, cannot be undone. `ctx.skip({ injectContext?, updatedMCPToolOutput? })` adds context without a block. `updatedMCPToolOutput` is MCP-only; built-in tools silently ignore it. The wire shape upstream is `decision: "block"` + `reason` plus `additionalContext`. `onError: block` cascade produces the same wire shape.
 
 ### PostToolUseFailure
 
@@ -151,22 +151,22 @@ The failure still counts toward `maxFailures` so a chronically broken hook gets 
 ### TeammateIdle
 
 **Input:** `teammate_name`, `team_name`.
-**Output:** Exit 2 → teammate continues with stderr as feedback. JSON `{"continue": false, "stopReason": "..."}` → stops teammate entirely. Under `onError: "block"`, a hook crash now emits exit-2 + stderr (retry signal — same as a hook returning `continue`), aligned with upstream's documented re-run path. The stop-teammate path is only reachable via an explicit `{result: "stop"}` return.
+**Output:** Exit 2 → teammate continues with stderr as feedback. JSON `{"continue": false, "stopReason": "..."}` → stops teammate entirely. Under `onError: "block"`, a hook crash now emits exit-2 + stderr (retry signal — same as a hook returning `continue`), aligned with upstream's documented re-run path. The stop-teammate path is only reachable via an explicit `ctx.stop({ reason })` return.
 
 ### TaskCreated
 
 **Input:** `task_id`, `task_subject`, optional `task_description`, optional `teammate_name`, optional `team_name`.
-**Output:** Exit 2 → task not created, stderr fed back to model. JSON `{"continue": false, "stopReason": "..."}` → stops teammate. Under `onError: "block"`, a hook crash now emits exit-2 + stderr (retry signal — same as a hook returning `continue`), aligned with upstream's documented re-run path. The stop-teammate path is only reachable via an explicit `{result: "stop"}` return.
+**Output:** Exit 2 → task not created, stderr fed back to model. JSON `{"continue": false, "stopReason": "..."}` → stops teammate. Under `onError: "block"`, a hook crash now emits exit-2 + stderr (retry signal — same as a hook returning `continue`), aligned with upstream's documented re-run path. The stop-teammate path is only reachable via an explicit `ctx.stop({ reason })` return.
 
 ### TaskCompleted
 
 **Input:** `task_id`, `task_subject`, optional `task_description`, optional `teammate_name`, optional `team_name`.
-**Output:** Exit 2 → task not completed, stderr fed back to model. JSON `{"continue": false, "stopReason": "..."}` → stops teammate. Under `onError: "block"`, a hook crash now emits exit-2 + stderr (retry signal — same as a hook returning `continue`), aligned with upstream's documented re-run path. The stop-teammate path is only reachable via an explicit `{result: "stop"}` return.
+**Output:** Exit 2 → task not completed, stderr fed back to model. JSON `{"continue": false, "stopReason": "..."}` → stops teammate. Under `onError: "block"`, a hook crash now emits exit-2 + stderr (retry signal — same as a hook returning `continue`), aligned with upstream's documented re-run path. The stop-teammate path is only reachable via an explicit `ctx.stop({ reason })` return.
 
 ### ConfigChange
 
 **Input:** `source`, optional `file_path`.
-**Output:** `decision: "block"` + `reason`. **`policy_settings` cannot be blocked** — hooks fire for audit but blocking is ignored upstream. Clooks downgrades a `{result: "block"}` on `policy_settings` to `skip` and emits a `systemMessage` warning so authors aren't confused. Other sources (`user_settings`, `project_settings`, `local_settings`, `skills`) honor block normally.
+**Output:** `ctx.block({ reason })` (wire shape: `decision: "block"` + `reason`). **`policy_settings` cannot be blocked** — hooks fire for audit but blocking is ignored upstream. Clooks downgrades a `ctx.block()` on `policy_settings` to a `skip` wire result and emits a `systemMessage` warning so authors aren't confused. Other sources (`user_settings`, `project_settings`, `local_settings`, `skills`) honor block normally.
 
 ### WorktreeCreate
 

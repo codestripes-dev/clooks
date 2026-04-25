@@ -1,4 +1,4 @@
-// Clooks v0.1.0 — generated type declarations
+// Clooks v0.1.2 — generated type declarations
 // Do not edit. Regenerate with: clooks types
 type EventName =
   | 'PreToolUse'
@@ -108,6 +108,21 @@ export type PermissionUpdateEntry =
       directories: string[]
       destination: PermissionDestination
     }
+/**
+ * Error type for StopFailure. The seven documented upstream literals are
+ * enumerated; `(string & {})` keeps the union forward-compatible with
+ * any new error categories Claude Code introduces without requiring a
+ * Clooks release.
+ */
+export type StopFailureErrorType =
+  | 'rate_limit'
+  | 'authentication_failed'
+  | 'billing_error'
+  | 'invalid_request'
+  | 'server_error'
+  | 'max_output_tokens'
+  | 'unknown'
+  | (string & {})
 /** Optional debug info, only visible in debug mode. */
 export interface DebugFields {
   debugMessage?: string
@@ -178,7 +193,28 @@ export type DeferResult = DebugFields & {
 export type PreToolUseResult =
   | (AllowResult &
       InjectableContext & {
-        /** Modified tool input to pass to subsequent hooks and/or Claude Code. */
+        /**
+         * Partial patch applied to the running tool input. The engine merges
+         * this object onto the current `toolInput` via shallow spread, then
+         * strips keys whose value is the literal `null`.
+         *
+         * - `null` = explicit unset; the key is removed post-merge.
+         * - `undefined` / absent = no change on that key.
+         *
+         * With multiple sequential hooks, each hook's patch composes onto the
+         * merge-so-far: hook B's `ctx.toolInput` reflects the running state
+         * after every prior patch. Upstream Claude Code still receives a full
+         * replacement object on the wire — the engine merges the patches
+         * internally before translation.
+         *
+         * ```ts
+         * // ✗ Wrong — undefined is treated as "no patch," the field is left unchanged.
+         * return ctx.allow({ updatedInput: { timeout: undefined } })
+         *
+         * // ✓ Right — null explicitly unsets.
+         * return ctx.allow({ updatedInput: { timeout: null } })
+         * ```
+         */
         updatedInput?: Record<string, unknown>
         /**
          * Optional. When present, surfaced as
@@ -189,6 +225,28 @@ export type PreToolUseResult =
       })
   | (AskResult &
       InjectableContext & {
+        /**
+         * Partial patch applied to the running tool input. The engine merges
+         * this object onto the current `toolInput` via shallow spread, then
+         * strips keys whose value is the literal `null`.
+         *
+         * - `null` = explicit unset; the key is removed post-merge.
+         * - `undefined` / absent = no change on that key.
+         *
+         * With multiple sequential hooks, each hook's patch composes onto the
+         * merge-so-far: hook B's `ctx.toolInput` reflects the running state
+         * after every prior patch. Upstream Claude Code still receives a full
+         * replacement object on the wire — the engine merges the patches
+         * internally before translation.
+         *
+         * ```ts
+         * // ✗ Wrong — undefined is treated as "no patch," the field is left unchanged.
+         * return ctx.allow({ updatedInput: { timeout: undefined } })
+         *
+         * // ✓ Right — null explicitly unsets.
+         * return ctx.allow({ updatedInput: { timeout: null } })
+         * ```
+         */
         updatedInput?: Record<string, unknown>
       })
   | (BlockResult & InjectableContext)
@@ -200,6 +258,28 @@ export type UserPromptSubmitResult = (AllowResult | BlockResult | SkipResult) &
   }
 export type PermissionRequestResult =
   | (AllowResult & {
+      /**
+       * Partial patch applied to the running tool input. The engine merges
+       * this object onto the current `toolInput` via shallow spread, then
+       * strips keys whose value is the literal `null`.
+       *
+       * - `null` = explicit unset; the key is removed post-merge.
+       * - `undefined` / absent = no change on that key.
+       *
+       * With multiple sequential hooks, each hook's patch composes onto the
+       * merge-so-far: hook B's `ctx.toolInput` reflects the running state
+       * after every prior patch. Upstream Claude Code still receives a full
+       * replacement object on the wire — the engine merges the patches
+       * internally before translation.
+       *
+       * ```ts
+       * // ✗ Wrong — undefined is treated as "no patch," the field is left unchanged.
+       * return { result: 'allow', updatedInput: { timeout: undefined } }
+       *
+       * // ✓ Right — null explicitly unsets.
+       * return { result: 'allow', updatedInput: { timeout: null } }
+       * ```
+       */
       updatedInput?: Record<string, unknown>
       updatedPermissions?: PermissionUpdateEntry[]
     })
@@ -211,7 +291,7 @@ export type StopEventResult = AllowResult | BlockResult | SkipResult
 export type SubagentStopResult = AllowResult | BlockResult | SkipResult
 export type ConfigChangeResult = AllowResult | BlockResult | SkipResult
 export type PreCompactResult = AllowResult | BlockResult | SkipResult
-type StopFailureResult = SkipResult
+export type StopFailureResult = SkipResult
 export type SessionStartResult = SkipResult & InjectableContext
 export type SessionEndResult = SkipResult
 export type InstructionsLoadedResult = SkipResult
@@ -234,15 +314,186 @@ export type WorktreeCreateResult = SuccessResult | FailureResult
 export type TeammateIdleResult = ContinueResult | StopResult | SkipResult
 export type TaskCreatedResult = ContinueResult | StopResult | SkipResult
 export type TaskCompletedResult = ContinueResult | StopResult | SkipResult
-type StopFailureErrorType =
-  | 'rate_limit'
-  | 'authentication_failed'
-  | 'billing_error'
-  | 'invalid_request'
-  | 'server_error'
-  | 'max_output_tokens'
-  | 'unknown'
-  | (string & {})
+type OptionalKeys<T> = {
+  [K in keyof T]-?: object extends Pick<T, K> ? K : never
+}[keyof T]
+/**
+ * Patch shape for FEAT-0061 patch-merge.
+ *
+ * Semantics:
+ * - `null` = explicit unset. The engine's `omitBy(..., isNull)` strips the key
+ *   from the merged tool input before translation, so the upstream tool sees the
+ *   key as absent.
+ * - `null` is forbidden on required keys of `T` — required keys accept `T[K]`
+ *   only, not `T[K] | null`. Stripping a required key would send the upstream
+ *   tool a call missing that field (e.g. `Bash` without `command`), failing at
+ *   the tool layer with no clooks-side guard. This is enforced at compile time
+ *   by `OptionalKeys<T>` — assigning `null` to a required key (e.g.
+ *   `{ command: null }` on `Patch<BashToolInput>`) is a TypeScript error.
+ * - `undefined` / absent = no engine change. After spread, `{ key: undefined }`
+ *   is **present on the merged object** with value `undefined` — the engine does
+ *   NOT strip it. Wire-level absence happens because `JSON.stringify` drops
+ *   `undefined`-valued keys during serialization, not because of any engine
+ *   logic. Authors debugging "where did my undefined go?" should look at the
+ *   serializer, not at the merge step.
+ *
+ * See `docs/domain/hook-type-system.md` for the broader hook type-system context
+ * and FEAT-0061 for the originating engine semantics.
+ */
+export type Patch<T> = {
+  [K in keyof T]?: K extends OptionalKeys<T> ? T[K] | null : T[K]
+}
+type UserPromptSubmitDecisionMethods = {
+  allow(opts?: {
+    /**
+     * Equivalent to running `/rename`. Available on every result arm per
+     * upstream's hookSpecificOutput shape; whether upstream honors it on a
+     * `block` arm is unverified — the result type matches the upstream output
+     * schema.
+     */
+    sessionTitle?: string
+    injectContext?: string
+    debugMessage?: string
+  }): UserPromptSubmitResult
+  block(opts: {
+    reason: string
+    sessionTitle?: string
+    injectContext?: string
+    debugMessage?: string
+  }): UserPromptSubmitResult
+  skip(opts?: {
+    sessionTitle?: string
+    injectContext?: string
+    debugMessage?: string
+  }): UserPromptSubmitResult
+}
+type StopDecisionMethods = {
+  allow(opts?: { debugMessage?: string }): StopEventResult
+  /**
+   * Use this to *prevent* the stop. The verb `stop` belongs to continuation
+   * events (`TeammateIdle`, `TaskCreated`, `TaskCompleted`); it does NOT exist
+   * on `StopContext` because `Stop` is the *event* whose default behavior is
+   * to stop. `reason` is required and tells Claude *why to continue* — it's
+   * effectively the next-turn instruction.
+   */
+  block(opts: { reason: string; debugMessage?: string }): StopEventResult
+  skip(opts?: { debugMessage?: string }): StopEventResult
+}
+type SubagentStopDecisionMethods = {
+  allow(opts?: { debugMessage?: string }): SubagentStopResult
+  /**
+   * Use this to *prevent* the subagent's stop. The verb `stop` belongs to
+   * continuation events (`TeammateIdle`, `TaskCreated`, `TaskCompleted`); it
+   * does NOT exist on `SubagentStopContext` because `SubagentStop` is the
+   * *event* whose default behavior is for the subagent to stop. `reason` is
+   * required and is surfaced back to the subagent as next-step instruction.
+   */
+  block(opts: { reason: string; debugMessage?: string }): SubagentStopResult
+  skip(opts?: { debugMessage?: string }): SubagentStopResult
+}
+type ConfigChangeDecisionMethods = {
+  allow(opts?: { debugMessage?: string }): ConfigChangeResult
+  block(opts: { reason: string; debugMessage?: string }): ConfigChangeResult
+  skip(opts?: { debugMessage?: string }): ConfigChangeResult
+}
+type PreCompactDecisionMethods = {
+  allow(opts?: { debugMessage?: string }): PreCompactResult
+  block(opts: { reason: string; debugMessage?: string }): PreCompactResult
+  skip(opts?: { debugMessage?: string }): PreCompactResult
+}
+type PostToolUseDecisionMethods = {
+  block(opts: {
+    reason: string
+    injectContext?: string
+    /**
+     * MCP tools only. Built-in tools (Bash, Edit, Write, …) silently ignore
+     * this field. `toolName` is `string` here so this caveat is not enforced
+     * at the type level.
+     */
+    updatedMCPToolOutput?: unknown
+    debugMessage?: string
+  }): PostToolUseResult
+  skip(opts?: {
+    injectContext?: string
+    /**
+     * MCP tools only. Built-in tools (Bash, Edit, Write, …) silently ignore
+     * this field. `toolName` is `string` here so this caveat is not enforced
+     * at the type level.
+     */
+    updatedMCPToolOutput?: unknown
+    debugMessage?: string
+  }): PostToolUseResult
+}
+type PermissionDeniedDecisionMethods = {
+  retry(opts?: { debugMessage?: string }): PermissionDeniedResult
+  skip(opts?: { debugMessage?: string }): PermissionDeniedResult
+}
+type SessionStartDecisionMethods = {
+  skip(opts?: { injectContext?: string; debugMessage?: string }): SessionStartResult
+}
+type SessionEndDecisionMethods = {
+  skip(opts?: { debugMessage?: string }): SessionEndResult
+}
+type InstructionsLoadedDecisionMethods = {
+  skip(opts?: { debugMessage?: string }): InstructionsLoadedResult
+}
+type PostToolUseFailureDecisionMethods = {
+  skip(opts?: { injectContext?: string; debugMessage?: string }): PostToolUseFailureResult
+}
+type NotificationDecisionMethods = {
+  skip(opts?: { injectContext?: string; debugMessage?: string }): NotificationResult
+}
+type SubagentStartDecisionMethods = {
+  skip(opts?: { injectContext?: string; debugMessage?: string }): SubagentStartResult
+}
+type WorktreeRemoveDecisionMethods = {
+  skip(opts?: { debugMessage?: string }): WorktreeRemoveResult
+}
+type PostCompactDecisionMethods = {
+  skip(opts?: { debugMessage?: string }): PostCompactResult
+}
+/**
+ * Decision methods for `StopFailureContext`.
+ */
+export type StopFailureDecisionMethods = {
+  /**
+   * Output is dropped upstream by Claude Code. This method exists for API
+   * uniformity. Side-effects (logging, alerts) inside the handler still run;
+   * the method only constructs the engine-side telemetry result.
+   */
+  skip(opts?: { debugMessage?: string }): StopFailureResult
+}
+type WorktreeCreateDecisionMethods = {
+  success(opts: { path: string; debugMessage?: string }): WorktreeCreateResult
+  failure(opts: { reason: string; debugMessage?: string }): WorktreeCreateResult
+}
+type TeammateIdleDecisionMethods = {
+  /**
+   * Keep working past idle. The teammate's loop continues; `feedback` is sent
+   * back as a stderr-equivalent retry signal.
+   */
+  continue(opts: { feedback: string; debugMessage?: string }): TeammateIdleResult
+  stop(opts: { reason: string; debugMessage?: string }): TeammateIdleResult
+  skip(opts?: { debugMessage?: string }): TeammateIdleResult
+}
+type TaskCreatedDecisionMethods = {
+  /**
+   * Don't create the task; feed feedback to the model. The task creation is
+   * blocked; `feedback` is sent back to the model as stderr-equivalent.
+   */
+  continue(opts: { feedback: string; debugMessage?: string }): TaskCreatedResult
+  stop(opts: { reason: string; debugMessage?: string }): TaskCreatedResult
+  skip(opts?: { debugMessage?: string }): TaskCreatedResult
+}
+type TaskCompletedDecisionMethods = {
+  /**
+   * Don't mark complete; feed feedback to the model. The completion is
+   * blocked; `feedback` is sent back to the model as stderr-equivalent.
+   */
+  continue(opts: { feedback: string; debugMessage?: string }): TaskCompletedResult
+  stop(opts: { reason: string; debugMessage?: string }): TaskCompletedResult
+  skip(opts?: { debugMessage?: string }): TaskCompletedResult
+}
 export interface BaseContext {
   event: EventName
   sessionId: string
@@ -315,7 +566,37 @@ export interface AskUserQuestionToolInput {
   }>
   answers?: Record<string, string>
 }
-export type PreToolUseContext = BaseContext & {
+type PreToolUseDecisionMethods<Input> = {
+  allow(opts?: {
+    updatedInput?: Patch<Input>
+    reason?: string
+    injectContext?: string
+    debugMessage?: string
+  }): PreToolUseResult
+  ask(opts: {
+    reason: string
+    updatedInput?: Patch<Input>
+    injectContext?: string
+    debugMessage?: string
+  }): PreToolUseResult
+  block(opts: { reason: string; injectContext?: string; debugMessage?: string }): PreToolUseResult
+  /**
+   * Only honored in `claude -p` mode AND only when the turn contains a single
+   * tool call. Otherwise upstream Claude Code logs a warning and ignores this.
+   * Requires Claude Code v2.1.89+.
+   *
+   * Upstream ignores `reason`, `updatedInput`, and `additionalContext` for
+   * `defer` — the opts bag carries only `debugMessage`.
+   */
+  defer(opts?: { debugMessage?: string }): PreToolUseResult
+  skip(opts?: { injectContext?: string; debugMessage?: string }): PreToolUseResult
+}
+type WithPreToolUseMethods<V> = V extends {
+  toolInput: infer Input
+}
+  ? V & PreToolUseDecisionMethods<Input>
+  : never
+type PreToolUseVariant = BaseContext & {
   event: 'PreToolUse'
   toolUseId: string
   /** The original tool input from Claude Code, before any hook modifications. */
@@ -362,6 +643,7 @@ export type PreToolUseContext = BaseContext & {
         toolInput: AskUserQuestionToolInput
       }
   )
+export type PreToolUseContext = WithPreToolUseMethods<PreToolUseVariant>
 /**
  * Context for a PreToolUse event where the tool name is not one of the 10
  * known variants (e.g. MCP tools, ExitPlanMode, future upstream tools).
@@ -377,36 +659,125 @@ export type UnknownPreToolUseContext = BaseContext & {
   originalToolInput: Record<string, unknown>
   toolName: string
   toolInput: Record<string, unknown>
-}
-export interface UserPromptSubmitContext extends BaseContext {
+} & PreToolUseDecisionMethods<Record<string, unknown>>
+export type UserPromptSubmitContext = BaseContext & {
   event: 'UserPromptSubmit'
   prompt: string
+} & UserPromptSubmitDecisionMethods
+type PermissionRequestDecisionMethods<Input> = {
+  allow(opts?: {
+    /**
+     * Per-tool patch type via `Patch<ToolInput>`. Engine merges onto the
+     * running input; `null` = explicit unset. Upstream Claude Code receives a
+     * full replacement object on the wire; merging happens engine-side. See
+     * `docs/domain/hook-type-system.md` and FEAT-0061 for patch-merge
+     * semantics.
+     */
+    updatedInput?: Patch<Input>
+    updatedPermissions?: PermissionUpdateEntry[]
+    debugMessage?: string
+  }): PermissionRequestResult
+  block(opts: {
+    reason: string
+    interrupt?: boolean
+    debugMessage?: string
+  }): PermissionRequestResult
+  skip(opts?: { debugMessage?: string }): PermissionRequestResult
 }
-export interface PermissionRequestContext extends BaseContext {
+type WithPermissionRequestMethods<V> = V extends {
+  toolInput: infer Input
+}
+  ? V & PermissionRequestDecisionMethods<Input>
+  : never
+type PermissionRequestVariant = BaseContext & {
   event: 'PermissionRequest'
+  /**
+   * Permission update suggestions surfaced by Claude Code. Stays at the outer
+   * context level (not per-variant) — Claude Code attaches it to every
+   * permission request regardless of tool. See PLAN-FEAT-0063 Decision Log
+   * "permissionSuggestions stays at the outer PermissionRequestContext level."
+   */
+  permissionSuggestions?: PermissionUpdateEntry[]
+} & (
+    | {
+        toolName: 'Bash'
+        toolInput: BashToolInput
+      }
+    | {
+        toolName: 'Write'
+        toolInput: WriteToolInput
+      }
+    | {
+        toolName: 'Edit'
+        toolInput: EditToolInput
+      }
+    | {
+        toolName: 'Read'
+        toolInput: ReadToolInput
+      }
+    | {
+        toolName: 'Glob'
+        toolInput: GlobToolInput
+      }
+    | {
+        toolName: 'Grep'
+        toolInput: GrepToolInput
+      }
+    | {
+        toolName: 'WebFetch'
+        toolInput: WebFetchToolInput
+      }
+    | {
+        toolName: 'WebSearch'
+        toolInput: WebSearchToolInput
+      }
+    | {
+        toolName: 'Agent'
+        toolInput: AgentToolInput
+      }
+    | {
+        toolName: 'AskUserQuestion'
+        toolInput: AskUserQuestionToolInput
+      }
+  )
+export type PermissionRequestContext = WithPermissionRequestMethods<PermissionRequestVariant>
+/**
+ * Context for a PermissionRequest event where the tool name is not one of the
+ * 10 known variants (e.g. MCP tools, future upstream tools). Sibling to
+ * `UnknownPreToolUseContext`. Cast from raw ctx when handling unknown tool
+ * names.
+ *
+ * @example
+ * const ctx = rawCtx as unknown as UnknownPermissionRequestContext
+ * if (ctx.toolName.startsWith('mcp__')) {
+ *   return ctx.allow({ updatedInput: { ... } })
+ * }
+ */
+export type UnknownPermissionRequestContext = BaseContext & {
+  event: 'PermissionRequest'
+  permissionSuggestions?: PermissionUpdateEntry[]
   toolName: string
   toolInput: Record<string, unknown>
-  permissionSuggestions?: PermissionUpdateEntry[]
-}
-export interface StopContext extends BaseContext {
+} & PermissionRequestDecisionMethods<Record<string, unknown>>
+export type StopContext = BaseContext & {
   event: 'Stop'
   stopHookActive: boolean
   lastAssistantMessage: string
-}
-export interface SubagentStopContext extends BaseContext {
+} & StopDecisionMethods
+export type SubagentStopContext = BaseContext & {
   event: 'SubagentStop'
   stopHookActive: boolean
   agentId: string
   agentType: string
   agentTranscriptPath: string
   lastAssistantMessage: string
-}
-export interface ConfigChangeContext extends BaseContext {
+} & SubagentStopDecisionMethods
+export type ConfigChangeContext = BaseContext & {
   event: 'ConfigChange'
   source: ConfigChangeSource
   filePath?: string
-}
-interface StopFailureContext extends BaseContext {
+} & ConfigChangeDecisionMethods
+export type StopFailureContext = BaseContext & {
   event: 'StopFailure'
   error: StopFailureErrorType
   errorDetails?: string
@@ -417,17 +788,17 @@ interface StopFailureContext extends BaseContext {
    * for additional structured detail.
    */
   lastAssistantMessage?: string
-}
-export interface SessionStartContext extends BaseContext {
+} & StopFailureDecisionMethods
+export type SessionStartContext = BaseContext & {
   event: 'SessionStart'
   source: SessionStartSource
   model?: string
-}
-export interface SessionEndContext extends BaseContext {
+} & SessionStartDecisionMethods
+export type SessionEndContext = BaseContext & {
   event: 'SessionEnd'
   reason: SessionEndReason
-}
-export interface InstructionsLoadedContext extends BaseContext {
+} & SessionEndDecisionMethods
+export type InstructionsLoadedContext = BaseContext & {
   event: 'InstructionsLoaded'
   filePath: string
   memoryType: InstructionsMemoryType
@@ -435,16 +806,16 @@ export interface InstructionsLoadedContext extends BaseContext {
   globs?: string[]
   triggerFilePath?: string
   parentFilePath?: string
-}
-export interface PostToolUseContext extends BaseContext {
+} & InstructionsLoadedDecisionMethods
+export type PostToolUseContext = BaseContext & {
   event: 'PostToolUse'
   toolName: string
   toolInput: Record<string, unknown>
   toolResponse: unknown
   toolUseId: string
   originalToolInput?: Record<string, unknown>
-}
-export interface PostToolUseFailureContext extends BaseContext {
+} & PostToolUseDecisionMethods
+export type PostToolUseFailureContext = BaseContext & {
   event: 'PostToolUseFailure'
   toolName: string
   toolInput: Record<string, unknown>
@@ -452,33 +823,33 @@ export interface PostToolUseFailureContext extends BaseContext {
   error: string
   isInterrupt?: boolean
   originalToolInput?: Record<string, unknown>
-}
-export interface NotificationContext extends BaseContext {
+} & PostToolUseFailureDecisionMethods
+export type NotificationContext = BaseContext & {
   event: 'Notification'
   message: string
   title?: string
   notificationType?: NotificationType
-}
-export interface SubagentStartContext extends BaseContext {
+} & NotificationDecisionMethods
+export type SubagentStartContext = BaseContext & {
   event: 'SubagentStart'
   agentId: string
   agentType: string
-}
-export interface WorktreeRemoveContext extends BaseContext {
+} & SubagentStartDecisionMethods
+export type WorktreeRemoveContext = BaseContext & {
   event: 'WorktreeRemove'
   worktreePath: string
-}
-export interface PreCompactContext extends BaseContext {
+} & WorktreeRemoveDecisionMethods
+export type PreCompactContext = BaseContext & {
   event: 'PreCompact'
   trigger: PreCompactTrigger
   customInstructions: string
-}
-export interface PostCompactContext extends BaseContext {
+} & PreCompactDecisionMethods
+export type PostCompactContext = BaseContext & {
   event: 'PostCompact'
   trigger: PreCompactTrigger
   compactSummary: string
-}
-export interface PermissionDeniedContext extends BaseContext {
+} & PostCompactDecisionMethods
+export type PermissionDeniedContext = BaseContext & {
   event: 'PermissionDenied'
   toolName: string
   /** Tool input as provided to Claude Code. Keys are camelCase. */
@@ -486,32 +857,32 @@ export interface PermissionDeniedContext extends BaseContext {
   toolUseId: string
   /** The classifier's explanation for why the tool call was denied. */
   denialReason: string
-}
-export interface WorktreeCreateContext extends BaseContext {
+} & PermissionDeniedDecisionMethods
+export type WorktreeCreateContext = BaseContext & {
   event: 'WorktreeCreate'
   name: string
-}
-export interface TeammateIdleContext extends BaseContext {
+} & WorktreeCreateDecisionMethods
+export type TeammateIdleContext = BaseContext & {
   event: 'TeammateIdle'
   teammateName: string
   teamName: string
-}
-export interface TaskCreatedContext extends BaseContext {
+} & TeammateIdleDecisionMethods
+export type TaskCreatedContext = BaseContext & {
   event: 'TaskCreated'
   taskId: string
   taskSubject: string
   taskDescription?: string
   teammateName?: string
   teamName?: string
-}
-export interface TaskCompletedContext extends BaseContext {
+} & TaskCreatedDecisionMethods
+export type TaskCompletedContext = BaseContext & {
   event: 'TaskCompleted'
   taskId: string
   taskSubject: string
   taskDescription?: string
   teammateName?: string
   teamName?: string
-}
+} & TaskCompletedDecisionMethods
 export interface EventContextMap extends Record<EventName, unknown> {
   PreToolUse: PreToolUseContext
   PostToolUse: PostToolUseContext

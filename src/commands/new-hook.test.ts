@@ -83,6 +83,100 @@ describe('clooks new-hook', () => {
     expect(content).toContain("name: 'my-hook'")
     expect(content).toContain('export const hook: ClooksHook<Config>')
     expect(content).toContain('type Config = {}')
+    // FEAT-0063 M5: scaffold emits the decision-method idiom for the chosen
+    // event. Default event is PreToolUse (guard), so the body is `ctx.skip()`.
+    expect(content).toContain('PreToolUse(ctx)')
+    expect(content).toContain('ctx.skip()')
+  })
+
+  test('scaffold emits ctx.skip() for guard events', async () => {
+    const program = createTestProgram()
+    await program.parseAsync(['new-hook', '--name', 'guard-hook', '--event', 'UserPromptSubmit'], {
+      from: 'user',
+    })
+
+    const content = readFileSync(join(tempDir, '.clooks', 'hooks', 'guard-hook.ts'), 'utf-8')
+    expect(content).toContain('UserPromptSubmit(ctx)')
+    expect(content).toContain('ctx.skip()')
+  })
+
+  test('scaffold emits ctx.continue() for continuation events', async () => {
+    const program = createTestProgram()
+    await program.parseAsync(['new-hook', '--name', 'cont-hook', '--event', 'TeammateIdle'], {
+      from: 'user',
+    })
+
+    const content = readFileSync(join(tempDir, '.clooks', 'hooks', 'cont-hook.ts'), 'utf-8')
+    expect(content).toContain('TeammateIdle(ctx)')
+    expect(content).toContain('ctx.continue()')
+  })
+
+  test('scaffold emits ctx.success() for WorktreeCreate', async () => {
+    const program = createTestProgram()
+    await program.parseAsync(['new-hook', '--name', 'wt-hook', '--event', 'WorktreeCreate'], {
+      from: 'user',
+    })
+
+    const content = readFileSync(join(tempDir, '.clooks', 'hooks', 'wt-hook.ts'), 'utf-8')
+    expect(content).toContain('WorktreeCreate(ctx)')
+    expect(content).toContain('ctx.success(')
+  })
+
+  test('invalid event: error', async () => {
+    const program = createTestProgram()
+    await program
+      .parseAsync(['new-hook', '--name', 'bad-event', '--event', 'NotAnEvent'], {
+        from: 'user',
+      })
+      .catch(() => {})
+
+    expect(exitSpy).toHaveBeenCalledWith(1)
+  })
+
+  test('scaffold emits ctx.skip() for StopFailure', async () => {
+    const program = createTestProgram()
+    await program.parseAsync(
+      ['new-hook', '--name', 'stop-failure-hook', '--event', 'StopFailure'],
+      { from: 'user' },
+    )
+
+    const content = readFileSync(join(tempDir, '.clooks', 'hooks', 'stop-failure-hook.ts'), 'utf-8')
+    expect(content).toContain('StopFailure(ctx)')
+    expect(content).toContain('ctx.skip()')
+    expect(content).not.toContain('ctx.block(')
+    expect(content).not.toContain('ctx.allow(')
+  })
+
+  test('scaffold emits conservative ctx.skip() for PostToolUse', async () => {
+    const program = createTestProgram()
+    await program.parseAsync(['new-hook', '--name', 'post-tool-hook', '--event', 'PostToolUse'], {
+      from: 'user',
+    })
+
+    const content = readFileSync(join(tempDir, '.clooks', 'hooks', 'post-tool-hook.ts'), 'utf-8')
+    expect(content).toContain('PostToolUse(ctx)')
+    expect(content).toContain('ctx.skip()')
+    expect(content).not.toContain('ctx.block(')
+    expect(content).not.toContain('ctx.allow(')
+  })
+
+  test('invalid event: error message includes event name', async () => {
+    const program = createTestProgram()
+    await program
+      .parseAsync(['--json', 'new-hook', '--name', 'bad-event', '--event', 'banana'], {
+        from: 'user',
+      })
+      .catch(() => {})
+
+    expect(exitSpy).toHaveBeenCalledWith(1)
+
+    const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
+    const firstLine = output.trim().split('\n')[0]!
+    const parsed = JSON.parse(firstLine)
+
+    expect(parsed.ok).toBe(false)
+    expect(parsed.error).toContain('Invalid event')
+    expect(parsed.error).toContain('banana')
   })
 
   test('kebab-case validation: valid names succeed', async () => {
