@@ -5,11 +5,11 @@
 // `attachDecisionMethods(eventName, ctx)` mutates `ctx` in place via `Object.assign`,
 // adding the per-event method set so handler code can write `ctx.allow({...})`.
 //
-// M1 intentionally only wires the PreToolUse method set; remaining events ship in
-// M2/M3. For events without a wired set, `attachDecisionMethods` is a no-op
-// (`Object.assign(ctx, {})`), so handlers using plain-object returns continue to
-// work unchanged. The table type still requires every `EventName` key, providing
-// compile-time exhaustiveness.
+// The METHOD_SETS table below is fully wired — every EventName carries at least
+// one method. The `undefined` branch in `attachDecisionMethods` guards against
+// `as EventName` escape-hatch misuse at runtime, not against missing entries.
+// `Record<EventName, …>` enforces compile-time exhaustiveness: a new event added
+// to `EventName` will fail to compile until its method set is added below.
 
 import type { EventName } from '../types/branded.js'
 import type {
@@ -23,77 +23,67 @@ import type {
   ContinueResult,
   StopResult,
   RetryResult,
-} from '../types/results.js'
-import type { Inject } from '../types/method-primitives.js'
-import type { PermissionUpdateEntry } from '../types/permissions.js'
+} from '../types'
+import type {
+  DebugMessage,
+  Inject,
+  Interrupt,
+  SessionTitle,
+  UpdatedMcpToolOutput,
+  UpdatedPermissions,
+} from '../types/method-primitives.js'
 
 // --- Per-result-tag pure constructors ---
 //
 // Each constructor mirrors the corresponding result type from `src/types/results.ts`.
 // The opts bag is spread onto a literal-tagged object. No `ctx` access; no closures.
+//
+// Composition note (PLAN-FEAT-0064B M2): each `*Opts` interface composes from the
+// optional field-bag primitives in `src/types/method-primitives.ts` via `extends`,
+// and inlines required fields (`reason`, `feedback`, `path`). Required-field
+// primitives (`Reason`, `Feedback`, `Path`) are bundled with `DebugMessage` at
+// their source declarations — extending them here alongside an explicit
+// `extends DebugMessage` would silently merge identical inheritance (harmless,
+// but reads as redundant). The runtime is structurally lenient; the per-event
+// TS-side method types narrow what callers can legally pass. See PLAN-FEAT-0064B
+// Decision Log entry "Runtime-parity audit conclusion (Open Question 8 resolution)".
 
-export interface AllowOpts extends Inject {
-  updatedInput?: Record<string, unknown>
+export interface AllowOpts extends DebugMessage, Inject, SessionTitle, UpdatedPermissions {
   reason?: string
-  debugMessage?: string
-  // PermissionRequest extends with updatedPermissions; carried via the same
-  // constructor since the spread is structural and the per-event TS signature
-  // narrows what the caller can legally pass.
-  updatedPermissions?: PermissionUpdateEntry[]
-  // UserPromptSubmit extends with sessionTitle.
-  sessionTitle?: string
+  updatedInput?: Record<string, unknown>
 }
 
-export interface AskOpts extends Inject {
+export interface AskOpts extends DebugMessage, Inject {
   reason: string
   updatedInput?: Record<string, unknown>
-  debugMessage?: string
 }
 
-export interface BlockOpts extends Inject {
+export interface BlockOpts
+  extends DebugMessage, Inject, Interrupt, UpdatedMcpToolOutput, SessionTitle {
   reason: string
-  debugMessage?: string
-  // PermissionRequest.block extends with interrupt.
-  interrupt?: boolean
-  // PostToolUse.block extends with updatedMCPToolOutput.
-  updatedMCPToolOutput?: unknown
-  // UserPromptSubmit.block extends with sessionTitle.
-  sessionTitle?: string
 }
 
-export interface DeferOpts {
-  debugMessage?: string
-}
+export type DeferOpts = DebugMessage
 
-export interface SkipOpts extends Inject {
-  debugMessage?: string
-  // PostToolUse.skip extends with updatedMCPToolOutput.
-  updatedMCPToolOutput?: unknown
-}
+export interface SkipOpts extends DebugMessage, Inject, UpdatedMcpToolOutput {}
 
-export interface SuccessOpts {
+export interface SuccessOpts extends DebugMessage {
   path: string
-  debugMessage?: string
 }
 
-export interface FailureOpts {
+export interface FailureOpts extends DebugMessage {
   reason: string
-  debugMessage?: string
 }
 
-export interface ContinueOpts {
+export interface ContinueOpts extends DebugMessage {
   feedback: string
-  debugMessage?: string
 }
 
-export interface StopOpts {
+export interface StopOpts extends DebugMessage {
   reason: string
-  debugMessage?: string
 }
 
-export interface RetryOpts {
-  debugMessage?: string
-}
+export type RetryOpts = DebugMessage
 
 export function allow(opts: AllowOpts = {}): AllowResult & Record<string, unknown> {
   return { result: 'allow', ...opts }
@@ -142,11 +132,10 @@ export function retry(opts: RetryOpts = {}): RetryResult & Record<string, unknow
 
 // --- Per-event method-set table ---
 //
-// `Record<EventName, ...>` enforces compile-time exhaustiveness: if a new event
-// is added to `EventName`, this object will fail to compile until the entry is
-// added. M1 only wires PreToolUse with `{ allow, ask, block, defer, skip }`.
-// All other events use `{}` as a sentinel — `attachDecisionMethods` falls back
-// to a no-op `Object.assign(ctx, {})` so plain-object returns keep working.
+// Maps each `EventName` to its subset of decision-method constructors. Hook
+// authors writing `ctx.allow({...})` invoke the entry from this table for
+// their event. `Record<EventName, ...>` enforces compile-time exhaustiveness:
+// adding a new event to `EventName` fails compilation until its entry exists.
 
 const METHOD_SETS: Record<EventName, Record<string, unknown>> = {
   // Guard events

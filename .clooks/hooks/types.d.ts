@@ -124,47 +124,102 @@ export type StopFailureErrorType =
   | 'unknown'
   | (string & {})
 /** Optional debug info, only visible in debug mode. */
-export interface DebugFields {
+export type DebugMessage = {
   debugMessage?: string
 }
 /**
- * Text injected into the agent's conversation.
- * Maps to Claude Code's `additionalContext` output field.
- * Only available on events whose Claude Code contract supports it.
+ * Text injected into the agent's conversation. Maps to Claude Code's
+ * `additionalContext` output field. Only available on events whose Claude
+ * Code contract supports it.
  */
-export interface InjectableContext {
+export type Inject = {
   injectContext?: string
 }
-export type AllowResult = DebugFields & {
+/** Required. Shown to the agent (guard events) or user (continuation events). */
+export type Reason = {
+  reason: string
+} & DebugMessage
+/** Required. Tells the teammate what to do next. */
+export type Feedback = {
+  feedback: string
+} & DebugMessage
+/** Required. Absolute path to the resource (e.g. created worktree). */
+export type Path = {
+  path: string
+} & DebugMessage
+/**
+ * Set the session title — equivalent to running `/rename`. Available on every
+ * result arm per upstream's hookSpecificOutput shape; whether upstream honors
+ * it on a `block` arm is unverified — the result type matches the upstream
+ * output schema.
+ */
+export type SessionTitle = {
+  sessionTitle?: string
+}
+export type UpdatedPermissions = {
+  updatedPermissions?: PermissionUpdateEntry[]
+}
+/** MCP tools only. Built-in tools (Bash, Edit, Write, …) silently ignore this field. */
+export type UpdatedMcpToolOutput = {
+  updatedMCPToolOutput?: unknown
+}
+export type Interrupt = {
+  interrupt?: boolean
+}
+type Allow<O, R> = {
+  allow: (opts?: O) => R
+}
+type Block<O, R> = {
+  block: (opts: O) => R
+}
+type Skip<O, R> = {
+  skip: (opts?: O) => R
+}
+type Ask<O, R> = {
+  ask: (opts: O) => R
+}
+type Stop<O, R> = {
+  stop: (opts: O) => R
+}
+type Retry<O, R> = {
+  retry: (opts?: O) => R
+}
+type Success<O, R> = {
+  success: (opts: O) => R
+}
+type Failure<O, R> = {
+  failure: (opts: O) => R
+}
+export type AllowResult = DebugMessage & {
   result: 'allow'
 }
-export type BlockResult = DebugFields & {
+export type BlockResult = DebugMessage & {
   result: 'block'
   /** Required. Shown to the agent (guard events) or user (continuation events). */
   reason: string
 }
-export type SkipResult = DebugFields & {
+export type SkipResult = DebugMessage & {
   result: 'skip'
 }
-export type SuccessResult = DebugFields & {
+export type SuccessResult = DebugMessage & {
   result: 'success'
   /** Absolute path to the created worktree. */
   path: string
 }
-export type FailureResult = DebugFields & {
+export type FailureResult = DebugMessage & {
   result: 'failure'
   reason: string
 }
-export type ContinueResult = DebugFields & {
+export type ContinueResult = DebugMessage & {
   result: 'continue'
   /** Required. Tells the teammate what to do next. */
   feedback: string
 }
-export type StopResult = DebugFields & {
+export type StopResult = DebugMessage & {
   result: 'stop'
   reason: string
 }
-export type RetryResult = DebugFields & {
+export type RetryResult = DebugMessage & {
   result: 'retry'
 }
 /**
@@ -173,7 +228,7 @@ export type RetryResult = DebugFields & {
  * The source label ([Project]/[User]/[Plugin]/[Local]) is added by
  * Claude Code — reason should disambiguate which hook asked.
  */
-export type AskResult = DebugFields & {
+export type AskResult = DebugMessage & {
   result: 'ask'
   /** Required. Shown to the user in the confirmation prompt. */
   reason: string
@@ -187,12 +242,12 @@ export type AskResult = DebugFields & {
  * Upstream ignores reason / updatedInput / additionalContext for
  * defer. This type forbids all three at compile time.
  */
-export type DeferResult = DebugFields & {
+export type DeferResult = DebugMessage & {
   result: 'defer'
 }
 export type PreToolUseResult =
   | (AllowResult &
-      InjectableContext & {
+      Inject & {
         /**
          * Partial patch applied to the running tool input. The engine merges
          * this object onto the current `toolInput` via shallow spread, then
@@ -224,7 +279,7 @@ export type PreToolUseResult =
         reason?: string
       })
   | (AskResult &
-      InjectableContext & {
+      Inject & {
         /**
          * Partial patch applied to the running tool input. The engine merges
          * this object onto the current `toolInput` via shallow spread, then
@@ -249,11 +304,11 @@ export type PreToolUseResult =
          */
         updatedInput?: Record<string, unknown>
       })
-  | (BlockResult & InjectableContext)
+  | (BlockResult & Inject)
   | DeferResult
-  | (SkipResult & InjectableContext)
+  | (SkipResult & Inject)
 export type UserPromptSubmitResult = (AllowResult | BlockResult | SkipResult) &
-  InjectableContext & {
+  Inject & {
     sessionTitle?: string
   }
 export type PermissionRequestResult =
@@ -292,21 +347,21 @@ export type SubagentStopResult = AllowResult | BlockResult | SkipResult
 export type ConfigChangeResult = AllowResult | BlockResult | SkipResult
 export type PreCompactResult = AllowResult | BlockResult | SkipResult
 export type StopFailureResult = SkipResult
-export type SessionStartResult = SkipResult & InjectableContext
+export type SessionStartResult = SkipResult & Inject
 export type SessionEndResult = SkipResult
 export type InstructionsLoadedResult = SkipResult
 export type PostToolUseResult =
   | (SkipResult &
-      InjectableContext & {
+      Inject & {
         updatedMCPToolOutput?: unknown
       })
   | (BlockResult &
-      InjectableContext & {
+      Inject & {
         updatedMCPToolOutput?: unknown
       })
-export type PostToolUseFailureResult = SkipResult & InjectableContext
-export type NotificationResult = SkipResult & InjectableContext
-export type SubagentStartResult = SkipResult & InjectableContext
+export type PostToolUseFailureResult = SkipResult & Inject
+export type NotificationResult = SkipResult & Inject
+export type SubagentStartResult = SkipResult & Inject
 export type WorktreeRemoveResult = SkipResult
 export type PostCompactResult = SkipResult
 export type PermissionDeniedResult = RetryResult | SkipResult
@@ -343,32 +398,13 @@ type OptionalKeys<T> = {
 export type Patch<T> = {
   [K in keyof T]?: K extends OptionalKeys<T> ? T[K] | null : T[K]
 }
-type UserPromptSubmitDecisionMethods = {
-  allow(opts?: {
-    /**
-     * Equivalent to running `/rename`. Available on every result arm per
-     * upstream's hookSpecificOutput shape; whether upstream honors it on a
-     * `block` arm is unverified — the result type matches the upstream output
-     * schema.
-     */
-    sessionTitle?: string
-    injectContext?: string
-    debugMessage?: string
-  }): UserPromptSubmitResult
-  block(opts: {
-    reason: string
-    sessionTitle?: string
-    injectContext?: string
-    debugMessage?: string
-  }): UserPromptSubmitResult
-  skip(opts?: {
-    sessionTitle?: string
-    injectContext?: string
-    debugMessage?: string
-  }): UserPromptSubmitResult
-}
-type StopDecisionMethods = {
-  allow(opts?: { debugMessage?: string }): StopEventResult
+type UserPromptSubmitDecisionMethods = Allow<
+  DebugMessage & Inject & SessionTitle,
+  UserPromptSubmitResult
+> &
+  Block<Reason & Inject & SessionTitle, UserPromptSubmitResult> &
+  Skip<DebugMessage & Inject & SessionTitle, UserPromptSubmitResult>
+type StopDecisionMethods = Allow<DebugMessage, StopEventResult> & {
   /**
    * Use this to *prevent* the stop. The verb `stop` belongs to continuation
    * events (`TeammateIdle`, `TaskCreated`, `TaskCompleted`); it does NOT exist
@@ -376,11 +412,9 @@ type StopDecisionMethods = {
    * to stop. `reason` is required and tells Claude *why to continue* — it's
    * effectively the next-turn instruction.
    */
-  block(opts: { reason: string; debugMessage?: string }): StopEventResult
-  skip(opts?: { debugMessage?: string }): StopEventResult
-}
-type SubagentStopDecisionMethods = {
-  allow(opts?: { debugMessage?: string }): SubagentStopResult
+  block(opts: Reason): StopEventResult
+} & Skip<DebugMessage, StopEventResult>
+type SubagentStopDecisionMethods = Allow<DebugMessage, SubagentStopResult> & {
   /**
    * Use this to *prevent* the subagent's stop. The verb `stop` belongs to
    * continuation events (`TeammateIdle`, `TaskCreated`, `TaskCompleted`); it
@@ -388,70 +422,26 @@ type SubagentStopDecisionMethods = {
    * *event* whose default behavior is for the subagent to stop. `reason` is
    * required and is surfaced back to the subagent as next-step instruction.
    */
-  block(opts: { reason: string; debugMessage?: string }): SubagentStopResult
-  skip(opts?: { debugMessage?: string }): SubagentStopResult
-}
-type ConfigChangeDecisionMethods = {
-  allow(opts?: { debugMessage?: string }): ConfigChangeResult
-  block(opts: { reason: string; debugMessage?: string }): ConfigChangeResult
-  skip(opts?: { debugMessage?: string }): ConfigChangeResult
-}
-type PreCompactDecisionMethods = {
-  allow(opts?: { debugMessage?: string }): PreCompactResult
-  block(opts: { reason: string; debugMessage?: string }): PreCompactResult
-  skip(opts?: { debugMessage?: string }): PreCompactResult
-}
-type PostToolUseDecisionMethods = {
-  block(opts: {
-    reason: string
-    injectContext?: string
-    /**
-     * MCP tools only. Built-in tools (Bash, Edit, Write, …) silently ignore
-     * this field. `toolName` is `string` here so this caveat is not enforced
-     * at the type level.
-     */
-    updatedMCPToolOutput?: unknown
-    debugMessage?: string
-  }): PostToolUseResult
-  skip(opts?: {
-    injectContext?: string
-    /**
-     * MCP tools only. Built-in tools (Bash, Edit, Write, …) silently ignore
-     * this field. `toolName` is `string` here so this caveat is not enforced
-     * at the type level.
-     */
-    updatedMCPToolOutput?: unknown
-    debugMessage?: string
-  }): PostToolUseResult
-}
-type PermissionDeniedDecisionMethods = {
-  retry(opts?: { debugMessage?: string }): PermissionDeniedResult
-  skip(opts?: { debugMessage?: string }): PermissionDeniedResult
-}
-type SessionStartDecisionMethods = {
-  skip(opts?: { injectContext?: string; debugMessage?: string }): SessionStartResult
-}
-type SessionEndDecisionMethods = {
-  skip(opts?: { debugMessage?: string }): SessionEndResult
-}
-type InstructionsLoadedDecisionMethods = {
-  skip(opts?: { debugMessage?: string }): InstructionsLoadedResult
-}
-type PostToolUseFailureDecisionMethods = {
-  skip(opts?: { injectContext?: string; debugMessage?: string }): PostToolUseFailureResult
-}
-type NotificationDecisionMethods = {
-  skip(opts?: { injectContext?: string; debugMessage?: string }): NotificationResult
-}
-type SubagentStartDecisionMethods = {
-  skip(opts?: { injectContext?: string; debugMessage?: string }): SubagentStartResult
-}
-type WorktreeRemoveDecisionMethods = {
-  skip(opts?: { debugMessage?: string }): WorktreeRemoveResult
-}
-type PostCompactDecisionMethods = {
-  skip(opts?: { debugMessage?: string }): PostCompactResult
-}
+  block(opts: Reason): SubagentStopResult
+} & Skip<DebugMessage, SubagentStopResult>
+type ConfigChangeDecisionMethods = Allow<DebugMessage, ConfigChangeResult> &
+  Block<Reason, ConfigChangeResult> &
+  Skip<DebugMessage, ConfigChangeResult>
+type PreCompactDecisionMethods = Allow<DebugMessage, PreCompactResult> &
+  Block<Reason, PreCompactResult> &
+  Skip<DebugMessage, PreCompactResult>
+type PostToolUseDecisionMethods = Block<Reason & Inject & UpdatedMcpToolOutput, PostToolUseResult> &
+  Skip<DebugMessage & Inject & UpdatedMcpToolOutput, PostToolUseResult>
+type PermissionDeniedDecisionMethods = Retry<DebugMessage, PermissionDeniedResult> &
+  Skip<DebugMessage, PermissionDeniedResult>
+type SessionStartDecisionMethods = Skip<DebugMessage & Inject, SessionStartResult>
+type SessionEndDecisionMethods = Skip<DebugMessage, SessionEndResult>
+type InstructionsLoadedDecisionMethods = Skip<DebugMessage, InstructionsLoadedResult>
+type PostToolUseFailureDecisionMethods = Skip<DebugMessage & Inject, PostToolUseFailureResult>
+type NotificationDecisionMethods = Skip<DebugMessage & Inject, NotificationResult>
+type SubagentStartDecisionMethods = Skip<DebugMessage & Inject, SubagentStartResult>
+type WorktreeRemoveDecisionMethods = Skip<DebugMessage, WorktreeRemoveResult>
+type PostCompactDecisionMethods = Skip<DebugMessage, PostCompactResult>
 /**
  * Decision methods for `StopFailureContext`.
  */
@@ -461,39 +451,34 @@ export type StopFailureDecisionMethods = {
    * uniformity. Side-effects (logging, alerts) inside the handler still run;
    * the method only constructs the engine-side telemetry result.
    */
-  skip(opts?: { debugMessage?: string }): StopFailureResult
+  skip(opts?: DebugMessage): StopFailureResult
 }
-type WorktreeCreateDecisionMethods = {
-  success(opts: { path: string; debugMessage?: string }): WorktreeCreateResult
-  failure(opts: { reason: string; debugMessage?: string }): WorktreeCreateResult
-}
+type WorktreeCreateDecisionMethods = Success<Path, WorktreeCreateResult> &
+  Failure<Reason, WorktreeCreateResult>
 type TeammateIdleDecisionMethods = {
   /**
    * Keep working past idle. The teammate's loop continues; `feedback` is sent
    * back as a stderr-equivalent retry signal.
    */
-  continue(opts: { feedback: string; debugMessage?: string }): TeammateIdleResult
-  stop(opts: { reason: string; debugMessage?: string }): TeammateIdleResult
-  skip(opts?: { debugMessage?: string }): TeammateIdleResult
-}
+  continue(opts: Feedback): TeammateIdleResult
+} & Stop<Reason, TeammateIdleResult> &
+  Skip<DebugMessage, TeammateIdleResult>
 type TaskCreatedDecisionMethods = {
   /**
    * Don't create the task; feed feedback to the model. The task creation is
    * blocked; `feedback` is sent back to the model as stderr-equivalent.
    */
-  continue(opts: { feedback: string; debugMessage?: string }): TaskCreatedResult
-  stop(opts: { reason: string; debugMessage?: string }): TaskCreatedResult
-  skip(opts?: { debugMessage?: string }): TaskCreatedResult
-}
+  continue(opts: Feedback): TaskCreatedResult
+} & Stop<Reason, TaskCreatedResult> &
+  Skip<DebugMessage, TaskCreatedResult>
 type TaskCompletedDecisionMethods = {
   /**
    * Don't mark complete; feed feedback to the model. The completion is
    * blocked; `feedback` is sent back to the model as stderr-equivalent.
    */
-  continue(opts: { feedback: string; debugMessage?: string }): TaskCompletedResult
-  stop(opts: { reason: string; debugMessage?: string }): TaskCompletedResult
-  skip(opts?: { debugMessage?: string }): TaskCompletedResult
-}
+  continue(opts: Feedback): TaskCompletedResult
+} & Stop<Reason, TaskCompletedResult> &
+  Skip<DebugMessage, TaskCompletedResult>
 export interface BaseContext {
   event: EventName
   sessionId: string
@@ -566,31 +551,33 @@ export interface AskUserQuestionToolInput {
   }>
   answers?: Record<string, string>
 }
-type PreToolUseDecisionMethods<Input> = {
-  allow(opts?: {
+type PreToolUseDecisionMethods<Input> = Allow<
+  {
     updatedInput?: Patch<Input>
     reason?: string
-    injectContext?: string
-    debugMessage?: string
-  }): PreToolUseResult
-  ask(opts: {
-    reason: string
-    updatedInput?: Patch<Input>
-    injectContext?: string
-    debugMessage?: string
-  }): PreToolUseResult
-  block(opts: { reason: string; injectContext?: string; debugMessage?: string }): PreToolUseResult
-  /**
-   * Only honored in `claude -p` mode AND only when the turn contains a single
-   * tool call. Otherwise upstream Claude Code logs a warning and ignores this.
-   * Requires Claude Code v2.1.89+.
-   *
-   * Upstream ignores `reason`, `updatedInput`, and `additionalContext` for
-   * `defer` — the opts bag carries only `debugMessage`.
-   */
-  defer(opts?: { debugMessage?: string }): PreToolUseResult
-  skip(opts?: { injectContext?: string; debugMessage?: string }): PreToolUseResult
-}
+  } & DebugMessage &
+    Inject,
+  PreToolUseResult
+> &
+  Ask<
+    {
+      reason: string
+      updatedInput?: Patch<Input>
+    } & DebugMessage &
+      Inject,
+    PreToolUseResult
+  > &
+  Block<Reason & Inject, PreToolUseResult> & {
+    /**
+     * Only honored in `claude -p` mode AND only when the turn contains a single
+     * tool call. Otherwise upstream Claude Code logs a warning and ignores this.
+     * Requires Claude Code v2.1.89+.
+     *
+     * Upstream ignores `reason`, `updatedInput`, and `additionalContext` for
+     * `defer` — the opts bag carries only `debugMessage`.
+     */
+    defer(opts?: DebugMessage): PreToolUseResult
+  } & Skip<DebugMessage & Inject, PreToolUseResult>
 type WithPreToolUseMethods<V> = V extends {
   toolInput: infer Input
 }
@@ -664,26 +651,15 @@ export type UserPromptSubmitContext = BaseContext & {
   event: 'UserPromptSubmit'
   prompt: string
 } & UserPromptSubmitDecisionMethods
-type PermissionRequestDecisionMethods<Input> = {
-  allow(opts?: {
-    /**
-     * Per-tool patch type via `Patch<ToolInput>`. Engine merges onto the
-     * running input; `null` = explicit unset. Upstream Claude Code receives a
-     * full replacement object on the wire; merging happens engine-side. See
-     * `docs/domain/hook-type-system.md` and FEAT-0061 for patch-merge
-     * semantics.
-     */
+type PermissionRequestDecisionMethods<Input> = Allow<
+  {
     updatedInput?: Patch<Input>
-    updatedPermissions?: PermissionUpdateEntry[]
-    debugMessage?: string
-  }): PermissionRequestResult
-  block(opts: {
-    reason: string
-    interrupt?: boolean
-    debugMessage?: string
-  }): PermissionRequestResult
-  skip(opts?: { debugMessage?: string }): PermissionRequestResult
-}
+  } & UpdatedPermissions &
+    DebugMessage,
+  PermissionRequestResult
+> &
+  Block<Reason & Interrupt, PermissionRequestResult> &
+  Skip<DebugMessage, PermissionRequestResult>
 type WithPermissionRequestMethods<V> = V extends {
   toolInput: infer Input
 }

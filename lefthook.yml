@@ -22,3 +22,5 @@ pre-commit:
       run: bun run test:e2e
     lockfile-up-to-date:
       run: bun install --frozen-lockfile --ignore-scripts
+    bundle-up-to-date:
+      run: bun run generate:types && git diff --exit-code src/generated/

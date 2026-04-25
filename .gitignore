@@ -12,8 +12,9 @@ dist/
 clooks.local.yml
 .clooks/.cache/
 
-# Generated build artifacts
-src/generated/
+# Generated build artifacts: src/generated/clooks-types.d.ts(.txt) is intentionally
+# committed so the lefthook bundle-up-to-date pre-commit step can detect drift
+# between src/types/ and the bundle. See PLAN-FEAT-0064B for rationale.
 
 coverage/
 

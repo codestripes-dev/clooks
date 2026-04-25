@@ -34,8 +34,6 @@ Every context object carries per-event **decision methods** — `ctx.allow(...)`
 
 ## Type-composition primitives
 
-<!-- Type-composition primitives section authored M3 of PLAN-FEAT-0064 by Joe-Degler on 2026-04-25. Plan B should extend, not re-add. -->
-
 The decision-method types are composed from a small primitive vocabulary in `src/types/method-primitives.ts`. Two flavors: **field-bag primitives** (small object types that compose into per-event opts shapes) and **method-shape primitives** (single-property object types intersected to build a method record).
 
 **Field-bag primitives (re-exported from the barrel — authors composing custom event handlers may import them):**
@@ -68,6 +66,12 @@ export type FooEventDecisionMethods =
 Adding a new event becomes a composition exercise rather than a copy-paste exercise. JSDoc reattaches to property declarations on the consumer type (the composed shape is structurally `{ allow: ...; block: ... }`), so per-property JSDoc renders at hover. Where a JSDoc caveat must live on a sub-field of an opts bag (for example, an MCP-only field caveat on `updatedMCPToolOutput`), the JSDoc lives on the field-bag primitive's declaration (`UpdatedMcpToolOutput` in `method-primitives.ts`) — primitive-level JSDoc still surfaces at hover.
 
 **IDE tooltip note.** Some IDE configurations may render the named primitive form (e.g. `Skip<DebugMessage, R>`) at hover instead of the structurally-expanded opts shape; both are equivalent and assignment-compatible. The acceptance gate test in `test/types/feat-0064-tooltip-assignability.types.ts` enforces the structural shape; what an IDE chooses to display on top of that is a presentation detail.
+
+### Runtime-side composition
+
+The runtime side of the decision-method system — the 10 `*Opts` interfaces in `src/engine/context-methods.ts` (`AllowOpts`, `AskOpts`, `BlockOpts`, `DeferOpts`, `SkipOpts`, `SuccessOpts`, `FailureOpts`, `ContinueOpts`, `StopOpts`, `RetryOpts`) — composes from the same field-bag primitives. Each `*Opts` interface `extends` the optional field-bag primitives it carries (e.g. `BlockOpts extends DebugMessage, Inject, Interrupt, UpdatedMcpToolOutput, SessionTitle`) and inlines required fields (`reason`, `feedback`, `path`). The runtime is structurally lenient via spread; the per-event TS-side method types in `decision-methods.ts` and `contexts.ts` narrow what callers can legally pass.
+
+**Inline-vs-extends choice for required fields.** The required-field primitives `Reason`, `Feedback`, and `Path` are kept as inline `reason: string` / `feedback: string` / `path: string` declarations on the runtime opts interfaces rather than `extends Reason` etc. The bundled-with-DebugMessage form (`Reason = { reason: string } & DebugMessage`) plus an explicit `extends DebugMessage` clause silently merges identical inheritance — TypeScript handles this without error, but the inheritance chain reads as redundant. Inline reads cleaner. Source-of-truth `*DecisionMethods` types in `decision-methods.ts` continue to compose from the bundled `Reason` / `Feedback` / `Path` for one-line intersections; the asymmetry is intentional and ergonomic (see PLAN-FEAT-0064B Decision Log entry "Runtime-parity audit conclusion (Open Question 8 resolution)" 2026-04-25).
 
 ## Related
 
