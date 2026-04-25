@@ -66,6 +66,7 @@ export type {
   Interrupt,
   UpdatedInput,
   PermissionSuggestions,
+  Prettify,
   Result,
   ToolVariant,
   ToolVariantWithOriginal,
@@ -110,6 +111,7 @@ export type {
   WebSearchToolInput,
   AgentToolInput,
   AskUserQuestionToolInput,
+  ToolInputMap,
 } from './contexts.js'
 
 export type {

@@ -152,3 +152,11 @@ export type Stop<O, R> = { stop: (opts: O & DebugMessage) => R }
 export type Retry<O, R> = { retry: (opts?: O & DebugMessage) => R }
 export type Success<O, R> = { success: (opts: O & DebugMessage) => R }
 export type Failure<O, R> = { failure: (opts: O & DebugMessage) => R }
+
+/**
+ * Flattens an intersection into a single object shape for IDE hover tooltips.
+ * Structural no-op: `T` and `Prettify<T>` are mutually assignable. The `& {}`
+ * forces TS to eagerly evaluate the mapped type instead of preserving the
+ * intersection in hover output.
+ */
+export type Prettify<T> = { [K in keyof T]: T[K] } & {}

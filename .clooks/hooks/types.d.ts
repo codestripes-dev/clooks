@@ -189,6 +189,15 @@ type Success<O, R> = {
 type Failure<O, R> = {
 	failure: (opts: O & DebugMessage) => R;
 };
+/**
+ * Flattens an intersection into a single object shape for IDE hover tooltips.
+ * Structural no-op: `T` and `Prettify<T>` are mutually assignable. The `& {}`
+ * forces TS to eagerly evaluate the mapped type instead of preserving the
+ * intersection in hover output.
+ */
+export type Prettify<T> = {
+	[K in keyof T]: T[K];
+} & {};
 /** Union of all result discriminant values across all base result types. */
 export type ResultTag = "allow" | "ask" | "block" | "defer" | "skip" | "success" | "failure" | "continue" | "stop" | "retry";
 export type AllowResult = Result<"allow">;
@@ -364,15 +373,36 @@ export interface AskUserQuestionToolInput {
 	}>;
 	answers?: Record<string, string>;
 }
+/**
+ * Single source of truth for the 10 known Claude Code tool names and their
+ * camelCase input shapes. The four tool-keyed DU contexts (PreToolUse,
+ * PermissionRequest, PostToolUse, PostToolUseFailure) derive their variants
+ * by mapping over this interface.
+ *
+ * Adding a new tool: add a key here and the four contexts pick it up
+ * automatically. The corresponding `*Unknown<Event>Context` escape hatches
+ * remain valid for tools NOT in this map (MCP tools, ExitPlanMode, future
+ * upstream additions).
+ */
+export interface ToolInputMap {
+	Bash: BashToolInput;
+	Write: WriteToolInput;
+	Edit: EditToolInput;
+	Read: ReadToolInput;
+	Glob: GlobToolInput;
+	Grep: GrepToolInput;
+	WebFetch: WebFetchToolInput;
+	WebSearch: WebSearchToolInput;
+	Agent: AgentToolInput;
+	AskUserQuestion: AskUserQuestionToolInput;
+}
 type PreToolUseDecisionMethods<Input> = Allow<UpdatedInput<Patch<Input>> & Partial<Reason> & InjectContext, PreToolUseResult> & Ask<Reason & UpdatedInput<Patch<Input>> & InjectContext, PreToolUseResult> & Block<Reason & InjectContext, PreToolUseResult> & Defer<DebugMessage, PreToolUseResult> & Skip<InjectContext, PreToolUseResult>;
-type WithPreToolUseMethods<V> = V extends {
-	toolInput: infer Input;
-} ? V & PreToolUseDecisionMethods<Input> : never;
-type PreToolUseVariant = BaseContext & {
-	event: "PreToolUse";
-	toolUseId: string;
-} & (ToolVariantWithOriginal<"Bash", BashToolInput> | ToolVariantWithOriginal<"Write", WriteToolInput> | ToolVariantWithOriginal<"Edit", EditToolInput> | ToolVariantWithOriginal<"Read", ReadToolInput> | ToolVariantWithOriginal<"Glob", GlobToolInput> | ToolVariantWithOriginal<"Grep", GrepToolInput> | ToolVariantWithOriginal<"WebFetch", WebFetchToolInput> | ToolVariantWithOriginal<"WebSearch", WebSearchToolInput> | ToolVariantWithOriginal<"Agent", AgentToolInput> | ToolVariantWithOriginal<"AskUserQuestion", AskUserQuestionToolInput>);
-export type PreToolUseContext = WithPreToolUseMethods<PreToolUseVariant>;
+export type PreToolUseContext = {
+	[K in keyof ToolInputMap & string]: Prettify<BaseContext & {
+		event: "PreToolUse";
+		toolUseId: string;
+	} & ToolVariantWithOriginal<K, ToolInputMap[K]> & PreToolUseDecisionMethods<ToolInputMap[K]>>;
+}[keyof ToolInputMap & string];
 /**
  * Context for a PreToolUse event where the tool name is not one of the 10
  * known variants (e.g. MCP tools, ExitPlanMode, future upstream tools).
@@ -382,22 +412,20 @@ export type PreToolUseContext = WithPreToolUseMethods<PreToolUseVariant>;
  * const ctx = rawCtx as unknown as UnknownPreToolUseContext
  * if (ctx.toolName.startsWith('mcp__')) { ... }
  */
-export type UnknownPreToolUseContext = BaseContext & {
+export type UnknownPreToolUseContext = Prettify<BaseContext & {
 	event: "PreToolUse";
 	toolUseId: string;
-} & ToolVariantWithOriginal<string, Record<string, unknown>> & PreToolUseDecisionMethods<Record<string, unknown>>;
+} & ToolVariantWithOriginal<string, Record<string, unknown>> & PreToolUseDecisionMethods<Record<string, unknown>>>;
 export type UserPromptSubmitContext = BaseContext & {
 	event: "UserPromptSubmit";
 	prompt: string;
 } & UserPromptSubmitDecisionMethods;
 type PermissionRequestDecisionMethods<Input> = Allow<UpdatedInput<Patch<Input>> & UpdatedPermissions, PermissionRequestResult> & Block<Reason & Interrupt, PermissionRequestResult> & Skip<DebugMessage, PermissionRequestResult>;
-type WithPermissionRequestMethods<V> = V extends {
-	toolInput: infer Input;
-} ? V & PermissionRequestDecisionMethods<Input> : never;
-type PermissionRequestVariant = BaseContext & PermissionSuggestions & {
-	event: "PermissionRequest";
-} & (ToolVariant<"Bash", BashToolInput> | ToolVariant<"Write", WriteToolInput> | ToolVariant<"Edit", EditToolInput> | ToolVariant<"Read", ReadToolInput> | ToolVariant<"Glob", GlobToolInput> | ToolVariant<"Grep", GrepToolInput> | ToolVariant<"WebFetch", WebFetchToolInput> | ToolVariant<"WebSearch", WebSearchToolInput> | ToolVariant<"Agent", AgentToolInput> | ToolVariant<"AskUserQuestion", AskUserQuestionToolInput>);
-export type PermissionRequestContext = WithPermissionRequestMethods<PermissionRequestVariant>;
+export type PermissionRequestContext = {
+	[K in keyof ToolInputMap & string]: Prettify<BaseContext & PermissionSuggestions & {
+		event: "PermissionRequest";
+	} & ToolVariant<K, ToolInputMap[K]> & PermissionRequestDecisionMethods<ToolInputMap[K]>>;
+}[keyof ToolInputMap & string];
 /**
  * Context for a PermissionRequest event where the tool name is not one of the
  * 10 known variants (e.g. MCP tools, future upstream tools). Sibling to
@@ -410,9 +438,9 @@ export type PermissionRequestContext = WithPermissionRequestMethods<PermissionRe
  *   return ctx.allow({ updatedInput: { ... } })
  * }
  */
-export type UnknownPermissionRequestContext = BaseContext & PermissionSuggestions & {
+export type UnknownPermissionRequestContext = Prettify<BaseContext & PermissionSuggestions & {
 	event: "PermissionRequest";
-} & ToolVariant<string, Record<string, unknown>> & PermissionRequestDecisionMethods<Record<string, unknown>>;
+} & ToolVariant<string, Record<string, unknown>> & PermissionRequestDecisionMethods<Record<string, unknown>>>;
 export type StopContext = BaseContext & {
 	event: "Stop";
 	stopHookActive: boolean;
@@ -462,15 +490,13 @@ export type InstructionsLoadedContext = BaseContext & {
 	parentFilePath?: string;
 } & InstructionsLoadedDecisionMethods;
 type PostToolUseDecisionMethods<_Input> = Block<Reason & InjectContext & UpdatedMcpToolOutput, PostToolUseResult> & Skip<InjectContext & UpdatedMcpToolOutput, PostToolUseResult>;
-type PostToolUseVariant = BaseContext & {
-	event: "PostToolUse";
-	toolUseId: string;
-	toolResponse: unknown;
-} & (ToolVariant<"Bash", BashToolInput> | ToolVariant<"Write", WriteToolInput> | ToolVariant<"Edit", EditToolInput> | ToolVariant<"Read", ReadToolInput> | ToolVariant<"Glob", GlobToolInput> | ToolVariant<"Grep", GrepToolInput> | ToolVariant<"WebFetch", WebFetchToolInput> | ToolVariant<"WebSearch", WebSearchToolInput> | ToolVariant<"Agent", AgentToolInput> | ToolVariant<"AskUserQuestion", AskUserQuestionToolInput>);
-type WithPostToolUseMethods<V> = V extends {
-	toolInput: infer Input;
-} ? V & PostToolUseDecisionMethods<Input> : never;
-export type PostToolUseContext = WithPostToolUseMethods<PostToolUseVariant>;
+export type PostToolUseContext = {
+	[K in keyof ToolInputMap & string]: Prettify<BaseContext & {
+		event: "PostToolUse";
+		toolUseId: string;
+		toolResponse: unknown;
+	} & ToolVariant<K, ToolInputMap[K]> & PostToolUseDecisionMethods<ToolInputMap[K]>>;
+}[keyof ToolInputMap & string];
 /**
  * Context for a PostToolUse event where the tool name is not one of the 10
  * known variants (e.g. MCP tools, ExitPlanMode, future upstream tools).
@@ -481,22 +507,20 @@ export type PostToolUseContext = WithPostToolUseMethods<PostToolUseVariant>;
  * const ctx = rawCtx as unknown as UnknownPostToolUseContext
  * if (ctx.toolName.startsWith('mcp__')) { ... }
  */
-export type UnknownPostToolUseContext = BaseContext & {
+export type UnknownPostToolUseContext = Prettify<BaseContext & {
 	event: "PostToolUse";
 	toolUseId: string;
 	toolResponse: unknown;
-} & ToolVariant<string, Record<string, unknown>> & PostToolUseDecisionMethods<Record<string, unknown>>;
+} & ToolVariant<string, Record<string, unknown>> & PostToolUseDecisionMethods<Record<string, unknown>>>;
 type PostToolUseFailureDecisionMethods<_Input> = Skip<InjectContext, PostToolUseFailureResult>;
-type PostToolUseFailureVariant = BaseContext & {
-	event: "PostToolUseFailure";
-	toolUseId: string;
-	error: string;
-	isInterrupt?: boolean;
-} & (ToolVariant<"Bash", BashToolInput> | ToolVariant<"Write", WriteToolInput> | ToolVariant<"Edit", EditToolInput> | ToolVariant<"Read", ReadToolInput> | ToolVariant<"Glob", GlobToolInput> | ToolVariant<"Grep", GrepToolInput> | ToolVariant<"WebFetch", WebFetchToolInput> | ToolVariant<"WebSearch", WebSearchToolInput> | ToolVariant<"Agent", AgentToolInput> | ToolVariant<"AskUserQuestion", AskUserQuestionToolInput>);
-type WithPostToolUseFailureMethods<V> = V extends {
-	toolInput: infer Input;
-} ? V & PostToolUseFailureDecisionMethods<Input> : never;
-export type PostToolUseFailureContext = WithPostToolUseFailureMethods<PostToolUseFailureVariant>;
+export type PostToolUseFailureContext = {
+	[K in keyof ToolInputMap & string]: Prettify<BaseContext & {
+		event: "PostToolUseFailure";
+		toolUseId: string;
+		error: string;
+		isInterrupt?: boolean;
+	} & ToolVariant<K, ToolInputMap[K]> & PostToolUseFailureDecisionMethods<ToolInputMap[K]>>;
+}[keyof ToolInputMap & string];
 /**
  * Context for a PostToolUseFailure event where the tool name is not one of the
  * 10 known variants. Cast from raw ctx when handling unknown tool names.
@@ -505,12 +529,12 @@ export type PostToolUseFailureContext = WithPostToolUseFailureMethods<PostToolUs
  * const ctx = rawCtx as unknown as UnknownPostToolUseFailureContext
  * if (ctx.toolName.startsWith('mcp__')) { ... }
  */
-export type UnknownPostToolUseFailureContext = BaseContext & {
+export type UnknownPostToolUseFailureContext = Prettify<BaseContext & {
 	event: "PostToolUseFailure";
 	toolUseId: string;
 	error: string;
 	isInterrupt?: boolean;
-} & ToolVariant<string, Record<string, unknown>> & PostToolUseFailureDecisionMethods<Record<string, unknown>>;
+} & ToolVariant<string, Record<string, unknown>> & PostToolUseFailureDecisionMethods<Record<string, unknown>>>;
 export type NotificationContext = BaseContext & {
 	event: "Notification";
 	message: string;
