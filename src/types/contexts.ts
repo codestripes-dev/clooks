@@ -13,7 +13,6 @@ import type {
   ConfigChangeSource,
 } from './branded.js'
 import type { StopFailureErrorType } from './claude-code.js'
-import type { PermissionUpdateEntry } from './permissions.js'
 import type { Patch } from './patch.js'
 import type { PreToolUseResult, PermissionRequestResult } from './results.js'
 import type {
@@ -25,7 +24,13 @@ import type {
   Allow,
   Ask,
   Block,
+  Defer,
   Skip,
+  UpdatedInput,
+  OptionalReason,
+  PermissionSuggestions,
+  OriginalToolInput,
+  OriginalToolInputOptional,
 } from './method-primitives.js'
 import type {
   UserPromptSubmitDecisionMethods,
@@ -136,23 +141,21 @@ export interface AskUserQuestionToolInput {
  * `Patch<NarrowedToolInput>` after a `ctx.toolName` discriminant check.
  *
  * The methods are pure value constructors — see `src/engine/context-methods.ts`.
+ *
+ * `defer` is honored only in `claude -p` mode AND only when the turn contains
+ * a single tool call. Otherwise upstream Claude Code logs a warning and
+ * ignores it. Requires Claude Code v2.1.89+. Upstream ignores `reason`,
+ * `updatedInput`, and `additionalContext` for `defer` — the opts bag carries
+ * only `debugMessage`.
  */
 export type PreToolUseDecisionMethods<Input> = Allow<
-  { updatedInput?: Patch<Input>; reason?: string } & DebugMessage & Inject,
+  UpdatedInput<Patch<Input>> & OptionalReason & DebugMessage & Inject,
   PreToolUseResult
 > &
-  Ask<{ reason: string; updatedInput?: Patch<Input> } & DebugMessage & Inject, PreToolUseResult> &
-  Block<Reason & Inject, PreToolUseResult> & {
-    /**
-     * Only honored in `claude -p` mode AND only when the turn contains a single
-     * tool call. Otherwise upstream Claude Code logs a warning and ignores this.
-     * Requires Claude Code v2.1.89+.
-     *
-     * Upstream ignores `reason`, `updatedInput`, and `additionalContext` for
-     * `defer` — the opts bag carries only `debugMessage`.
-     */
-    defer(opts?: DebugMessage): PreToolUseResult
-  } & Skip<DebugMessage & Inject, PreToolUseResult>
+  Ask<Reason & UpdatedInput<Patch<Input>> & Inject, PreToolUseResult> &
+  Block<Reason & Inject, PreToolUseResult> &
+  Defer<DebugMessage, PreToolUseResult> &
+  Skip<DebugMessage & Inject, PreToolUseResult>
 
 /**
  * Distributes `PreToolUseDecisionMethods<V['toolInput']>` over each variant of
@@ -163,12 +166,11 @@ type WithPreToolUseMethods<V> = V extends { toolInput: infer Input }
   ? V & PreToolUseDecisionMethods<Input>
   : never
 
-type PreToolUseVariant = BaseContext & {
-  event: 'PreToolUse'
-  toolUseId: string
-  /** The original tool input from Claude Code, before any hook modifications. */
-  originalToolInput: Record<string, unknown>
-} & (
+type PreToolUseVariant = BaseContext &
+  OriginalToolInput & {
+    event: 'PreToolUse'
+    toolUseId: string
+  } & (
     | { toolName: 'Bash'; toolInput: BashToolInput }
     | { toolName: 'Write'; toolInput: WriteToolInput }
     | { toolName: 'Edit'; toolInput: EditToolInput }
@@ -192,13 +194,13 @@ export type PreToolUseContext = WithPreToolUseMethods<PreToolUseVariant>
  * const ctx = rawCtx as unknown as UnknownPreToolUseContext
  * if (ctx.toolName.startsWith('mcp__')) { ... }
  */
-export type UnknownPreToolUseContext = BaseContext & {
-  event: 'PreToolUse'
-  toolUseId: string
-  originalToolInput: Record<string, unknown>
-  toolName: string
-  toolInput: Record<string, unknown>
-} & PreToolUseDecisionMethods<Record<string, unknown>>
+export type UnknownPreToolUseContext = BaseContext &
+  OriginalToolInput & {
+    event: 'PreToolUse'
+    toolUseId: string
+    toolName: string
+    toolInput: Record<string, unknown>
+  } & PreToolUseDecisionMethods<Record<string, unknown>>
 
 export type UserPromptSubmitContext = BaseContext & {
   event: 'UserPromptSubmit'
@@ -215,7 +217,7 @@ export type UserPromptSubmitContext = BaseContext & {
  * skip) — there is no `ask` / `defer` here.
  */
 export type PermissionRequestDecisionMethods<Input> = Allow<
-  { updatedInput?: Patch<Input> } & UpdatedPermissions & DebugMessage,
+  UpdatedInput<Patch<Input>> & UpdatedPermissions & DebugMessage,
   PermissionRequestResult
 > &
   Block<Reason & Interrupt, PermissionRequestResult> &
@@ -230,16 +232,10 @@ type WithPermissionRequestMethods<V> = V extends { toolInput: infer Input }
   ? V & PermissionRequestDecisionMethods<Input>
   : never
 
-type PermissionRequestVariant = BaseContext & {
-  event: 'PermissionRequest'
-  /**
-   * Permission update suggestions surfaced by Claude Code. Stays at the outer
-   * context level (not per-variant) — Claude Code attaches it to every
-   * permission request regardless of tool. See PLAN-FEAT-0063 Decision Log
-   * "permissionSuggestions stays at the outer PermissionRequestContext level."
-   */
-  permissionSuggestions?: PermissionUpdateEntry[]
-} & (
+type PermissionRequestVariant = BaseContext &
+  PermissionSuggestions & {
+    event: 'PermissionRequest'
+  } & (
     | { toolName: 'Bash'; toolInput: BashToolInput }
     | { toolName: 'Write'; toolInput: WriteToolInput }
     | { toolName: 'Edit'; toolInput: EditToolInput }
@@ -266,12 +262,12 @@ export type PermissionRequestContext = WithPermissionRequestMethods<PermissionRe
  *   return ctx.allow({ updatedInput: { ... } })
  * }
  */
-export type UnknownPermissionRequestContext = BaseContext & {
-  event: 'PermissionRequest'
-  permissionSuggestions?: PermissionUpdateEntry[]
-  toolName: string
-  toolInput: Record<string, unknown>
-} & PermissionRequestDecisionMethods<Record<string, unknown>>
+export type UnknownPermissionRequestContext = BaseContext &
+  PermissionSuggestions & {
+    event: 'PermissionRequest'
+    toolName: string
+    toolInput: Record<string, unknown>
+  } & PermissionRequestDecisionMethods<Record<string, unknown>>
 
 export type StopContext = BaseContext & {
   event: 'Stop'
@@ -332,24 +328,24 @@ export type InstructionsLoadedContext = BaseContext & {
   parentFilePath?: string
 } & InstructionsLoadedDecisionMethods
 
-export type PostToolUseContext = BaseContext & {
-  event: 'PostToolUse'
-  toolName: string
-  toolInput: Record<string, unknown>
-  toolResponse: unknown
-  toolUseId: string
-  originalToolInput?: Record<string, unknown>
-} & PostToolUseDecisionMethods
+export type PostToolUseContext = BaseContext &
+  OriginalToolInputOptional & {
+    event: 'PostToolUse'
+    toolName: string
+    toolInput: Record<string, unknown>
+    toolResponse: unknown
+    toolUseId: string
+  } & PostToolUseDecisionMethods
 
-export type PostToolUseFailureContext = BaseContext & {
-  event: 'PostToolUseFailure'
-  toolName: string
-  toolInput: Record<string, unknown>
-  toolUseId: string
-  error: string
-  isInterrupt?: boolean
-  originalToolInput?: Record<string, unknown>
-} & PostToolUseFailureDecisionMethods
+export type PostToolUseFailureContext = BaseContext &
+  OriginalToolInputOptional & {
+    event: 'PostToolUseFailure'
+    toolName: string
+    toolInput: Record<string, unknown>
+    toolUseId: string
+    error: string
+    isInterrupt?: boolean
+  } & PostToolUseFailureDecisionMethods
 
 export type NotificationContext = BaseContext & {
   event: 'Notification'

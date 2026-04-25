@@ -63,6 +63,11 @@ export type {
   UpdatedPermissions,
   UpdatedMcpToolOutput,
   Interrupt,
+  UpdatedInput,
+  OptionalReason,
+  PermissionSuggestions,
+  OriginalToolInput,
+  OriginalToolInputOptional,
 } from './method-primitives.js'
 
 export type {

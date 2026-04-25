@@ -2,8 +2,16 @@
 // Each base result is intersected with DebugMessage.
 // Inject is intersected where Claude Code supports additionalContext.
 
-import type { PermissionUpdateEntry } from './permissions.js'
-import type { DebugMessage, Inject } from './method-primitives.js'
+import type {
+  DebugMessage,
+  Inject,
+  SessionTitle,
+  UpdatedPermissions,
+  UpdatedMcpToolOutput,
+  Interrupt,
+  UpdatedInput,
+  OptionalReason,
+} from './method-primitives.js'
 
 /** Union of all result discriminant values across all base result types. */
 export type ResultTag =
@@ -87,99 +95,17 @@ export type DeferResult = DebugMessage & {
 
 // Guard events — allow | ask | block | defer | skip
 export type PreToolUseResult =
-  | (AllowResult &
-      Inject & {
-        /**
-         * Partial patch applied to the running tool input. The engine merges
-         * this object onto the current `toolInput` via shallow spread, then
-         * strips keys whose value is the literal `null`.
-         *
-         * - `null` = explicit unset; the key is removed post-merge.
-         * - `undefined` / absent = no change on that key.
-         *
-         * With multiple sequential hooks, each hook's patch composes onto the
-         * merge-so-far: hook B's `ctx.toolInput` reflects the running state
-         * after every prior patch. Upstream Claude Code still receives a full
-         * replacement object on the wire — the engine merges the patches
-         * internally before translation.
-         *
-         * ```ts
-         * // ✗ Wrong — undefined is treated as "no patch," the field is left unchanged.
-         * return ctx.allow({ updatedInput: { timeout: undefined } })
-         *
-         * // ✓ Right — null explicitly unsets.
-         * return ctx.allow({ updatedInput: { timeout: null } })
-         * ```
-         */
-        updatedInput?: Record<string, unknown>
-        /**
-         * Optional. When present, surfaced as
-         * hookSpecificOutput.permissionDecisionReason on allow.
-         * Shown to the user per upstream's decision-control contract.
-         */
-        reason?: string
-      })
-  | (AskResult &
-      Inject & {
-        /**
-         * Partial patch applied to the running tool input. The engine merges
-         * this object onto the current `toolInput` via shallow spread, then
-         * strips keys whose value is the literal `null`.
-         *
-         * - `null` = explicit unset; the key is removed post-merge.
-         * - `undefined` / absent = no change on that key.
-         *
-         * With multiple sequential hooks, each hook's patch composes onto the
-         * merge-so-far: hook B's `ctx.toolInput` reflects the running state
-         * after every prior patch. Upstream Claude Code still receives a full
-         * replacement object on the wire — the engine merges the patches
-         * internally before translation.
-         *
-         * ```ts
-         * // ✗ Wrong — undefined is treated as "no patch," the field is left unchanged.
-         * return ctx.allow({ updatedInput: { timeout: undefined } })
-         *
-         * // ✓ Right — null explicitly unsets.
-         * return ctx.allow({ updatedInput: { timeout: null } })
-         * ```
-         */
-        updatedInput?: Record<string, unknown>
-      })
+  | (AllowResult & Inject & UpdatedInput<Record<string, unknown>> & OptionalReason)
+  | (AskResult & Inject & UpdatedInput<Record<string, unknown>>)
   | (BlockResult & Inject)
   | DeferResult
   | (SkipResult & Inject)
 export type UserPromptSubmitResult = (AllowResult | BlockResult | SkipResult) &
-  Inject & { sessionTitle?: string }
+  Inject &
+  SessionTitle
 export type PermissionRequestResult =
-  | (AllowResult & {
-      /**
-       * Partial patch applied to the running tool input. The engine merges
-       * this object onto the current `toolInput` via shallow spread, then
-       * strips keys whose value is the literal `null`.
-       *
-       * - `null` = explicit unset; the key is removed post-merge.
-       * - `undefined` / absent = no change on that key.
-       *
-       * With multiple sequential hooks, each hook's patch composes onto the
-       * merge-so-far: hook B's `ctx.toolInput` reflects the running state
-       * after every prior patch. Upstream Claude Code still receives a full
-       * replacement object on the wire — the engine merges the patches
-       * internally before translation.
-       *
-       * ```ts
-       * // ✗ Wrong — undefined is treated as "no patch," the field is left unchanged.
-       * return { result: 'allow', updatedInput: { timeout: undefined } }
-       *
-       * // ✓ Right — null explicitly unsets.
-       * return { result: 'allow', updatedInput: { timeout: null } }
-       * ```
-       */
-      updatedInput?: Record<string, unknown>
-      updatedPermissions?: PermissionUpdateEntry[]
-    })
-  | (BlockResult & {
-      interrupt?: boolean
-    })
+  | (AllowResult & UpdatedInput<Record<string, unknown>> & UpdatedPermissions)
+  | (BlockResult & Interrupt)
   | SkipResult
 export type StopEventResult = AllowResult | BlockResult | SkipResult
 export type SubagentStopResult = AllowResult | BlockResult | SkipResult
@@ -196,8 +122,8 @@ export type SessionStartResult = SkipResult & Inject
 export type SessionEndResult = SkipResult
 export type InstructionsLoadedResult = SkipResult
 export type PostToolUseResult =
-  | (SkipResult & Inject & { updatedMCPToolOutput?: unknown })
-  | (BlockResult & Inject & { updatedMCPToolOutput?: unknown })
+  | (SkipResult & Inject & UpdatedMcpToolOutput)
+  | (BlockResult & Inject & UpdatedMcpToolOutput)
 export type PostToolUseFailureResult = SkipResult & Inject
 export type NotificationResult = SkipResult & Inject
 export type SubagentStartResult = SkipResult & Inject

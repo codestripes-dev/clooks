@@ -96,6 +96,61 @@ export type UpdatedMcpToolOutput = {
 export type Interrupt = {
 	interrupt?: boolean;
 };
+/**
+ * Partial patch object applied to the running tool input. The engine merges
+ * this object onto the current `toolInput` via shallow spread, then strips
+ * keys whose value is the literal `null`.
+ *
+ * - `null` = explicit unset; the key is removed post-merge.
+ * - `undefined` / absent = no change on that key.
+ *
+ * With multiple sequential hooks, each hook's patch composes onto the
+ * merge-so-far: hook B's `ctx.toolInput` reflects the running state after
+ * every prior patch. Upstream Claude Code still receives a full replacement
+ * object on the wire — the engine merges the patches internally before
+ * translation.
+ *
+ * Generic over the inner value type so the same primitive composes at
+ * result-type level (`UpdatedInput<Record<string, unknown>>`) and at
+ * decision-method level with per-tool typed patches
+ * (`UpdatedInput<Patch<BashToolInput>>`, etc.).
+ *
+ * Setting a field to `undefined` does NOT strip it — `JSON.stringify` drops
+ * `undefined`-valued keys at serialization, but the engine's merge pass
+ * sees the key as present. Use `null` to unset.
+ */
+export type UpdatedInput<T> = {
+	updatedInput?: T;
+};
+/**
+ * Optional reason field. When present, surfaced as
+ * `hookSpecificOutput.permissionDecisionReason` on allow per upstream's
+ * decision-control contract.
+ */
+export type OptionalReason = {
+	reason?: string;
+};
+/**
+ * Permission update suggestions surfaced by Claude Code. Stays at the outer
+ * context level (not per-variant) — Claude Code attaches it to every
+ * permission request regardless of tool.
+ */
+export type PermissionSuggestions = {
+	permissionSuggestions?: PermissionUpdateEntry[];
+};
+/**
+ * The original tool input from Claude Code, before any hook modifications.
+ * Required on PreToolUse contexts (always present in upstream payloads);
+ * optional on PostToolUse / PostToolUseFailure contexts where the field is
+ * forwarded but not always populated.
+ */
+export type OriginalToolInput = {
+	originalToolInput: Record<string, unknown>;
+};
+/** Optional form of `OriginalToolInput` for PostToolUse / PostToolUseFailure contexts. */
+export type OriginalToolInputOptional = {
+	originalToolInput?: Record<string, unknown>;
+};
 type Allow<O, R> = {
 	allow: (opts?: O) => R;
 };
@@ -107,6 +162,12 @@ type Skip<O, R> = {
 };
 type Ask<O, R> = {
 	ask: (opts: O) => R;
+};
+type Defer<O, R> = {
+	defer: (opts?: O) => R;
+};
+type Continue<O, R> = {
+	continue: (opts: O) => R;
 };
 type Stop<O, R> = {
 	stop: (opts: O) => R;
@@ -175,92 +236,9 @@ export type AskResult = DebugMessage & {
 export type DeferResult = DebugMessage & {
 	result: "defer";
 };
-export type PreToolUseResult = (AllowResult & Inject & {
-	/**
-	 * Partial patch applied to the running tool input. The engine merges
-	 * this object onto the current `toolInput` via shallow spread, then
-	 * strips keys whose value is the literal `null`.
-	 *
-	 * - `null` = explicit unset; the key is removed post-merge.
-	 * - `undefined` / absent = no change on that key.
-	 *
-	 * With multiple sequential hooks, each hook's patch composes onto the
-	 * merge-so-far: hook B's `ctx.toolInput` reflects the running state
-	 * after every prior patch. Upstream Claude Code still receives a full
-	 * replacement object on the wire — the engine merges the patches
-	 * internally before translation.
-	 *
-	 * ```ts
-	 * // ✗ Wrong — undefined is treated as "no patch," the field is left unchanged.
-	 * return ctx.allow({ updatedInput: { timeout: undefined } })
-	 *
-	 * // ✓ Right — null explicitly unsets.
-	 * return ctx.allow({ updatedInput: { timeout: null } })
-	 * ```
-	 */
-	updatedInput?: Record<string, unknown>;
-	/**
-	 * Optional. When present, surfaced as
-	 * hookSpecificOutput.permissionDecisionReason on allow.
-	 * Shown to the user per upstream's decision-control contract.
-	 */
-	reason?: string;
-}) | (AskResult & Inject & {
-	/**
-	 * Partial patch applied to the running tool input. The engine merges
-	 * this object onto the current `toolInput` via shallow spread, then
-	 * strips keys whose value is the literal `null`.
-	 *
-	 * - `null` = explicit unset; the key is removed post-merge.
-	 * - `undefined` / absent = no change on that key.
-	 *
-	 * With multiple sequential hooks, each hook's patch composes onto the
-	 * merge-so-far: hook B's `ctx.toolInput` reflects the running state
-	 * after every prior patch. Upstream Claude Code still receives a full
-	 * replacement object on the wire — the engine merges the patches
-	 * internally before translation.
-	 *
-	 * ```ts
-	 * // ✗ Wrong — undefined is treated as "no patch," the field is left unchanged.
-	 * return ctx.allow({ updatedInput: { timeout: undefined } })
-	 *
-	 * // ✓ Right — null explicitly unsets.
-	 * return ctx.allow({ updatedInput: { timeout: null } })
-	 * ```
-	 */
-	updatedInput?: Record<string, unknown>;
-}) | (BlockResult & Inject) | DeferResult | (SkipResult & Inject);
-export type UserPromptSubmitResult = (AllowResult | BlockResult | SkipResult) & Inject & {
-	sessionTitle?: string;
-};
-export type PermissionRequestResult = (AllowResult & {
-	/**
-	 * Partial patch applied to the running tool input. The engine merges
-	 * this object onto the current `toolInput` via shallow spread, then
-	 * strips keys whose value is the literal `null`.
-	 *
-	 * - `null` = explicit unset; the key is removed post-merge.
-	 * - `undefined` / absent = no change on that key.
-	 *
-	 * With multiple sequential hooks, each hook's patch composes onto the
-	 * merge-so-far: hook B's `ctx.toolInput` reflects the running state
-	 * after every prior patch. Upstream Claude Code still receives a full
-	 * replacement object on the wire — the engine merges the patches
-	 * internally before translation.
-	 *
-	 * ```ts
-	 * // ✗ Wrong — undefined is treated as "no patch," the field is left unchanged.
-	 * return { result: 'allow', updatedInput: { timeout: undefined } }
-	 *
-	 * // ✓ Right — null explicitly unsets.
-	 * return { result: 'allow', updatedInput: { timeout: null } }
-	 * ```
-	 */
-	updatedInput?: Record<string, unknown>;
-	updatedPermissions?: PermissionUpdateEntry[];
-}) | (BlockResult & {
-	interrupt?: boolean;
-}) | SkipResult;
+export type PreToolUseResult = (AllowResult & Inject & UpdatedInput<Record<string, unknown>> & OptionalReason) | (AskResult & Inject & UpdatedInput<Record<string, unknown>>) | (BlockResult & Inject) | DeferResult | (SkipResult & Inject);
+export type UserPromptSubmitResult = (AllowResult | BlockResult | SkipResult) & Inject & SessionTitle;
+export type PermissionRequestResult = (AllowResult & UpdatedInput<Record<string, unknown>> & UpdatedPermissions) | (BlockResult & Interrupt) | SkipResult;
 export type StopEventResult = AllowResult | BlockResult | SkipResult;
 export type SubagentStopResult = AllowResult | BlockResult | SkipResult;
 export type ConfigChangeResult = AllowResult | BlockResult | SkipResult;
@@ -269,11 +247,7 @@ export type StopFailureResult = SkipResult;
 export type SessionStartResult = SkipResult & Inject;
 export type SessionEndResult = SkipResult;
 export type InstructionsLoadedResult = SkipResult;
-export type PostToolUseResult = (SkipResult & Inject & {
-	updatedMCPToolOutput?: unknown;
-}) | (BlockResult & Inject & {
-	updatedMCPToolOutput?: unknown;
-});
+export type PostToolUseResult = (SkipResult & Inject & UpdatedMcpToolOutput) | (BlockResult & Inject & UpdatedMcpToolOutput);
 export type PostToolUseFailureResult = SkipResult & Inject;
 export type NotificationResult = SkipResult & Inject;
 export type SubagentStartResult = SkipResult & Inject;
@@ -314,26 +288,8 @@ export type Patch<T> = {
 	[K in keyof T]?: K extends OptionalKeys<T> ? T[K] | null : T[K];
 };
 type UserPromptSubmitDecisionMethods = Allow<DebugMessage & Inject & SessionTitle, UserPromptSubmitResult> & Block<Reason & Inject & SessionTitle, UserPromptSubmitResult> & Skip<DebugMessage & Inject & SessionTitle, UserPromptSubmitResult>;
-type StopDecisionMethods = Allow<DebugMessage, StopEventResult> & {
-	/**
-	 * Use this to *prevent* the stop. The verb `stop` belongs to continuation
-	 * events (`TeammateIdle`, `TaskCreated`, `TaskCompleted`); it does NOT exist
-	 * on `StopContext` because `Stop` is the *event* whose default behavior is
-	 * to stop. `reason` is required and tells Claude *why to continue* — it's
-	 * effectively the next-turn instruction.
-	 */
-	block(opts: Reason): StopEventResult;
-} & Skip<DebugMessage, StopEventResult>;
-type SubagentStopDecisionMethods = Allow<DebugMessage, SubagentStopResult> & {
-	/**
-	 * Use this to *prevent* the subagent's stop. The verb `stop` belongs to
-	 * continuation events (`TeammateIdle`, `TaskCreated`, `TaskCompleted`); it
-	 * does NOT exist on `SubagentStopContext` because `SubagentStop` is the
-	 * *event* whose default behavior is for the subagent to stop. `reason` is
-	 * required and is surfaced back to the subagent as next-step instruction.
-	 */
-	block(opts: Reason): SubagentStopResult;
-} & Skip<DebugMessage, SubagentStopResult>;
+type StopDecisionMethods = Allow<DebugMessage, StopEventResult> & Block<Reason, StopEventResult> & Skip<DebugMessage, StopEventResult>;
+type SubagentStopDecisionMethods = Allow<DebugMessage, SubagentStopResult> & Block<Reason, SubagentStopResult> & Skip<DebugMessage, SubagentStopResult>;
 type ConfigChangeDecisionMethods = Allow<DebugMessage, ConfigChangeResult> & Block<Reason, ConfigChangeResult> & Skip<DebugMessage, ConfigChangeResult>;
 type PreCompactDecisionMethods = Allow<DebugMessage, PreCompactResult> & Block<Reason, PreCompactResult> & Skip<DebugMessage, PreCompactResult>;
 type PostToolUseDecisionMethods = Block<Reason & Inject & UpdatedMcpToolOutput, PostToolUseResult> & Skip<DebugMessage & Inject & UpdatedMcpToolOutput, PostToolUseResult>;
@@ -348,37 +304,16 @@ type WorktreeRemoveDecisionMethods = Skip<DebugMessage, WorktreeRemoveResult>;
 type PostCompactDecisionMethods = Skip<DebugMessage, PostCompactResult>;
 /**
  * Decision methods for `StopFailureContext`.
+ *
+ * Output is dropped upstream by Claude Code. `skip` exists for API
+ * uniformity. Side-effects (logging, alerts) inside the handler still run;
+ * the method only constructs the engine-side telemetry result.
  */
-export type StopFailureDecisionMethods = {
-	/**
-	 * Output is dropped upstream by Claude Code. This method exists for API
-	 * uniformity. Side-effects (logging, alerts) inside the handler still run;
-	 * the method only constructs the engine-side telemetry result.
-	 */
-	skip(opts?: DebugMessage): StopFailureResult;
-};
+export type StopFailureDecisionMethods = Skip<DebugMessage, StopFailureResult>;
 type WorktreeCreateDecisionMethods = Success<Path, WorktreeCreateResult> & Failure<Reason, WorktreeCreateResult>;
-type TeammateIdleDecisionMethods = {
-	/**
-	 * Keep working past idle. The teammate's loop continues; `feedback` is sent
-	 * back as a stderr-equivalent retry signal.
-	 */
-	continue(opts: Feedback): TeammateIdleResult;
-} & Stop<Reason, TeammateIdleResult> & Skip<DebugMessage, TeammateIdleResult>;
-type TaskCreatedDecisionMethods = {
-	/**
-	 * Don't create the task; feed feedback to the model. The task creation is
-	 * blocked; `feedback` is sent back to the model as stderr-equivalent.
-	 */
-	continue(opts: Feedback): TaskCreatedResult;
-} & Stop<Reason, TaskCreatedResult> & Skip<DebugMessage, TaskCreatedResult>;
-type TaskCompletedDecisionMethods = {
-	/**
-	 * Don't mark complete; feed feedback to the model. The completion is
-	 * blocked; `feedback` is sent back to the model as stderr-equivalent.
-	 */
-	continue(opts: Feedback): TaskCompletedResult;
-} & Stop<Reason, TaskCompletedResult> & Skip<DebugMessage, TaskCompletedResult>;
+type TeammateIdleDecisionMethods = Continue<Feedback, TeammateIdleResult> & Stop<Reason, TeammateIdleResult> & Skip<DebugMessage, TeammateIdleResult>;
+type TaskCreatedDecisionMethods = Continue<Feedback, TaskCreatedResult> & Stop<Reason, TaskCreatedResult> & Skip<DebugMessage, TaskCreatedResult>;
+type TaskCompletedDecisionMethods = Continue<Feedback, TaskCompletedResult> & Stop<Reason, TaskCompletedResult> & Skip<DebugMessage, TaskCompletedResult>;
 export interface BaseContext {
 	event: EventName;
 	sessionId: string;
@@ -451,31 +386,13 @@ export interface AskUserQuestionToolInput {
 	}>;
 	answers?: Record<string, string>;
 }
-type PreToolUseDecisionMethods<Input> = Allow<{
-	updatedInput?: Patch<Input>;
-	reason?: string;
-} & DebugMessage & Inject, PreToolUseResult> & Ask<{
-	reason: string;
-	updatedInput?: Patch<Input>;
-} & DebugMessage & Inject, PreToolUseResult> & Block<Reason & Inject, PreToolUseResult> & {
-	/**
-	 * Only honored in `claude -p` mode AND only when the turn contains a single
-	 * tool call. Otherwise upstream Claude Code logs a warning and ignores this.
-	 * Requires Claude Code v2.1.89+.
-	 *
-	 * Upstream ignores `reason`, `updatedInput`, and `additionalContext` for
-	 * `defer` — the opts bag carries only `debugMessage`.
-	 */
-	defer(opts?: DebugMessage): PreToolUseResult;
-} & Skip<DebugMessage & Inject, PreToolUseResult>;
+type PreToolUseDecisionMethods<Input> = Allow<UpdatedInput<Patch<Input>> & OptionalReason & DebugMessage & Inject, PreToolUseResult> & Ask<Reason & UpdatedInput<Patch<Input>> & Inject, PreToolUseResult> & Block<Reason & Inject, PreToolUseResult> & Defer<DebugMessage, PreToolUseResult> & Skip<DebugMessage & Inject, PreToolUseResult>;
 type WithPreToolUseMethods<V> = V extends {
 	toolInput: infer Input;
 } ? V & PreToolUseDecisionMethods<Input> : never;
-type PreToolUseVariant = BaseContext & {
+type PreToolUseVariant = BaseContext & OriginalToolInput & {
 	event: "PreToolUse";
 	toolUseId: string;
-	/** The original tool input from Claude Code, before any hook modifications. */
-	originalToolInput: Record<string, unknown>;
 } & ({
 	toolName: "Bash";
 	toolInput: BashToolInput;
@@ -517,10 +434,9 @@ export type PreToolUseContext = WithPreToolUseMethods<PreToolUseVariant>;
  * const ctx = rawCtx as unknown as UnknownPreToolUseContext
  * if (ctx.toolName.startsWith('mcp__')) { ... }
  */
-export type UnknownPreToolUseContext = BaseContext & {
+export type UnknownPreToolUseContext = BaseContext & OriginalToolInput & {
 	event: "PreToolUse";
 	toolUseId: string;
-	originalToolInput: Record<string, unknown>;
 	toolName: string;
 	toolInput: Record<string, unknown>;
 } & PreToolUseDecisionMethods<Record<string, unknown>>;
@@ -528,21 +444,12 @@ export type UserPromptSubmitContext = BaseContext & {
 	event: "UserPromptSubmit";
 	prompt: string;
 } & UserPromptSubmitDecisionMethods;
-type PermissionRequestDecisionMethods<Input> = Allow<{
-	updatedInput?: Patch<Input>;
-} & UpdatedPermissions & DebugMessage, PermissionRequestResult> & Block<Reason & Interrupt, PermissionRequestResult> & Skip<DebugMessage, PermissionRequestResult>;
+type PermissionRequestDecisionMethods<Input> = Allow<UpdatedInput<Patch<Input>> & UpdatedPermissions & DebugMessage, PermissionRequestResult> & Block<Reason & Interrupt, PermissionRequestResult> & Skip<DebugMessage, PermissionRequestResult>;
 type WithPermissionRequestMethods<V> = V extends {
 	toolInput: infer Input;
 } ? V & PermissionRequestDecisionMethods<Input> : never;
-type PermissionRequestVariant = BaseContext & {
+type PermissionRequestVariant = BaseContext & PermissionSuggestions & {
 	event: "PermissionRequest";
-	/**
-	 * Permission update suggestions surfaced by Claude Code. Stays at the outer
-	 * context level (not per-variant) — Claude Code attaches it to every
-	 * permission request regardless of tool. See PLAN-FEAT-0063 Decision Log
-	 * "permissionSuggestions stays at the outer PermissionRequestContext level."
-	 */
-	permissionSuggestions?: PermissionUpdateEntry[];
 } & ({
 	toolName: "Bash";
 	toolInput: BashToolInput;
@@ -587,9 +494,8 @@ export type PermissionRequestContext = WithPermissionRequestMethods<PermissionRe
  *   return ctx.allow({ updatedInput: { ... } })
  * }
  */
-export type UnknownPermissionRequestContext = BaseContext & {
+export type UnknownPermissionRequestContext = BaseContext & PermissionSuggestions & {
 	event: "PermissionRequest";
-	permissionSuggestions?: PermissionUpdateEntry[];
 	toolName: string;
 	toolInput: Record<string, unknown>;
 } & PermissionRequestDecisionMethods<Record<string, unknown>>;
@@ -641,22 +547,20 @@ export type InstructionsLoadedContext = BaseContext & {
 	triggerFilePath?: string;
 	parentFilePath?: string;
 } & InstructionsLoadedDecisionMethods;
-export type PostToolUseContext = BaseContext & {
+export type PostToolUseContext = BaseContext & OriginalToolInputOptional & {
 	event: "PostToolUse";
 	toolName: string;
 	toolInput: Record<string, unknown>;
 	toolResponse: unknown;
 	toolUseId: string;
-	originalToolInput?: Record<string, unknown>;
 } & PostToolUseDecisionMethods;
-export type PostToolUseFailureContext = BaseContext & {
+export type PostToolUseFailureContext = BaseContext & OriginalToolInputOptional & {
 	event: "PostToolUseFailure";
 	toolName: string;
 	toolInput: Record<string, unknown>;
 	toolUseId: string;
 	error: string;
 	isInterrupt?: boolean;
-	originalToolInput?: Record<string, unknown>;
 } & PostToolUseFailureDecisionMethods;
 export type NotificationContext = BaseContext & {
 	event: "Notification";

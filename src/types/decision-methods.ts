@@ -9,15 +9,21 @@
 // keeps `contexts.ts` focused on the context interfaces and isolates the
 // per-event method-set declarations here.
 //
-// Composition pattern (PLAN-FEAT-0064 M2): each per-event method-set type is a
-// one-line intersection over named primitives from `./method-primitives.js`.
-// JSDoc reattaches to property declarations on the consumer type — the composed
-// type is structurally `{ allow: ...; block: ...; skip: ... }`, so per-property
-// JSDoc renders at hover. Where a JSDoc caveat must live on a sub-field of an
-// opts bag (e.g. `sessionTitle` on `UserPromptSubmit.allow`), the caveat is
-// hung on the field-bag primitive declaration in `./method-primitives.js`
-// (`SessionTitle` carries the upstream-quirk note); primitive-level JSDoc still
-// surfaces at hover, so all arms intersecting the primitive get it for free.
+// Composition pattern (PLAN-FEAT-0064C): each per-event method-set type is a
+// one-line intersection over named method-shape primitives (`Allow<O, R>`,
+// `Block<O, R>`, `Skip<O, R>`, …) from `./method-primitives.js`. Method-shape
+// primitives carry no per-property JSDoc — TypeScript does not propagate
+// type-alias-level JSDoc to method-property hover sites when an alias is
+// intersected. Caveats that previously lived on inline method declarations have
+// moved to the type-level JSDoc on the enclosing `*DecisionMethods` type;
+// authors hovering the type itself (or navigating to source) see the caveat,
+// method-property hover may not surface it. See PLAN-FEAT-0064C Decision Log
+// "Drop the JSDoc-on-method-property hover preservation concern" (2026-04-25).
+// Caveats that pertain to a field on an opts bag (e.g. `sessionTitle` on
+// `UserPromptSubmit.allow`, `updatedMCPToolOutput` on `PostToolUse.block`) live
+// on the field-bag primitive declaration in `./method-primitives.js` —
+// primitive-level JSDoc on a property does surface at hover, so all arms
+// intersecting the primitive inherit it.
 //
 // Each method type is intersected onto its corresponding context interface in
 // `src/types/contexts.ts`. The runtime constructors live in
@@ -39,6 +45,7 @@ import type {
   Retry,
   Success,
   Failure,
+  Continue,
 } from './method-primitives.js'
 import type {
   UserPromptSubmitResult,
@@ -83,34 +90,28 @@ export type UserPromptSubmitDecisionMethods = Allow<
  * Decision methods for `StopContext`.
  *
  * Note: the verb `stop` is NOT on `StopContext`. The `stop` verb belongs to
- * continuation events (`TeammateIdle`, `TaskCreated`, `TaskCompleted`). For the
- * `Stop` event the default behavior is to stop, so `block` is the verb that
- * prevents the stop.
+ * continuation events (`TeammateIdle`, `TaskCreated`, `TaskCompleted`); it
+ * does NOT exist on `StopContext` because `Stop` is the *event* whose default
+ * behavior is to stop. For the `Stop` event, `block` is the verb that
+ * *prevents* the stop — the required `reason` tells Claude *why to continue*,
+ * effectively the next-turn instruction.
  */
-export type StopDecisionMethods = Allow<DebugMessage, StopEventResult> & {
-  /**
-   * Use this to *prevent* the stop. The verb `stop` belongs to continuation
-   * events (`TeammateIdle`, `TaskCreated`, `TaskCompleted`); it does NOT exist
-   * on `StopContext` because `Stop` is the *event* whose default behavior is
-   * to stop. `reason` is required and tells Claude *why to continue* — it's
-   * effectively the next-turn instruction.
-   */
-  block(opts: Reason): StopEventResult
-} & Skip<DebugMessage, StopEventResult>
+export type StopDecisionMethods = Allow<DebugMessage, StopEventResult> &
+  Block<Reason, StopEventResult> &
+  Skip<DebugMessage, StopEventResult>
 
 /**
  * Decision methods for `SubagentStopContext`. Mirrors `StopDecisionMethods`.
+ *
+ * Use `block` to *prevent* the subagent's stop. The verb `stop` belongs to
+ * continuation events (`TeammateIdle`, `TaskCreated`, `TaskCompleted`); it
+ * does NOT exist on `SubagentStopContext` because `SubagentStop` is the
+ * *event* whose default behavior is for the subagent to stop. The required
+ * `reason` is surfaced back to the subagent as next-step instruction.
  */
-export type SubagentStopDecisionMethods = Allow<DebugMessage, SubagentStopResult> & {
-  /**
-   * Use this to *prevent* the subagent's stop. The verb `stop` belongs to
-   * continuation events (`TeammateIdle`, `TaskCreated`, `TaskCompleted`); it
-   * does NOT exist on `SubagentStopContext` because `SubagentStop` is the
-   * *event* whose default behavior is for the subagent to stop. `reason` is
-   * required and is surfaced back to the subagent as next-step instruction.
-   */
-  block(opts: Reason): SubagentStopResult
-} & Skip<DebugMessage, SubagentStopResult>
+export type SubagentStopDecisionMethods = Allow<DebugMessage, SubagentStopResult> &
+  Block<Reason, SubagentStopResult> &
+  Skip<DebugMessage, SubagentStopResult>
 
 /**
  * Decision methods for `ConfigChangeContext`.
@@ -181,15 +182,12 @@ export type PostCompactDecisionMethods = Skip<DebugMessage, PostCompactResult>
 
 /**
  * Decision methods for `StopFailureContext`.
+ *
+ * Output is dropped upstream by Claude Code. `skip` exists for API
+ * uniformity. Side-effects (logging, alerts) inside the handler still run;
+ * the method only constructs the engine-side telemetry result.
  */
-export type StopFailureDecisionMethods = {
-  /**
-   * Output is dropped upstream by Claude Code. This method exists for API
-   * uniformity. Side-effects (logging, alerts) inside the handler still run;
-   * the method only constructs the engine-side telemetry result.
-   */
-  skip(opts?: DebugMessage): StopFailureResult
-}
+export type StopFailureDecisionMethods = Skip<DebugMessage, StopFailureResult>
 
 // --- Implementation events ---
 
@@ -213,13 +211,8 @@ export type WorktreeCreateDecisionMethods = Success<Path, WorktreeCreateResult> 
  * - `stop` — terminate the teammate; `reason` is the `stopReason` shown to
  *   the user.
  */
-export type TeammateIdleDecisionMethods = {
-  /**
-   * Keep working past idle. The teammate's loop continues; `feedback` is sent
-   * back as a stderr-equivalent retry signal.
-   */
-  continue(opts: Feedback): TeammateIdleResult
-} & Stop<Reason, TeammateIdleResult> &
+export type TeammateIdleDecisionMethods = Continue<Feedback, TeammateIdleResult> &
+  Stop<Reason, TeammateIdleResult> &
   Skip<DebugMessage, TeammateIdleResult>
 
 /**
@@ -229,13 +222,8 @@ export type TeammateIdleDecisionMethods = {
  *   is not created; `feedback` is sent back to the model as stderr-equivalent.
  * - `stop` — terminate the teammate entirely.
  */
-export type TaskCreatedDecisionMethods = {
-  /**
-   * Don't create the task; feed feedback to the model. The task creation is
-   * blocked; `feedback` is sent back to the model as stderr-equivalent.
-   */
-  continue(opts: Feedback): TaskCreatedResult
-} & Stop<Reason, TaskCreatedResult> &
+export type TaskCreatedDecisionMethods = Continue<Feedback, TaskCreatedResult> &
+  Stop<Reason, TaskCreatedResult> &
   Skip<DebugMessage, TaskCreatedResult>
 
 /**
@@ -246,11 +234,6 @@ export type TaskCreatedDecisionMethods = {
  *   stderr-equivalent.
  * - `stop` — terminate the teammate entirely.
  */
-export type TaskCompletedDecisionMethods = {
-  /**
-   * Don't mark complete; feed feedback to the model. The completion is
-   * blocked; `feedback` is sent back to the model as stderr-equivalent.
-   */
-  continue(opts: Feedback): TaskCompletedResult
-} & Stop<Reason, TaskCompletedResult> &
+export type TaskCompletedDecisionMethods = Continue<Feedback, TaskCompletedResult> &
+  Stop<Reason, TaskCompletedResult> &
   Skip<DebugMessage, TaskCompletedResult>
