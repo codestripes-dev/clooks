@@ -16,7 +16,7 @@ The build pipeline produces a single `.d.ts` file and embeds it in the compiled 
 
 ## Source of truth vs. generated artifact
 
-`src/types/index.ts` is the source of truth for the public type surface. It re-exports exactly 73 types from the submodules in `src/types/`. The generated `.clooks/hooks/types.d.ts` is a build artifact derived entirely from this barrel — hook authors should never edit it. Running `clooks types` regenerates it from the binary's embedded copy.
+`src/types/index.ts` is the source of truth for the public type surface. It re-exports 107 types from the submodules in `src/types/` (post-PLAN-FEAT-0064D). The generated `.clooks/hooks/types.d.ts` is a build artifact derived entirely from this barrel — hook authors should never edit it. Running `clooks types` regenerates it from the binary's embedded copy.
 
 ## Hook author import
 

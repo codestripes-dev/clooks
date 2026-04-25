@@ -26,7 +26,7 @@ import type {
 } from '../types'
 import type {
   DebugMessage,
-  Inject,
+  InjectContext,
   Interrupt,
   SessionTitle,
   UpdatedMcpToolOutput,
@@ -38,34 +38,35 @@ import type {
 // Each constructor mirrors the corresponding result type from `src/types/results.ts`.
 // The opts bag is spread onto a literal-tagged object. No `ctx` access; no closures.
 //
-// Composition note (PLAN-FEAT-0064B M2): each `*Opts` interface composes from the
-// optional field-bag primitives in `src/types/method-primitives.ts` via `extends`,
-// and inlines required fields (`reason`, `feedback`, `path`). Required-field
-// primitives (`Reason`, `Feedback`, `Path`) are bundled with `DebugMessage` at
-// their source declarations — extending them here alongside an explicit
-// `extends DebugMessage` would silently merge identical inheritance (harmless,
-// but reads as redundant). The runtime is structurally lenient; the per-event
-// TS-side method types narrow what callers can legally pass. See PLAN-FEAT-0064B
-// Decision Log entry "Runtime-parity audit conclusion (Open Question 8 resolution)".
+// Composition note (PLAN-FEAT-0064B M2 + PLAN-FEAT-0064D M1): each `*Opts`
+// interface composes from the optional field-bag primitives in
+// `src/types/method-primitives.ts` via `extends`, and inlines required fields
+// (`reason`, `feedback`, `path`). Post-Plan-D-M1, the required-field primitives
+// (`Reason`, `Feedback`, `Path`) are pure single-field bags — `DebugMessage` is
+// no longer bundled into them. Each `*Opts` interface carries its own explicit
+// `extends DebugMessage`. The runtime is structurally lenient; the per-event
+// TS-side method types narrow what callers can legally pass. See
+// PLAN-FEAT-0064B Decision Log entry "Runtime-parity audit conclusion (Open
+// Question 8 resolution)".
 
-export interface AllowOpts extends DebugMessage, Inject, SessionTitle, UpdatedPermissions {
+export interface AllowOpts extends DebugMessage, InjectContext, SessionTitle, UpdatedPermissions {
   reason?: string
   updatedInput?: Record<string, unknown>
 }
 
-export interface AskOpts extends DebugMessage, Inject {
+export interface AskOpts extends DebugMessage, InjectContext {
   reason: string
   updatedInput?: Record<string, unknown>
 }
 
 export interface BlockOpts
-  extends DebugMessage, Inject, Interrupt, UpdatedMcpToolOutput, SessionTitle {
+  extends DebugMessage, InjectContext, Interrupt, UpdatedMcpToolOutput, SessionTitle {
   reason: string
 }
 
 export type DeferOpts = DebugMessage
 
-export interface SkipOpts extends DebugMessage, Inject, UpdatedMcpToolOutput {}
+export interface SkipOpts extends DebugMessage, InjectContext, UpdatedMcpToolOutput {}
 
 export interface SuccessOpts extends DebugMessage {
   path: string

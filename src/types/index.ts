@@ -19,6 +19,7 @@ export type {
 export type { StopFailureErrorType } from './claude-code.js'
 
 export type {
+  ResultTag,
   AllowResult,
   AskResult,
   BlockResult,
@@ -55,7 +56,7 @@ export type {
 
 export type {
   DebugMessage,
-  Inject,
+  InjectContext,
   Reason,
   Feedback,
   Path,
@@ -64,10 +65,10 @@ export type {
   UpdatedMcpToolOutput,
   Interrupt,
   UpdatedInput,
-  OptionalReason,
   PermissionSuggestions,
-  OriginalToolInput,
-  OriginalToolInputOptional,
+  Result,
+  ToolVariant,
+  ToolVariantWithOriginal,
 } from './method-primitives.js'
 
 export type {
@@ -86,7 +87,9 @@ export type {
   SessionEndContext,
   InstructionsLoadedContext,
   PostToolUseContext,
+  UnknownPostToolUseContext,
   PostToolUseFailureContext,
+  UnknownPostToolUseFailureContext,
   NotificationContext,
   SubagentStartContext,
   WorktreeRemoveContext,

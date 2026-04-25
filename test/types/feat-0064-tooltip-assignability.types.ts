@@ -111,7 +111,7 @@ declare const permReqCtx: PermissionRequestContext
   void (preCompactCtx.allow() satisfies PreCompactResult)
 }
 
-// --- Allow<DebugMessage & Inject & SessionTitle, R> ---
+// --- Allow<DebugMessage & InjectContext & SessionTitle, R> ---
 // Representative: UserPromptSubmit.
 {
   const _ok: Parameters<UserPromptSubmitContext['allow']>[0] = {
@@ -170,7 +170,7 @@ declare const permReqCtx: PermissionRequestContext
   void (preCompactCtx.block({ reason: 'r' }) satisfies PreCompactResult)
 }
 
-// --- Block<Reason & Inject & SessionTitle, R> ---
+// --- Block<Reason & InjectContext & SessionTitle, R> ---
 // Representative: UserPromptSubmit.
 {
   const _ok: Parameters<UserPromptSubmitContext['block']>[0] = {
@@ -189,7 +189,7 @@ declare const permReqCtx: PermissionRequestContext
   void (userPromptCtx.block({ reason: 'r' }) satisfies UserPromptSubmitResult)
 }
 
-// --- Block<Reason & Inject & UpdatedMcpToolOutput, R> ---
+// --- Block<Reason & InjectContext & UpdatedMcpToolOutput, R> ---
 // Representative: PostToolUse.
 {
   const _ok: Parameters<PostToolUseContext['block']>[0] = {
@@ -208,7 +208,7 @@ declare const permReqCtx: PermissionRequestContext
   void _drift
 }
 
-// --- Block<Reason & Inject, PreToolUseResult> ---
+// --- Block<Reason & InjectContext, PreToolUseResult> ---
 // PreToolUse-only.
 {
   const _ok: Parameters<PreToolUseContext['block']>[0] = { reason: 'r', injectContext: 'i' }
@@ -269,7 +269,7 @@ declare const permReqCtx: PermissionRequestContext
   void _drift
 }
 
-// --- Skip<DebugMessage & Inject, R> ---
+// --- Skip<DebugMessage & InjectContext, R> ---
 // Representative: SessionStart, PostToolUseFailure, Notification, SubagentStart, PreToolUse.
 {
   const _ok: Parameters<SessionStartContext['skip']>[0] = { debugMessage: 'd', injectContext: 'i' }
@@ -284,7 +284,7 @@ declare const permReqCtx: PermissionRequestContext
   void (subagentStartCtx.skip() satisfies SubagentStartResult)
 }
 
-// --- Skip<DebugMessage & Inject & SessionTitle, R> ---
+// --- Skip<DebugMessage & InjectContext & SessionTitle, R> ---
 // Representative: UserPromptSubmit.
 {
   const _ok: Parameters<UserPromptSubmitContext['skip']>[0] = {
@@ -303,7 +303,7 @@ declare const permReqCtx: PermissionRequestContext
   void _drift
 }
 
-// --- Skip<DebugMessage & Inject & UpdatedMcpToolOutput, R> ---
+// --- Skip<DebugMessage & InjectContext & UpdatedMcpToolOutput, R> ---
 // Representative: PostToolUse.
 {
   const _ok: Parameters<PostToolUseContext['skip']>[0] = {
@@ -425,7 +425,7 @@ declare const permReqCtx: PermissionRequestContext
   void _drift
 }
 
-// --- Ask<{reason; updatedInput?} & DebugMessage & Inject, PreToolUseResult> ---
+// --- Ask<{reason; updatedInput?} & DebugMessage & InjectContext, PreToolUseResult> ---
 // PreToolUse-only.
 {
   // @ts-expect-error — opts required

@@ -62,21 +62,21 @@ export type DebugMessage = {
  * `additionalContext` output field. Only available on events whose Claude
  * Code contract supports it.
  */
-export type Inject = {
+export type InjectContext = {
 	injectContext?: string;
 };
 /** Required. Shown to the agent (guard events) or user (continuation events). */
 export type Reason = {
 	reason: string;
-} & DebugMessage;
+};
 /** Required. Tells the teammate what to do next. */
 export type Feedback = {
 	feedback: string;
-} & DebugMessage;
+};
 /** Required. Absolute path to the resource (e.g. created worktree). */
 export type Path = {
 	path: string;
-} & DebugMessage;
+};
 /**
  * Set the session title — equivalent to running `/rename`. Available on every
  * result arm per upstream's hookSpecificOutput shape; whether upstream honors
@@ -123,14 +123,6 @@ export type UpdatedInput<T> = {
 	updatedInput?: T;
 };
 /**
- * Optional reason field. When present, surfaced as
- * `hookSpecificOutput.permissionDecisionReason` on allow per upstream's
- * decision-control contract.
- */
-export type OptionalReason = {
-	reason?: string;
-};
-/**
  * Permission update suggestions surfaced by Claude Code. Stays at the outer
  * context level (not per-variant) — Claude Code attaches it to every
  * permission request regardless of tool.
@@ -139,91 +131,68 @@ export type PermissionSuggestions = {
 	permissionSuggestions?: PermissionUpdateEntry[];
 };
 /**
- * The original tool input from Claude Code, before any hook modifications.
- * Required on PreToolUse contexts (always present in upstream payloads);
- * optional on PostToolUse / PostToolUseFailure contexts where the field is
- * forwarded but not always populated.
+ * Generic result-tag primitive. Composes the discriminant literal with the
+ * universal `DebugMessage` field. Every base result type intersects
+ * `Result<'<tag>'>` with the per-tag required field bag (`Reason`, `Feedback`,
+ * `Path`) or with nothing for tag-only results (`AllowResult`, `SkipResult`,
+ * `DeferResult`, `RetryResult`).
  */
-export type OriginalToolInput = {
-	originalToolInput: Record<string, unknown>;
-};
-/** Optional form of `OriginalToolInput` for PostToolUse / PostToolUseFailure contexts. */
-export type OriginalToolInputOptional = {
-	originalToolInput?: Record<string, unknown>;
-};
-type Allow<O, R> = {
-	allow: (opts?: O) => R;
-};
-type Block<O, R> = {
-	block: (opts: O) => R;
-};
-type Skip<O, R> = {
-	skip: (opts?: O) => R;
-};
-type Ask<O, R> = {
-	ask: (opts: O) => R;
-};
-type Defer<O, R> = {
-	defer: (opts?: O) => R;
-};
-type Continue<O, R> = {
-	continue: (opts: O) => R;
-};
-type Stop<O, R> = {
-	stop: (opts: O) => R;
-};
-type Retry<O, R> = {
-	retry: (opts?: O) => R;
-};
-type Success<O, R> = {
-	success: (opts: O) => R;
-};
-type Failure<O, R> = {
-	failure: (opts: O) => R;
-};
-export type AllowResult = DebugMessage & {
-	result: "allow";
-};
-export type BlockResult = DebugMessage & {
-	result: "block";
-	/** Required. Shown to the agent (guard events) or user (continuation events). */
-	reason: string;
-};
-export type SkipResult = DebugMessage & {
-	result: "skip";
-};
-export type SuccessResult = DebugMessage & {
-	result: "success";
-	/** Absolute path to the created worktree. */
-	path: string;
-};
-export type FailureResult = DebugMessage & {
-	result: "failure";
-	reason: string;
-};
-export type ContinueResult = DebugMessage & {
-	result: "continue";
-	/** Required. Tells the teammate what to do next. */
-	feedback: string;
-};
-export type StopResult = DebugMessage & {
-	result: "stop";
-	reason: string;
-};
-export type RetryResult = DebugMessage & {
-	result: "retry";
+export type Result<T extends ResultTag> = {
+	result: T;
+} & DebugMessage;
+/**
+ * Per-tool DU arm shape for tool-keyed events that lack a Clooks-internal
+ * `originalToolInput` field. Used by `PermissionRequestVariant`,
+ * `PostToolUseVariant`, and `PostToolUseFailureVariant`.
+ */
+export type ToolVariant<N extends string, I> = {
+	toolName: N;
+	toolInput: I;
 };
 /**
- * PreToolUse `ask` decision. Upstream displays the permission prompt
- * to the user with permissionDecisionReason as the prompt text.
- * The source label ([Project]/[User]/[Plugin]/[Local]) is added by
- * Claude Code — reason should disambiguate which hook asked.
+ * Per-tool DU arm shape for `PreToolUseVariant` only. Adds the
+ * Clooks-internal `originalToolInput` field, which mirrors `toolInput`
+ * shape exactly (the engine synthesizes it pre-normalization). Not used
+ * by other tool-keyed events — Claude Code's wire payload does not carry
+ * this field on PostToolUse / PostToolUseFailure / PermissionRequest.
  */
-export type AskResult = DebugMessage & {
-	result: "ask";
-	/** Required. Shown to the user in the confirmation prompt. */
-	reason: string;
+export type ToolVariantWithOriginal<N extends string, I> = ToolVariant<N, I> & {
+	originalToolInput: I;
 };
+type Allow<O, R> = {
+	allow: (opts?: O & DebugMessage) => R;
+};
+type Block<O, R> = {
+	block: (opts: O & DebugMessage) => R;
+};
+type Skip<O, R> = {
+	skip: (opts?: O & DebugMessage) => R;
+};
+type Ask<O, R> = {
+	ask: (opts: O & DebugMessage) => R;
+};
+type Defer<O, R> = {
+	defer: (opts?: O & DebugMessage) => R;
+};
+type Continue<O, R> = {
+	continue: (opts: O & DebugMessage) => R;
+};
+type Stop<O, R> = {
+	stop: (opts: O & DebugMessage) => R;
+};
+type Retry<O, R> = {
+	retry: (opts?: O & DebugMessage) => R;
+};
+type Success<O, R> = {
+	success: (opts: O & DebugMessage) => R;
+};
+type Failure<O, R> = {
+	failure: (opts: O & DebugMessage) => R;
+};
+/** Union of all result discriminant values across all base result types. */
+export type ResultTag = "allow" | "ask" | "block" | "defer" | "skip" | "success" | "failure" | "continue" | "stop" | "retry";
+export type AllowResult = Result<"allow">;
+export type SkipResult = Result<"skip">;
 /**
  * PreToolUse `defer` decision. Pauses the tool call so a headless
  * `claude -p` caller can resume via `claude -p --resume`. Only honored
@@ -233,24 +202,35 @@ export type AskResult = DebugMessage & {
  * Upstream ignores reason / updatedInput / additionalContext for
  * defer. This type forbids all three at compile time.
  */
-export type DeferResult = DebugMessage & {
-	result: "defer";
-};
-export type PreToolUseResult = (AllowResult & Inject & UpdatedInput<Record<string, unknown>> & OptionalReason) | (AskResult & Inject & UpdatedInput<Record<string, unknown>>) | (BlockResult & Inject) | DeferResult | (SkipResult & Inject);
-export type UserPromptSubmitResult = (AllowResult | BlockResult | SkipResult) & Inject & SessionTitle;
+export type DeferResult = Result<"defer">;
+export type RetryResult = Result<"retry">;
+/**
+ * PreToolUse `ask` decision. Upstream displays the permission prompt
+ * to the user with permissionDecisionReason as the prompt text.
+ * The source label ([Project]/[User]/[Plugin]/[Local]) is added by
+ * Claude Code — reason should disambiguate which hook asked.
+ */
+export type AskResult = Result<"ask"> & Reason;
+export type BlockResult = Result<"block"> & Reason;
+export type StopResult = Result<"stop"> & Reason;
+export type FailureResult = Result<"failure"> & Reason;
+export type ContinueResult = Result<"continue"> & Feedback;
+export type SuccessResult = Result<"success"> & Path;
+export type PreToolUseResult = (AllowResult & InjectContext & UpdatedInput<Record<string, unknown>> & Partial<Reason>) | (AskResult & InjectContext & UpdatedInput<Record<string, unknown>>) | (BlockResult & InjectContext) | DeferResult | (SkipResult & InjectContext);
+export type UserPromptSubmitResult = (AllowResult | BlockResult | SkipResult) & InjectContext & SessionTitle;
 export type PermissionRequestResult = (AllowResult & UpdatedInput<Record<string, unknown>> & UpdatedPermissions) | (BlockResult & Interrupt) | SkipResult;
 export type StopEventResult = AllowResult | BlockResult | SkipResult;
 export type SubagentStopResult = AllowResult | BlockResult | SkipResult;
 export type ConfigChangeResult = AllowResult | BlockResult | SkipResult;
 export type PreCompactResult = AllowResult | BlockResult | SkipResult;
 export type StopFailureResult = SkipResult;
-export type SessionStartResult = SkipResult & Inject;
+export type SessionStartResult = SkipResult & InjectContext;
 export type SessionEndResult = SkipResult;
 export type InstructionsLoadedResult = SkipResult;
-export type PostToolUseResult = (SkipResult & Inject & UpdatedMcpToolOutput) | (BlockResult & Inject & UpdatedMcpToolOutput);
-export type PostToolUseFailureResult = SkipResult & Inject;
-export type NotificationResult = SkipResult & Inject;
-export type SubagentStartResult = SkipResult & Inject;
+export type PostToolUseResult = (SkipResult & InjectContext & UpdatedMcpToolOutput) | (BlockResult & InjectContext & UpdatedMcpToolOutput);
+export type PostToolUseFailureResult = SkipResult & InjectContext;
+export type NotificationResult = SkipResult & InjectContext;
+export type SubagentStartResult = SkipResult & InjectContext;
 export type WorktreeRemoveResult = SkipResult;
 export type PostCompactResult = SkipResult;
 export type PermissionDeniedResult = RetryResult | SkipResult;
@@ -287,19 +267,17 @@ type OptionalKeys<T> = {
 export type Patch<T> = {
 	[K in keyof T]?: K extends OptionalKeys<T> ? T[K] | null : T[K];
 };
-type UserPromptSubmitDecisionMethods = Allow<DebugMessage & Inject & SessionTitle, UserPromptSubmitResult> & Block<Reason & Inject & SessionTitle, UserPromptSubmitResult> & Skip<DebugMessage & Inject & SessionTitle, UserPromptSubmitResult>;
+type UserPromptSubmitDecisionMethods = Allow<InjectContext & SessionTitle, UserPromptSubmitResult> & Block<Reason & InjectContext & SessionTitle, UserPromptSubmitResult> & Skip<InjectContext & SessionTitle, UserPromptSubmitResult>;
 type StopDecisionMethods = Allow<DebugMessage, StopEventResult> & Block<Reason, StopEventResult> & Skip<DebugMessage, StopEventResult>;
 type SubagentStopDecisionMethods = Allow<DebugMessage, SubagentStopResult> & Block<Reason, SubagentStopResult> & Skip<DebugMessage, SubagentStopResult>;
 type ConfigChangeDecisionMethods = Allow<DebugMessage, ConfigChangeResult> & Block<Reason, ConfigChangeResult> & Skip<DebugMessage, ConfigChangeResult>;
 type PreCompactDecisionMethods = Allow<DebugMessage, PreCompactResult> & Block<Reason, PreCompactResult> & Skip<DebugMessage, PreCompactResult>;
-type PostToolUseDecisionMethods = Block<Reason & Inject & UpdatedMcpToolOutput, PostToolUseResult> & Skip<DebugMessage & Inject & UpdatedMcpToolOutput, PostToolUseResult>;
 type PermissionDeniedDecisionMethods = Retry<DebugMessage, PermissionDeniedResult> & Skip<DebugMessage, PermissionDeniedResult>;
-type SessionStartDecisionMethods = Skip<DebugMessage & Inject, SessionStartResult>;
+type SessionStartDecisionMethods = Skip<InjectContext, SessionStartResult>;
 type SessionEndDecisionMethods = Skip<DebugMessage, SessionEndResult>;
 type InstructionsLoadedDecisionMethods = Skip<DebugMessage, InstructionsLoadedResult>;
-type PostToolUseFailureDecisionMethods = Skip<DebugMessage & Inject, PostToolUseFailureResult>;
-type NotificationDecisionMethods = Skip<DebugMessage & Inject, NotificationResult>;
-type SubagentStartDecisionMethods = Skip<DebugMessage & Inject, SubagentStartResult>;
+type NotificationDecisionMethods = Skip<InjectContext, NotificationResult>;
+type SubagentStartDecisionMethods = Skip<InjectContext, SubagentStartResult>;
 type WorktreeRemoveDecisionMethods = Skip<DebugMessage, WorktreeRemoveResult>;
 type PostCompactDecisionMethods = Skip<DebugMessage, PostCompactResult>;
 /**
@@ -386,44 +364,14 @@ export interface AskUserQuestionToolInput {
 	}>;
 	answers?: Record<string, string>;
 }
-type PreToolUseDecisionMethods<Input> = Allow<UpdatedInput<Patch<Input>> & OptionalReason & DebugMessage & Inject, PreToolUseResult> & Ask<Reason & UpdatedInput<Patch<Input>> & Inject, PreToolUseResult> & Block<Reason & Inject, PreToolUseResult> & Defer<DebugMessage, PreToolUseResult> & Skip<DebugMessage & Inject, PreToolUseResult>;
+type PreToolUseDecisionMethods<Input> = Allow<UpdatedInput<Patch<Input>> & Partial<Reason> & InjectContext, PreToolUseResult> & Ask<Reason & UpdatedInput<Patch<Input>> & InjectContext, PreToolUseResult> & Block<Reason & InjectContext, PreToolUseResult> & Defer<DebugMessage, PreToolUseResult> & Skip<InjectContext, PreToolUseResult>;
 type WithPreToolUseMethods<V> = V extends {
 	toolInput: infer Input;
 } ? V & PreToolUseDecisionMethods<Input> : never;
-type PreToolUseVariant = BaseContext & OriginalToolInput & {
+type PreToolUseVariant = BaseContext & {
 	event: "PreToolUse";
 	toolUseId: string;
-} & ({
-	toolName: "Bash";
-	toolInput: BashToolInput;
-} | {
-	toolName: "Write";
-	toolInput: WriteToolInput;
-} | {
-	toolName: "Edit";
-	toolInput: EditToolInput;
-} | {
-	toolName: "Read";
-	toolInput: ReadToolInput;
-} | {
-	toolName: "Glob";
-	toolInput: GlobToolInput;
-} | {
-	toolName: "Grep";
-	toolInput: GrepToolInput;
-} | {
-	toolName: "WebFetch";
-	toolInput: WebFetchToolInput;
-} | {
-	toolName: "WebSearch";
-	toolInput: WebSearchToolInput;
-} | {
-	toolName: "Agent";
-	toolInput: AgentToolInput;
-} | {
-	toolName: "AskUserQuestion";
-	toolInput: AskUserQuestionToolInput;
-});
+} & (ToolVariantWithOriginal<"Bash", BashToolInput> | ToolVariantWithOriginal<"Write", WriteToolInput> | ToolVariantWithOriginal<"Edit", EditToolInput> | ToolVariantWithOriginal<"Read", ReadToolInput> | ToolVariantWithOriginal<"Glob", GlobToolInput> | ToolVariantWithOriginal<"Grep", GrepToolInput> | ToolVariantWithOriginal<"WebFetch", WebFetchToolInput> | ToolVariantWithOriginal<"WebSearch", WebSearchToolInput> | ToolVariantWithOriginal<"Agent", AgentToolInput> | ToolVariantWithOriginal<"AskUserQuestion", AskUserQuestionToolInput>);
 export type PreToolUseContext = WithPreToolUseMethods<PreToolUseVariant>;
 /**
  * Context for a PreToolUse event where the tool name is not one of the 10
@@ -434,53 +382,21 @@ export type PreToolUseContext = WithPreToolUseMethods<PreToolUseVariant>;
  * const ctx = rawCtx as unknown as UnknownPreToolUseContext
  * if (ctx.toolName.startsWith('mcp__')) { ... }
  */
-export type UnknownPreToolUseContext = BaseContext & OriginalToolInput & {
+export type UnknownPreToolUseContext = BaseContext & {
 	event: "PreToolUse";
 	toolUseId: string;
-	toolName: string;
-	toolInput: Record<string, unknown>;
-} & PreToolUseDecisionMethods<Record<string, unknown>>;
+} & ToolVariantWithOriginal<string, Record<string, unknown>> & PreToolUseDecisionMethods<Record<string, unknown>>;
 export type UserPromptSubmitContext = BaseContext & {
 	event: "UserPromptSubmit";
 	prompt: string;
 } & UserPromptSubmitDecisionMethods;
-type PermissionRequestDecisionMethods<Input> = Allow<UpdatedInput<Patch<Input>> & UpdatedPermissions & DebugMessage, PermissionRequestResult> & Block<Reason & Interrupt, PermissionRequestResult> & Skip<DebugMessage, PermissionRequestResult>;
+type PermissionRequestDecisionMethods<Input> = Allow<UpdatedInput<Patch<Input>> & UpdatedPermissions, PermissionRequestResult> & Block<Reason & Interrupt, PermissionRequestResult> & Skip<DebugMessage, PermissionRequestResult>;
 type WithPermissionRequestMethods<V> = V extends {
 	toolInput: infer Input;
 } ? V & PermissionRequestDecisionMethods<Input> : never;
 type PermissionRequestVariant = BaseContext & PermissionSuggestions & {
 	event: "PermissionRequest";
-} & ({
-	toolName: "Bash";
-	toolInput: BashToolInput;
-} | {
-	toolName: "Write";
-	toolInput: WriteToolInput;
-} | {
-	toolName: "Edit";
-	toolInput: EditToolInput;
-} | {
-	toolName: "Read";
-	toolInput: ReadToolInput;
-} | {
-	toolName: "Glob";
-	toolInput: GlobToolInput;
-} | {
-	toolName: "Grep";
-	toolInput: GrepToolInput;
-} | {
-	toolName: "WebFetch";
-	toolInput: WebFetchToolInput;
-} | {
-	toolName: "WebSearch";
-	toolInput: WebSearchToolInput;
-} | {
-	toolName: "Agent";
-	toolInput: AgentToolInput;
-} | {
-	toolName: "AskUserQuestion";
-	toolInput: AskUserQuestionToolInput;
-});
+} & (ToolVariant<"Bash", BashToolInput> | ToolVariant<"Write", WriteToolInput> | ToolVariant<"Edit", EditToolInput> | ToolVariant<"Read", ReadToolInput> | ToolVariant<"Glob", GlobToolInput> | ToolVariant<"Grep", GrepToolInput> | ToolVariant<"WebFetch", WebFetchToolInput> | ToolVariant<"WebSearch", WebSearchToolInput> | ToolVariant<"Agent", AgentToolInput> | ToolVariant<"AskUserQuestion", AskUserQuestionToolInput>);
 export type PermissionRequestContext = WithPermissionRequestMethods<PermissionRequestVariant>;
 /**
  * Context for a PermissionRequest event where the tool name is not one of the
@@ -496,9 +412,7 @@ export type PermissionRequestContext = WithPermissionRequestMethods<PermissionRe
  */
 export type UnknownPermissionRequestContext = BaseContext & PermissionSuggestions & {
 	event: "PermissionRequest";
-	toolName: string;
-	toolInput: Record<string, unknown>;
-} & PermissionRequestDecisionMethods<Record<string, unknown>>;
+} & ToolVariant<string, Record<string, unknown>> & PermissionRequestDecisionMethods<Record<string, unknown>>;
 export type StopContext = BaseContext & {
 	event: "Stop";
 	stopHookActive: boolean;
@@ -547,21 +461,56 @@ export type InstructionsLoadedContext = BaseContext & {
 	triggerFilePath?: string;
 	parentFilePath?: string;
 } & InstructionsLoadedDecisionMethods;
-export type PostToolUseContext = BaseContext & OriginalToolInputOptional & {
+type PostToolUseDecisionMethods<_Input> = Block<Reason & InjectContext & UpdatedMcpToolOutput, PostToolUseResult> & Skip<InjectContext & UpdatedMcpToolOutput, PostToolUseResult>;
+type PostToolUseVariant = BaseContext & {
 	event: "PostToolUse";
-	toolName: string;
-	toolInput: Record<string, unknown>;
-	toolResponse: unknown;
 	toolUseId: string;
-} & PostToolUseDecisionMethods;
-export type PostToolUseFailureContext = BaseContext & OriginalToolInputOptional & {
+	toolResponse: unknown;
+} & (ToolVariant<"Bash", BashToolInput> | ToolVariant<"Write", WriteToolInput> | ToolVariant<"Edit", EditToolInput> | ToolVariant<"Read", ReadToolInput> | ToolVariant<"Glob", GlobToolInput> | ToolVariant<"Grep", GrepToolInput> | ToolVariant<"WebFetch", WebFetchToolInput> | ToolVariant<"WebSearch", WebSearchToolInput> | ToolVariant<"Agent", AgentToolInput> | ToolVariant<"AskUserQuestion", AskUserQuestionToolInput>);
+type WithPostToolUseMethods<V> = V extends {
+	toolInput: infer Input;
+} ? V & PostToolUseDecisionMethods<Input> : never;
+export type PostToolUseContext = WithPostToolUseMethods<PostToolUseVariant>;
+/**
+ * Context for a PostToolUse event where the tool name is not one of the 10
+ * known variants (e.g. MCP tools, ExitPlanMode, future upstream tools).
+ * Cast from raw ctx when handling unknown tool names. Mirrors the
+ * `UnknownPreToolUseContext` pattern.
+ *
+ * @example
+ * const ctx = rawCtx as unknown as UnknownPostToolUseContext
+ * if (ctx.toolName.startsWith('mcp__')) { ... }
+ */
+export type UnknownPostToolUseContext = BaseContext & {
+	event: "PostToolUse";
+	toolUseId: string;
+	toolResponse: unknown;
+} & ToolVariant<string, Record<string, unknown>> & PostToolUseDecisionMethods<Record<string, unknown>>;
+type PostToolUseFailureDecisionMethods<_Input> = Skip<InjectContext, PostToolUseFailureResult>;
+type PostToolUseFailureVariant = BaseContext & {
 	event: "PostToolUseFailure";
-	toolName: string;
-	toolInput: Record<string, unknown>;
 	toolUseId: string;
 	error: string;
 	isInterrupt?: boolean;
-} & PostToolUseFailureDecisionMethods;
+} & (ToolVariant<"Bash", BashToolInput> | ToolVariant<"Write", WriteToolInput> | ToolVariant<"Edit", EditToolInput> | ToolVariant<"Read", ReadToolInput> | ToolVariant<"Glob", GlobToolInput> | ToolVariant<"Grep", GrepToolInput> | ToolVariant<"WebFetch", WebFetchToolInput> | ToolVariant<"WebSearch", WebSearchToolInput> | ToolVariant<"Agent", AgentToolInput> | ToolVariant<"AskUserQuestion", AskUserQuestionToolInput>);
+type WithPostToolUseFailureMethods<V> = V extends {
+	toolInput: infer Input;
+} ? V & PostToolUseFailureDecisionMethods<Input> : never;
+export type PostToolUseFailureContext = WithPostToolUseFailureMethods<PostToolUseFailureVariant>;
+/**
+ * Context for a PostToolUseFailure event where the tool name is not one of the
+ * 10 known variants. Cast from raw ctx when handling unknown tool names.
+ *
+ * @example
+ * const ctx = rawCtx as unknown as UnknownPostToolUseFailureContext
+ * if (ctx.toolName.startsWith('mcp__')) { ... }
+ */
+export type UnknownPostToolUseFailureContext = BaseContext & {
+	event: "PostToolUseFailure";
+	toolUseId: string;
+	error: string;
+	isInterrupt?: boolean;
+} & ToolVariant<string, Record<string, unknown>> & PostToolUseFailureDecisionMethods<Record<string, unknown>>;
 export type NotificationContext = BaseContext & {
 	event: "Notification";
 	message: string;

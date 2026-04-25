@@ -44,7 +44,7 @@ describe.skipIf(skip)('generate-types', () => {
       'BlockResult',
       'SkipResult',
       'DebugMessage',
-      'Inject',
+      'InjectContext',
       'PermissionMode',
       'SessionStartSource',
     ]

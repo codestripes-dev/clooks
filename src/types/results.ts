@@ -1,16 +1,19 @@
 // Base result types and per-event result types.
-// Each base result is intersected with DebugMessage.
-// Inject is intersected where Claude Code supports additionalContext.
+// Each base result composes `Result<'<tag>'>` (which bakes DebugMessage) with
+// at most one per-tag field bag (`Reason`, `Feedback`, `Path`).
+// InjectContext is intersected where Claude Code supports additionalContext.
 
 import type {
-  DebugMessage,
-  Inject,
+  InjectContext,
+  Reason,
+  Feedback,
+  Path,
   SessionTitle,
   UpdatedPermissions,
   UpdatedMcpToolOutput,
   Interrupt,
   UpdatedInput,
-  OptionalReason,
+  Result,
 } from './method-primitives.js'
 
 /** Union of all result discriminant values across all base result types. */
@@ -26,58 +29,8 @@ export type ResultTag =
   | 'stop'
   | 'retry'
 
-export type AllowResult = DebugMessage & {
-  result: 'allow'
-}
-
-export type BlockResult = DebugMessage & {
-  result: 'block'
-  /** Required. Shown to the agent (guard events) or user (continuation events). */
-  reason: string
-}
-
-export type SkipResult = DebugMessage & {
-  result: 'skip'
-}
-
-export type SuccessResult = DebugMessage & {
-  result: 'success'
-  /** Absolute path to the created worktree. */
-  path: string
-}
-
-export type FailureResult = DebugMessage & {
-  result: 'failure'
-  reason: string
-}
-
-export type ContinueResult = DebugMessage & {
-  result: 'continue'
-  /** Required. Tells the teammate what to do next. */
-  feedback: string
-}
-
-export type StopResult = DebugMessage & {
-  result: 'stop'
-  reason: string
-}
-
-export type RetryResult = DebugMessage & {
-  result: 'retry'
-}
-
-/**
- * PreToolUse `ask` decision. Upstream displays the permission prompt
- * to the user with permissionDecisionReason as the prompt text.
- * The source label ([Project]/[User]/[Plugin]/[Local]) is added by
- * Claude Code — reason should disambiguate which hook asked.
- */
-export type AskResult = DebugMessage & {
-  result: 'ask'
-  /** Required. Shown to the user in the confirmation prompt. */
-  reason: string
-}
-
+export type AllowResult = Result<'allow'>
+export type SkipResult = Result<'skip'>
 /**
  * PreToolUse `defer` decision. Pauses the tool call so a headless
  * `claude -p` caller can resume via `claude -p --resume`. Only honored
@@ -87,21 +40,35 @@ export type AskResult = DebugMessage & {
  * Upstream ignores reason / updatedInput / additionalContext for
  * defer. This type forbids all three at compile time.
  */
-export type DeferResult = DebugMessage & {
-  result: 'defer'
-}
+export type DeferResult = Result<'defer'>
+export type RetryResult = Result<'retry'>
+/**
+ * PreToolUse `ask` decision. Upstream displays the permission prompt
+ * to the user with permissionDecisionReason as the prompt text.
+ * The source label ([Project]/[User]/[Plugin]/[Local]) is added by
+ * Claude Code — reason should disambiguate which hook asked.
+ */
+export type AskResult = Result<'ask'> & Reason
+export type BlockResult = Result<'block'> & Reason
+export type StopResult = Result<'stop'> & Reason
+export type FailureResult = Result<'failure'> & Reason
+export type ContinueResult = Result<'continue'> & Feedback
+export type SuccessResult = Result<'success'> & Path
 
 // --- Per-event result types ---
 
 // Guard events — allow | ask | block | defer | skip
 export type PreToolUseResult =
-  | (AllowResult & Inject & UpdatedInput<Record<string, unknown>> & OptionalReason)
-  | (AskResult & Inject & UpdatedInput<Record<string, unknown>>)
-  | (BlockResult & Inject)
+  // `Partial<Reason>`: optional `reason?: string` surfaced as
+  // `hookSpecificOutput.permissionDecisionReason` on allow per upstream's
+  // decision-control contract.
+  | (AllowResult & InjectContext & UpdatedInput<Record<string, unknown>> & Partial<Reason>)
+  | (AskResult & InjectContext & UpdatedInput<Record<string, unknown>>)
+  | (BlockResult & InjectContext)
   | DeferResult
-  | (SkipResult & Inject)
+  | (SkipResult & InjectContext)
 export type UserPromptSubmitResult = (AllowResult | BlockResult | SkipResult) &
-  Inject &
+  InjectContext &
   SessionTitle
 export type PermissionRequestResult =
   | (AllowResult & UpdatedInput<Record<string, unknown>> & UpdatedPermissions)
@@ -113,20 +80,20 @@ export type ConfigChangeResult = AllowResult | BlockResult | SkipResult
 export type PreCompactResult = AllowResult | BlockResult | SkipResult
 
 // Notify-only events — skip only, output is dropped upstream
-// StopFailureResult is intentionally NOT intersected with Inject:
+// StopFailureResult is intentionally NOT intersected with InjectContext:
 // upstream drops all output, so additionalContext would silently never reach Claude.
 export type StopFailureResult = SkipResult
 
 // Observe events — skip only
-export type SessionStartResult = SkipResult & Inject
+export type SessionStartResult = SkipResult & InjectContext
 export type SessionEndResult = SkipResult
 export type InstructionsLoadedResult = SkipResult
 export type PostToolUseResult =
-  | (SkipResult & Inject & UpdatedMcpToolOutput)
-  | (BlockResult & Inject & UpdatedMcpToolOutput)
-export type PostToolUseFailureResult = SkipResult & Inject
-export type NotificationResult = SkipResult & Inject
-export type SubagentStartResult = SkipResult & Inject
+  | (SkipResult & InjectContext & UpdatedMcpToolOutput)
+  | (BlockResult & InjectContext & UpdatedMcpToolOutput)
+export type PostToolUseFailureResult = SkipResult & InjectContext
+export type NotificationResult = SkipResult & InjectContext
+export type SubagentStartResult = SkipResult & InjectContext
 export type WorktreeRemoveResult = SkipResult
 export type PostCompactResult = SkipResult
 

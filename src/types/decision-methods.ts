@@ -1,10 +1,14 @@
-// Per-event decision-method types for the 20 events that are not the two
-// tool-keyed DUs. The two tool-keyed DU method types — `PreToolUseDecisionMethods`
-// and `PermissionRequestDecisionMethods` — stay in `src/types/contexts.ts`
-// because they are generic over `ToolInput` and intersect into the per-variant
-// arms of the DU. The 20 method types in this file are not generic over input.
+// Per-event decision-method types for the 18 events that are not the four
+// tool-keyed DUs. The four tool-keyed DU method types —
+// `PreToolUseDecisionMethods`, `PermissionRequestDecisionMethods`,
+// `PostToolUseDecisionMethods`, and `PostToolUseFailureDecisionMethods` —
+// stay in `src/types/contexts.ts` because they are generic over `Input` and
+// intersect into the per-variant arms of a DU. (PostToolUse and
+// PostToolUseFailure were promoted from flat records to discriminated unions
+// in PLAN-FEAT-0064D.) The 18 method types in this file are not generic over
+// input.
 //
-// File-split rationale (PLAN-FEAT-0063 M3): adding all 20 method types into
+// File-split rationale (PLAN-FEAT-0063 M3): adding all 18 method types into
 // `contexts.ts` would push it past the ~300-line domain-doc convention. Splitting
 // keeps `contexts.ts` focused on the context interfaces and isolates the
 // per-event method-set declarations here.
@@ -32,12 +36,11 @@
 
 import type {
   DebugMessage,
-  Inject,
+  InjectContext,
   Reason,
   Feedback,
   Path,
   SessionTitle,
-  UpdatedMcpToolOutput,
   Allow,
   Block,
   Skip,
@@ -53,12 +56,10 @@ import type {
   SubagentStopResult,
   ConfigChangeResult,
   PreCompactResult,
-  PostToolUseResult,
   PermissionDeniedResult,
   SessionStartResult,
   SessionEndResult,
   InstructionsLoadedResult,
-  PostToolUseFailureResult,
   NotificationResult,
   SubagentStartResult,
   WorktreeRemoveResult,
@@ -70,6 +71,12 @@ import type {
   TaskCompletedResult,
 } from './results.js'
 
+// Note: `PostToolUseDecisionMethods<Input>` and `PostToolUseFailureDecisionMethods<Input>`
+// live in `src/types/contexts.ts` (alongside `PreToolUseDecisionMethods<Input>` and
+// `PermissionRequestDecisionMethods<Input>`) — they are generic over per-tool input and
+// intersect into the per-variant arms of the PostToolUse / PostToolUseFailure DUs
+// (PLAN-FEAT-0064D M3 promotes those events to discriminated unions).
+
 // --- Guard events ---
 
 /**
@@ -80,11 +87,11 @@ import type {
  * upstream-quirk caveat.
  */
 export type UserPromptSubmitDecisionMethods = Allow<
-  DebugMessage & Inject & SessionTitle,
+  InjectContext & SessionTitle,
   UserPromptSubmitResult
 > &
-  Block<Reason & Inject & SessionTitle, UserPromptSubmitResult> &
-  Skip<DebugMessage & Inject & SessionTitle, UserPromptSubmitResult>
+  Block<Reason & InjectContext & SessionTitle, UserPromptSubmitResult> &
+  Skip<InjectContext & SessionTitle, UserPromptSubmitResult>
 
 /**
  * Decision methods for `StopContext`.
@@ -137,20 +144,6 @@ export type PreCompactDecisionMethods = Allow<DebugMessage, PreCompactResult> &
 // --- Observe events ---
 
 /**
- * Decision methods for `PostToolUseContext`.
- *
- * `PostToolUseContext` is intentionally flat (not promoted to a DU) — see
- * PLAN-FEAT-0063 Decision Log "PostToolUseContext stays flat." `toolName` is
- * `string`, so the `updatedMCPToolOutput` MCP-only caveat is documented in
- * JSDoc and not enforced at the type level.
- */
-export type PostToolUseDecisionMethods = Block<
-  Reason & Inject & UpdatedMcpToolOutput,
-  PostToolUseResult
-> &
-  Skip<DebugMessage & Inject & UpdatedMcpToolOutput, PostToolUseResult>
-
-/**
  * Decision methods for `PermissionDeniedContext`.
  *
  * `retry: true` does not reverse the denial — it adds a hint that the model
@@ -159,20 +152,15 @@ export type PostToolUseDecisionMethods = Block<
 export type PermissionDeniedDecisionMethods = Retry<DebugMessage, PermissionDeniedResult> &
   Skip<DebugMessage, PermissionDeniedResult>
 
-export type SessionStartDecisionMethods = Skip<DebugMessage & Inject, SessionStartResult>
+export type SessionStartDecisionMethods = Skip<InjectContext, SessionStartResult>
 
 export type SessionEndDecisionMethods = Skip<DebugMessage, SessionEndResult>
 
 export type InstructionsLoadedDecisionMethods = Skip<DebugMessage, InstructionsLoadedResult>
 
-export type PostToolUseFailureDecisionMethods = Skip<
-  DebugMessage & Inject,
-  PostToolUseFailureResult
->
+export type NotificationDecisionMethods = Skip<InjectContext, NotificationResult>
 
-export type NotificationDecisionMethods = Skip<DebugMessage & Inject, NotificationResult>
-
-export type SubagentStartDecisionMethods = Skip<DebugMessage & Inject, SubagentStartResult>
+export type SubagentStartDecisionMethods = Skip<InjectContext, SubagentStartResult>
 
 export type WorktreeRemoveDecisionMethods = Skip<DebugMessage, WorktreeRemoveResult>
 
