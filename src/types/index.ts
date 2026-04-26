@@ -1,5 +1,5 @@
-// Public API for @clooks/types.
-// Re-exports everything consumers need.
+// Public type surface for clooks. Imported by hook authors and consumed by
+// the bundled `.d.ts` shipped to users.
 
 export type {
   PermissionMode,
@@ -12,10 +12,6 @@ export type {
   ConfigChangeSource,
 } from './branded.js'
 
-// Re-export StopFailureErrorType so the bundled `.d.ts` emits it as `export type`
-// rather than dropping the `export` keyword (dts-bundle-generator default for
-// types only referenced internally). Required for hook authors who import the
-// type directly. See PLAN-FEAT-0063 Surprises "M3 finding ... StopFailure*".
 export type { StopFailureErrorType } from './claude-code.js'
 
 export type {
@@ -100,7 +96,7 @@ export type {
   TeammateIdleContext,
   TaskCreatedContext,
   TaskCompletedContext,
-  // PreToolUse tool input types — narrow via ctx.toolName discriminant
+  // Tool-input shapes — narrow via `ctx.toolName` to consume.
   BashToolInput,
   WriteToolInput,
   EditToolInput,
@@ -123,10 +119,6 @@ export type {
 
 export type { Patch } from './patch.js'
 
-// Re-export StopFailureDecisionMethods so the bundled `.d.ts` emits it as
-// `export type`. The other per-event DecisionMethods types stay internal —
-// they're intersected into contexts and rarely imported by name. StopFailure
-// is called out explicitly per the plan's M3 surprise + M4 verification gate.
 export type { StopFailureDecisionMethods } from './decision-methods.js'
 
 export type { MaybeAsync, HookMeta, ClooksHook } from './hook.js'

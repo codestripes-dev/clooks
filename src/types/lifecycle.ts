@@ -1,5 +1,5 @@
-// Lifecycle types for beforeHook / afterHook.
-// Reference: docs/plans/hook-lifecycle/M1-type-foundation.md
+// Lifecycle types: EventContextMap, EventResultMap, and the BeforeHookEvent /
+// AfterHookEvent unions used by `beforeHook` / `afterHook`.
 
 import type { EventName } from './branded.js'
 
@@ -55,6 +55,7 @@ import type {
   SkipResult,
 } from './results.js'
 
+/** Maps each event name to its context type. Useful for generic helpers. */
 export interface EventContextMap extends Record<EventName, unknown> {
   PreToolUse: PreToolUseContext
   PostToolUse: PostToolUseContext
@@ -80,6 +81,7 @@ export interface EventContextMap extends Record<EventName, unknown> {
   TaskCompleted: TaskCompletedContext
 }
 
+/** Maps each event name to its result type. Useful for generic helpers. */
 export interface EventResultMap extends Record<EventName, unknown> {
   PreToolUse: PreToolUseResult
   PostToolUse: PostToolUseResult
@@ -105,22 +107,22 @@ export interface EventResultMap extends Record<EventName, unknown> {
   TaskCompleted: TaskCompletedResult
 }
 
+/** Environment metadata passed to `beforeHook` / `afterHook` on every invocation. */
 export interface HookEventMeta {
-  /** Repo root via `git rev-parse --show-toplevel`. Null if not in a git repo. */
+  /** Repo root from `git rev-parse --show-toplevel`. Null outside a git repo. */
   gitRoot: string | null
-  /** Current branch. Null if detached HEAD or not in a git repo. */
+  /** Current branch. Null on detached HEAD or outside a git repo. */
   gitBranch: string | null
-  /** OS platform. */
   platform: 'darwin' | 'linux'
-  /** This hook's name (same as meta.name). */
+  /** This hook's name (matches `meta.name`). */
   hookName: string
-  /** Absolute path to the hook's .ts file. */
+  /** Absolute path to the hook's `.ts` file. */
   hookPath: string
   /** ISO 8601 timestamp of engine invocation start. */
   timestamp: string
-  /** Runtime version string. */
+  /** clooks runtime version. */
   clooksVersion: string
-  /** Path to the clooks.yml that registered this hook. */
+  /** Path to the `clooks.yml` that registered this hook. */
   configPath: string
 }
 
@@ -131,6 +133,11 @@ type BeforeHookEventVariants = {
   }
 }[EventName]
 
+/**
+ * Event passed to `beforeHook`. Narrow on `event.type` to access the typed
+ * `event.input` (the matching context). Call `event.respond({ result: 'block' | 'skip' })`
+ * to short-circuit before the per-event handler runs.
+ */
 export type BeforeHookEvent = {
   meta: HookEventMeta
   respond(result: BlockResult | SkipResult): void
@@ -145,6 +152,11 @@ type AfterHookEventVariants = {
   }
 }[EventName]
 
+/**
+ * Event passed to `afterHook`. Narrow on `event.type` to access the typed
+ * `event.input` and `event.handlerResult`. Call `event.respond(...)` to
+ * override the result the engine emits.
+ */
 export type AfterHookEvent = {
   meta: HookEventMeta
 } & AfterHookEventVariants

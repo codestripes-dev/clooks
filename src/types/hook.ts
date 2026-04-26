@@ -1,5 +1,4 @@
-// The ClooksHook contract. A hook file exports a single typed object.
-// Reference: docs/plans/2026-03-08-hook-type-system-design.md
+// The shape every hook file exports.
 
 import type {
   PreToolUseContext,
@@ -53,23 +52,41 @@ import type {
 
 import type { BeforeHookEvent, AfterHookEvent } from './lifecycle.js'
 
+/** A handler return type that may be sync or async. */
 export type MaybeAsync<T> = T | Promise<T>
 
+/** The `meta` export every hook file must produce. */
 export interface HookMeta<C extends Record<string, unknown> = Record<string, unknown>> {
   /** Human-readable name. Must be unique within a project. */
   name: string
-  /** Optional description. */
+  /** Optional one-liner describing what the hook does. */
   description?: string
-  /** Config defaults. Must satisfy the Config interface. */
+  /** Default config for this hook. Users can override via `clooks.yml`. */
   config?: C
 }
 
+/**
+ * The full hook contract. One per `.ts` file: export a `meta` plus one or
+ * more event handlers, e.g.:
+ *
+ * @example
+ * export const meta: HookMeta = { name: 'guard-rm-rf' }
+ * export default {
+ *   meta,
+ *   PreToolUse(ctx) {
+ *     if (ctx.toolName === 'Bash' && ctx.toolInput.command.includes('rm -rf /')) {
+ *       return ctx.block({ reason: 'No.' })
+ *     }
+ *     return ctx.skip()
+ *   },
+ * } satisfies ClooksHook
+ */
 export interface ClooksHook<C extends Record<string, unknown> = Record<string, unknown>> {
   meta: HookMeta<C>
 
-  /** Runs before the matched event handler. Call event.respond() to block. */
+  /** Runs before the matched event handler. Call `event.respond()` to short-circuit. */
   beforeHook?: (event: BeforeHookEvent, config: C) => MaybeAsync<void>
-  /** Runs after the matched event handler completes normally. Call event.respond() to override. */
+  /** Runs after the matched event handler. Call `event.respond()` to override the result. */
   afterHook?: (event: AfterHookEvent, config: C) => MaybeAsync<void>
 
   // Guard events

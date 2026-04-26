@@ -247,10 +247,9 @@ export interface PostCompactInput extends ClaudeCodeCommonInput {
 // --- Notify-only events (output ignored upstream) ---
 
 /**
- * Error type for StopFailure. The seven documented upstream literals are
- * enumerated; `(string & {})` keeps the union forward-compatible with
- * any new error categories Claude Code introduces without requiring a
- * Clooks release.
+ * Categories of API failure that surface on `StopFailureContext.error`.
+ * Use to branch your alerting logic — e.g. page on `rate_limit`, ignore
+ * `max_output_tokens`.
  */
 export type StopFailureErrorType =
   | 'rate_limit'

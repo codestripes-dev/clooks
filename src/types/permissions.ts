@@ -1,10 +1,11 @@
-// Typed discriminated union for PermissionRequest's `permission_suggestions`
-// (input wire), `permissionSuggestions` (normalized context), and
-// `updatedPermissions` (allow-result output). Shape mirrors upstream wire
-// format per docs/domain/raw-claude-ai/hook-docs/PermissionRequest.md.
+// Permission update types for PermissionRequest events.
+// Used both for the suggestions Claude Code attaches to a permission request
+// (`ctx.permissionSuggestions`) and for the rule changes a hook can return on
+// allow (`updatedPermissions`).
 
 import type { PermissionMode } from './branded.js'
 
+/** Where a permission rule is written. `session` = ephemeral; the others persist. */
 export type PermissionDestination =
   | 'session'
   | 'localSettings'
@@ -12,16 +13,19 @@ export type PermissionDestination =
   | 'userSettings'
   | (string & {})
 
+/** What the rule does when matched. */
 export type PermissionRuleBehavior = 'allow' | 'deny' | 'ask' | (string & {})
 
-/** A single permission rule entry. `ruleContent` omitted = match the whole tool. */
+/** A single permission rule. Omit `ruleContent` to match every invocation of `toolName`. */
 export interface PermissionRule {
   toolName: string
   ruleContent?: string
 }
 
-/** Discriminated by the `type` field. Used for both PermissionRequest's
- *  `permission_suggestions` input and the `updatedPermissions` allow output. */
+/**
+ * One permission change. Discriminated by `type` — narrow before reading
+ * shape-specific fields (e.g. `rules` vs `directories` vs `mode`).
+ */
 export type PermissionUpdateEntry =
   | {
       type: 'addRules'

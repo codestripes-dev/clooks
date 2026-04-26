@@ -1,5 +1,8 @@
-// Base context and 22 per-event context interfaces.
-// The `event` field is the discriminant literal for each context type.
+// Per-event context types. Each one carries event-specific input fields plus
+// `ctx.allow / block / skip / ...` decision methods that build the result.
+//
+// Usage pattern: narrow on `ctx.event` first, then (for tool-keyed events)
+// narrow on `ctx.toolName` to get a typed `ctx.toolInput`.
 
 import type {
   EventName,
@@ -59,7 +62,9 @@ import type {
   TaskCompletedDecisionMethods,
 } from './decision-methods.js'
 
+/** Fields present on every context. Mixed into each per-event context type. */
 export interface BaseContext {
+  /** Event name. Narrow on this first inside multi-event hooks. */
   event: EventName
   sessionId: string
   cwd: string
@@ -67,45 +72,52 @@ export interface BaseContext {
   transcriptPath: string
   agentId?: string
   agentType?: string
-  /** True when this hook is running in a parallel batch. */
+  /** True when this hook is one of several running in parallel for the same event. */
   parallel: boolean
-  /** AbortSignal scoped to the current batch. Aborted when a parallel batch short-circuits. */
+  /** Aborted when a parallel batch short-circuits. Pass to long-running async work. */
   signal: AbortSignal
 }
 
-// --- Guard events ---
+// --- Tool input shapes ---
+// Field names mirror Claude Code's `tool_input`, normalized to camelCase.
+// To get a typed `ctx.toolInput`, narrow on `ctx.toolName` first.
 
-// --- PreToolUse per-tool input types (camelCase, post-normalize) ---
-// These mirror the tool_input fields Claude Code sends upstream
-// (docs/domain/raw-claude-ai/hook-docs/PreToolUse.md:11-112), transformed
-// through src/normalize.ts: snake_case keys become camelCase. Authors
-// narrow on ctx.toolName to get a typed ctx.toolInput.
-
+/** Input for the `Bash` tool. */
 export interface BashToolInput {
   command: string
   description?: string
   timeout?: number
   runInBackground?: boolean
 }
+
+/** Input for the `Write` tool. */
 export interface WriteToolInput {
   filePath: string
   content: string
 }
+
+/** Input for the `Edit` tool. */
 export interface EditToolInput {
   filePath: string
   oldString: string
   newString: string
   replaceAll?: boolean
 }
+
+/** Input for the `Read` tool. */
 export interface ReadToolInput {
   filePath: string
   offset?: number
   limit?: number
 }
+
+/** Input for the `Glob` tool. */
 export interface GlobToolInput {
   pattern: string
   path?: string
 }
+
+/** Input for the `Grep` tool. */
 export interface GrepToolInput {
   pattern: string
   path?: string
@@ -114,21 +126,29 @@ export interface GrepToolInput {
   '-i'?: boolean
   multiline?: boolean
 }
+
+/** Input for the `WebFetch` tool. */
 export interface WebFetchToolInput {
   url: string
   prompt: string
 }
+
+/** Input for the `WebSearch` tool. */
 export interface WebSearchToolInput {
   query: string
   allowedDomains?: string[]
   blockedDomains?: string[]
 }
+
+/** Input for the `Agent` tool (subagent invocation). */
 export interface AgentToolInput {
   prompt: string
   description: string
   subagentType: string
   model?: string
 }
+
+/** Input for the `AskUserQuestion` tool. */
 export interface AskUserQuestionToolInput {
   questions: Array<{
     question: string
@@ -140,15 +160,11 @@ export interface AskUserQuestionToolInput {
 }
 
 /**
- * Single source of truth for the 10 known Claude Code tool names and their
- * camelCase input shapes. The four tool-keyed DU contexts (PreToolUse,
- * PermissionRequest, PostToolUse, PostToolUseFailure) derive their variants
- * by mapping over this interface.
+ * Map of every built-in tool name to its input type. Useful for writing
+ * generic helpers, e.g.:
  *
- * Adding a new tool: add a key here and the four contexts pick it up
- * automatically. The corresponding `*Unknown<Event>Context` escape hatches
- * remain valid for tools NOT in this map (MCP tools, ExitPlanMode, future
- * upstream additions).
+ * @example
+ * function logBash(input: ToolInputMap['Bash']) { ... }
  */
 export interface ToolInputMap {
   Bash: BashToolInput
@@ -163,23 +179,18 @@ export interface ToolInputMap {
   AskUserQuestion: AskUserQuestionToolInput
 }
 
+// --- PreToolUse ---
+
 /**
- * Per-variant decision-method set for `PreToolUseContext`. Intersected onto each
- * tool-arm of the DU so that `ctx.allow({ updatedInput })` receives a typed
- * `Patch<NarrowedToolInput>` after a `ctx.toolName` discriminant check.
- *
- * The methods are pure value constructors — see `src/engine/context-methods.ts`.
- *
- * `defer` is honored only in `claude -p` mode AND only when the turn contains
- * a single tool call. Otherwise upstream Claude Code logs a warning and
- * ignores it. Requires Claude Code v2.1.89+. Upstream ignores `reason`,
- * `updatedInput`, and `additionalContext` for `defer` — the opts bag carries
- * only `debugMessage`.
+ * Decision methods on `PreToolUseContext`. Available verbs:
+ * - `allow` — proceed (optionally patching the input via `updatedInput`).
+ * - `ask` — surface a permission prompt (`reason` becomes the prompt).
+ * - `block` — refuse (`reason` is shown to the agent).
+ * - `defer` — pause for `claude -p --resume`. Honored only in `-p` mode and
+ *   only when the turn has a single tool call; ignored otherwise.
+ * - `skip` — let other hooks (or Claude Code's defaults) decide.
  */
 export type PreToolUseDecisionMethods<Input> = Allow<
-  // `Partial<Reason>`: optional `reason?: string` surfaced as
-  // `hookSpecificOutput.permissionDecisionReason` on allow per upstream's
-  // decision-control contract.
   UpdatedInput<Patch<Input>> & Partial<Reason> & InjectContext,
   PreToolUseResult
 > &
@@ -188,6 +199,22 @@ export type PreToolUseDecisionMethods<Input> = Allow<
   Defer<DebugMessage, PreToolUseResult> &
   Skip<InjectContext, PreToolUseResult>
 
+/**
+ * Context for a `PreToolUse` event — fires before any tool call. The richest
+ * decision surface in clooks: allow, ask, block, defer, or skip.
+ *
+ * Tool-keyed: `ctx.toolName` discriminates the union. Narrow on it to get a
+ * typed `ctx.toolInput` and a typed `Patch<Input>` on `updatedInput`.
+ *
+ * For tool names not in `ToolInputMap` (MCP tools, ExitPlanMode, future
+ * upstream tools), use `UnknownPreToolUseContext`.
+ *
+ * @example
+ * if (ctx.event !== 'PreToolUse') return ctx.skip()
+ * if (ctx.toolName === 'Bash' && ctx.toolInput.command.includes('rm -rf /')) {
+ *   return ctx.block({ reason: 'No.' })
+ * }
+ */
 export type PreToolUseContext = {
   [K in keyof ToolInputMap & string]: Prettify<
     BaseContext & {
@@ -199,9 +226,9 @@ export type PreToolUseContext = {
 }[keyof ToolInputMap & string]
 
 /**
- * Context for a PreToolUse event where the tool name is not one of the 10
- * known variants (e.g. MCP tools, ExitPlanMode, future upstream tools).
- * Cast from `PreToolUseContext` when handling unknown tool names.
+ * `PreToolUse` context for tools NOT in `ToolInputMap` — MCP tools,
+ * `ExitPlanMode`, future upstream additions. `toolInput` is
+ * `Record<string, unknown>` (not narrowed). Cast from raw ctx.
  *
  * @example
  * const ctx = rawCtx as unknown as UnknownPreToolUseContext
@@ -215,19 +242,23 @@ export type UnknownPreToolUseContext = Prettify<
     PreToolUseDecisionMethods<Record<string, unknown>>
 >
 
+// --- UserPromptSubmit ---
+
+/** Context for `UserPromptSubmit` — fires when the user submits a prompt. */
 export type UserPromptSubmitContext = BaseContext & {
   event: 'UserPromptSubmit'
   prompt: string
 } & UserPromptSubmitDecisionMethods
 
+// --- PermissionRequest ---
+
 /**
- * Per-variant decision-method set for `PermissionRequestContext`. Intersected
- * onto each tool-arm of the DU so that `permCtx.allow({ updatedInput })`
- * receives a typed `Patch<NarrowedToolInput>` after a `permCtx.toolName`
- * discriminant check. Mirrors the `PreToolUseDecisionMethods` pattern.
+ * Decision methods on `PermissionRequestContext`. Available verbs:
+ * - `allow` — grant the permission (optionally patching input or rules).
+ * - `block` — deny. `interrupt: true` halts the agent's current turn.
+ * - `skip` — let Claude Code present the normal prompt to the user.
  *
- * `PermissionRequestResult` only models three result tags (allow / block /
- * skip) — there is no `ask` / `defer` here.
+ * No `ask` or `defer` — this event is the prompt itself.
  */
 export type PermissionRequestDecisionMethods<Input> = Allow<
   UpdatedInput<Patch<Input>> & UpdatedPermissions,
@@ -236,6 +267,16 @@ export type PermissionRequestDecisionMethods<Input> = Allow<
   Block<Reason & Interrupt, PermissionRequestResult> &
   Skip<DebugMessage, PermissionRequestResult>
 
+/**
+ * Context for a `PermissionRequest` — fires when Claude Code is about to
+ * prompt the user for permission. Hook can answer on the user's behalf.
+ *
+ * Tool-keyed: narrow on `ctx.toolName` for a typed `ctx.toolInput` and
+ * `Patch<Input>`. Use `UnknownPermissionRequestContext` for non-built-in tools.
+ *
+ * `ctx.permissionSuggestions` carries the rule changes Claude Code is
+ * proposing; you can return them on `allow` to apply them.
+ */
 export type PermissionRequestContext = {
   [K in keyof ToolInputMap & string]: Prettify<
     BaseContext &
@@ -247,10 +288,8 @@ export type PermissionRequestContext = {
 }[keyof ToolInputMap & string]
 
 /**
- * Context for a PermissionRequest event where the tool name is not one of the
- * 10 known variants (e.g. MCP tools, future upstream tools). Sibling to
- * `UnknownPreToolUseContext`. Cast from raw ctx when handling unknown tool
- * names.
+ * `PermissionRequest` context for tools NOT in `ToolInputMap`. Cast from raw
+ * ctx when handling MCP or future upstream tools.
  *
  * @example
  * const ctx = rawCtx as unknown as UnknownPermissionRequestContext
@@ -266,12 +305,20 @@ export type UnknownPermissionRequestContext = Prettify<
     PermissionRequestDecisionMethods<Record<string, unknown>>
 >
 
+// --- Stop / SubagentStop ---
+
+/**
+ * Context for `Stop` — fires when the main agent has finished its turn.
+ * Use `block({ reason })` to force the agent to keep going; `reason` becomes
+ * the next-turn instruction.
+ */
 export type StopContext = BaseContext & {
   event: 'Stop'
   stopHookActive: boolean
   lastAssistantMessage: string
 } & StopDecisionMethods
 
+/** Context for `SubagentStop` — same shape as `StopContext` but for a subagent. */
 export type SubagentStopContext = BaseContext & {
   event: 'SubagentStop'
   stopHookActive: boolean
@@ -281,40 +328,57 @@ export type SubagentStopContext = BaseContext & {
   lastAssistantMessage: string
 } & SubagentStopDecisionMethods
 
+// --- ConfigChange ---
+
+/**
+ * Context for `ConfigChange` — fires when a settings file changes.
+ * `block` is downgraded to `skip` for `policy_settings` (those can't be
+ * blocked upstream).
+ */
 export type ConfigChangeContext = BaseContext & {
   event: 'ConfigChange'
   source: ConfigChangeSource
   filePath?: string
 } & ConfigChangeDecisionMethods
 
-// --- Notify-only events ---
+// --- StopFailure ---
 
+/**
+ * Context for `StopFailure` — fires INSTEAD of `Stop` when the turn ended
+ * with an upstream API error (rate limit, auth, billing, etc.). Output is
+ * dropped by Claude Code; use the handler for logging or alerting only.
+ */
 export type StopFailureContext = BaseContext & {
   event: 'StopFailure'
+  /** Error category. Branch your alerting on this. */
   error: StopFailureErrorType
   errorDetails?: string
   /**
-   * For StopFailure, this is the rendered API error string
-   * (e.g., "API Error: Rate limit reached") — NOT Claude's
-   * conversational text as in Stop / SubagentStop. See `errorDetails`
-   * for additional structured detail.
+   * Rendered API error string (e.g. `"API Error: Rate limit reached"`) — NOT
+   * Claude's conversational text as in `Stop` / `SubagentStop`.
    */
   lastAssistantMessage?: string
 } & StopFailureDecisionMethods
 
 // --- Observe events ---
 
+/**
+ * Context for `SessionStart`. Use `skip({ injectContext })` to seed the agent
+ * with extra context at startup (e.g. recent commits, open PRs, project notes).
+ */
 export type SessionStartContext = BaseContext & {
   event: 'SessionStart'
   source: SessionStartSource
   model?: string
 } & SessionStartDecisionMethods
 
+/** Context for `SessionEnd`. Pure observer — do cleanup work in the handler. */
 export type SessionEndContext = BaseContext & {
   event: 'SessionEnd'
   reason: SessionEndReason
 } & SessionEndDecisionMethods
 
+/** Context for `InstructionsLoaded` — fires when a CLAUDE.md or rules file is loaded. */
 export type InstructionsLoadedContext = BaseContext & {
   event: 'InstructionsLoaded'
   filePath: string
@@ -325,16 +389,12 @@ export type InstructionsLoadedContext = BaseContext & {
   parentFilePath?: string
 } & InstructionsLoadedDecisionMethods
 
+// --- PostToolUse ---
+
 /**
- * Per-variant decision-method set for `PostToolUseContext`. Intersected
- * onto each tool-arm of the DU so that `ctx.skip({ updatedMCPToolOutput })`
- * receives a typed input post-narrowing.
- *
- * `PostToolUseContext` was promoted from a flat record to a discriminated
- * union in PLAN-FEAT-0064D. The `Input` generic is currently unused in the
- * method-shape composition (the methods don't reference per-tool input
- * directly because `updatedMCPToolOutput?: unknown` is loose). Kept for
- * symmetry with the other tool-keyed events.
+ * Decision methods on `PostToolUseContext`. Verbs: `block` (flag the tool
+ * result back to the agent) or `skip`. The `Input` generic is currently
+ * unused at the value level; kept for symmetry with the other tool-keyed events.
  */
 export type PostToolUseDecisionMethods<_Input> = Block<
   Reason & InjectContext & UpdatedMcpToolOutput,
@@ -342,6 +402,12 @@ export type PostToolUseDecisionMethods<_Input> = Block<
 > &
   Skip<InjectContext & UpdatedMcpToolOutput, PostToolUseResult>
 
+/**
+ * Context for `PostToolUse` — fires after a tool call succeeds. Read
+ * `ctx.toolResponse` to inspect the result. Tool-keyed: narrow on
+ * `ctx.toolName` for typed `ctx.toolInput`. Use `UnknownPostToolUseContext`
+ * for non-built-in tools.
+ */
 export type PostToolUseContext = {
   [K in keyof ToolInputMap & string]: Prettify<
     BaseContext & {
@@ -354,10 +420,7 @@ export type PostToolUseContext = {
 }[keyof ToolInputMap & string]
 
 /**
- * Context for a PostToolUse event where the tool name is not one of the 10
- * known variants (e.g. MCP tools, ExitPlanMode, future upstream tools).
- * Cast from raw ctx when handling unknown tool names. Mirrors the
- * `UnknownPreToolUseContext` pattern.
+ * `PostToolUse` context for tools NOT in `ToolInputMap`. Cast from raw ctx.
  *
  * @example
  * const ctx = rawCtx as unknown as UnknownPostToolUseContext
@@ -372,20 +435,20 @@ export type UnknownPostToolUseContext = Prettify<
     PostToolUseDecisionMethods<Record<string, unknown>>
 >
 
-/**
- * Per-variant decision-method set for `PostToolUseFailureContext`. Intersected
- * onto each tool-arm of the DU.
- *
- * `PostToolUseFailureContext` was promoted from a flat record to a discriminated
- * union in PLAN-FEAT-0064D. The `Input` generic is currently unused (only
- * `skip` exists, and it doesn't reference per-tool input); kept for symmetry
- * with the other tool-keyed events.
- */
+// --- PostToolUseFailure ---
+
+/** Decision methods on `PostToolUseFailureContext`. Only `skip` is available. */
 export type PostToolUseFailureDecisionMethods<_Input> = Skip<
   InjectContext,
   PostToolUseFailureResult
 >
 
+/**
+ * Context for `PostToolUseFailure` — fires after a tool call errors.
+ * `ctx.error` carries the error message. Tool-keyed: narrow on `ctx.toolName`
+ * for typed `ctx.toolInput`. Use `skip({ injectContext })` to feed extra
+ * context to the agent for its retry.
+ */
 export type PostToolUseFailureContext = {
   [K in keyof ToolInputMap & string]: Prettify<
     BaseContext & {
@@ -399,8 +462,7 @@ export type PostToolUseFailureContext = {
 }[keyof ToolInputMap & string]
 
 /**
- * Context for a PostToolUseFailure event where the tool name is not one of the
- * 10 known variants. Cast from raw ctx when handling unknown tool names.
+ * `PostToolUseFailure` context for tools NOT in `ToolInputMap`. Cast from raw ctx.
  *
  * @example
  * const ctx = rawCtx as unknown as UnknownPostToolUseFailureContext
@@ -416,6 +478,9 @@ export type UnknownPostToolUseFailureContext = Prettify<
     PostToolUseFailureDecisionMethods<Record<string, unknown>>
 >
 
+// --- Notification ---
+
+/** Context for `Notification` — fires when Claude Code is about to show a notification. */
 export type NotificationContext = BaseContext & {
   event: 'Notification'
   message: string
@@ -423,41 +488,69 @@ export type NotificationContext = BaseContext & {
   notificationType?: NotificationType
 } & NotificationDecisionMethods
 
+// --- SubagentStart ---
+
+/**
+ * Context for `SubagentStart` — fires when a subagent is spawned via the
+ * `Agent` tool. Use `skip({ injectContext })` to seed the subagent.
+ */
 export type SubagentStartContext = BaseContext & {
   event: 'SubagentStart'
   agentId: string
   agentType: string
 } & SubagentStartDecisionMethods
 
+// --- WorktreeRemove ---
+
+/** Context for `WorktreeRemove`. Pure observer; useful for cleanup. */
 export type WorktreeRemoveContext = BaseContext & {
   event: 'WorktreeRemove'
   worktreePath: string
 } & WorktreeRemoveDecisionMethods
 
+// --- Compact events ---
+
+/**
+ * Context for `PreCompact` — fires before Claude Code compacts the
+ * conversation. `block` cancels the compaction.
+ */
 export type PreCompactContext = BaseContext & {
   event: 'PreCompact'
   trigger: PreCompactTrigger
   customInstructions: string
 } & PreCompactDecisionMethods
 
+/** Context for `PostCompact` — fires after a compaction completes. Pure observer. */
 export type PostCompactContext = BaseContext & {
   event: 'PostCompact'
   trigger: PreCompactTrigger
   compactSummary: string
 } & PostCompactDecisionMethods
 
+// --- PermissionDenied ---
+
+/**
+ * Context for `PermissionDenied` — fires in auto mode when the permission
+ * classifier denies a tool call. Hooks cannot reverse the denial; `retry`
+ * only hints that the model may try again.
+ */
 export type PermissionDeniedContext = BaseContext & {
   event: 'PermissionDenied'
   toolName: string
-  /** Tool input as provided to Claude Code. Keys are camelCase. */
+  /** Tool input as Claude Code received it. Keys are camelCase. */
   toolInput: Record<string, unknown>
   toolUseId: string
-  /** The classifier's explanation for why the tool call was denied. */
+  /** The classifier's explanation for the denial. */
   denialReason: string
 } & PermissionDeniedDecisionMethods
 
-// --- Implementation events ---
+// --- WorktreeCreate ---
 
+/**
+ * Context for `WorktreeCreate`. Your hook REPLACES Claude Code's default
+ * `git worktree` behavior — return `success({ path })` with the absolute
+ * path to the worktree you created, or `failure({ reason })`.
+ */
 export type WorktreeCreateContext = BaseContext & {
   event: 'WorktreeCreate'
   name: string
@@ -465,12 +558,22 @@ export type WorktreeCreateContext = BaseContext & {
 
 // --- Continuation events ---
 
+/**
+ * Context for `TeammateIdle` — fires when an agent-team teammate is about to
+ * go idle. Use `continue({ feedback })` to push another step or
+ * `stop({ reason })` to terminate the teammate.
+ */
 export type TeammateIdleContext = BaseContext & {
   event: 'TeammateIdle'
   teammateName: string
   teamName: string
 } & TeammateIdleDecisionMethods
 
+/**
+ * Context for `TaskCreated` — fires when a teammate is creating a task.
+ * `continue({ feedback })` refuses to create it and feeds `feedback` back to
+ * the model. `stop({ reason })` terminates the teammate.
+ */
 export type TaskCreatedContext = BaseContext & {
   event: 'TaskCreated'
   taskId: string
@@ -480,6 +583,11 @@ export type TaskCreatedContext = BaseContext & {
   teamName?: string
 } & TaskCreatedDecisionMethods
 
+/**
+ * Context for `TaskCompleted` — fires when a teammate is marking a task
+ * complete. `continue({ feedback })` refuses completion; `stop({ reason })`
+ * terminates the teammate.
+ */
 export type TaskCompletedContext = BaseContext & {
   event: 'TaskCompleted'
   taskId: string

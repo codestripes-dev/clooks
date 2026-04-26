@@ -1,5 +1,5 @@
-// Closed union — the engine must know every event to translate results.
-// Unknown events are fail-closed errors, not forward-compatible pass-throughs.
+// Internal: closed union of every event Clooks knows how to translate.
+// Unknown events fail closed.
 export type EventName =
   | 'PreToolUse'
   | 'PostToolUse'
@@ -24,15 +24,14 @@ export type EventName =
   | 'TaskCreated'
   | 'TaskCompleted'
 
-/** Branded type for hook names — distinguishes hook names from event names and other strings. */
 export type HookName = string & { __brand: 'HookName' }
 
-/** Branded type for timeout values — distinguishes milliseconds from plain numbers (failure counts, etc.). */
 export type Milliseconds = number & { __brand: 'Milliseconds' }
 
-// Branded string types for enum-like fields.
-// Pattern: known values + (string & {}) for forward-compatibility.
+// String-literal unions below pair documented values with `(string & {})` so
+// IDE autocomplete shows the known set without rejecting future upstream values.
 
+/** Permission mode reported on `ctx.permissionMode`. Read-only — never construct. */
 export type PermissionMode =
   | 'default'
   | 'plan'
@@ -41,8 +40,10 @@ export type PermissionMode =
   | 'bypassPermissions'
   | (string & {})
 
+/** Why the session started. Available on `SessionStartContext.source`. */
 export type SessionStartSource = 'startup' | 'resume' | 'clear' | 'compact' | (string & {})
 
+/** Why the session ended. Available on `SessionEndContext.reason`. */
 export type SessionEndReason =
   | 'clear'
   | 'resume'
@@ -52,6 +53,7 @@ export type SessionEndReason =
   | 'other'
   | (string & {})
 
+/** Kind of notification Claude Code is about to display. */
 export type NotificationType =
   | 'permission_prompt'
   | 'idle_prompt'
@@ -59,8 +61,10 @@ export type NotificationType =
   | 'elicitation_dialog'
   | (string & {})
 
+/** Which CLAUDE.md tier loaded. `User` = global, `Project` / `Local` = repo, `Managed` = MDM. */
 export type InstructionsMemoryType = 'User' | 'Project' | 'Local' | 'Managed' | (string & {})
 
+/** Why an instructions file was loaded into context. */
 export type InstructionsLoadReason =
   | 'session_start'
   | 'nested_traversal'
@@ -68,8 +72,10 @@ export type InstructionsLoadReason =
   | 'include'
   | (string & {})
 
+/** Whether a compact was triggered manually (`/compact`) or automatically (context full). */
 export type PreCompactTrigger = 'manual' | 'auto' | (string & {})
 
+/** Which settings file changed. `policy_settings` changes cannot be blocked. */
 export type ConfigChangeSource =
   | 'user_settings'
   | 'project_settings'
