@@ -66,6 +66,8 @@ export type {
   Result,
   ToolVariant,
   ToolVariantWithOriginal,
+  BlockOpts,
+  SkipOpts,
 } from './method-primitives.js'
 
 export type {
@@ -129,4 +131,5 @@ export type {
   HookEventMeta,
   BeforeHookEvent,
   AfterHookEvent,
+  LifecyclePassthroughResult,
 } from './lifecycle.js'

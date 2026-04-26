@@ -4,12 +4,6 @@
 // They do not consult `ctx`, do not call any engine API, and have no side effects.
 // `attachDecisionMethods(eventName, ctx)` mutates `ctx` in place via `Object.assign`,
 // adding the per-event method set so handler code can write `ctx.allow({...})`.
-//
-// The METHOD_SETS table below is fully wired — every EventName carries at least
-// one method. The `undefined` branch in `attachDecisionMethods` guards against
-// `as EventName` escape-hatch misuse at runtime, not against missing entries.
-// `Record<EventName, …>` enforces compile-time exhaustiveness: a new event added
-// to `EventName` will fail to compile until its method set is added below.
 
 import type { EventName } from '../types/branded.js'
 import type {
@@ -23,31 +17,23 @@ import type {
   ContinueResult,
   StopResult,
   RetryResult,
+  LifecyclePassthroughResult,
 } from '../types'
 import type {
+  BlockOpts,
   DebugMessage,
   InjectContext,
-  Interrupt,
   SessionTitle,
-  UpdatedMcpToolOutput,
+  SkipOpts,
   UpdatedPermissions,
-} from '../types/method-primitives.js'
+} from '../types'
+
+export type { BlockOpts, SkipOpts }
 
 // --- Per-result-tag pure constructors ---
 //
 // Each constructor mirrors the corresponding result type from `src/types/results.ts`.
 // The opts bag is spread onto a literal-tagged object. No `ctx` access; no closures.
-//
-// Composition note (PLAN-FEAT-0064B M2 + PLAN-FEAT-0064D M1): each `*Opts`
-// interface composes from the optional field-bag primitives in
-// `src/types/method-primitives.ts` via `extends`, and inlines required fields
-// (`reason`, `feedback`, `path`). Post-Plan-D-M1, the required-field primitives
-// (`Reason`, `Feedback`, `Path`) are pure single-field bags — `DebugMessage` is
-// no longer bundled into them. Each `*Opts` interface carries its own explicit
-// `extends DebugMessage`. The runtime is structurally lenient; the per-event
-// TS-side method types narrow what callers can legally pass. See
-// PLAN-FEAT-0064B Decision Log entry "Runtime-parity audit conclusion (Open
-// Question 8 resolution)".
 
 export interface AllowOpts extends DebugMessage, InjectContext, SessionTitle, UpdatedPermissions {
   reason?: string
@@ -59,14 +45,7 @@ export interface AskOpts extends DebugMessage, InjectContext {
   updatedInput?: Record<string, unknown>
 }
 
-export interface BlockOpts
-  extends DebugMessage, InjectContext, Interrupt, UpdatedMcpToolOutput, SessionTitle {
-  reason: string
-}
-
 export type DeferOpts = DebugMessage
-
-export interface SkipOpts extends DebugMessage, InjectContext, UpdatedMcpToolOutput {}
 
 export interface SuccessOpts extends DebugMessage {
   path: string
@@ -115,10 +94,9 @@ export function failure(opts: FailureOpts): FailureResult & Record<string, unkno
 }
 
 // `continue` is a reserved word in strict-mode TS function declarations, so this
-// constructor is exported as `cont`. M3 wires it into METHOD_SETS under the property
-// key 'continue' (object property names are not subject to the reserved-word
-// restriction), so hook authors call `ctx.continue()` at runtime — the property key,
-// not the function name, is what they see. The export name is internal-only.
+// constructor is exported as `cont`. METHOD_SETS wires it under the property key
+// `'continue'` (object property names are not subject to the reserved-word
+// restriction), so hook authors call `ctx.continue()` at runtime.
 export function cont(opts: ContinueOpts): ContinueResult & Record<string, unknown> {
   return { result: 'continue', ...opts }
 }
@@ -131,12 +109,9 @@ export function retry(opts: RetryOpts = {}): RetryResult & Record<string, unknow
   return { result: 'retry', ...opts }
 }
 
-// --- Per-event method-set table ---
-//
-// Maps each `EventName` to its subset of decision-method constructors. Hook
-// authors writing `ctx.allow({...})` invoke the entry from this table for
-// their event. `Record<EventName, ...>` enforces compile-time exhaustiveness:
-// adding a new event to `EventName` fails compilation until its entry exists.
+// Maps each `EventName` to its subset of decision-method constructors.
+// `Record<EventName, ...>` enforces compile-time exhaustiveness — adding a
+// new event to `EventName` fails compilation until its entry exists.
 
 const METHOD_SETS: Record<EventName, Record<string, unknown>> = {
   // Guard events
@@ -167,9 +142,7 @@ const METHOD_SETS: Record<EventName, Record<string, unknown>> = {
   WorktreeCreate: { success, failure },
 
   // Continuation events — `cont` is registered under the property key
-  // `'continue'` (object property names are not subject to the strict-mode
-  // reserved-word restriction that prevents declaring a function called
-  // `continue`). Hook authors call `ctx.continue()`.
+  // `'continue'`; hook authors call `ctx.continue()`.
   TeammateIdle: { continue: cont, stop, skip },
   TaskCreated: { continue: cont, stop, skip },
   TaskCompleted: { continue: cont, stop, skip },
@@ -188,4 +161,44 @@ export function attachDecisionMethods(eventName: EventName, ctx: object): void {
     throw new Error('Unknown event: ' + String(eventName))
   }
   Object.assign(ctx, methods)
+}
+
+// --- Lifecycle-slot constructors ---
+//
+// `passthrough` is the lifecycle-internal no-op carrier. It does not appear in
+// `ResultTag` and never reaches the per-event pipeline — it's consumed inside
+// `runHookLifecycle` and translated to "continue to next phase."
+
+export function passthrough(opts: { debugMessage?: string } = {}): LifecyclePassthroughResult {
+  return { result: 'passthrough', ...opts }
+}
+
+/**
+ * Universal verbs available to `beforeHook`. Same shape regardless of which
+ * event is being wrapped — beforeHook is a gate, not a per-event handler.
+ */
+export const BEFORE_LIFECYCLE_METHODS: {
+  block: typeof block
+  skip: typeof skip
+  passthrough: typeof passthrough
+} = { block, skip, passthrough }
+
+/**
+ * `afterHook` is a pure observer — only `passthrough` is exposed.
+ */
+export const AFTER_LIFECYCLE_METHODS: {
+  passthrough: typeof passthrough
+} = { passthrough }
+
+/**
+ * Attach the lifecycle-slot method set onto a freshly constructed lifecycle
+ * event object. Mirrors `attachDecisionMethods` for the handler `ctx`; neither
+ * lifecycle method set varies by event, so no `eventName` argument is needed.
+ */
+export function attachLifecycleMethods(slot: 'before' | 'after', eventObj: object): void {
+  if (slot === 'before') {
+    Object.assign(eventObj, BEFORE_LIFECYCLE_METHODS)
+  } else {
+    Object.assign(eventObj, AFTER_LIFECYCLE_METHODS)
+  }
 }

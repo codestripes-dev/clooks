@@ -12,6 +12,12 @@
     "noUncheckedIndexedAccess": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src", "test", "scripts/verify-types-emit.ts"],
+  "include": [
+    "src",
+    "test",
+    "scripts/verify-types-emit.ts",
+    "scripts/generate-types.ts",
+    "scripts/generate-types.test.ts"
+  ],
   "exclude": ["node_modules", "dist", "test/fixtures/github-raw"]
 }

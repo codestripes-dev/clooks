@@ -1,6 +1,3 @@
-// Lifecycle types: EventContextMap, EventResultMap, and the BeforeHookEvent /
-// AfterHookEvent unions used by `beforeHook` / `afterHook`.
-
 import type { EventName } from './branded.js'
 
 import type {
@@ -54,6 +51,8 @@ import type {
   BlockResult,
   SkipResult,
 } from './results.js'
+
+import type { BlockOpts, SkipOpts } from './method-primitives.js'
 
 /** Maps each event name to its context type. Useful for generic helpers. */
 export interface EventContextMap extends Record<EventName, unknown> {
@@ -126,21 +125,35 @@ export interface HookEventMeta {
   configPath: string
 }
 
+/**
+ * @internal
+ * Sentinel returned by `event.passthrough()` from `beforeHook` / `afterHook`.
+ * Don't construct directly — call `event.passthrough()`.
+ */
+export interface LifecyclePassthroughResult {
+  result: 'passthrough'
+  debugMessage?: string
+}
+
+type LifecyclePassthroughOpts = { debugMessage?: string }
+
 type BeforeHookEventVariants = {
   [K in EventName]: {
     type: K
     input: EventContextMap[K]
+    block(opts: BlockOpts): BlockResult
+    skip(opts?: SkipOpts): SkipResult
+    passthrough(opts?: LifecyclePassthroughOpts): LifecyclePassthroughResult
   }
 }[EventName]
 
 /**
- * Event passed to `beforeHook`. Narrow on `event.type` to access the typed
- * `event.input` (the matching context). Call `event.respond({ result: 'block' | 'skip' })`
- * to short-circuit before the per-event handler runs.
+ * Event passed to `beforeHook`. Narrow on `event.type` for typed `event.input`.
+ * Return `event.block({ reason })` or `event.skip()` to short-circuit the
+ * matched event handler; `event.passthrough()` (or void) is a no-op.
  */
 export type BeforeHookEvent = {
   meta: HookEventMeta
-  respond(result: BlockResult | SkipResult): void
 } & BeforeHookEventVariants
 
 type AfterHookEventVariants = {
@@ -148,14 +161,14 @@ type AfterHookEventVariants = {
     type: K
     input: EventContextMap[K]
     handlerResult: EventResultMap[K]
-    respond(result: EventResultMap[K]): void
+    passthrough(opts?: LifecyclePassthroughOpts): LifecyclePassthroughResult
   }
 }[EventName]
 
 /**
- * Event passed to `afterHook`. Narrow on `event.type` to access the typed
- * `event.input` and `event.handlerResult`. Call `event.respond(...)` to
- * override the result the engine emits.
+ * Event passed to `afterHook`. Narrow on `event.type` for typed `event.input`
+ * and `event.handlerResult`. Pure observer — the result cannot be mutated.
+ * Return `event.passthrough()` (or void) when done.
  */
 export type AfterHookEvent = {
   meta: HookEventMeta

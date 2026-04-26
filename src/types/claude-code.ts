@@ -247,9 +247,8 @@ export interface PostCompactInput extends ClaudeCodeCommonInput {
 // --- Notify-only events (output ignored upstream) ---
 
 /**
- * Categories of API failure that surface on `StopFailureContext.error`.
- * Use to branch your alerting logic — e.g. page on `rate_limit`, ignore
- * `max_output_tokens`.
+ * Categories of API failure surfaced on `StopFailureContext.error`. Branch
+ * alerting on this — e.g. page on `rate_limit`, ignore `max_output_tokens`.
  */
 export type StopFailureErrorType =
   | 'rate_limit'

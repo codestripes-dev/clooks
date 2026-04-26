@@ -1,8 +1,10 @@
 import { describe, test, expect } from 'bun:test'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 const GENERATED_PATH = resolve(import.meta.dir, '../src/generated/clooks-types.d.ts.txt')
+const GENERATED_DTS_PATH = resolve(import.meta.dir, '../src/generated/clooks-types.d.ts')
+const LOCAL_HOOKS_DTS_PATH = resolve(import.meta.dir, '../.clooks/hooks/types.d.ts')
 
 const skip = !existsSync(GENERATED_PATH)
 
@@ -70,6 +72,14 @@ describe.skipIf(skip)('generate-types', () => {
   test('has no import statements', async () => {
     const content = await loadTypes()
     expect(content).not.toMatch(/^import\s/m)
+  })
+
+  test('three generated targets are byte-identical', () => {
+    const txt = readFileSync(GENERATED_PATH, 'utf-8')
+    expect(existsSync(GENERATED_DTS_PATH)).toBe(true)
+    expect(existsSync(LOCAL_HOOKS_DTS_PATH)).toBe(true)
+    expect(readFileSync(GENERATED_DTS_PATH, 'utf-8')).toBe(txt)
+    expect(readFileSync(LOCAL_HOOKS_DTS_PATH, 'utf-8')).toBe(txt)
   })
 })
 

@@ -182,7 +182,7 @@ export const hook = {
 export const hook = {
   meta: { name: "before-block-b" },
   beforeHook(event: any) {
-    event.respond({ result: "block", reason: "before-hook blocked" })
+    return event.block({ reason: "before-hook blocked" })
   },
   PreToolUse() {
     return { result: "allow" as const }
@@ -245,79 +245,5 @@ after-crash:
     // systemMessage should mention the error
     expect(output.systemMessage).toContain('after-crash')
     expect(output.systemMessage).toContain('afterHook kaboom')
-  })
-
-  test('7. beforeHook calls respond() twice — "only once" error, onError applies', () => {
-    sandbox = createSandbox()
-    sandbox.writeHook(
-      'respond-twice.ts',
-      `
-export const hook = {
-  meta: { name: "respond-twice" },
-  beforeHook(event: any) {
-    event.respond({ result: "block", reason: "first respond" })
-    event.respond({ result: "block", reason: "second respond" })
-  },
-  PreToolUse() {
-    return { result: "allow" as const }
-  },
-}
-`,
-    )
-    // Use onError:block (default) to see the error surface
-    sandbox.writeConfig(`
-version: "1.0.0"
-respond-twice: {}
-`)
-
-    const stdin = loadEvent('pre-tool-use-bash.json')
-    const result = sandbox.run([], { stdin })
-
-    expect(result.exitCode).toBe(0)
-    const output = JSON.parse(result.stdout)
-    // Second respond() throws "only once" error.
-    // Since first respond() already succeeded (blocking the handler),
-    // the block from the first respond() takes effect.
-    // The "only once" error is thrown from beforeHook but after respond() was already called.
-    // The lifecycle function runs: beforeHook calls respond, which succeeds on first call.
-    // Then calls respond again which throws. The throw propagates out of beforeHook.
-    // Since beforeHook threw, the lifecycle() throws, which is caught by the engine.
-    // onError:block means this surfaces as a block with diagnostic.
-    expect(output.hookSpecificOutput.permissionDecision).toBe('deny')
-    const reason = output.hookSpecificOutput.permissionDecisionReason ?? ''
-    expect(reason).toContain('only be called once')
-  })
-
-  test('8. beforeHook calls respond(null) — "non-null result" error, onError applies', () => {
-    sandbox = createSandbox()
-    sandbox.writeHook(
-      'respond-null.ts',
-      `
-export const hook = {
-  meta: { name: "respond-null" },
-  beforeHook(event: any) {
-    event.respond(null)
-  },
-  PreToolUse() {
-    return { result: "allow" as const }
-  },
-}
-`,
-    )
-    sandbox.writeConfig(`
-version: "1.0.0"
-respond-null: {}
-`)
-
-    const stdin = loadEvent('pre-tool-use-bash.json')
-    const result = sandbox.run([], { stdin })
-
-    expect(result.exitCode).toBe(0)
-    const output = JSON.parse(result.stdout)
-    // respond(null) throws "non-null result" error
-    // onError:block (default) → blocked
-    expect(output.hookSpecificOutput.permissionDecision).toBe('deny')
-    const reason = output.hookSpecificOutput.permissionDecisionReason ?? ''
-    expect(reason).toContain('non-null')
   })
 })

@@ -28,10 +28,19 @@ Every context object carries per-event **decision methods** — `ctx.allow(...)`
 `attachDecisionMethods(eventName, ctx)` in `src/engine/context-methods.ts` is the runtime half of the decision-method system:
 
 - **Mutates in place** via `Object.assign(ctx, METHOD_SETS[eventName])` — no new object, no proxy. Callers pass the engine's constructed context and get the same reference back, enriched.
-- **Called once per `runHookLifecycle` invocation**, immediately before `beforeHook` and the main handler run. Both lifecycle phases observe the same enriched ctx. The attach site is the single funnel for both `executeSequentialGroup` and `executeParallelGroup`.
+- **Called once per `runHookLifecycle` invocation**, immediately before any phase runs. There are *three* enrichment sites operating on three distinct object references inside `runHookLifecycle`: `attachDecisionMethods(eventName, context)` for the handler's `ctx`; `attachLifecycleMethods('before', beforeEvent)` for the `beforeHook` event (attaches `BEFORE_LIFECYCLE_METHODS` — `block` / `skip` / `passthrough`); `attachLifecycleMethods('after', afterEvent)` for the `afterHook` event (attaches `AFTER_LIFECYCLE_METHODS` — `passthrough` only in V1). The handler-context attach is the single funnel for both `executeSequentialGroup` and `executeParallelGroup`.
 - **Idempotent.** Re-calling `attachDecisionMethods` on an already-attached ctx is a no-op — `Object.assign` overwrites with the same method references.
 - **Throws on unknown event.** The per-event method-set table is exhaustive; the `Record<EventName, ...>` compile-time guard catches drift, and the runtime throw catches `as` escape-hatch misuse (casting an arbitrary string to `EventName` at the boundary).
 - **Methods are pure value constructors.** No closures over `ctx`, no engine side effects. `ctx.allow(opts)` returns `{ result: 'allow', ...opts }` and nothing else. This keeps `JSON.stringify(ctx)` losing the methods functionally harmless — the methods carry no state to serialize. The constructors are also exported standalone so non-ctx call sites (helper functions, standalone tests) can build results without a context object.
+
+## Lifecycle-slot constructors
+
+`BEFORE_LIFECYCLE_METHODS` and `AFTER_LIFECYCLE_METHODS` in `src/engine/context-methods.ts` are the lifecycle-slot equivalents of `METHOD_SETS`. Both are universal (not per-event-keyed in V1):
+
+- `BEFORE_LIFECYCLE_METHODS = { block, skip, passthrough }` — same three verbs regardless of event. `block` and `skip` reuse the handler-side constructors (identical opts shapes — `BlockOpts` / `SkipOpts` from `src/types/method-primitives.ts`). `passthrough` is a small extra constructor returning a `LifecyclePassthroughResult` sentinel.
+- `AFTER_LIFECYCLE_METHODS = { passthrough }` — V1 afterHook is observer-only. V2 will widen this if/when override demand emerges.
+
+`attachLifecycleMethods(slot, eventObj)` is a tiny analogue of `attachDecisionMethods` — it takes no `eventName` argument because neither lifecycle-slot method set varies by event in V1. `LifecyclePassthroughResult` (`{ result: 'passthrough'; debugMessage? }`) is *not* in `ResultTag` — it's a lifecycle-internal sentinel consumed inside `runHookLifecycle` and never reaches the per-event pipeline (translator, parallel runner, circuit breaker). It appears in the bundled `.d.ts` because `ClooksHook['beforeHook']` and `ClooksHook['afterHook']` reference it in their return-type unions; it carries an `@internal` JSDoc tag advising authors not to construct it directly.
 
 ## Type-composition primitives
 

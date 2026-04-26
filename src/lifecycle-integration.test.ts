@@ -86,7 +86,7 @@ describe('lifecycle integration', () => {
 
     const hook = makeLoadedHook('gate-hook', {
       beforeHook(event: any) {
-        event.respond({ result: 'block', reason: 'gated' })
+        return event.block({ reason: 'gated' })
       },
       PreToolUse() {
         handlerRan = true
@@ -113,20 +113,21 @@ describe('lifecycle integration', () => {
     expect(afterHookRan).toBe(false)
   })
 
-  test('afterHook overrides result', async () => {
-    const hook = makeLoadedHook('override-hook', {
+  test('afterHook is observer-only — return value cannot override handler', async () => {
+    let afterHookRan = false
+
+    const hook = makeLoadedHook('observe-hook', {
       PreToolUse() {
         return { result: 'block', reason: 'original' }
       },
       afterHook(event: any) {
-        if (event.type === 'PreToolUse') {
-          event.respond({ result: 'allow' })
-        }
+        afterHookRan = true
+        return event.passthrough({ debugMessage: 'observed' })
       },
     })
 
     const dir = makeTempDir()
-    const config = makeTestConfig({ 'override-hook': {} })
+    const config = makeTestConfig({ 'observe-hook': {} })
     const { lastResult } = await executeHooks(
       [hook],
       'PreToolUse',
@@ -135,7 +136,10 @@ describe('lifecycle integration', () => {
       fp(dir),
     )
 
-    expect(lastResult?.result).toBe('allow')
+    // Handler's block result flows through unchanged regardless of afterHook
+    expect(afterHookRan).toBe(true)
+    expect(lastResult?.result).toBe('block')
+    expect(lastResult?.reason).toContain('original')
   })
 
   test('lifecycle timeout shared across phases', async () => {
@@ -152,12 +156,9 @@ describe('lifecycle integration', () => {
     })
 
     const dir = makeTempDir()
-    // Use a config with hook-level timeout of 50ms
     const config = makeTestConfig({ 'slow-hook': {} })
-    // Override global timeout to 50ms — beforeHook alone (60ms) exceeds budget
     config.global.timeout = ms(50)
 
-    // The beforeHook (60ms) alone exceeds the 50ms timeout, making this deterministic
     const { lastResult } = await executeHooks(
       [hook],
       'PreToolUse',
@@ -166,7 +167,6 @@ describe('lifecycle integration', () => {
       fp(dir),
     )
 
-    // Should block due to timeout error (onError: "block")
     expect(lastResult?.result).toBe('block')
     expect(lastResult?.reason).toContain('timed out')
   })
@@ -195,9 +195,7 @@ describe('lifecycle integration', () => {
       failurePath,
     )
 
-    // Handler ran but its result was lost due to afterHook throw
     expect(handlerRan).toBe(true)
-    // onError: "block" → block result with error message
     expect(lastResult?.result).toBe('block')
     expect(lastResult?.reason).toContain('afterHook exploded')
   })
@@ -227,7 +225,7 @@ describe('lifecycle integration', () => {
     expect(afterHookRan).toBe(false)
   })
 
-  test('no lifecycle methods — same behavior as before', async () => {
+  test('no lifecycle methods — handler runs unchanged', async () => {
     const hook = makeLoadedHook('plain-hook', {
       PreToolUse() {
         return { result: 'allow' }
@@ -247,38 +245,12 @@ describe('lifecycle integration', () => {
     expect(lastResult?.result).toBe('allow')
   })
 
-  test('respond() called twice throws — handled by onError', async () => {
-    const hook = makeLoadedHook('double-respond', {
-      beforeHook(event: any) {
-        event.respond({ result: 'block', reason: 'first' })
-        event.respond({ result: 'block', reason: 'second' })
-      },
-      PreToolUse() {
-        return { result: 'allow' }
-      },
-    })
-
-    const dir = makeTempDir()
-    const config = makeTestConfig({ 'double-respond': {} })
-    const { lastResult } = await executeHooks(
-      [hook],
-      'PreToolUse',
-      { event: 'PreToolUse', toolName: 'Bash', toolInput: {} },
-      config,
-      fp(dir),
-    )
-
-    // Double respond throws, caught by onError: "block" -> block result
-    expect(lastResult?.result).toBe('block')
-    expect(lastResult?.reason).toContain('can only be called once')
-  })
-
   test('parallel lifecycle — each hook is an atomic unit', async () => {
     let hookBHandlerRan = false
 
     const hookA = makeLoadedHook('block-hook', {
       beforeHook(event: any) {
-        event.respond({ result: 'block', reason: 'blocked' })
+        return event.block({ reason: 'blocked' })
       },
       PreToolUse() {
         return { result: 'allow' }
@@ -306,9 +278,7 @@ describe('lifecycle integration', () => {
       fp(dir),
     )
 
-    // hookA's beforeHook blocks, and the pipeline should end up with a block
     expect(lastResult?.result).toBe('block')
-    // hookB's handler should have run (parallel hooks run independently)
     expect(hookBHandlerRan).toBe(true)
   })
 
@@ -325,8 +295,6 @@ describe('lifecycle integration', () => {
     const dir = makeTempDir()
     const config = makeTestConfig({ 'crashy-hook': {} }, 3)
 
-    // Run 3 times to hit the threshold
-    // First 2 should block (under threshold)
     for (let i = 0; i < 2; i++) {
       const { lastResult } = await executeHooks(
         [hook],
@@ -339,7 +307,6 @@ describe('lifecycle integration', () => {
       expect(lastResult?.reason).toContain('beforeHook crash')
     }
 
-    // Third invocation — at threshold, should degrade (no block, degraded message)
     const { lastResult, degradedMessages } = await executeHooks(
       [hook],
       'PreToolUse',
@@ -354,7 +321,7 @@ describe('lifecycle integration', () => {
   test('beforeHook blocks with debug logging', async () => {
     const hook = makeLoadedHook('debug-gate', {
       beforeHook(event: any) {
-        event.respond({ result: 'block', reason: 'debug-blocked' })
+        return event.block({ reason: 'debug-blocked' })
       },
       PreToolUse() {
         return { result: 'allow' }
@@ -364,7 +331,6 @@ describe('lifecycle integration', () => {
     const dir = makeTempDir()
     const config = makeTestConfig({ 'debug-gate': {} })
 
-    // Enable debug mode
     const origDebug = process.env.CLOOKS_DEBUG
     process.env.CLOOKS_DEBUG = 'true'
     try {
@@ -385,45 +351,12 @@ describe('lifecycle integration', () => {
     }
   })
 
-  test('afterHook override with debug logging', async () => {
-    const hook = makeLoadedHook('debug-override', {
-      PreToolUse() {
-        return { result: 'block', reason: 'original' }
-      },
-      afterHook(event: any) {
-        event.respond({ result: 'allow' })
-      },
-    })
-
-    const dir = makeTempDir()
-    const config = makeTestConfig({ 'debug-override': {} })
-
-    const origDebug = process.env.CLOOKS_DEBUG
-    process.env.CLOOKS_DEBUG = 'true'
-    try {
-      const { debugMessages } = await executeHooks(
-        [hook],
-        'PreToolUse',
-        { event: 'PreToolUse', toolName: 'Bash', toolInput: {} },
-        config,
-        fp(dir),
-      )
-      expect(debugMessages.some((m) => m.includes('afterHook: overridden result'))).toBe(true)
-    } finally {
-      if (origDebug === undefined) {
-        delete process.env.CLOOKS_DEBUG
-      } else {
-        process.env.CLOOKS_DEBUG = origDebug
-      }
-    }
-  })
-
-  test('beforeHook does not block when respond() is not called', async () => {
+  test('beforeHook void return — handler runs, result flows through', async () => {
     let handlerRan = false
 
     const hook = makeLoadedHook('noop-before', {
       beforeHook() {
-        // Does nothing — does not call respond()
+        // void return — alias for passthrough with no breadcrumb
       },
       PreToolUse() {
         handlerRan = true
@@ -445,13 +378,36 @@ describe('lifecycle integration', () => {
     expect(handlerRan).toBe(true)
   })
 
-  test('afterHook does not override when respond() is not called', async () => {
+  test('beforeHook returns event.passthrough() — handler runs, result flows through', async () => {
+    const hook = makeLoadedHook('passthrough-before', {
+      beforeHook(event: any) {
+        return event.passthrough({ debugMessage: 'gate passed' })
+      },
+      PreToolUse() {
+        return { result: 'allow' }
+      },
+    })
+
+    const dir = makeTempDir()
+    const config = makeTestConfig({ 'passthrough-before': {} })
+    const { lastResult } = await executeHooks(
+      [hook],
+      'PreToolUse',
+      { event: 'PreToolUse', toolName: 'Bash', toolInput: {} },
+      config,
+      fp(dir),
+    )
+
+    expect(lastResult?.result).toBe('allow')
+  })
+
+  test('afterHook void return — handler result flows through unchanged', async () => {
     const hook = makeLoadedHook('noop-after', {
       PreToolUse() {
         return { result: 'allow' }
       },
       afterHook() {
-        // Does nothing — does not call respond()
+        // void return
       },
     })
 
@@ -468,12 +424,12 @@ describe('lifecycle integration', () => {
     expect(lastResult?.result).toBe('allow')
   })
 
-  test('sequential pipeline: first hook beforeHook blocks, second hook DOES run (M3 collect-all)', async () => {
+  test('sequential pipeline: first hook beforeHook blocks, second hook still runs (collect-all)', async () => {
     let secondHandlerRan = false
 
     const hookA = makeLoadedHook('blocker', {
       beforeHook(event: any) {
-        event.respond({ result: 'block', reason: 'first blocks' })
+        return event.block({ reason: 'first blocks' })
       },
       PreToolUse() {
         return { result: 'allow' }
@@ -499,11 +455,10 @@ describe('lifecycle integration', () => {
 
     expect(lastResult?.result).toBe('block')
     expect(lastResult?.reason).toContain('first blocks')
-    // M3: collect-all — second hook runs even when first hook blocked
     expect(secondHandlerRan).toBe(true)
   })
 
-  test('beforeHook receives correct event context', async () => {
+  test('beforeHook receives event with type, meta, and lifecycle methods', async () => {
     let receivedEvent: any = null
 
     const hook = makeLoadedHook('inspect-before', {
@@ -529,10 +484,13 @@ describe('lifecycle integration', () => {
     expect(receivedEvent.type).toBe('PreToolUse')
     expect(receivedEvent.meta).toBeDefined()
     expect(receivedEvent.meta.hookName).toBe('inspect-before')
-    expect(typeof receivedEvent.respond).toBe('function')
+    expect(typeof receivedEvent.block).toBe('function')
+    expect(typeof receivedEvent.skip).toBe('function')
+    expect(typeof receivedEvent.passthrough).toBe('function')
+    expect(receivedEvent.respond).toBeUndefined()
   })
 
-  test('afterHook receives handler result', async () => {
+  test('afterHook receives event with handlerResult and only passthrough', async () => {
     let receivedEvent: any = null
 
     const hook = makeLoadedHook('inspect-after', {
@@ -558,16 +516,20 @@ describe('lifecycle integration', () => {
     expect(receivedEvent.type).toBe('PreToolUse')
     expect(receivedEvent.handlerResult).toEqual({ result: 'allow' })
     expect(receivedEvent.meta).toBeDefined()
-    expect(typeof receivedEvent.respond).toBe('function')
+    expect(typeof receivedEvent.passthrough).toBe('function')
+    // afterHook is observer-only — no decision verbs, no respond
+    expect(receivedEvent.block).toBeUndefined()
+    expect(receivedEvent.skip).toBeUndefined()
+    expect(receivedEvent.respond).toBeUndefined()
   })
 
-  test('beforeHook skip — handler and afterHook do not run; M3: skip vote returned (not undefined)', async () => {
+  test('beforeHook skip — handler and afterHook do not run; skip vote returned', async () => {
     let handlerRan = false
     let afterHookRan = false
 
     const hook = makeLoadedHook('skip-hook', {
       beforeHook(event: any) {
-        event.respond({ result: 'skip' })
+        return event.skip()
       },
       PreToolUse() {
         handlerRan = true
@@ -591,15 +553,13 @@ describe('lifecycle integration', () => {
 
     expect(handlerRan).toBe(false)
     expect(afterHookRan).toBe(false)
-    // M3: beforeHook skip produces a skip vote; reducer returns the skip winner.
-    // (Non-PreToolUse events still return undefined for all-skip — this is PreToolUse-specific.)
     expect(lastResult?.result).toBe('skip')
   })
 
   test('beforeHook skip — pipeline continues to next hook', async () => {
     const hookA = makeLoadedHook('skipper', {
       beforeHook(event: any) {
-        event.respond({ result: 'skip' })
+        return event.skip()
       },
       PreToolUse() {
         return { result: 'block', reason: 'should not reach' }
@@ -623,42 +583,13 @@ describe('lifecycle integration', () => {
       failurePath,
     )
 
-    // hookA skipped, hookB ran and returned allow
     expect(lastResult?.result).toBe('allow')
   })
 
-  // --- Edge-case tests (M4 Step 2) ---
-
-  test('respond(undefined) in afterHook is rejected with error', async () => {
-    const hook = makeLoadedHook('undefined-respond', {
-      PreToolUse() {
-        return { result: 'allow' }
-      },
-      afterHook(event: any) {
-        // respond(undefined) should throw — it is rejected by createRespondCallback
-        event.respond(undefined as any)
-      },
-    })
-
-    const dir = makeTempDir()
-    const config = makeTestConfig({ 'undefined-respond': {} })
-    const { lastResult } = await executeHooks(
-      [hook],
-      'PreToolUse',
-      { event: 'PreToolUse', toolName: 'Bash', toolInput: {} },
-      config,
-      fp(dir),
-    )
-
-    // Should error (onError: block)
-    expect(lastResult?.result).toBe('block')
-    expect(lastResult?.reason).toContain('non-null result')
-  })
-
-  test('beforeHook defined, afterHook not — handler result used', async () => {
+  test('beforeHook defined, afterHook not — handler result used (void beforeHook)', async () => {
     const hook = makeLoadedHook('before-only', {
       beforeHook() {
-        // No-op — does not call respond
+        // void = passthrough
       },
       PreToolUse() {
         return { result: 'allow' }
@@ -678,41 +609,16 @@ describe('lifecycle integration', () => {
     expect(lastResult?.result).toBe('allow')
   })
 
-  test('afterHook defined, beforeHook not — can override result', async () => {
-    const hook = makeLoadedHook('after-only', {
-      PreToolUse() {
-        return { result: 'block', reason: 'original' }
-      },
-      afterHook(event: any) {
-        if (event.type === 'PreToolUse') {
-          event.respond({ result: 'allow' })
-        }
-      },
-    })
-
-    const dir = makeTempDir()
-    const config = makeTestConfig({ 'after-only': {} })
-    const { lastResult } = await executeHooks(
-      [hook],
-      'PreToolUse',
-      { event: 'PreToolUse', toolName: 'Bash', toolInput: {} },
-      config,
-      fp(dir),
-    )
-
-    expect(lastResult?.result).toBe('allow')
-  })
-
-  test('both lifecycle methods defined, neither calls respond — handler result passes through', async () => {
+  test('both lifecycle methods defined, both void — handler result passes through', async () => {
     const hook = makeLoadedHook('noop-lifecycle', {
       beforeHook() {
-        /* no-op */
+        /* void */
       },
       PreToolUse() {
         return { result: 'allow', injectContext: 'from handler' }
       },
       afterHook() {
-        /* no-op */
+        /* void */
       },
     })
 
@@ -728,40 +634,6 @@ describe('lifecycle integration', () => {
 
     expect(lastResult?.result).toBe('allow')
     expect(lastResult?.injectContext).toContain('from handler')
-  })
-
-  test('lifecycle on observe event — afterHook override skip with injectContext is preserved', async () => {
-    let afterHookCalled = false
-
-    const hook = makeLoadedHook('observe-lifecycle', {
-      SessionStart() {
-        return { result: 'skip' }
-      },
-      afterHook(event: any) {
-        afterHookCalled = true
-        if (event.type === 'SessionStart') {
-          // Override with skip+injectContext — the engine now collects
-          // injectContext from skip results so it reaches the final output.
-          event.respond({ result: 'skip', injectContext: 'added by afterHook' })
-        }
-      },
-    })
-
-    const dir = makeTempDir()
-    const config = makeTestConfig({ 'observe-lifecycle': {} })
-    const { lastResult } = await executeHooks(
-      [hook],
-      'SessionStart',
-      { event: 'SessionStart', source: 'startup' },
-      config,
-      fp(dir),
-    )
-
-    // afterHook ran and its injectContext on skip is now collected
-    expect(afterHookCalled).toBe(true)
-    expect(lastResult).toBeDefined()
-    expect(lastResult!.result).toBe('allow')
-    expect(lastResult!.injectContext).toBe('added by afterHook')
   })
 
   test('sequential pipeline: hook A returns updatedInput, hook B beforeHook sees updated context', async () => {
@@ -794,11 +666,8 @@ describe('lifecycle integration', () => {
       fp(dir),
     )
 
-    // hookB's beforeHook should see the updated toolInput from hookA
     expect(hookBInputToolName).toBe('echo updated')
   })
-
-  // --- Performance regression test (M4 Step 3) ---
 
   test('hooks without lifecycle methods have negligible overhead', async () => {
     const hook = makeLoadedHook('plain-perf', {
@@ -823,7 +692,128 @@ describe('lifecycle integration', () => {
     const elapsed = performance.now() - start
     const perCall = elapsed / 100
 
-    // Should be well under 5ms per call on any reasonable machine
     expect(perCall).toBeLessThan(5)
+  })
+
+  test('beforeHook passthrough does not surface as final pipeline result', async () => {
+    const hook = makeLoadedHook('passthrough-not-leaking', {
+      beforeHook(event: any) {
+        return event.passthrough({ debugMessage: 'gate passed' })
+      },
+      PreToolUse() {
+        return { result: 'allow' }
+      },
+    })
+
+    const dir = makeTempDir()
+    const config = makeTestConfig({ 'passthrough-not-leaking': {} })
+    const { lastResult } = await executeHooks(
+      [hook],
+      'PreToolUse',
+      { event: 'PreToolUse', toolName: 'Bash', toolInput: {} },
+      config,
+      fp(dir),
+    )
+
+    expect(lastResult?.result).toBe('allow')
+    expect(lastResult?.result).not.toBe('passthrough')
+  })
+
+  test('afterHook passthrough does not surface as final pipeline result', async () => {
+    const hook = makeLoadedHook('after-passthrough-not-leaking', {
+      PreToolUse() {
+        return { result: 'allow' }
+      },
+      afterHook(event: any) {
+        return event.passthrough({ debugMessage: 'observed' })
+      },
+    })
+
+    const dir = makeTempDir()
+    const config = makeTestConfig({ 'after-passthrough-not-leaking': {} })
+    const { lastResult } = await executeHooks(
+      [hook],
+      'PreToolUse',
+      { event: 'PreToolUse', toolName: 'Bash', toolInput: {} },
+      config,
+      fp(dir),
+    )
+
+    expect(lastResult?.result).toBe('allow')
+    expect(lastResult?.result).not.toBe('passthrough')
+  })
+
+  test('beforeHook returning unrecognized result discriminant warns and is treated as no-op', async () => {
+    const hook = makeLoadedHook('bogus-before', {
+      beforeHook() {
+        return { result: 'allow' } as any
+      },
+      PreToolUse() {
+        return { result: 'allow' }
+      },
+    })
+
+    const dir = makeTempDir()
+    const config = makeTestConfig({ 'bogus-before': {} })
+    const stderrChunks: string[] = []
+    const origWrite = process.stderr.write.bind(process.stderr)
+    process.stderr.write = ((chunk: any) => {
+      stderrChunks.push(String(chunk))
+      return true
+    }) as any
+    try {
+      const { lastResult } = await executeHooks(
+        [hook],
+        'PreToolUse',
+        { event: 'PreToolUse', toolName: 'Bash', toolInput: {} },
+        config,
+        fp(dir),
+      )
+      // Handler still ran; the bogus return was treated as a no-op.
+      expect(lastResult?.result).toBe('allow')
+    } finally {
+      process.stderr.write = origWrite
+    }
+    const all = stderrChunks.join('')
+    expect(all).toContain('bogus-before')
+    expect(all).toContain('beforeHook')
+    expect(all).toContain('result=allow')
+  })
+
+  test('afterHook returning unrecognized result discriminant warns', async () => {
+    const hook = makeLoadedHook('bogus-after', {
+      PreToolUse() {
+        return { result: 'allow' }
+      },
+      afterHook() {
+        return { result: 'block', reason: 'cast through any' } as any
+      },
+    })
+
+    const dir = makeTempDir()
+    const config = makeTestConfig({ 'bogus-after': {} })
+    const stderrChunks: string[] = []
+    const origWrite = process.stderr.write.bind(process.stderr)
+    process.stderr.write = ((chunk: any) => {
+      stderrChunks.push(String(chunk))
+      return true
+    }) as any
+    try {
+      const { lastResult } = await executeHooks(
+        [hook],
+        'PreToolUse',
+        { event: 'PreToolUse', toolName: 'Bash', toolInput: {} },
+        config,
+        fp(dir),
+      )
+      // afterHook can never override — handler's allow flows through.
+      expect(lastResult?.result).toBe('allow')
+    } finally {
+      process.stderr.write = origWrite
+    }
+    const all = stderrChunks.join('')
+    expect(all).toContain('bogus-after')
+    expect(all).toContain('afterHook')
+    expect(all).toContain('result=block')
   })
 })

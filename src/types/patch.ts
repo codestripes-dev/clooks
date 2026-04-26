@@ -1,6 +1,3 @@
-// Patch<T> — typed shape for `updatedInput` on PreToolUse and PermissionRequest.
-
-/** Internal helper: keys of `T` that are optional. */
 export type OptionalKeys<T> = {
   [K in keyof T]-?: object extends Pick<T, K> ? K : never
 }[keyof T]
@@ -10,11 +7,8 @@ export type OptionalKeys<T> = {
  * or `ask({ updatedInput })` from `PreToolUseContext` / `PermissionRequestContext`.
  *
  * - Set a key to a value to change it.
- * - Set an optional key to `null` to remove it.
- * - Omit a key (or set to `undefined`) to leave it untouched.
- *
- * Required keys cannot be `null` — stripping them would send the tool an
- * invalid call. Only optional keys accept `null`.
+ * - Set an optional key to `null` to remove it (required keys cannot be `null`).
+ * - Omit a key (or set `undefined`) to leave it untouched.
  *
  * @example
  * // Bash: rewrite the command, keep everything else

@@ -1,5 +1,3 @@
-// The shape every hook file exports.
-
 import type {
   PreToolUseContext,
   UserPromptSubmitContext,
@@ -50,7 +48,9 @@ import type {
   TaskCompletedResult,
 } from './results.js'
 
-import type { BeforeHookEvent, AfterHookEvent } from './lifecycle.js'
+import type { BeforeHookEvent, AfterHookEvent, LifecyclePassthroughResult } from './lifecycle.js'
+
+import type { BlockResult, SkipResult } from './results.js'
 
 /** A handler return type that may be sync or async. */
 export type MaybeAsync<T> = T | Promise<T>
@@ -84,10 +84,22 @@ export interface HookMeta<C extends Record<string, unknown> = Record<string, unk
 export interface ClooksHook<C extends Record<string, unknown> = Record<string, unknown>> {
   meta: HookMeta<C>
 
-  /** Runs before the matched event handler. Call `event.respond()` to short-circuit. */
-  beforeHook?: (event: BeforeHookEvent, config: C) => MaybeAsync<void>
-  /** Runs after the matched event handler. Call `event.respond()` to override the result. */
-  afterHook?: (event: AfterHookEvent, config: C) => MaybeAsync<void>
+  /**
+   * Runs before the matched event handler. Return `event.block({ reason })` or
+   * `event.skip()` to short-circuit, `event.passthrough()` for a debug
+   * breadcrumb, or void for a silent no-op.
+   */
+  beforeHook?: (
+    event: BeforeHookEvent,
+    config: C,
+  ) => MaybeAsync<BlockResult | SkipResult | LifecyclePassthroughResult | void>
+  /**
+   * Runs after the matched event handler. Observer-only: read
+   * `event.handlerResult` (narrow on `event.type` first) and emit side effects.
+   * The result cannot be mutated. Return `event.passthrough()` for a debug
+   * breadcrumb or void for a silent no-op.
+   */
+  afterHook?: (event: AfterHookEvent, config: C) => MaybeAsync<LifecyclePassthroughResult | void>
 
   // Guard events
   PreToolUse?: (ctx: PreToolUseContext, config: C) => MaybeAsync<PreToolUseResult>

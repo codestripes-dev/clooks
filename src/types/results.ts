@@ -1,7 +1,3 @@
-// Result types — what each event handler returns. Most users construct
-// these via `ctx.allow(...)`, `ctx.block(...)`, etc. rather than building
-// them by hand.
-
 import type {
   InjectContext,
   Reason,
@@ -66,10 +62,6 @@ export type ContinueResult = Result<'continue'> & Feedback
 
 /** `{ result: 'success', path }` — for `WorktreeCreate` only. `path` is the absolute worktree path. */
 export type SuccessResult = Result<'success'> & Path
-
-// --- Per-event result types ---
-// Most users return these implicitly via `ctx.allow(...)` / `ctx.block(...)` /
-// etc. The intersected fields below show what each verb's opts bag accepts.
 
 /** Return value of a `PreToolUse` hook. Construct via `ctx.allow / ask / block / defer / skip`. */
 export type PreToolUseResult =

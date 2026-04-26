@@ -9,12 +9,14 @@ import { VERSION } from '../src/version.js'
 const ROOT = resolve(dirname(import.meta.dir))
 const OUT_DIR = resolve(ROOT, 'src/generated')
 const OUT_FILE = resolve(OUT_DIR, 'clooks-types.d.ts.txt')
-// Mirror copy of the bundle as a real `.d.ts` file. Used by
-// `scripts/verify-types-emit.ts` (the M4 hard acceptance gate) which needs
-// to `import type` from the bundle under `tsc --noEmit`. The runtime path
-// uses the `.txt` form (bun text-import), so both files must exist and stay
-// in sync — written together below.
+// Mirror copy as a real `.d.ts` file. The runtime path uses the `.txt` form
+// (bun text-import); `scripts/verify-types-emit.ts` needs to `import type`
+// from the bundle under `tsc --noEmit`. Both files must stay in sync.
 const OUT_FILE_DTS = resolve(OUT_DIR, 'clooks-types.d.ts')
+// Local repo copy. This repo's `.clooks/hooks/*.ts` compile against this file
+// (same source-of-truth as the binary-embedded `.txt`). Kept byte-identical
+// so authors editing in-repo see the same surface as downstream projects.
+const OUT_FILE_LOCAL_HOOKS = resolve(ROOT, '.clooks/hooks/types.d.ts')
 const ENTRY = resolve(ROOT, 'src/types/index.ts')
 const TSCONFIG = resolve(ROOT, 'tsconfig.json')
 
@@ -58,6 +60,11 @@ writeFileSync(OUT_FILE, finalContent)
 // Mirror to a real `.d.ts` file for tooling that imports types directly
 // (e.g. `scripts/verify-types-emit.ts`). Kept byte-identical to the `.txt`.
 writeFileSync(OUT_FILE_DTS, finalContent)
+// Mirror to .clooks/hooks/types.d.ts so this repo's local hooks compile
+// against the regenerated surface.
+mkdirSync(dirname(OUT_FILE_LOCAL_HOOKS), { recursive: true })
+writeFileSync(OUT_FILE_LOCAL_HOOKS, finalContent)
 
 console.log(`Generated ${OUT_FILE} (${finalContent.length} bytes)`)
 console.log(`Generated ${OUT_FILE_DTS} (${finalContent.length} bytes)`)
+console.log(`Generated ${OUT_FILE_LOCAL_HOOKS} (${finalContent.length} bytes)`)

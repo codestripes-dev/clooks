@@ -6,8 +6,6 @@ log-bash-commands:
 
 domain-doc-size: {}
 
-debug-payload:  {}
-
 no-clooks-uninstall: {}
 
 no-compound-commands: {}

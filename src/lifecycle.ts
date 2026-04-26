@@ -1,42 +1,18 @@
-// Runtime building blocks for hook lifecycle execution.
-// Consumed by the engine (M3) to wrap beforeHook → handler → afterHook.
-
-import type { BlockResult, SkipResult } from './types/results.js'
 import type { BeforeHookEvent, AfterHookEvent, HookEventMeta } from './types/lifecycle.js'
 import type { EventName } from './types/branded.js'
 import type { LoadedHook } from './loader.js'
 import { getGitRoot, getGitBranch } from './git.js'
 import { VERSION } from './version.js'
-import { attachDecisionMethods } from './engine/context-methods.js'
-
-export function createRespondCallback<T>(): {
-  respond: (result: T) => void
-  getResponse: () => T | undefined
-} {
-  let called = false
-  let response: T | undefined
-  return {
-    respond(result: T) {
-      if (called) {
-        throw new Error('respond() can only be called once per lifecycle invocation')
-      }
-      if (result === undefined || result === null) {
-        throw new Error('respond() requires a non-null result object')
-      }
-      called = true
-      response = result
-    },
-    getResponse: () => response,
-  }
-}
+import { attachDecisionMethods, attachLifecycleMethods } from './engine/context-methods.js'
 
 export function buildBeforeHookEvent(
   eventName: EventName,
   input: Record<string, unknown>,
   meta: HookEventMeta,
-  respond: (result: BlockResult | SkipResult) => void,
 ): BeforeHookEvent {
-  return { type: eventName, input, meta, respond } as unknown as BeforeHookEvent
+  const event = { type: eventName, input, meta }
+  attachLifecycleMethods('before', event)
+  return event as unknown as BeforeHookEvent
 }
 
 export function buildAfterHookEvent(
@@ -44,9 +20,10 @@ export function buildAfterHookEvent(
   input: Record<string, unknown>,
   handlerResult: unknown,
   meta: HookEventMeta,
-  respond: (result: unknown) => void,
 ): AfterHookEvent {
-  return { type: eventName, input, handlerResult, meta, respond } as unknown as AfterHookEvent
+  const event = { type: eventName, input, handlerResult, meta }
+  attachLifecycleMethods('after', event)
+  return event as unknown as AfterHookEvent
 }
 
 export class LifecycleMetaCache {
@@ -79,12 +56,32 @@ export class LifecycleMetaCache {
 }
 
 export interface LifecycleResult {
-  /** The final result (handler result, beforeHook block, or afterHook override). */
+  /** The final result (handler result, beforeHook block, or beforeHook skip). */
   result: unknown
-  /** True if beforeHook short-circuited. Used by the engine for debug logging. */
+  /** True if beforeHook short-circuited with a `block`. Used by the engine for debug logging. */
   blockedByBefore: boolean
-  /** True if afterHook overrode the result. Used by the engine for debug logging. */
+  /** Always `false` today — afterHook is observer-only and cannot override. */
   overriddenByAfter: boolean
+}
+
+function isLifecycleResultObject(v: unknown): v is { result: string; [k: string]: unknown } {
+  return typeof v === 'object' && v !== null && 'result' in v
+}
+
+const VALID_BEFORE_RESULTS = new Set(['block', 'skip', 'passthrough'])
+const VALID_AFTER_RESULTS = new Set(['passthrough'])
+
+function warnUnexpectedReturn(
+  slot: 'beforeHook' | 'afterHook',
+  hookName: string,
+  ret: unknown,
+): void {
+  const tag = isLifecycleResultObject(ret) ? String(ret.result) : typeof ret
+  process.stderr.write(
+    `clooks: hook "${hookName}" ${slot} returned an unrecognized shape (result=${tag}). ` +
+      `${slot === 'beforeHook' ? 'Expected event.block / event.skip / event.passthrough or void.' : 'Expected event.passthrough or void.'} ` +
+      `Treating as no-op.\n`,
+  )
 }
 
 export async function runHookLifecycle(
@@ -103,47 +100,44 @@ export async function runHookLifecycle(
   ) => unknown
 
   async function lifecycle(): Promise<LifecycleResult> {
-    // Attach decision-method constructors to the per-hook context BEFORE any
-    // phase runs. Both `beforeHook` and the main handler observe the same
-    // (mutated) `context` object reference. Idempotent — safe even if the
-    // engine ever attaches earlier.
     attachDecisionMethods(eventName, context)
 
-    // --- beforeHook phase ---
     if (hasBeforeHook) {
       const meta = await metaCache.buildMeta(loaded)
-      const { respond, getResponse } = createRespondCallback<BlockResult | SkipResult>()
-      const beforeEvent = buildBeforeHookEvent(eventName, context, meta, respond)
-      await hook.beforeHook!(beforeEvent, loaded.config)
-      const beforeResponse = getResponse()
-      if (beforeResponse) {
-        if (beforeResponse.result === 'block') {
-          return { result: beforeResponse, blockedByBefore: true, overriddenByAfter: false }
+      const beforeEvent = buildBeforeHookEvent(eventName, context, meta)
+      const ret: unknown = await hook.beforeHook!(beforeEvent, loaded.config)
+
+      if (isLifecycleResultObject(ret)) {
+        if (ret.result === 'block') {
+          return { result: ret, blockedByBefore: true, overriddenByAfter: false }
         }
-        // skip — hook is invisible, handler and afterHook don't run
-        return { result: beforeResponse, blockedByBefore: false, overriddenByAfter: false }
+        if (ret.result === 'skip') {
+          // `blockedByBefore: false` is correct here — skip means "hook is
+          // invisible," distinct from "hook emitted a blocking decision."
+          // Downstream consumers treat skip like a no-match. Don't "fix"
+          // this to true.
+          return { result: ret, blockedByBefore: false, overriddenByAfter: false }
+        }
+        if (!VALID_BEFORE_RESULTS.has(ret.result)) {
+          warnUnexpectedReturn('beforeHook', loaded.name, ret)
+        }
       }
     }
 
-    // --- handler phase ---
     const handlerResult = await handler(context, loaded.config)
 
-    // --- afterHook phase (only if handler completed normally) ---
     if (hasAfterHook) {
       const meta = await metaCache.buildMeta(loaded)
-      const { respond, getResponse } = createRespondCallback<unknown>()
-      const afterEvent = buildAfterHookEvent(eventName, context, handlerResult, meta, respond)
-      await hook.afterHook!(afterEvent, loaded.config)
-      const override = getResponse()
-      if (override !== undefined) {
-        return { result: override, blockedByBefore: false, overriddenByAfter: true }
+      const afterEvent = buildAfterHookEvent(eventName, context, handlerResult, meta)
+      const ret: unknown = await hook.afterHook!(afterEvent, loaded.config)
+      if (isLifecycleResultObject(ret) && !VALID_AFTER_RESULTS.has(ret.result)) {
+        warnUnexpectedReturn('afterHook', loaded.name, ret)
       }
     }
 
     return { result: handlerResult, blockedByBefore: false, overriddenByAfter: false }
   }
 
-  // Race the entire lifecycle against the timeout
   let timer: ReturnType<typeof setTimeout>
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(

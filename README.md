@@ -475,7 +475,7 @@ export const hook: ClooksHook = {
   beforeHook(event) {
     // Skip every handler when we're not running inside tmux.
     if (!process.env.TMUX) {
-      event.respond({ result: "skip" })
+      return event.skip()
     }
   },
 
@@ -491,10 +491,12 @@ export const hook: ClooksHook = {
 }
 ```
 
-`beforeHook` can `block` or `skip` — when it calls `event.respond()`, the
-matched handler is never invoked. `afterHook` runs after the handler
-returns normally (not on throw) and can call `event.respond()` to
-override the result with anything.
+`beforeHook` returns one of `event.block({ reason })`, `event.skip()`, or
+`event.passthrough()` (or `void` as a shorthand for `passthrough()`) — a
+returned `block` or `skip` short-circuits the matched handler. `afterHook`
+is observer-only: it runs after the handler returns normally (not on throw),
+reads `event.handlerResult` typed once narrowed on `event.type`, and emits
+side effects (telemetry, logging, timing) without mutating the result.
 
 ## Safety
 

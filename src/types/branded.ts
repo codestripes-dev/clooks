@@ -1,5 +1,3 @@
-// Internal: closed union of every event Clooks knows how to translate.
-// Unknown events fail closed.
 export type EventName =
   | 'PreToolUse'
   | 'PostToolUse'
@@ -27,9 +25,6 @@ export type EventName =
 export type HookName = string & { __brand: 'HookName' }
 
 export type Milliseconds = number & { __brand: 'Milliseconds' }
-
-// String-literal unions below pair documented values with `(string & {})` so
-// IDE autocomplete shows the known set without rejecting future upstream values.
 
 /** Permission mode reported on `ctx.permissionMode`. Read-only — never construct. */
 export type PermissionMode =

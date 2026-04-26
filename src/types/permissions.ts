@@ -1,8 +1,3 @@
-// Permission update types for PermissionRequest events.
-// Used both for the suggestions Claude Code attaches to a permission request
-// (`ctx.permissionSuggestions`) and for the rule changes a hook can return on
-// allow (`updatedPermissions`).
-
 import type { PermissionMode } from './branded.js'
 
 /** Where a permission rule is written. `session` = ephemeral; the others persist. */

@@ -620,7 +620,7 @@ import { writeFileSync } from "fs"
 export const hook = {
   meta: { name: "before-block-a" },
   beforeHook(event: any) {
-    event.respond({ result: "block", reason: "before blocked A" })
+    return event.block({ reason: "before blocked A" })
   },
   PreToolUse() {
     // Should NOT execute — beforeHook short-circuits
@@ -665,39 +665,6 @@ PreToolUse:
       // Hook B's allow-loser injectContext is accumulated into the deny winner per M3 D2 rules,
       // and emitted as additionalContext by the M2 translator:
       expect(output.hookSpecificOutput.additionalContext).toContain('hook-b executed')
-    })
-
-    test('14: afterHook overrides result in parallel group — override propagates', () => {
-      sandbox = createSandbox()
-
-      sandbox.writeHook(
-        'after-override.ts',
-        `
-export const hook = {
-  meta: { name: "after-override" },
-  afterHook(event: any) {
-    // Override the handler result to inject context
-    event.respond({
-      result: "allow",
-      injectContext: "afterHook override context",
-    })
-  },
-  PreToolUse() {
-    return { result: "allow" as const }
-  },
-}
-`,
-      )
-      sandbox.writeConfig(`
-version: "1.0.0"
-after-override:
-  parallel: true
-`)
-      const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
-      expect(result.exitCode).toBe(0)
-      const output = JSON.parse(result.stdout)
-      expect(output.hookSpecificOutput.permissionDecision).toBe('allow')
-      expect(output.hookSpecificOutput.additionalContext).toContain('afterHook override context')
     })
 
     test('15: afterHook throws in parallel group with onError:continue — crash swallowed, sibling result used', () => {

@@ -23,4 +23,4 @@ pre-commit:
     lockfile-up-to-date:
       run: bun install --frozen-lockfile --ignore-scripts
     bundle-up-to-date:
-      run: bun run generate:types && git diff --exit-code src/generated/
+      run: bun run generate:types && git diff --exit-code src/generated/ .clooks/hooks/types.d.ts

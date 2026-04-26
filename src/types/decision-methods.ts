@@ -1,7 +1,3 @@
-// Decision-method records for the 18 events that aren't tool-keyed.
-// These get intersected into each event's context so authors call
-// `ctx.allow(...)`, `ctx.block(...)`, etc. — fully typed.
-
 import type {
   DebugMessage,
   InjectContext,
@@ -39,8 +35,6 @@ import type {
   TaskCompletedResult,
 } from './results.js'
 
-// --- Guard events ---
-
 export type UserPromptSubmitDecisionMethods = Allow<
   InjectContext & SessionTitle,
   UserPromptSubmitResult
@@ -49,23 +43,21 @@ export type UserPromptSubmitDecisionMethods = Allow<
   Skip<InjectContext & SessionTitle, UserPromptSubmitResult>
 
 /**
- * `Stop` has no `stop` verb — `Stop` is the event whose default IS to stop.
- * Use `block({ reason })` to prevent the agent from stopping; `reason` tells
- * Claude what to do next.
+ * `block({ reason })` prevents the agent from stopping; `reason` tells Claude
+ * what to do next. There's no `stop` verb — stopping is the default.
  */
 export type StopDecisionMethods = Allow<DebugMessage, StopEventResult> &
   Block<Reason, StopEventResult> &
   Skip<DebugMessage, StopEventResult>
 
-/** Mirrors `StopDecisionMethods`. Use `block({ reason })` to prevent the subagent from stopping. */
+/** Mirrors `StopDecisionMethods`, but for a subagent. */
 export type SubagentStopDecisionMethods = Allow<DebugMessage, SubagentStopResult> &
   Block<Reason, SubagentStopResult> &
   Skip<DebugMessage, SubagentStopResult>
 
 /**
- * `policy_settings` changes cannot actually be blocked upstream — the engine
- * downgrades a `block` to `skip` and emits a warning so you can see the
- * discrepancy.
+ * `block` is silently downgraded to `skip` for `source: 'policy_settings'` —
+ * those changes can't be blocked upstream.
  */
 export type ConfigChangeDecisionMethods = Allow<DebugMessage, ConfigChangeResult> &
   Block<Reason, ConfigChangeResult> &
@@ -76,11 +68,9 @@ export type PreCompactDecisionMethods = Allow<DebugMessage, PreCompactResult> &
   Block<Reason, PreCompactResult> &
   Skip<DebugMessage, PreCompactResult>
 
-// --- Observe events ---
-
 /**
- * `retry({ })` does NOT reverse the denial — the call stays denied. It only
- * sets a flag hinting that the model may try again. `skip` is a no-op.
+ * `retry()` does NOT reverse the denial — the call stays denied. It only
+ * hints that the model may try again. `skip` is a no-op.
  */
 export type PermissionDeniedDecisionMethods = Retry<DebugMessage, PermissionDeniedResult> &
   Skip<DebugMessage, PermissionDeniedResult>
@@ -99,30 +89,23 @@ export type WorktreeRemoveDecisionMethods = Skip<DebugMessage, WorktreeRemoveRes
 
 export type PostCompactDecisionMethods = Skip<DebugMessage, PostCompactResult>
 
-// --- Notify-only events ---
-
 /**
  * Output is dropped upstream. `skip` exists for API uniformity — your handler
  * runs for side-effects (logging, alerting) only.
  */
 export type StopFailureDecisionMethods = Skip<DebugMessage, StopFailureResult>
 
-// --- Implementation events ---
-
 /**
- * Your hook REPLACES Claude Code's default `git worktree` behavior.
+ * Hooks REPLACE Claude Code's default `git worktree` behavior.
  * - `success({ path })` — the absolute path to the created worktree.
  * - `failure({ reason })` — the error to surface to the user.
  */
 export type WorktreeCreateDecisionMethods = Success<Path, WorktreeCreateResult> &
   Failure<Reason, WorktreeCreateResult>
 
-// --- Continuation events ---
-
 /**
- * - `continue({ feedback })` — keep the teammate working past idle. `feedback`
- *   is the next-step instruction.
- * - `stop({ reason })` — terminate the teammate. `reason` is shown to the user.
+ * - `continue({ feedback })` — keep the teammate working past idle.
+ * - `stop({ reason })` — terminate the teammate.
  */
 export type TeammateIdleDecisionMethods = Continue<Feedback, TeammateIdleResult> &
   Stop<Reason, TeammateIdleResult> &
