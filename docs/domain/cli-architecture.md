@@ -95,7 +95,7 @@ export function createConfigCommand(): Command {
 }
 ```
 
-The router registers commands via `program.addCommand(createConfigCommand())`. Stub commands (not yet implemented) use a shared `createStub(name, description)` factory in `src/commands/stubs.ts` that prints a "not yet implemented" message and exits 1.
+The router registers commands via `program.addCommand(createConfigCommand())`.
 
 ## TUI Wrapper Contract
 
@@ -223,7 +223,6 @@ Removes Clooks from a project or global scope. With `--project`, removes Clooks 
 - `src/commands/update.ts` — `createUpdateCommand()` — re-vendor plugin hooks (`clooks update plugin:<pack>`).
 - `src/manifest.ts` — `validateManifest()`, `ClooksPackManifest` type — pack manifest validation.
 - `src/platform.ts` — platform/scope helpers used by `clooks add` (`--global`/`--project`).
-- `src/commands/stubs.ts` — `registerStubs()` — placeholder commands for register, test.
 - `src/tui/context.ts` — `OutputContext` type and `getCtx(cmd)` helper.
 - `src/tui/json-envelope.ts` — `JsonEnvelope` type, `jsonSuccess()`, `jsonError()`.
 - `src/tui/prompts.ts` — `CancelError`, `withCancel`, `promptText`, `promptSelect`, `promptConfirm`, `promptMultiSelect`.

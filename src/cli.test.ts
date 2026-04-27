@@ -7,8 +7,6 @@ describe('KNOWN_COMMANDS', () => {
     expect(KNOWN_COMMANDS.has('add')).toBe(true)
     expect(KNOWN_COMMANDS.has('config')).toBe(true)
     expect(KNOWN_COMMANDS.has('init')).toBe(true)
-    expect(KNOWN_COMMANDS.has('register')).toBe(true)
-    expect(KNOWN_COMMANDS.has('test')).toBe(true)
   })
 
   test('does not contain deferred commands', () => {

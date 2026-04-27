@@ -8,7 +8,6 @@ import { createTypesCommand } from './commands/types.js'
 import { createNewHookCommand } from './commands/new-hook.js'
 import { createUninstallCommand } from './commands/uninstall.js'
 import { createUpdateCommand } from './commands/update.js'
-import { registerStubs } from './commands/stubs.js'
 
 const program = new Command()
 
@@ -31,7 +30,6 @@ program.addCommand(createTypesCommand())
 program.addCommand(createNewHookCommand())
 program.addCommand(createUninstallCommand())
 program.addCommand(createUpdateCommand())
-registerStubs(program)
 
 export { program }
 
