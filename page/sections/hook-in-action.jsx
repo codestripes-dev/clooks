@@ -101,14 +101,14 @@ function HookInActionSection({ accent }) {
     ['  ', [TK.op, '},']],
     '',
     ['  ', [TK.fn, 'PreToolUse'], [TK.op, '('], [TK.ty, 'ctx'], [TK.op, ') {']],
-    ['    ', [TK.kw, 'if'], [TK.op, ' ('], [TK.ty, 'ctx'], [TK.op, '.tool '], [TK.op, '!== '], [TK.str, "'Bash'"], [TK.op, ') '], [TK.kw, 'return'], [TK.op, ' { '], [TK.prop, 'result'], [TK.op, ': '], [TK.str, "'skip'"], [TK.op, ' }']],
+    ['    ', [TK.kw, 'if'], [TK.op, ' ('], [TK.ty, 'ctx'], [TK.op, '.tool '], [TK.op, '!== '], [TK.str, "'Bash'"], [TK.op, ') '], [TK.kw, 'return'], [TK.op, ' '], [TK.ty, 'ctx'], [TK.op, '.'], [TK.fn, 'skip'], [TK.op, '()']],
     '',
     ['    ', [TK.kw, 'const'], [TK.fn, ' cmd '], [TK.op, '= '], [TK.ty, 'ctx'], [TK.op, '.input.command '], [TK.op, '?? '], [TK.str, "''"]],
     ['    ', [TK.kw, 'const'], [TK.fn, ' dangerous '], [TK.op, '= /'], [TK.str, 'rm\\s+-rf?\\s+(\\/|~|\\$HOME)'], [TK.op, '/.test(cmd)']],
     '',
     ['    ', [TK.kw, 'return'], [TK.fn, ' dangerous'],],
-    ['      ', [TK.op, '? { '], [TK.prop, 'result'], [TK.op, ': '], [TK.str, "'block'"], [TK.op, ', '], [TK.prop, 'reason'], [TK.op, ': '], [TK.str, "`refusing: ${cmd}`"], [TK.op, ' }']],
-    ['      ', [TK.op, ': { '], [TK.prop, 'result'], [TK.op, ': '], [TK.str, "'allow'"], [TK.op, ' }']],
+    ['      ', [TK.op, '? '], [TK.ty, 'ctx'], [TK.op, '.'], [TK.fn, 'block'], [TK.op, '({ '], [TK.prop, 'reason'], [TK.op, ': '], [TK.str, "`refusing: ${cmd}`"], [TK.op, ' })']],
+    ['      ', [TK.op, ': '], [TK.ty, 'ctx'], [TK.op, '.'], [TK.fn, 'allow'], [TK.op, '()']],
     ['  ', [TK.op, '},']],
     [[TK.op, '}']],
   ];
@@ -353,7 +353,7 @@ function HookInActionSection({ accent }) {
               <span>
                 {scene.highlight === 'guard' && 'tool gate — not Bash? skip'}
                 {scene.highlight === 'regex' && 'regex match on ctx.input.command'}
-                {scene.highlight === 'return' && 'tagged result: block + reason'}
+                {scene.highlight === 'return' && 'decision: ctx.block({ reason })'}
                 {!scene.highlight && 'waiting for PreToolUse'}
               </span>
             </div>

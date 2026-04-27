@@ -12,7 +12,7 @@ function CapturesSection({ accent }) {
       id: 'block',
       tab: '01 · Intended block',
       title: 'A hook refuses a destructive\u00a0command.',
-      blurb: <>The <code style={codeInline}>no-rm-rf</code> hook returns <code style={codeInline}>{`{ result: "block", reason }`}</code>. Claude reads the reason, stops, and surfaces it back to the user.</>,
+      blurb: <>The <code style={codeInline}>no-rm-rf</code> hook returns <code style={codeInline}>ctx.block({`{ reason }`})</code>. Claude reads the reason, stops, and surfaces it back to the user.</>,
       meta: [
         ['PreToolUse', accent], ['Bash', 'fg'],
       ],

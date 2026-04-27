@@ -18,7 +18,7 @@ function Footer({ accent }) {
             marginTop: 20, fontSize: 11, color: COL.fgFaint,
             fontFamily: 'JetBrains Mono, monospace',
           }}>
-            clooks v{window.CLOOKS_VERSION} · built with bun · by Joe Degler
+            clooks v{window.CLOOKS_VERSION} · built with bun
           </div>
         </div>
         {[
@@ -57,7 +57,7 @@ function Footer({ accent }) {
         gap: 16, flexWrap: 'wrap',
       }}>
         <span>MIT License · joe@clooks.cc</span>
-        <span>© {new Date().getFullYear()} Joe Degler</span>
+        <span>© {new Date().getFullYear()} Codestripes</span>
       </div>
     </footer>
   );
