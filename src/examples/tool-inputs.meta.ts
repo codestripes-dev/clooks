@@ -16,7 +16,21 @@ export interface ToolInputFieldDoc {
   readonly description: string
 }
 
-export const TOOL_INPUT_DOCS: Record<keyof ToolInputMap, ReadonlyArray<ToolInputFieldDoc>> = {
+/**
+ * Per-tool strict variant of `ToolInputFieldDoc`. `name` is constrained to
+ * `keyof ToolInputMap[K]`, so renaming a field on (e.g.) `BashToolInput`
+ * forces the corresponding entry in `TOOL_INPUT_DOCS.Bash` to be updated.
+ * The renderer keeps consuming the loose `ToolInputFieldDoc` shape.
+ */
+export interface ToolInputFieldDocFor<K extends keyof ToolInputMap> extends ToolInputFieldDoc {
+  readonly name: Extract<keyof ToolInputMap[K], string>
+}
+
+type ToolInputDocsTyped = {
+  readonly [K in keyof ToolInputMap]: ReadonlyArray<ToolInputFieldDocFor<K>>
+}
+
+export const TOOL_INPUT_DOCS = {
   Bash: [
     {
       name: 'command',
@@ -231,4 +245,4 @@ export const TOOL_INPUT_DOCS: Record<keyof ToolInputMap, ReadonlyArray<ToolInput
         'Optional. Maps question text to the selected option label. Claude does not set this field; supply it via `updatedInput` to answer programmatically.',
     },
   ],
-}
+} as const satisfies ToolInputDocsTyped

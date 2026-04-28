@@ -2,6 +2,8 @@
 // Grounded in src/types/contexts.ts (PostToolUseContext) and
 // docs/domain/raw-claude-ai/hook-docs/PostToolUse.md.
 
+import type { RequiredFieldDocFor } from '../index.js'
+
 export default {
   required: [
     { name: 'event', type: 'string', description: 'Must be "PostToolUse".' },
@@ -27,4 +29,4 @@ export default {
       description: 'The result the tool returned. Schema depends on the tool.',
     },
   ],
-} as const
+} as const satisfies { readonly required: ReadonlyArray<RequiredFieldDocFor<'PostToolUse'>> }

@@ -2,6 +2,8 @@
 // Grounded in src/types/contexts.ts (PreCompactContext) and
 // docs/domain/raw-claude-ai/hook-docs/PreCompact.md.
 
+import type { RequiredFieldDocFor } from '../index.js'
+
 export default {
   required: [
     { name: 'event', type: 'string', description: 'Must be "PreCompact".' },
@@ -18,4 +20,4 @@ export default {
         'For "manual", the text the user passed to /compact. For "auto", an empty string.',
     },
   ],
-} as const
+} as const satisfies { readonly required: ReadonlyArray<RequiredFieldDocFor<'PreCompact'>> }

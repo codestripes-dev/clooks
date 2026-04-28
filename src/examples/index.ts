@@ -9,6 +9,7 @@
 // `tool-inputs.meta.ts`.
 
 import type { EventName } from '../types/branded.js'
+import type { CreateContextPayload } from '../testing/create-context.js'
 
 // Note: TypeScript infers JSON imports as parsed objects, but at runtime Bun's
 // `with { type: 'text' }` returns the file contents as a string. Cast through
@@ -87,6 +88,23 @@ export interface RequiredFieldDoc {
   readonly name: string
   readonly type: string
   readonly description: string
+}
+
+/**
+ * Per-event strict variant of `RequiredFieldDoc`. Each `<Event>.meta.ts`
+ * should pin its `required` array to this shape via:
+ *
+ *     export default { required: [...] } as const satisfies {
+ *       readonly required: ReadonlyArray<RequiredFieldDocFor<'<Event>'>>
+ *     }
+ *
+ * `name` is constrained to `keyof CreateContextPayload<E>`, so a typo or a
+ * renamed/removed field on the underlying context type fails compilation.
+ * The renderer side keeps consuming the loose `RequiredFieldDoc` — the
+ * narrowing is a build-time check at the meta-file boundary only.
+ */
+export interface RequiredFieldDocFor<E extends EventName> extends RequiredFieldDoc {
+  readonly name: Extract<keyof CreateContextPayload<E>, string>
 }
 
 export interface EventMeta {

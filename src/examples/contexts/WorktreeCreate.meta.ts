@@ -2,6 +2,8 @@
 // Grounded in src/types/contexts.ts (WorktreeCreateContext) and
 // docs/domain/raw-claude-ai/hook-docs/WorktreeCreate.md.
 
+import type { RequiredFieldDocFor } from '../index.js'
+
 export default {
   required: [
     { name: 'event', type: 'string', description: 'Must be "WorktreeCreate".' },
@@ -12,4 +14,4 @@ export default {
         'Slug identifier for the new worktree, either user-specified or auto-generated (e.g. "bold-oak-a3f2").',
     },
   ],
-} as const
+} as const satisfies { readonly required: ReadonlyArray<RequiredFieldDocFor<'WorktreeCreate'>> }

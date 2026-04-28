@@ -2,6 +2,8 @@
 // Grounded in src/types/contexts.ts (PermissionDeniedContext) and
 // docs/domain/raw-claude-ai/hook-docs/PermissionDenied.md.
 
+import type { RequiredFieldDocFor } from '../index.js'
+
 export default {
   required: [
     { name: 'event', type: 'string', description: 'Must be "PermissionDenied".' },
@@ -26,4 +28,4 @@ export default {
       description: "The classifier's explanation for why the tool call was denied.",
     },
   ],
-} as const
+} as const satisfies { readonly required: ReadonlyArray<RequiredFieldDocFor<'PermissionDenied'>> }

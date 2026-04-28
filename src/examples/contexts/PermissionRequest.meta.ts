@@ -2,6 +2,8 @@
 // Grounded in src/types/contexts.ts (PermissionRequestContext) and
 // docs/domain/raw-claude-ai/hook-docs/PermissionRequest.md.
 
+import type { RequiredFieldDocFor } from '../index.js'
+
 export default {
   required: [
     { name: 'event', type: 'string', description: 'Must be "PermissionRequest".' },
@@ -17,4 +19,4 @@ export default {
       description: 'Shape depends on toolName. See "Tool inputs" below.',
     },
   ],
-} as const
+} as const satisfies { readonly required: ReadonlyArray<RequiredFieldDocFor<'PermissionRequest'>> }

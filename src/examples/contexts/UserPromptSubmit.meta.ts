@@ -2,6 +2,8 @@
 // Grounded in src/types/contexts.ts (UserPromptSubmitContext) and
 // docs/domain/raw-claude-ai/hook-docs/UserPromptSubmit.md.
 
+import type { RequiredFieldDocFor } from '../index.js'
+
 export default {
   required: [
     { name: 'event', type: 'string', description: 'Must be "UserPromptSubmit".' },
@@ -11,4 +13,4 @@ export default {
       description: 'The text the user submitted.',
     },
   ],
-} as const
+} as const satisfies { readonly required: ReadonlyArray<RequiredFieldDocFor<'UserPromptSubmit'>> }

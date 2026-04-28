@@ -2,6 +2,8 @@
 // Grounded in src/types/contexts.ts (NotificationContext) and
 // docs/domain/raw-claude-ai/hook-docs/Notification.md.
 
+import type { RequiredFieldDocFor } from '../index.js'
+
 export default {
   required: [
     { name: 'event', type: 'string', description: 'Must be "Notification".' },
@@ -11,4 +13,4 @@ export default {
       description: 'The notification text Claude Code is about to display.',
     },
   ],
-} as const
+} as const satisfies { readonly required: ReadonlyArray<RequiredFieldDocFor<'Notification'>> }

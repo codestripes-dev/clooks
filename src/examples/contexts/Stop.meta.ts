@@ -2,6 +2,8 @@
 // Grounded in src/types/contexts.ts (StopContext) and
 // docs/domain/raw-claude-ai/hook-docs/Stop.md.
 
+import type { RequiredFieldDocFor } from '../index.js'
+
 export default {
   required: [
     { name: 'event', type: 'string', description: 'Must be "Stop".' },
@@ -16,4 +18,4 @@ export default {
       description: "The text content of Claude's final response.",
     },
   ],
-} as const
+} as const satisfies { readonly required: ReadonlyArray<RequiredFieldDocFor<'Stop'>> }

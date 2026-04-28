@@ -2,6 +2,8 @@
 // Grounded in src/types/contexts.ts (SubagentStopContext) and
 // docs/domain/raw-claude-ai/hook-docs/SubagentStop.md.
 
+import type { RequiredFieldDocFor } from '../index.js'
+
 export default {
   required: [
     { name: 'event', type: 'string', description: 'Must be "SubagentStop".' },
@@ -31,4 +33,4 @@ export default {
       description: "The text content of the subagent's final response.",
     },
   ],
-} as const
+} as const satisfies { readonly required: ReadonlyArray<RequiredFieldDocFor<'SubagentStop'>> }

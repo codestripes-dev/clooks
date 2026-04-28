@@ -2,6 +2,8 @@
 // Grounded in src/types/contexts.ts (PostToolUseFailureContext) and
 // docs/domain/raw-claude-ai/hook-docs/PostToolUseFailure.md.
 
+import type { RequiredFieldDocFor } from '../index.js'
+
 export default {
   required: [
     { name: 'event', type: 'string', description: 'Must be "PostToolUseFailure".' },
@@ -27,4 +29,4 @@ export default {
       description: 'String describing what went wrong.',
     },
   ],
-} as const
+} as const satisfies { readonly required: ReadonlyArray<RequiredFieldDocFor<'PostToolUseFailure'>> }

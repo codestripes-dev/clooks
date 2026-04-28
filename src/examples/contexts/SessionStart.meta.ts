@@ -2,6 +2,8 @@
 // Grounded in src/types/contexts.ts (SessionStartContext) and
 // docs/domain/raw-claude-ai/hook-docs/SessionStart.md.
 
+import type { RequiredFieldDocFor } from '../index.js'
+
 export default {
   required: [
     { name: 'event', type: 'string', description: 'Must be "SessionStart".' },
@@ -12,4 +14,4 @@ export default {
         'How the session started. One of "startup", "resume", "clear", "compact" (or a future string).',
     },
   ],
-} as const
+} as const satisfies { readonly required: ReadonlyArray<RequiredFieldDocFor<'SessionStart'>> }

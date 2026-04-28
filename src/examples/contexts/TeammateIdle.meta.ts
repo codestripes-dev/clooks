@@ -2,6 +2,8 @@
 // Grounded in src/types/contexts.ts (TeammateIdleContext) and
 // docs/domain/raw-claude-ai/hook-docs/TeammateIdle.md.
 
+import type { RequiredFieldDocFor } from '../index.js'
+
 export default {
   required: [
     { name: 'event', type: 'string', description: 'Must be "TeammateIdle".' },
@@ -16,4 +18,4 @@ export default {
       description: 'Name of the team.',
     },
   ],
-} as const
+} as const satisfies { readonly required: ReadonlyArray<RequiredFieldDocFor<'TeammateIdle'>> }

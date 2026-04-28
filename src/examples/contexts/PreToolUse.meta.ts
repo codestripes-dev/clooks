@@ -2,6 +2,8 @@
 // Grounded in src/types/contexts.ts (PreToolUseContext) and
 // docs/domain/raw-claude-ai/hook-docs/PreToolUse.md.
 
+import type { RequiredFieldDocFor } from '../index.js'
+
 export default {
   required: [
     { name: 'event', type: 'string', description: 'Must be "PreToolUse".' },
@@ -28,4 +30,4 @@ export default {
       description: 'Identifier Claude Code assigns to this tool call (e.g. "tu_test_0001").',
     },
   ],
-} as const
+} as const satisfies { readonly required: ReadonlyArray<RequiredFieldDocFor<'PreToolUse'>> }

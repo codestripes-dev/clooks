@@ -2,6 +2,8 @@
 // Grounded in src/types/contexts.ts (SessionEndContext) and
 // docs/domain/raw-claude-ai/hook-docs/SessionEnd.md.
 
+import type { RequiredFieldDocFor } from '../index.js'
+
 export default {
   required: [
     { name: 'event', type: 'string', description: 'Must be "SessionEnd".' },
@@ -12,4 +14,4 @@ export default {
         'Why the session ended. One of "clear", "resume", "logout", "prompt_input_exit", "bypass_permissions_disabled", "other" (or a future string).',
     },
   ],
-} as const
+} as const satisfies { readonly required: ReadonlyArray<RequiredFieldDocFor<'SessionEnd'>> }

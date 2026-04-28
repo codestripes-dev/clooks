@@ -2,6 +2,8 @@
 // Grounded in src/types/contexts.ts (TaskCompletedContext) and
 // docs/domain/raw-claude-ai/hook-docs/TaskCompleted.md.
 
+import type { RequiredFieldDocFor } from '../index.js'
+
 export default {
   required: [
     { name: 'event', type: 'string', description: 'Must be "TaskCompleted".' },
@@ -16,4 +18,4 @@ export default {
       description: 'Title of the task.',
     },
   ],
-} as const
+} as const satisfies { readonly required: ReadonlyArray<RequiredFieldDocFor<'TaskCompleted'>> }
