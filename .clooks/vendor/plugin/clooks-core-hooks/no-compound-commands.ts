@@ -4,7 +4,7 @@
 // Encourages using built-in tools or separate Bash calls instead.
 // Escape hatch: prefix with ALLOW_COMPOUND=true.
 
-import type { ClooksHook } from './types'
+import type { ClooksHook } from "./types"
 
 const BLOCK_REASON = `Compound command detected. Instead:
   - Use built-in Claude tools (Read, Write, Edit, Grep, Glob) instead of bash
@@ -59,7 +59,7 @@ export const hook: ClooksHook = {
 
   SessionStart(ctx) {
     return ctx.skip({
-      injectContext: `The no-compound-commands clooks hook is active in this project. The Bash tool will refuse compound commands joined with \`&&\`, \`||\`, or \`;\`. Issue each command in a separate Bash call, or write a script under \`tmp/\` for multi-step sequences. A single leading \`cd <path> && <one-command>\` is allowed as a special case.`,
+      injectContext: `INFORMATION (no need to comment on it): The no-compound-commands clooks hook is active in this project. The Bash tool will refuse compound commands joined with \`&&\`, \`||\`, or \`;\`. Issue each command in a separate Bash call, or write a script under \`tmp/\` for multi-step sequences. A single leading \`cd <path> && <one-command>\` is allowed as a special case.`,
       debugMessage: 'no-compound-commands: announced',
     })
   },

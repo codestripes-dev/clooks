@@ -8,8 +8,6 @@ domain-doc-size: {}
 
 no-clooks-uninstall: {}
 
-no-compound-commands: {}
-
 no-destructive-git:
   uses: ./.clooks/vendor/plugin/clooks-core-hooks/no-destructive-git.ts
 
@@ -43,8 +41,6 @@ no-bare-mv:
 
 no-rm-rf:
   uses: ./.clooks/vendor/plugin/clooks-core-hooks/no-rm-rf.ts
-
-block-credential-reads: {}
 
 no-pasted-placeholder:
   uses: ./.clooks/vendor/plugin/clooks-core-hooks/no-pasted-placeholder.ts

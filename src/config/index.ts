@@ -95,9 +95,40 @@ export async function loadConfig(
     }
   }
 
+  // Suppress no-op shadows: if the project hook source file is byte-identical
+  // to the home hook source file, drop it from the shadows list.
+  const filteredShadows: HookName[] = []
+  for (const name of shadows) {
+    const projectEntry = config.hooks[name as HookName]
+    const projectPath = resolveHookPath(name as HookName, { uses: projectEntry?.uses }, projectRoot)
+    const rawHomeUses = homeHookUses.get(name)
+    const homePath = resolveHookPath(name as HookName, { uses: rawHomeUses }, homeRoot)
+    if (await sourcesEqual(projectPath, homePath)) continue
+    filteredShadows.push(name as HookName)
+  }
+
   return {
     config,
-    shadows: shadows as HookName[],
+    shadows: filteredShadows,
     hasProjectConfig: projectRaw !== undefined,
+  }
+}
+
+// Returns true iff both files exist and have byte-identical contents.
+// On any I/O error (missing, permission denied), returns false so the
+// shadow warning is preserved — "preserve the warning on uncertainty."
+async function sourcesEqual(a: string, b: string): Promise<boolean> {
+  try {
+    const fileA = Bun.file(a)
+    const fileB = Bun.file(b)
+    if (!(await fileA.exists()) || !(await fileB.exists())) return false
+    const [bytesA, bytesB] = await Promise.all([fileA.bytes(), fileB.bytes()])
+    if (bytesA.length !== bytesB.length) return false
+    for (let i = 0; i < bytesA.length; i++) {
+      if (bytesA[i] !== bytesB[i]) return false
+    }
+    return true
+  } catch {
+    return false
   }
 }

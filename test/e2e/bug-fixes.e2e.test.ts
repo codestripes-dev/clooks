@@ -47,17 +47,22 @@ recoverable-hook:
     const r4 = sandbox.run([], { stdin })
     expect(r4.exitCode).toBe(0)
     const o4 = JSON.parse(r4.stdout)
-    expect(o4.hookSpecificOutput?.additionalContext ?? o4.systemMessage ?? '').toContain('will be skipped')
+    expect(o4.hookSpecificOutput?.additionalContext ?? o4.systemMessage ?? '').toContain(
+      'will be skipped',
+    )
 
     // NOW RESTORE the hook file
-    sandbox.writeHook('recoverable-hook.ts', `
+    sandbox.writeHook(
+      'recoverable-hook.ts',
+      `
 export const hook = {
   meta: { name: "recoverable-hook" },
   PreToolUse() {
     return { result: "allow" as const, injectContext: "hook-restored" }
   },
 }
-`)
+`,
+    )
 
     // Invocation 5: hook loads successfully — __load__ counter should be cleared
     const r5 = sandbox.run([], { stdin })
@@ -99,14 +104,17 @@ partial-fail-hook:
     expect(sandbox.fileExists('.clooks/.failures')).toBe(true)
 
     // Restore the hook file before reaching threshold
-    sandbox.writeHook('partial-fail-hook.ts', `
+    sandbox.writeHook(
+      'partial-fail-hook.ts',
+      `
 export const hook = {
   meta: { name: "partial-fail-hook" },
   PreToolUse() {
     return { result: "allow" as const, injectContext: "recovered-early" }
   },
 }
-`)
+`,
+    )
 
     // Invocation 2: hook loads successfully → __load__ counter should be cleared
     const r2 = sandbox.run([], { stdin })
@@ -125,28 +133,34 @@ describe('Bug 2: shadow warning emitted on early exit when no hooks match', () =
     sandbox = createSandbox()
 
     // Home config defines shared-hook handling only PreToolUse
-    sandbox.writeHomeHook('shared-hook.ts', `
+    sandbox.writeHomeHook(
+      'shared-hook.ts',
+      `
 export const hook = {
   meta: { name: "shared-hook" },
   PreToolUse() {
     return { result: "allow" as const, injectContext: "from-home" }
   },
 }
-`)
+`,
+    )
     sandbox.writeHomeConfig(`
 version: "1.0.0"
 shared-hook: {}
 `)
 
     // Project config defines shared-hook handling only PreToolUse (same name = shadow)
-    sandbox.writeHook('shared-hook.ts', `
+    sandbox.writeHook(
+      'shared-hook.ts',
+      `
 export const hook = {
   meta: { name: "shared-hook" },
   PreToolUse() {
     return { result: "allow" as const, injectContext: "from-project" }
   },
 }
-`)
+`,
+    )
     sandbox.writeConfig(`
 version: "1.0.0"
 shared-hook: {}
@@ -158,14 +172,16 @@ shared-hook: {}
     const r1 = sandbox.run([], { stdin: loadEvent('session-start.json') })
     expect(r1.exitCode).toBe(0)
     const o1 = JSON.parse(r1.stdout)
-    expect(o1.systemMessage).toContain('clooks: project hook "shared-hook" is shadowing a global hook with the same name.')
+    expect(o1.systemMessage).toContain('clooks: project hooks shadowing home: shared-hook')
   })
 
   test('no shadow warning when hooks match (existing behavior preserved)', () => {
     sandbox = createSandbox()
 
     // Home config defines shared-hook handling SessionStart + PreToolUse
-    sandbox.writeHomeHook('shared-hook.ts', `
+    sandbox.writeHomeHook(
+      'shared-hook.ts',
+      `
 export const hook = {
   meta: { name: "shared-hook" },
   SessionStart() { return null },
@@ -173,14 +189,17 @@ export const hook = {
     return { result: "allow" as const, injectContext: "from-home" }
   },
 }
-`)
+`,
+    )
     sandbox.writeHomeConfig(`
 version: "1.0.0"
 shared-hook: {}
 `)
 
     // Project config shadows with SessionStart + PreToolUse
-    sandbox.writeHook('shared-hook.ts', `
+    sandbox.writeHook(
+      'shared-hook.ts',
+      `
 export const hook = {
   meta: { name: "shared-hook" },
   SessionStart() { return null },
@@ -188,7 +207,8 @@ export const hook = {
     return { result: "allow" as const, injectContext: "from-project" }
   },
 }
-`)
+`,
+    )
     sandbox.writeConfig(`
 version: "1.0.0"
 shared-hook: {}
@@ -198,7 +218,7 @@ shared-hook: {}
     const r1 = sandbox.run([], { stdin: loadEvent('session-start.json') })
     expect(r1.exitCode).toBe(0)
     const o1 = JSON.parse(r1.stdout)
-    expect(o1.systemMessage).toContain('clooks: project hook "shared-hook" is shadowing a global hook with the same name.')
+    expect(o1.systemMessage).toContain('clooks: project hooks shadowing home: shared-hook')
   })
 })
 
@@ -208,14 +228,17 @@ describe('Bug 3: load errors block all events (fail-closed invariant)', () => {
 
     // Hook ONLY exports PreToolUse, but the file is missing so we can't know that.
     // A working hook that handles PostToolUse alongside the missing one.
-    sandbox.writeHook('working-hook.ts', `
+    sandbox.writeHook(
+      'working-hook.ts',
+      `
 export const hook = {
   meta: { name: "working-hook" },
   PostToolUse() {
     return { result: "skip" as const }
   },
 }
-`)
+`,
+    )
     sandbox.writeConfig(`
 version: "1.0.0"
 working-hook: {}
@@ -228,7 +251,7 @@ missing-hook:
     // (it was intended for PreToolUse only), but since it failed to load,
     // the engine can't know which events it handles.
     // Fail-closed: the load error blocks the entire invocation.
-    const postToolUseEvent = JSON.stringify({ hook_event_name: "PostToolUse" })
+    const postToolUseEvent = JSON.stringify({ hook_event_name: 'PostToolUse' })
 
     const r1 = sandbox.run([], { stdin: postToolUseEvent })
     expect(r1.exitCode).toBe(0)
@@ -248,14 +271,17 @@ missing-hook:
   test('after load-error hook is degraded, unrelated events proceed normally', () => {
     sandbox = createSandbox()
 
-    sandbox.writeHook('working-hook.ts', `
+    sandbox.writeHook(
+      'working-hook.ts',
+      `
 export const hook = {
   meta: { name: "working-hook" },
   PreToolUse() {
     return { result: "allow" as const, injectContext: "working-hook-ran" }
   },
 }
-`)
+`,
+    )
     sandbox.writeConfig(`
 version: "1.0.0"
 working-hook: {}

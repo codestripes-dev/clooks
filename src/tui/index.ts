@@ -3,5 +3,12 @@ export { getCtx } from './context.js'
 export type { JsonEnvelope } from './json-envelope.js'
 export { jsonSuccess, jsonError } from './json-envelope.js'
 export { CancelError, promptText, promptSelect, promptConfirm } from './prompts.js'
-export { printIntro, printSuccess, printInfo, printWarning, printError, printOutro } from './output.js'
+export {
+  printIntro,
+  printSuccess,
+  printInfo,
+  printWarning,
+  printError,
+  printOutro,
+} from './output.js'
 export { withSpinner } from './spinner.js'

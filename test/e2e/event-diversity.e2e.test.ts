@@ -30,14 +30,17 @@ continue-teammate: {}
 
   test('Scenario 16: TeammateIdle stop — exit 0 with stop reason', () => {
     sandbox = createSandbox()
-    sandbox.writeHook('stop-teammate.ts', `
+    sandbox.writeHook(
+      'stop-teammate.ts',
+      `
 export const hook = {
   meta: { name: "stop-teammate" },
   TeammateIdle() {
     return { result: "stop" as const, reason: "test complete" }
   },
 }
-`)
+`,
+    )
     sandbox.writeConfig(`
 version: "1.0.0"
 stop-teammate: {}
@@ -51,31 +54,43 @@ stop-teammate: {}
 
   test('Scenario 17: SessionStart with shadow warning in systemMessage', () => {
     sandbox = createSandbox()
-    // Write the same hook name in both home and project configs
-    const hookContent = `
+    // Project hook diverges from home so the shadow warning fires
+    // (byte-identical sources are now suppressed; see FEAT-0068).
+    sandbox.writeHomeHook(
+      'shared-hook.ts',
+      `
 export const hook = {
   meta: { name: "shared-hook" },
   SessionStart() {
     return { result: "skip" as const }
   },
 }
-`
-    sandbox.writeHook('shared-hook.ts', hookContent)
-    sandbox.writeConfig(`
+`,
+    )
+    sandbox.writeHomeConfig(`
 version: "1.0.0"
 shared-hook: {}
 `)
-    sandbox.writeHomeHook('shared-hook.ts', hookContent)
-    sandbox.writeHomeConfig(`
+    sandbox.writeHook(
+      'shared-hook.ts',
+      `
+export const hook = {
+  meta: { name: "shared-hook" },
+  SessionStart() {
+    return { result: "skip" as const }
+  },
+  // diverged from home
+}
+`,
+    )
+    sandbox.writeConfig(`
 version: "1.0.0"
 shared-hook: {}
 `)
     const result = sandbox.run([], { stdin: loadEvent('session-start.json') })
     expect(result.exitCode).toBe(0)
     const output = JSON.parse(result.stdout)
-    expect(output.systemMessage).toContain(
-      'clooks: project hook "shared-hook" is shadowing a global hook with the same name.'
-    )
+    expect(output.systemMessage).toContain('clooks: project hooks shadowing home: shared-hook')
   })
 
   test('Scenario 18: WorktreeCreate success returns path on stdout', () => {
@@ -93,14 +108,17 @@ worktree-success: {}
 
   test('Scenario 19: WorktreeCreate failure returns exit 1', () => {
     sandbox = createSandbox()
-    sandbox.writeHook('worktree-fail.ts', `
+    sandbox.writeHook(
+      'worktree-fail.ts',
+      `
 export const hook = {
   meta: { name: "worktree-fail" },
   WorktreeCreate() {
     return { result: "failure" as const, reason: "disk full" }
   },
 }
-`)
+`,
+    )
     sandbox.writeConfig(`
 version: "1.0.0"
 worktree-fail: {}
@@ -115,14 +133,17 @@ worktree-fail: {}
     // SessionEnd is a non-injectable observe event.
     // With onError: block, a crash produces a block result which
     // translateResult surfaces via systemMessage (not additionalContext).
-    sandbox.writeHook('crash-session-end.ts', `
+    sandbox.writeHook(
+      'crash-session-end.ts',
+      `
 export const hook = {
   meta: { name: "crash-session-end" },
   SessionEnd() {
     throw new Error("session end crash")
   },
 }
-`)
+`,
+    )
     sandbox.writeConfig(`
 version: "1.0.0"
 crash-session-end:

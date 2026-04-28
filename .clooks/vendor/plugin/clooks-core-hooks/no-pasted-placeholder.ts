@@ -3,7 +3,7 @@
 // prompt, Claude Code failed to expand the paste and the prompt references
 // nothing. No config.
 
-import type { ClooksHook } from './types'
+import type { ClooksHook } from "./types"
 
 const PLACEHOLDER_PATTERN = /\[Pasted text #\d+ \+\d+ lines?\]/
 
@@ -15,9 +15,9 @@ export function hasPastedPlaceholder(prompt: string): boolean {
 
 export const hook: ClooksHook = {
   meta: {
-    name: 'no-pasted-placeholder',
+    name: "no-pasted-placeholder",
     description:
-      'Blocks UserPromptSubmit when the prompt still contains a literal `[Pasted text #N +N lines]` placeholder',
+      "Blocks UserPromptSubmit when the prompt still contains a literal `[Pasted text #N +N lines]` placeholder",
   },
 
   UserPromptSubmit(ctx) {
@@ -25,7 +25,7 @@ export const hook: ClooksHook = {
 
     return ctx.block({
       reason: BLOCK_REASON,
-      debugMessage: 'no-pasted-placeholder: blocked unresolved paste placeholder',
+      debugMessage: "no-pasted-placeholder: blocked unresolved paste placeholder",
     })
   },
 }

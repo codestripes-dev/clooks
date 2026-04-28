@@ -1,6 +1,6 @@
-import type { LoadedHook } from "./loader.js"
-import type { HookEntry, EventEntry } from "./config/schema.js"
-import type { HookName } from "./types/branded.js"
+import type { LoadedHook } from './loader.js'
+import type { HookEntry, EventEntry } from './config/schema.js'
+import type { HookName } from './types/branded.js'
 
 /** A matched hook annotated with its parallel flag from config. */
 export interface OrderedHook {
@@ -10,7 +10,7 @@ export interface OrderedHook {
 
 /** A contiguous group of hooks that share an execution mode. */
 export interface ExecutionGroup {
-  type: "sequential" | "parallel"
+  type: 'sequential' | 'parallel'
   hooks: OrderedHook[]
 }
 
@@ -72,9 +72,7 @@ export function orderHooksForEvent(
       )
     }
     if (seenInOrder.has(name)) {
-      throw new Error(
-        `clooks: event "${eventName}" order contains duplicate hook name "${name}"`,
-      )
+      throw new Error(`clooks: event "${eventName}" order contains duplicate hook name "${name}"`)
     }
     seenInOrder.add(name)
   }
@@ -101,7 +99,7 @@ export function orderHooksForEvent(
   const orderedMiddle: OrderedHook[] = []
   for (const name of orderList) {
     const hook = matchedByName.get(name)
-    if (!hook) continue  // disabled via config (already validated above)
+    if (!hook) continue // disabled via config (already validated above)
     orderedMiddle.push(annotate(hook))
   }
 
@@ -123,13 +121,13 @@ export function partitionIntoGroups(
 
   const groups: ExecutionGroup[] = []
   let currentGroup: ExecutionGroup = {
-    type: orderedHooks[0]!.parallel ? "parallel" : "sequential",
+    type: orderedHooks[0]!.parallel ? 'parallel' : 'sequential',
     hooks: [orderedHooks[0]!],
   }
 
   for (let i = 1; i < orderedHooks.length; i++) {
     const hook = orderedHooks[i]!
-    const hookType = hook.parallel ? "parallel" : "sequential"
+    const hookType = hook.parallel ? 'parallel' : 'sequential'
 
     if (hookType === currentGroup.type) {
       currentGroup.hooks.push(hook)
@@ -147,10 +145,10 @@ export function partitionIntoGroups(
     const next = groups[i + 1]!
 
     if (
-      curr.type === "parallel" &&
+      curr.type === 'parallel' &&
       curr.hooks.length === 1 &&
-      prev.type === "sequential" &&
-      next.type === "sequential"
+      prev.type === 'sequential' &&
+      next.type === 'sequential'
     ) {
       const hookName = curr.hooks[0]!.loaded.name
       console.error(

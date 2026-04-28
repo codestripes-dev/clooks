@@ -1,4 +1,4 @@
-import { CLAUDE_CODE_EVENTS } from "./constants.js"
+import { CLAUDE_CODE_EVENTS } from './constants.js'
 
 /**
  * Classifies raw YAML keys into version, config, hooks, and events.
@@ -16,9 +16,9 @@ export function classifyConfigKeys(raw: Record<string, unknown>): {
   const events: Record<string, unknown> = {}
 
   for (const key of Object.keys(raw)) {
-    if (key === "version" || key === "config") continue
+    if (key === 'version' || key === 'config') continue
 
-    if (CLAUDE_CODE_EVENTS.has(key as import("../types/branded.js").EventName)) {
+    if (CLAUDE_CODE_EVENTS.has(key as import('../types/branded.js').EventName)) {
       events[key] = raw[key]
     } else {
       hooks[key] = raw[key]

@@ -87,18 +87,10 @@
 //                             from "ask" to unbypassable block. Use on shared
 //                             machines or CI where no human can confirm prompts.
 
-import type { ClooksHook, PreToolUseResult } from './types'
+import type { ClooksHook, PreToolUseResult } from "./types"
 import { spawnSync } from 'node:child_process'
 import { existsSync, lstatSync, readdirSync } from 'node:fs'
-import {
-  basename,
-  dirname,
-  isAbsolute,
-  join,
-  normalize,
-  relative,
-  resolve as resolvePathNode,
-} from 'node:path'
+import { basename, dirname, isAbsolute, join, normalize, relative, resolve as resolvePathNode } from 'node:path'
 
 type Config = {
   'rm-rf-no-project-root'?: boolean
@@ -118,50 +110,19 @@ type Config = {
 }
 
 export const DEFAULT_ALLOWLIST = [
-  'node_modules',
-  'dist',
-  'build',
-  'out',
-  '.cache',
-  'tmp',
-  '.tmp',
-  'target',
-  'coverage',
-  '.next',
-  '.nuxt',
-  '.turbo',
-  '.parcel-cache',
-  '.vite',
-  '.svelte-kit',
-  '.output',
-  '__pycache__',
-  '.pytest_cache',
-  '.mypy_cache',
-  '.ruff_cache',
-  'venv',
-  '.venv',
+  'node_modules', 'dist', 'build', 'out',
+  '.cache', 'tmp', '.tmp',
+  'target', 'coverage',
+  '.next', '.nuxt', '.turbo', '.parcel-cache', '.vite', '.svelte-kit', '.output',
+  '__pycache__', '.pytest_cache', '.mypy_cache', '.ruff_cache',
+  'venv', '.venv',
   'vendor',
 ] as const
 
 export const SYSTEM_TOP_LEVEL = new Set([
-  '/etc',
-  '/usr',
-  '/bin',
-  '/sbin',
-  '/lib',
-  '/lib64',
-  '/boot',
-  '/dev',
-  '/proc',
-  '/sys',
-  '/opt',
-  '/root',
-  '/var',
-  '/tmp',
-  '/Users',
-  '/System',
-  '/private',
-  '/home',
+  '/etc', '/usr', '/bin', '/sbin', '/lib', '/lib64',
+  '/boot', '/dev', '/proc', '/sys', '/opt', '/root',
+  '/var', '/tmp', '/Users', '/System', '/private', '/home',
 ])
 
 /**
@@ -174,32 +135,30 @@ export const SYSTEM_TOP_LEVEL = new Set([
  * `$VAR` inside double quotes still surfaces to rule 3.
  */
 export function sanitize(command: string): string {
-  return (
-    command
-      // Unwrap rm-command-name single-quotes: 'rm' → rm, '/usr/bin/rm' → /usr/bin/rm,
-      // '\rm' → \rm, etc. Only matches quoted content that IS an rm-invocation name
-      // (optional leading backslash, optional path prefix ending in /, then literal
-      // `rm`). Quoted arguments that happen to contain 'rm'-like substrings still
-      // get stripped by the later pass.
-      .replace(/'(\\?(?:[\w./-]*\/)?rm)'/g, '$1')
-      // Unwrap single-quoted scripts passed to a shell via -c. Covers bash, sh, zsh,
-      // dash, fish, ash, ksh. The quoted script becomes inline tokens so downstream
-      // segment-splitting, rm detection, and classification handle the inner command
-      // as if it had been typed directly.
-      .replace(/(^|\s)(bash|sh|zsh|dash|fish|ash|ksh)(\s+-c\s+)'([^']*)'/g, '$1$2$3$4')
-      // Unwrap single-quoted trap handlers: trap '...' SIG → trap ... .
-      // The signal name is dropped (not a shell token the hook cares about) so
-      // extractTargets doesn't collect it as a literal rm target.
-      .replace(/(^|\s)(trap)\s+'([^']*)'\s+\w+/g, '$1$2 $3')
-      // Existing: strip any remaining single-quoted content (literal filename-style
-      // arguments like 'foo && bar').
-      .replace(/'[^']*'/g, '')
-      // Existing: preserve double-quoted content (quote chars stripped, content kept
-      // so `$HOME` inside "..." still surfaces to rule 3).
-      .replace(/"([^"]*)"/g, '$1')
-      // Existing: strip # comments.
-      .replace(/#.*$/gm, '')
-  )
+  return command
+    // Unwrap rm-command-name single-quotes: 'rm' → rm, '/usr/bin/rm' → /usr/bin/rm,
+    // '\rm' → \rm, etc. Only matches quoted content that IS an rm-invocation name
+    // (optional leading backslash, optional path prefix ending in /, then literal
+    // `rm`). Quoted arguments that happen to contain 'rm'-like substrings still
+    // get stripped by the later pass.
+    .replace(/'(\\?(?:[\w./-]*\/)?rm)'/g, '$1')
+    // Unwrap single-quoted scripts passed to a shell via -c. Covers bash, sh, zsh,
+    // dash, fish, ash, ksh. The quoted script becomes inline tokens so downstream
+    // segment-splitting, rm detection, and classification handle the inner command
+    // as if it had been typed directly.
+    .replace(/(^|\s)(bash|sh|zsh|dash|fish|ash|ksh)(\s+-c\s+)'([^']*)'/g, '$1$2$3$4')
+    // Unwrap single-quoted trap handlers: trap '...' SIG → trap ... .
+    // The signal name is dropped (not a shell token the hook cares about) so
+    // extractTargets doesn't collect it as a literal rm target.
+    .replace(/(^|\s)(trap)\s+'([^']*)'\s+\w+/g, '$1$2 $3')
+    // Existing: strip any remaining single-quoted content (literal filename-style
+    // arguments like 'foo && bar').
+    .replace(/'[^']*'/g, '')
+    // Existing: preserve double-quoted content (quote chars stripped, content kept
+    // so `$HOME` inside "..." still surfaces to rule 3).
+    .replace(/"([^"]*)"/g, '$1')
+    // Existing: strip # comments.
+    .replace(/#.*$/gm, '')
 }
 
 /**
@@ -208,8 +167,8 @@ export function sanitize(command: string): string {
 export function getSegments(sanitized: string): string[] {
   return sanitized
     .split(/\s*(?:&&|\|\||;|\|)\s*/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0)
+    .map(s => s.trim())
+    .filter(s => s.length > 0)
 }
 
 /** Peels environment-variable prefixes (VAR=value) off the front of a segment. */
@@ -229,10 +188,7 @@ export function hasEscapeHatch(prefix: string[]): boolean {
 
 /** Returns true iff the tokens include an rm invocation AND a recursive flag. */
 export function hasRecursiveFlag(rest: string): boolean {
-  const tokens = rest
-    .trim()
-    .split(/\s+/)
-    .filter((t) => t.length > 0)
+  const tokens = rest.trim().split(/\s+/).filter(t => t.length > 0)
   if (!tokens.some(isRmCommand)) return false
   let sawRm = false
   let sawEndOfOptions = false
@@ -256,10 +212,7 @@ export function hasRecursiveFlag(rest: string): boolean {
 
 /** Returns the non-flag argument tokens to rm. Order-preserving. */
 export function extractTargets(rest: string): string[] {
-  const tokens = rest
-    .trim()
-    .split(/\s+/)
-    .filter((t) => t.length > 0)
+  const tokens = rest.trim().split(/\s+/).filter(t => t.length > 0)
   const result: string[] = []
   let seenRm = false
   let sawEndOfOptions = false
@@ -334,7 +287,13 @@ export function findProjectRoot(cwd: string): string | null {
 }
 
 /** Tags produced by `classifyPath`. */
-export type VerdictTag = 'home' | 'root' | 'project-root' | 'escape' | 'strict' | 'allow'
+export type VerdictTag =
+  | 'home'
+  | 'root'
+  | 'project-root'
+  | 'escape'
+  | 'strict'
+  | 'allow'
 
 /**
  * Classifies an absolute path against the project root, home, and allowlists.
@@ -502,10 +461,7 @@ function reasonForDangerousGlob(token: string): string {
   return `[rm-rf-dangerous-glob-unbypassable] Argument "/*" expands to every top-level directory on the filesystem — equivalent to \`rm -rf /\`. Unbypassable.`
 }
 
-function reasonForExpansionError(
-  pattern: string,
-  result: { errno?: string; failedPath?: string },
-): string {
+function reasonForExpansionError(pattern: string, result: { errno?: string; failedPath?: string }): string {
   const failedPath = result.failedPath ?? '<unknown>'
   const errno = result.errno ?? '<unknown>'
   if (errno === 'ELOOP_GUARD') {
@@ -519,29 +475,25 @@ const RULES: Record<RuleId, Rule> = {
     id: 'rm-rf-no-project-root',
     hasEscapeHatch: true,
     verdict: 'deny',
-    reason: (ctx) =>
-      `[rm-rf-no-project-root] Cannot determine a project root from ${ctx.cwd} (no git repository, no .clooks/clooks.yml reachable). rm -rf is blocked outside a recognized project. Move to a project directory, run \`clooks init\`, or prefix with ALLOW_DESTRUCTIVE_RM=true.`,
+    reason: (ctx) => `[rm-rf-no-project-root] Cannot determine a project root from ${ctx.cwd} (no git repository, no .clooks/clooks.yml reachable). rm -rf is blocked outside a recognized project. Move to a project directory, run \`clooks init\`, or prefix with ALLOW_DESTRUCTIVE_RM=true.`,
   },
   'rm-rf-no-preserve-root': {
     id: 'rm-rf-no-preserve-root',
     hasEscapeHatch: false,
     verdict: 'deny',
-    reason: () =>
-      `[rm-rf-no-preserve-root] The command passes --no-preserve-root, which disables GNU rm's built-in safeguard against \`rm -rf /\`. No legitimate agent workflow emits this flag. Remove the flag and reconsider the intended target. Unbypassable.`,
+    reason: () => `[rm-rf-no-preserve-root] The command passes --no-preserve-root, which disables GNU rm's built-in safeguard against \`rm -rf /\`. No legitimate agent workflow emits this flag. Remove the flag and reconsider the intended target. Unbypassable.`,
   },
   'rm-rf-unresolved-var': {
     id: 'rm-rf-unresolved-var',
     hasEscapeHatch: true,
     verdict: 'deny',
-    reason: (ctx) =>
-      `[rm-rf-unresolved-var] Argument "${ctx.pattern}" contains a shell variable this hook cannot evaluate. If the variable is unset, bash expands it to an empty string — \`rm -rf $BUILD_DIR/src\` becomes \`rm -rf /src\`. Resolve the variable to a literal path first. If you are certain it is set and safe, prefix the command with ALLOW_DESTRUCTIVE_RM=true.`,
+    reason: (ctx) => `[rm-rf-unresolved-var] Argument "${ctx.pattern}" contains a shell variable this hook cannot evaluate. If the variable is unset, bash expands it to an empty string — \`rm -rf $BUILD_DIR/src\` becomes \`rm -rf /src\`. Resolve the variable to a literal path first. If you are certain it is set and safe, prefix the command with ALLOW_DESTRUCTIVE_RM=true.`,
   },
   'rm-rf-globstar': {
     id: 'rm-rf-globstar',
     hasEscapeHatch: true,
     verdict: 'deny',
-    reason: (ctx) =>
-      `[rm-rf-globstar] Argument "${ctx.pattern}" uses bash's globstar, which recursively matches every file under the current directory and may follow symlinks. This hook cannot evaluate the expansion. Replace with an explicit path list or a narrower glob (e.g. \`build/*.o\`). If the expansion is known-safe, prefix with ALLOW_DESTRUCTIVE_RM=true.`,
+    reason: (ctx) => `[rm-rf-globstar] Argument "${ctx.pattern}" uses bash's globstar, which recursively matches every file under the current directory and may follow symlinks. This hook cannot evaluate the expansion. Replace with an explicit path list or a narrower glob (e.g. \`build/*.o\`). If the expansion is known-safe, prefix with ALLOW_DESTRUCTIVE_RM=true.`,
   },
   'rm-rf-dangerous-glob-unbypassable': {
     id: 'rm-rf-dangerous-glob-unbypassable',
@@ -553,11 +505,7 @@ const RULES: Record<RuleId, Rule> = {
     id: 'rm-rf-expansion-error',
     hasEscapeHatch: true,
     verdict: 'deny',
-    reason: (ctx) =>
-      reasonForExpansionError(
-        ctx.pattern,
-        (ctx.glob ?? { ok: false }) as { errno?: string; failedPath?: string },
-      ),
+    reason: (ctx) => reasonForExpansionError(ctx.pattern, (ctx.glob ?? { ok: false }) as { errno?: string; failedPath?: string }),
   },
   'rm-rf-home': {
     id: 'rm-rf-home',
@@ -569,22 +517,19 @@ const RULES: Record<RuleId, Rule> = {
     id: 'rm-rf-root',
     hasEscapeHatch: false,
     verdict: 'deny',
-    reason: (ctx) =>
-      `[rm-rf-root] Argument "${ctx.pattern}" targets a system directory outside any project (${ctx.pattern} is one of the protected top-level paths). If you intend to modify system configuration, ask the user to run the command themselves — agents should not recursively delete system directories. Unbypassable.`,
+    reason: (ctx) => `[rm-rf-root] Argument "${ctx.pattern}" targets a system directory outside any project (${ctx.pattern} is one of the protected top-level paths). If you intend to modify system configuration, ask the user to run the command themselves — agents should not recursively delete system directories. Unbypassable.`,
   },
   'rm-rf-project-root': {
     id: 'rm-rf-project-root',
     hasEscapeHatch: false,
     verdict: 'ask',
-    reason: (ctx) =>
-      `[rm-rf-project-root] Argument "${ctx.pattern}" resolves to the project root (${ctx.projectRoot}), which would recursively delete the entire project, including the .git directory. Confirm if this is intentional.\n\nNote: ALLOW_DESTRUCTIVE_RM=true does not bypass this rule.`,
+    reason: (ctx) => `[rm-rf-project-root] Argument "${ctx.pattern}" resolves to the project root (${ctx.projectRoot}), which would recursively delete the entire project, including the .git directory. Confirm if this is intentional.\n\nNote: ALLOW_DESTRUCTIVE_RM=true does not bypass this rule.`,
   },
   'rm-rf-escape': {
     id: 'rm-rf-escape',
     hasEscapeHatch: true,
     verdict: 'deny',
-    reason: (ctx) =>
-      `[rm-rf-escape] Argument "${ctx.pattern}" resolves to ${ctx.resolved}, which is outside the project root ${ctx.projectRoot}. This hook prevents cross-project deletion. Rewrite as a project-relative path. If cross-project cleanup is intentional, prefix with ALLOW_DESTRUCTIVE_RM=true.`,
+    reason: (ctx) => `[rm-rf-escape] Argument "${ctx.pattern}" resolves to ${ctx.resolved}, which is outside the project root ${ctx.projectRoot}. This hook prevents cross-project deletion. Rewrite as a project-relative path. If cross-project cleanup is intentional, prefix with ALLOW_DESTRUCTIVE_RM=true.`,
   },
   'rm-rf-strict': {
     id: 'rm-rf-strict',
@@ -638,30 +583,30 @@ function severityRank(entry: AggregatedEntry): number {
 }
 
 /** Mutates `entries`: sorts in place by severity rank. */
-function aggregate(entries: AggregatedEntry[]): PreToolUseResult {
-  if (entries.length === 0) return { result: 'skip' }
+function aggregate(
+  entries: AggregatedEntry[],
+  ctx: Parameters<NonNullable<ClooksHook<Config>['PreToolUse']>>[0],
+): PreToolUseResult {
+  if (entries.length === 0) return ctx.skip()
   entries.sort((a, b) => severityRank(a) - severityRank(b))
   const head = entries[0]
-  const reason = entries.map((e) => e.reason).join('\n\n')
+  const reason = entries.map(e => e.reason).join('\n\n')
   if (head.rule.verdict === 'ask') {
-    return {
-      result: 'ask',
+    return ctx.ask({
       reason,
       debugMessage: `no-rm-rf: asking on ${head.rule.id}`,
-    }
+    })
   }
-  return {
-    result: 'block',
+  return ctx.block({
     reason,
     debugMessage: `no-rm-rf: blocked on ${head.rule.id}`,
-  }
+  })
 }
 
 export const hook: ClooksHook<Config> = {
   meta: {
     name: 'no-rm-rf',
-    description:
-      'Blocks recursive rm against catastrophic paths (home, system, project-root escapes)',
+    description: 'Blocks recursive rm against catastrophic paths (home, system, project-root escapes)',
     config: {
       'rm-rf-no-project-root': true,
       'rm-rf-no-preserve-root': true,
@@ -680,10 +625,10 @@ export const hook: ClooksHook<Config> = {
   },
 
   PreToolUse(ctx, config) {
-    if (ctx.toolName !== 'Bash') return { result: 'skip' }
+    if (ctx.toolName !== 'Bash') return ctx.skip()
 
     const command = ctx.toolInput.command
-    if (!command) return { result: 'skip' }
+    if (!command) return ctx.skip()
 
     const sanitized = sanitize(command)
     const segments = getSegments(sanitized)
@@ -698,8 +643,8 @@ export const hook: ClooksHook<Config> = {
     //   `VAR="a b" rm -rf ~` sanitizes to `VAR=a b rm -rf ~`; stripEnvPrefix
     //   only peels `VAR=a`, leaving rest = `b rm -rf ~`. Scanning the full
     //   segment still locates the rm invocation.
-    const hasAnyRecursiveRm = segments.some((seg) => hasRecursiveFlag(seg))
-    if (!hasAnyRecursiveRm) return { result: 'skip' }
+    const hasAnyRecursiveRm = segments.some(seg => hasRecursiveFlag(seg))
+    if (!hasAnyRecursiveRm) return ctx.skip()
 
     // Hoist project-root detection out of the segment loop: cwd is the same
     // for all segments, and git rev-parse has a 1s timeout — one call per
@@ -788,13 +733,11 @@ export const hook: ClooksHook<Config> = {
         const rule = RULES[ruleId]
         if (!shouldApply(rule, config, escape)) continue
         const reason = rule.reason({ pattern, resolved, projectRoot })
-        const promoteToDeny =
-          config.strictMode === true &&
-          (ruleId === 'rm-rf-project-root' || ruleId === 'rm-rf-strict')
+        const promoteToDeny = config.strictMode === true && (ruleId === 'rm-rf-project-root' || ruleId === 'rm-rf-strict')
         aggregated.push({ rule: promoteToDeny ? { ...rule, verdict: 'deny' } : rule, reason })
       }
     }
 
-    return aggregate(aggregated)
+    return aggregate(aggregated, ctx)
   },
 }

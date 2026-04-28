@@ -4,3 +4,4 @@ bun.lock
 *.md
 src/generated/
 .clooks/hooks/types.d.ts
+.clooks/vendor/

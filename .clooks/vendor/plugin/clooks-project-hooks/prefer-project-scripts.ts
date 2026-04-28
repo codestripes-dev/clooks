@@ -17,7 +17,7 @@
 // Requires configuration — ships with empty mappings. When unconfigured,
 // injects a SessionStart nudge prompting the user to configure or disable.
 
-import type { ClooksHook } from './types'
+import type { ClooksHook } from "./types"
 
 type Config = {
   mappings: { match: string; recommend: string }[]
@@ -33,7 +33,7 @@ export function sanitize(command: string): string {
 }
 
 export function getSegments(sanitized: string): string[] {
-  return sanitized.split(/\s*(?:&&|\|\||;)\s*/).filter((s) => s.length > 0)
+  return sanitized.split(/\s*(?:&&|\|\||;)\s*/).filter(s => s.length > 0)
 }
 
 export function extractSegmentInfo(segment: string): { firstWord: string; stripped: string } {
@@ -56,7 +56,7 @@ type DetectResult = {
 
 export function detectMatch(
   command: string,
-  mappings: { match: string; recommend: string }[],
+  mappings: { match: string; recommend: string }[]
 ): DetectResult {
   const debugMessages: string[] = []
   const sanitized = sanitize(command)
@@ -72,7 +72,9 @@ export function detectMatch(
           return { matched: mapping, debugMessages }
         }
       } catch {
-        debugMessages.push(`prefer-project-scripts: invalid regex '${mapping.match}', skipping`)
+        debugMessages.push(
+          `prefer-project-scripts: invalid regex '${mapping.match}', skipping`
+        )
       }
     }
   }
@@ -137,14 +139,14 @@ Without configuration, this hook cannot protect against bare tool invocations th
       })
     }
 
-    const recommendations = Array.from(
-      new Set(mappings.map((m) => m.recommend).filter((r): r is string => Boolean(r))),
-    )
+    const recommendations = Array.from(new Set(
+      mappings.map(m => m.recommend).filter((r): r is string => Boolean(r))
+    ))
     if (recommendations.length === 0) return ctx.skip()
-    const list = recommendations.map((r) => `\`${r}\``).join(', ')
+    const list = recommendations.map(r => `\`${r}\``).join(', ')
 
     return ctx.skip({
-      injectContext: `The prefer-project-scripts clooks hook is active in this project. Prefer these project scripts where applicable: ${list}. The Bash tool will refuse direct invocation of the underlying tools when a script exists for them; the block message will name the specific replacement.`,
+      injectContext: `INFORMATION (no need to comment on it): The prefer-project-scripts clooks hook is active in this project. Prefer these project scripts where applicable: ${list}. The Bash tool will refuse direct invocation of the underlying tools when a script exists for them; the block message will name the specific replacement.`,
       debugMessage: 'prefer-project-scripts: announced',
     })
   },
@@ -175,16 +177,17 @@ Without configuration, this hook cannot protect against bare tool invocations th
     if (matched) {
       return ctx.block({
         reason: `[prefer-project-scripts] Use \`${matched.recommend}\` instead — project scripts include configuration and environment that direct tool invocation misses. If the bare tool is needed, prefix with ALLOW_DIRECT_TOOL=true.`,
-        debugMessage:
-          debugMessages.length > 0
-            ? debugMessages.join('; ')
-            : `prefer-project-scripts: blocked, recommending '${matched.recommend}'`,
+        debugMessage: debugMessages.length > 0
+          ? debugMessages.join('; ')
+          : `prefer-project-scripts: blocked, recommending '${matched.recommend}'`,
       })
     }
 
     // 6. No match — skip, not allow (FEAT step 10)
     return ctx.skip({
-      debugMessage: debugMessages.length > 0 ? debugMessages.join('; ') : undefined,
+      debugMessage: debugMessages.length > 0
+        ? debugMessages.join('; ')
+        : undefined,
     })
   },
 }

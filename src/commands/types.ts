@@ -4,7 +4,14 @@ import { join } from 'path'
 import os from 'os'
 import { getCtx } from '../tui/context.js'
 import { jsonSuccess } from '../tui/json-envelope.js'
-import { printIntro, printSuccess, printInfo, printWarning, printError, printOutro } from '../tui/output.js'
+import {
+  printIntro,
+  printSuccess,
+  printInfo,
+  printWarning,
+  printError,
+  printOutro,
+} from '../tui/output.js'
 import EMBEDDED_TYPES_DTS from '../generated/clooks-types.d.ts.txt' with { type: 'text' }
 
 export function createTypesCommand(): Command {
@@ -22,9 +29,7 @@ export function createTypesCommand(): Command {
         mkdirSync(hooksDir, { recursive: true })
         writeFileSync(typesPath, EMBEDDED_TYPES_DTS)
 
-        const displayPath = opts.global
-          ? '~/.clooks/hooks/types.d.ts'
-          : '.clooks/hooks/types.d.ts'
+        const displayPath = opts.global ? '~/.clooks/hooks/types.d.ts' : '.clooks/hooks/types.d.ts'
 
         if (ctx.json) {
           process.stdout.write(jsonSuccess('types', { path: displayPath }) + '\n')

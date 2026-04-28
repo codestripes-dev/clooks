@@ -5,7 +5,7 @@
 // updatedInput. If it fails: lets the bare `mv` through.
 
 import { spawnSync } from 'child_process'
-import type { ClooksHook } from './types'
+import type { ClooksHook } from "./types"
 
 // Matches bare `mv` at the start of a command or after whitespace,
 // but not `git mv` or partial words like `mvn`
@@ -23,7 +23,7 @@ export function isBareMove(command: string): boolean {
 
 /** Replace the first bare `mv` with `git mv`. */
 export function rewriteToGitMv(command: string): string {
-  return command.replace(/(?:^|\s)mv\s/, (match) => match.replace('mv ', 'git mv '))
+  return command.replace(/(?:^|\s)mv\s/, (match) => match.replace("mv ", "git mv "))
 }
 
 /** Run the rewritten command as a dry-run by injecting `-n` after `git mv`. */
@@ -45,30 +45,28 @@ export const hook: ClooksHook = {
 
   PreToolUse(ctx) {
     if (ctx.toolName !== 'Bash') {
-      return { result: 'skip' }
+      return ctx.skip()
     }
 
-    const command = typeof ctx.toolInput.command === 'string' ? ctx.toolInput.command : ''
+    const command = ctx.toolInput.command
 
     if (!command || !isBareMove(command)) {
-      return { result: 'skip' }
+      return ctx.skip()
     }
 
     const rewritten = rewriteToGitMv(command)
 
     if (!dryRunSucceeds(rewritten, ctx.cwd)) {
-      return {
-        result: 'allow',
+      return ctx.allow({
         debugMessage: `no-bare-mv: dry-run failed, allowing bare mv`,
         injectContext: `no-bare-mv: Unable to automatically use git mv for this operation - consider using git mv if possible`,
-      }
+      })
     }
 
-    return {
-      result: 'allow',
+    return ctx.allow({
       updatedInput: { command: rewritten },
       injectContext: `[no-bare-mv] Rewrote \`mv\` → \`git mv\` to preserve git history.`,
       debugMessage: `no-bare-mv: rewrote "${command}" → "${rewritten}"`,
-    }
+    })
   },
 }

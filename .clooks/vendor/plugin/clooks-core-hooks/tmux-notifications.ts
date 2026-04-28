@@ -5,15 +5,14 @@
 // - UserPromptSubmit, PostToolUse, SessionStart: reset to default
 // - SessionEnd: reset + restore automatic-rename
 
-import { execSync } from 'child_process'
-import type { ClooksHook } from './types'
+import { execSync } from "child_process"
+import type { ClooksHook } from "./types"
 
-const SKIP = { result: 'skip' } as const
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 function tmux(cmd: string): void {
   try {
-    execSync(`tmux ${cmd}`, { stdio: 'ignore' })
+    execSync(`tmux ${cmd}`, { stdio: "ignore" })
   } catch {}
 }
 
@@ -22,7 +21,7 @@ function getWindowId(): string | null {
   if (!pane) return null
   try {
     return execSync(`tmux display-message -t "${pane}" -p '#{window_id}'`, {
-      encoding: 'utf8',
+      encoding: "utf8",
     }).trim()
   } catch {
     return null
@@ -30,7 +29,7 @@ function getWindowId(): string | null {
 }
 
 function dirName(): string {
-  return process.cwd().split('/').pop() || 'unknown'
+  return process.cwd().split("/").pop() || "unknown"
 }
 
 function resetWindow(w: string): void {
@@ -63,62 +62,61 @@ let w: string
 
 export const hook: ClooksHook = {
   meta: {
-    name: 'tmux-notifications',
-    description: 'Visual tmux indicators: red for attention, flash for prompts, reset on activity',
+    name: "tmux-notifications",
+    description:
+      "Visual tmux indicators: red for attention, flash for prompts, reset on activity",
   },
 
   beforeHook(event) {
     if (!process.env.TMUX) {
-      event.respond(SKIP)
-      return
+      return event.skip()
     }
     const id = getWindowId()
     if (!id) {
-      event.respond(SKIP)
-      return
+      return event.skip()
     }
     w = id
   },
 
   async Notification(ctx) {
-    if (ctx.notificationType === 'idle_prompt') {
+    if (ctx.notificationType === "idle_prompt") {
       tmux(`set-window-option -t ${w} window-status-style 'fg=red'`)
       tmux(`set-window-option -t ${w} automatic-rename off`)
       tmux(`rename-window -t ${w} "⏸ c-${dirName()}"`)
     } else if (
-      ctx.notificationType === 'permission_prompt' ||
-      ctx.notificationType === 'elicitation_dialog'
+      ctx.notificationType === "permission_prompt" ||
+      ctx.notificationType === "elicitation_dialog"
     ) {
       setAttentionStyle(w)
       await flashPane()
     }
-    return SKIP
+    return ctx.skip()
   },
 
-  UserPromptSubmit() {
+  UserPromptSubmit(ctx) {
     resetWindow(w)
-    return SKIP
+    return ctx.skip()
   },
 
-  PostToolUse() {
+  PostToolUse(ctx) {
     resetWindow(w)
-    return SKIP
+    return ctx.skip()
   },
 
-  PostToolUseFailure() {
+  PostToolUseFailure(ctx) {
     resetWindow(w)
-    return SKIP
+    return ctx.skip()
   },
 
-  SessionStart() {
+  SessionStart(ctx) {
     resetWindow(w)
-    return SKIP
+    return ctx.skip()
   },
 
-  SessionEnd() {
+  SessionEnd(ctx) {
     tmux(`set-window-option -t ${w} window-status-style default`)
     tmux(`set-window-option -t ${w} -u window-status-current-style`)
     tmux(`set-window-option -t ${w} automatic-rename on`)
-    return SKIP
+    return ctx.skip()
   },
 }

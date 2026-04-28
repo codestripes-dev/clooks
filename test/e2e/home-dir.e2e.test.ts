@@ -703,13 +703,15 @@ hook-a: {}
 hook-b: {}
 `)
 
-    // Project hooks with same names
+    // Project hooks with same names — bytes diverge so the shadow warning
+    // is not suppressed by the byte-equality filter (see FEAT-0068).
     sandbox.writeHook(
       'hook-a.ts',
       `
 export const hook = {
   meta: { name: "hook-a" },
   SessionStart() { return null },
+  // diverged from home
 }
 `,
     )
@@ -719,6 +721,7 @@ export const hook = {
 export const hook = {
   meta: { name: "hook-b" },
   SessionStart() { return null },
+  // diverged from home
 }
 `,
     )
@@ -731,9 +734,7 @@ hook-b: {}
     const result = sandbox.run([], { stdin: loadEvent('session-start.json') })
     expect(result.exitCode).toBe(0)
     const output = JSON.parse(result.stdout)
-    const sysMsg = output.systemMessage ?? ''
-    expect(sysMsg).toContain('"hook-a" is shadowing')
-    expect(sysMsg).toContain('"hook-b" is shadowing')
+    expect(output.systemMessage).toContain('clooks: project hooks shadowing home: hook-a, hook-b')
   })
 })
 

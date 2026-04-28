@@ -12,7 +12,7 @@
 // Escape hatch: prefix command with ALLOW_DESTRUCTIVE_GIT=true
 // (does NOT escape broad-add or additionalRules)
 
-import type { ClooksHook } from './types'
+import type { ClooksHook } from "./types"
 
 type Config = {
   [key: string]: boolean | { match: string; message: string }[] | undefined
@@ -37,9 +37,8 @@ export function matchesResetMerge(sanitized: string): boolean {
 }
 
 export function matchesCheckoutDiscard(sanitized: string): boolean {
-  return (
-    /\bgit\s+checkout\b.*\s--(\s|$)/.test(sanitized) || /\bgit\s+checkout\s+\.\s*$/.test(sanitized)
-  )
+  return /\bgit\s+checkout\b.*\s--(\s|$)/.test(sanitized) ||
+    /\bgit\s+checkout\s+\.\s*$/.test(sanitized)
 }
 
 export function matchesRestoreDiscard(sanitized: string): boolean {
@@ -121,7 +120,8 @@ export function matchesCommitAmend(sanitized: string): boolean {
 }
 
 export function matchesPushDelete(sanitized: string): boolean {
-  return /\bgit\s+push\b.*--delete/.test(sanitized) || /\bgit\s+push\s+\S+\s+:[^\s]/.test(sanitized)
+  return /\bgit\s+push\b.*--delete/.test(sanitized) ||
+    /\bgit\s+push\s+\S+\s+:[^\s]/.test(sanitized)
 }
 
 export function matchesBranchForceDelete(sanitized: string): boolean {
@@ -133,7 +133,8 @@ export function matchesNoVerify(sanitized: string): boolean {
 }
 
 export function matchesBroadAdd(sanitized: string): boolean {
-  return /\bgit\s+add\s+(-A|--all)\b/.test(sanitized) || /\bgit\s+add\s+\.\s*$/.test(sanitized)
+  return /\bgit\s+add\s+(-A|--all)\b/.test(sanitized) ||
+    /\bgit\s+add\s+\.\s*$/.test(sanitized)
 }
 
 // --- Rules table ---
@@ -149,92 +150,79 @@ const RULES: Rule[] = [
   {
     id: 'reset-hard',
     detect: matchesResetHard,
-    reason:
-      '[reset-hard] git reset --hard discards all uncommitted changes. Use --soft or --mixed to preserve changes, or prefix with ALLOW_DESTRUCTIVE_GIT=true if the user explicitly approved this.',
+    reason: '[reset-hard] git reset --hard discards all uncommitted changes. Use --soft or --mixed to preserve changes, or prefix with ALLOW_DESTRUCTIVE_GIT=true if the user explicitly approved this.',
     hasEscapeHatch: true,
   },
   {
     id: 'reset-merge',
     detect: matchesResetMerge,
-    reason:
-      '[reset-merge] git reset --merge can discard uncommitted changes. Use --soft or --mixed to preserve changes, or prefix with ALLOW_DESTRUCTIVE_GIT=true if the user explicitly approved this.',
+    reason: '[reset-merge] git reset --merge can discard uncommitted changes. Use --soft or --mixed to preserve changes, or prefix with ALLOW_DESTRUCTIVE_GIT=true if the user explicitly approved this.',
     hasEscapeHatch: true,
   },
   {
     id: 'checkout-discard',
     detect: matchesCheckoutDiscard,
-    reason:
-      '[checkout-discard] git checkout -- discards unstaged changes. Use git stash to save changes first, or prefix with ALLOW_DESTRUCTIVE_GIT=true if the user explicitly approved this.',
+    reason: '[checkout-discard] git checkout -- discards unstaged changes. Use git stash to save changes first, or prefix with ALLOW_DESTRUCTIVE_GIT=true if the user explicitly approved this.',
     hasEscapeHatch: true,
   },
   {
     id: 'restore-discard',
     detect: matchesRestoreDiscard,
-    reason:
-      '[restore-discard] git restore discards unstaged changes. Use git restore --staged to unstage, or git stash to save changes first, or prefix with ALLOW_DESTRUCTIVE_GIT=true if the user explicitly approved this.',
+    reason: '[restore-discard] git restore discards unstaged changes. Use git restore --staged to unstage, or git stash to save changes first, or prefix with ALLOW_DESTRUCTIVE_GIT=true if the user explicitly approved this.',
     hasEscapeHatch: true,
   },
   {
     id: 'clean-force',
     detect: matchesCleanForce,
-    reason:
-      '[clean-force] git clean -f permanently deletes untracked files. Use git clean -n for a dry run first, or prefix with ALLOW_DESTRUCTIVE_GIT=true if the user explicitly approved this.',
+    reason: '[clean-force] git clean -f permanently deletes untracked files. Use git clean -n for a dry run first, or prefix with ALLOW_DESTRUCTIVE_GIT=true if the user explicitly approved this.',
     hasEscapeHatch: true,
   },
   {
     id: 'stash-drop',
     detect: matchesStashDrop,
-    reason:
-      '[stash-drop] git stash drop/clear permanently deletes stashed work. Prefix with ALLOW_DESTRUCTIVE_GIT=true if the user explicitly approved this.',
+    reason: '[stash-drop] git stash drop/clear permanently deletes stashed work. Prefix with ALLOW_DESTRUCTIVE_GIT=true if the user explicitly approved this.',
     hasEscapeHatch: true,
   },
   {
     id: 'worktree-force-remove',
     detect: matchesWorktreeForceRemove,
-    reason:
-      '[worktree-force-remove] git worktree remove --force discards uncommitted changes in the worktree. Use git worktree remove (without --force) to check for changes first, or prefix with ALLOW_DESTRUCTIVE_GIT=true if the user explicitly approved this.',
+    reason: '[worktree-force-remove] git worktree remove --force discards uncommitted changes in the worktree. Use git worktree remove (without --force) to check for changes first, or prefix with ALLOW_DESTRUCTIVE_GIT=true if the user explicitly approved this.',
     hasEscapeHatch: true,
   },
   {
     id: 'force-push',
     detect: matchesForcePush,
-    reason:
-      '[force-push] git push --force can destroy remote history. Use --force-with-lease instead, or prefix with ALLOW_DESTRUCTIVE_GIT=true if the user explicitly approved this.',
+    reason: '[force-push] git push --force can destroy remote history. Use --force-with-lease instead, or prefix with ALLOW_DESTRUCTIVE_GIT=true if the user explicitly approved this.',
     hasEscapeHatch: true,
   },
   {
     id: 'commit-amend',
     detect: matchesCommitAmend,
-    reason:
-      '[commit-amend] git commit --amend rewrites the previous commit. Only do this if approved by the user or the system prompt. Prefix with ALLOW_DESTRUCTIVE_GIT=true if approved.',
+    reason: '[commit-amend] git commit --amend rewrites the previous commit. Only do this if approved by the user or the system prompt. Prefix with ALLOW_DESTRUCTIVE_GIT=true if approved.',
     hasEscapeHatch: true,
   },
   {
     id: 'push-delete',
     detect: matchesPushDelete,
-    reason:
-      '[push-delete] git push --delete permanently removes a remote branch or tag. Prefix with ALLOW_DESTRUCTIVE_GIT=true if the user explicitly approved this.',
+    reason: '[push-delete] git push --delete permanently removes a remote branch or tag. Prefix with ALLOW_DESTRUCTIVE_GIT=true if the user explicitly approved this.',
     hasEscapeHatch: true,
   },
   {
     id: 'branch-force-delete',
     detect: matchesBranchForceDelete,
-    reason:
-      '[branch-force-delete] git branch -D force-deletes regardless of merge status. Use git branch -d for safe delete, or prefix with ALLOW_DESTRUCTIVE_GIT=true if the user explicitly approved this.',
+    reason: '[branch-force-delete] git branch -D force-deletes regardless of merge status. Use git branch -d for safe delete, or prefix with ALLOW_DESTRUCTIVE_GIT=true if the user explicitly approved this.',
     hasEscapeHatch: true,
   },
   {
     id: 'no-verify',
     detect: matchesNoVerify,
-    reason:
-      '[no-verify] Do not skip git hooks with --no-verify. Fix the underlying issue instead, or prefix with ALLOW_DESTRUCTIVE_GIT=true if the user explicitly approved this.',
+    reason: '[no-verify] Do not skip git hooks with --no-verify. Fix the underlying issue instead, or prefix with ALLOW_DESTRUCTIVE_GIT=true if the user explicitly approved this.',
     hasEscapeHatch: true,
   },
   {
     id: 'broad-add',
     detect: matchesBroadAdd,
-    reason:
-      '[broad-add] Use git add <specific-files> instead of git add -A / git add . to avoid staging secrets or unwanted files. [No escape hatch — always use specific paths.]',
+    reason: '[broad-add] Use git add <specific-files> instead of git add -A / git add . to avoid staging secrets or unwanted files. [No escape hatch — always use specific paths.]',
     hasEscapeHatch: false,
   },
 ]
@@ -246,19 +234,19 @@ export const hook: ClooksHook<Config> = {
     name: 'no-destructive-git',
     description: 'Blocks dangerous git operations via PreToolUse on Bash commands',
     config: {
-      'reset-hard': true,
-      'reset-merge': true,
-      'checkout-discard': true,
-      'restore-discard': true,
-      'clean-force': true,
-      'stash-drop': true,
-      'worktree-force-remove': true,
-      'force-push': true,
-      'commit-amend': true,
-      'push-delete': true,
-      'branch-force-delete': true,
-      'no-verify': true,
-      'broad-add': true,
+      "reset-hard": true,
+      "reset-merge": true,
+      "checkout-discard": true,
+      "restore-discard": true,
+      "clean-force": true,
+      "stash-drop": true,
+      "worktree-force-remove": true,
+      "force-push": true,
+      "commit-amend": true,
+      "push-delete": true,
+      "branch-force-delete": true,
+      "no-verify": true,
+      "broad-add": true,
       additionalRules: [],
     },
   },

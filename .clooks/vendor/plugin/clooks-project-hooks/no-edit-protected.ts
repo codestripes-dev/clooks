@@ -12,16 +12,13 @@
 // NOT intercepted: Read, Bash, Glob, Grep, NotebookEdit, and all other tools
 // No escape hatch — protection is firm. Configure rules in clooks.yml.
 
-import type { ClooksHook } from './types'
+import type { ClooksHook } from "./types"
 
 type Config = {
-  [key: string]:
-    | boolean
-    | Array<{ pattern: string; message: string; except?: string[] }>
-    | undefined
-  'lock-files'?: boolean
-  'vendor-dirs'?: boolean
-  'minified-assets'?: boolean
+  [key: string]: boolean | Array<{ pattern: string; message: string; except?: string[] }> | undefined
+  "lock-files"?: boolean
+  "vendor-dirs"?: boolean
+  "minified-assets"?: boolean
   rules?: Array<{ pattern: string; message: string; except?: string[] }>
 }
 
@@ -108,33 +105,21 @@ const BUILTIN_RULES: BuiltinRuleGroup[] = [
   {
     id: 'lock-files',
     patterns: [
-      'package-lock.json',
-      'yarn.lock',
-      'pnpm-lock.yaml',
-      'bun.lockb',
-      'Gemfile.lock',
-      'poetry.lock',
-      'Pipfile.lock',
-      'composer.lock',
-      'Cargo.lock',
-      'go.sum',
-      'flake.lock',
-      'pubspec.lock',
+      'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'bun.lockb',
+      'Gemfile.lock', 'poetry.lock', 'Pipfile.lock', 'composer.lock',
+      'Cargo.lock', 'go.sum', 'flake.lock', 'pubspec.lock',
     ],
-    message:
-      'This is a lock file managed by your package manager. Do not modify it directly \u2014 use your package manager (e.g., npm install, yarn add, pnpm add, bun add) to change dependencies. To disable this rule: set "lock-files": false in clooks.yml.',
+    message: 'This is a lock file managed by your package manager. Do not modify it directly \u2014 use your package manager (e.g., npm install, yarn add, pnpm add, bun add) to change dependencies. To disable this rule: set "lock-files": false in clooks.yml.',
   },
   {
     id: 'vendor-dirs',
     patterns: ['**/vendor/**', '**/vendored/**'],
-    message:
-      'This is vendored third-party code. Do not modify it directly \u2014 update the upstream dependency instead, or ask the user how patches to vendored code are managed in this project. If this is not vendored code, disable this rule with "vendor-dirs": false in clooks.yml.',
+    message: 'This is vendored third-party code. Do not modify it directly \u2014 update the upstream dependency instead, or ask the user how patches to vendored code are managed in this project. If this is not vendored code, disable this rule with "vendor-dirs": false in clooks.yml.',
   },
   {
     id: 'minified-assets',
     patterns: ['**/*.min.js', '**/*.min.css', '**/*.min.mjs'],
-    message:
-      'This is a minified build artifact. Edit the source file and rebuild instead of modifying the minified output. To disable this rule: set "minified-assets": false in clooks.yml.',
+    message: 'This is a minified build artifact. Edit the source file and rebuild instead of modifying the minified output. To disable this rule: set "minified-assets": false in clooks.yml.',
   },
 ]
 
@@ -151,9 +136,9 @@ export const hook: ClooksHook<Config> = {
     name: 'no-edit-protected',
     description: 'Blocks Write/Edit/MultiEdit on protected file paths',
     config: {
-      'lock-files': true,
-      'vendor-dirs': true,
-      'minified-assets': true,
+      "lock-files": true,
+      "vendor-dirs": true,
+      "minified-assets": true,
       rules: [],
     },
   },
@@ -161,28 +146,29 @@ export const hook: ClooksHook<Config> = {
   PreToolUse(ctx, config) {
     // 1. Guard: skip non-target tools
     const targetTools = ['Write', 'Edit', 'MultiEdit']
-    if (!targetTools.includes(ctx.toolName)) return { result: 'skip' }
+    if (!targetTools.includes(ctx.toolName)) return ctx.skip()
 
     // 2. Extract filePath
-    const filePath = typeof ctx.toolInput.filePath === 'string' ? ctx.toolInput.filePath : ''
-    if (!filePath) return { result: 'skip' }
+    const filePath = typeof ctx.toolInput.filePath === 'string'
+      ? ctx.toolInput.filePath
+      : ''
+    if (!filePath) return ctx.skip()
 
     // 3. Normalize path (strip cwd, get project-relative)
     const relativePath = normalizePath(filePath, ctx.cwd)
-    if (relativePath === null) return { result: 'skip' }
+    if (relativePath === null) return ctx.skip()
     // (null = file outside project — no opinion)
 
     // 4. Check built-in rules
     for (const group of BUILTIN_RULES) {
-      if (config[group.id] === false) continue // disabled via config
+      if (config[group.id] === false) continue  // disabled via config
       for (const pattern of group.patterns) {
         try {
           if (globToRegex(pattern).test(relativePath)) {
-            return {
-              result: 'block',
+            return ctx.block({
               reason: blockMessage(relativePath, group.id, group.message),
               debugMessage: `no-edit-protected: blocked by built-in rule '${group.id}' (pattern: ${pattern})`,
-            }
+            })
           }
         } catch {
           // Invalid glob — skip this pattern
@@ -198,27 +184,23 @@ export const hook: ClooksHook<Config> = {
 
         // Check except patterns
         if (Array.isArray(rule.except)) {
-          const excepted = rule.except.some((exc) => {
-            try {
-              return globToRegex(exc).test(relativePath)
-            } catch {
-              return false
-            }
+          const excepted = rule.except.some(exc => {
+            try { return globToRegex(exc).test(relativePath) }
+            catch { return false }
           })
-          if (excepted) continue // path is excluded from this rule
+          if (excepted) continue  // path is excluded from this rule
         }
 
-        return {
-          result: 'block',
+        return ctx.block({
           reason: blockMessage(relativePath, rule.pattern, rule.message),
           debugMessage: `no-edit-protected: blocked by custom rule '${rule.pattern}'`,
-        }
+        })
       } catch {
         // Invalid glob — skip this rule
       }
     }
 
     // 6. No match — skip (not allow)
-    return { result: 'skip' }
+    return ctx.skip()
   },
 }

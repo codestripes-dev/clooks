@@ -4,21 +4,24 @@ import { join } from 'path'
 import os from 'os'
 import { getCtx } from '../tui/context.js'
 import { jsonSuccess } from '../tui/json-envelope.js'
-import { printIntro, printSuccess, printInfo, printWarning, printError, printOutro } from '../tui/output.js'
+import {
+  printIntro,
+  printSuccess,
+  printInfo,
+  printWarning,
+  printError,
+  printOutro,
+} from '../tui/output.js'
 import { promptConfirm, isNonInteractive } from '../tui/prompts.js'
 import { registerClooks, CLOOKS_ENTRYPOINT_PATH } from '../settings.js'
 import { ENTRYPOINT_SCRIPT, GLOBAL_ENTRYPOINT_SCRIPT } from './init-entrypoint.js'
 import EMBEDDED_TYPES_DTS from '../generated/clooks-types.d.ts.txt' with { type: 'text' }
 import _EMBEDDED_SCHEMA from '../../schemas/clooks.schema.json' with { type: 'text' }
 const EMBEDDED_SCHEMA = _EMBEDDED_SCHEMA as unknown as string
-const STARTER_CONFIG = '# yaml-language-server: $schema=./clooks.schema.json\nversion: "1.0.0"\n\nconfig: {}\n'
+const STARTER_CONFIG =
+  '# yaml-language-server: $schema=./clooks.schema.json\nversion: "1.0.0"\n\nconfig: {}\n'
 
-const GITIGNORE_LINES = [
-  '# Clooks',
-  'clooks.local.yml',
-  '.clooks/.cache/',
-  '.clooks/.failures',
-]
+const GITIGNORE_LINES = ['# Clooks', 'clooks.local.yml', '.clooks/.cache/', '.clooks/.failures']
 
 /**
  * Checks whether `.git/` exists in cwd or any parent directory up to `/`.
@@ -45,7 +48,8 @@ async function initGlobal(cmd: Command): Promise<void> {
 
     // -- Filesystem root guardrail still applies --
     if (homeRoot === '/') {
-      const message = 'Refusing to initialize global hooks: home directory resolves to filesystem root (/).'
+      const message =
+        'Refusing to initialize global hooks: home directory resolves to filesystem root (/).'
       printError(ctx, 'init', message)
       process.exit(1)
     }
@@ -140,7 +144,9 @@ async function initGlobal(cmd: Command): Promise<void> {
       if (regResult.created) {
         created.push(`~/.claude/settings.json (${totalEvents} events)`)
       } else {
-        updated.push(`~/.claude/settings.json (${regResult.added.length} added, ${regResult.updated.length} updated)`)
+        updated.push(
+          `~/.claude/settings.json (${regResult.added.length} added, ${regResult.updated.length} updated)`,
+        )
       }
     } else {
       skipped.push('~/.claude/settings.json')
@@ -166,7 +172,10 @@ async function initGlobal(cmd: Command): Promise<void> {
       }
     }
 
-    printWarning(ctx, 'If you have existing project entrypoints, re-run `clooks init` in each project to update them with the dedup check.')
+    printWarning(
+      ctx,
+      'If you have existing project entrypoints, re-run `clooks init` in each project to update them with the dedup check.',
+    )
     printInfo(ctx, 'Restart Claude Code for hooks to take effect.')
 
     printOutro(ctx, 'Done.')
@@ -196,8 +205,14 @@ async function initProject(cmd: Command): Promise<void> {
         printError(ctx, 'init', message)
         process.exit(1)
       }
-      printWarning(ctx, `You are about to initialize clooks in your ${location}. This is usually a mistake.`)
-      const confirmed = await promptConfirm(ctx, { message: 'Continue anyway?', defaultValue: false })
+      printWarning(
+        ctx,
+        `You are about to initialize clooks in your ${location}. This is usually a mistake.`,
+      )
+      const confirmed = await promptConfirm(ctx, {
+        message: 'Continue anyway?',
+        defaultValue: false,
+      })
       if (!confirmed) {
         printInfo(ctx, 'Aborted.')
         return
@@ -212,7 +227,10 @@ async function initProject(cmd: Command): Promise<void> {
         }
       } else {
         printWarning(ctx, 'No git repository detected. Clooks works best in a git repo.')
-        const confirmed = await promptConfirm(ctx, { message: 'Continue anyway?', defaultValue: true })
+        const confirmed = await promptConfirm(ctx, {
+          message: 'Continue anyway?',
+          defaultValue: true,
+        })
         if (!confirmed) {
           printInfo(ctx, 'Aborted.')
           return
@@ -299,7 +317,9 @@ async function initProject(cmd: Command): Promise<void> {
       if (regResult.created) {
         created.push(`.claude/settings.json (${totalEvents} events)`)
       } else {
-        updated.push(`.claude/settings.json (${regResult.added.length} added, ${regResult.updated.length} updated)`)
+        updated.push(
+          `.claude/settings.json (${regResult.added.length} added, ${regResult.updated.length} updated)`,
+        )
       }
     } else {
       skipped.push('.claude/settings.json')
@@ -351,7 +371,10 @@ async function initProject(cmd: Command): Promise<void> {
       for (const item of updated) {
         printSuccess(ctx, `Updated ${item}`)
       }
-      printInfo(ctx, 'Next: run `clooks new-hook` to scaffold a hook, then register it in clooks.yml.')
+      printInfo(
+        ctx,
+        'Next: run `clooks new-hook` to scaffold a hook, then register it in clooks.yml.',
+      )
       printWarning(ctx, 'Restart Claude Code for hooks to take effect.')
     }
 

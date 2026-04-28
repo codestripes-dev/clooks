@@ -55,12 +55,14 @@ export function matchHooksForEvent(
 }
 
 /**
- * Generates shadow warnings when project hooks shadow global hooks.
- * Only emitted during SessionStart events.
+ * Generates shadow warnings when project hooks shadow home (global) hooks.
+ * Emits a single collapsed line listing all shadowed names alphabetically,
+ * comma-separated. Only emitted during SessionStart events. Currently only
+ * the project→home scope is reported (local→{project,home} shadows are
+ * structurally always source-identical and excluded upstream).
  */
 export function buildShadowWarnings(eventName: string, shadows: HookName[]): string[] {
   if (eventName !== 'SessionStart' || shadows.length === 0) return []
-  return shadows.map(
-    (name) => `clooks: project hook "${name}" is shadowing a global hook with the same name.`,
-  )
+  const names = [...shadows].sort().join(', ')
+  return [`clooks: project hooks shadowing home: ${names}`]
 }

@@ -6,9 +6,9 @@ let cachedGitBranch: string | null | undefined
 export async function getGitRoot(): Promise<string | null> {
   if (cachedGitRoot !== undefined) return cachedGitRoot
   try {
-    const proc = Bun.spawn(["git", "rev-parse", "--show-toplevel"], {
-      stdout: "pipe",
-      stderr: "pipe",
+    const proc = Bun.spawn(['git', 'rev-parse', '--show-toplevel'], {
+      stdout: 'pipe',
+      stderr: 'pipe',
     })
     const text = await new Response(proc.stdout).text()
     const exitCode = await proc.exited
@@ -22,9 +22,9 @@ export async function getGitRoot(): Promise<string | null> {
 export async function getGitBranch(): Promise<string | null> {
   if (cachedGitBranch !== undefined) return cachedGitBranch
   try {
-    const proc = Bun.spawn(["git", "rev-parse", "--abbrev-ref", "HEAD"], {
-      stdout: "pipe",
-      stderr: "pipe",
+    const proc = Bun.spawn(['git', 'rev-parse', '--abbrev-ref', 'HEAD'], {
+      stdout: 'pipe',
+      stderr: 'pipe',
     })
     const text = await new Response(proc.stdout).text()
     const exitCode = await proc.exited

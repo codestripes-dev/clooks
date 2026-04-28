@@ -2932,30 +2932,26 @@ describe('integration: full pipeline', () => {
   })
 })
 
-// --- Shadow warnings (M2) ---
+// --- Shadow warnings ---
 
 describe('buildShadowWarnings', () => {
-  it('produces correct warning messages for multiple shadows on SessionStart', () => {
+  it('produces a single collapsed line for multiple shadows on SessionStart', () => {
     const warnings = buildShadowWarnings('SessionStart', [
-      hn('log-bash-commands'),
       hn('security-audit'),
+      hn('log-bash-commands'),
     ])
 
-    expect(warnings).toHaveLength(2)
+    expect(warnings).toHaveLength(1)
     expect(warnings[0]).toBe(
-      'clooks: project hook "log-bash-commands" is shadowing a global hook with the same name.',
-    )
-    expect(warnings[1]).toBe(
-      'clooks: project hook "security-audit" is shadowing a global hook with the same name.',
+      'clooks: project hooks shadowing home: log-bash-commands, security-audit',
     )
   })
 
-  it('returns warnings that can be injected as systemMessage', () => {
+  it('renders a single shadow without trailing punctuation', () => {
     const warnings = buildShadowWarnings('SessionStart', [hn('shared-hook')])
 
     expect(warnings).toHaveLength(1)
-    expect(warnings[0]).toContain('shared-hook')
-    expect(warnings[0]).toContain('shadowing a global hook')
+    expect(warnings[0]).toBe('clooks: project hooks shadowing home: shared-hook')
   })
 
   it('returns empty array on non-SessionStart events', () => {
@@ -2966,6 +2962,13 @@ describe('buildShadowWarnings', () => {
   it('returns empty array when shadows array is empty', () => {
     const warnings = buildShadowWarnings('SessionStart', [])
     expect(warnings).toEqual([])
+  })
+
+  it('sorts shadow names alphabetically regardless of input order', () => {
+    const warnings = buildShadowWarnings('SessionStart', [hn('zeta'), hn('alpha'), hn('mu')])
+
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toBe('clooks: project hooks shadowing home: alpha, mu, zeta')
   })
 })
 

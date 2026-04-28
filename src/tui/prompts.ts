@@ -83,7 +83,6 @@ export async function promptSelect<T extends string>(
     )
   }
 
-   
   const result = await select<T>({
     message: opts.message,
     options: opts.options as any,
@@ -118,7 +117,7 @@ export async function promptMultiSelect<T extends string>(
     if (opts.initialValues !== undefined) return opts.initialValues
     return opts.options.map((o) => o.value)
   }
-   
+
   const result = await multiselect({
     message: opts.message,
     options: opts.options as any,

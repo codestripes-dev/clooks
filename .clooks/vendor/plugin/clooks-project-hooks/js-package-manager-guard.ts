@@ -12,7 +12,7 @@
 // No escape hatch — configuration is the control mechanism.
 // When unconfigured (allowed is empty), injects a SessionStart warning.
 
-import type { ClooksHook } from './types'
+import type { ClooksHook } from "./types"
 
 type Config = {
   allowed: string[]
@@ -30,9 +30,9 @@ const KNOWN_UNIVERSE: ReadonlyMap<string, ToolRole> = new Map([
   ['yarn', 'pm'],
   ['pnpm', 'pm'],
   ['pnpx', 'runner'],
-  ['bun', 'pm'], // also runtime, but pm is primary
+  ['bun', 'pm'],        // also runtime, but pm is primary
   ['bunx', 'runner'],
-  ['deno', 'runtime'], // also pm, but runtime is primary
+  ['deno', 'runtime'],  // also pm, but runtime is primary
 ])
 
 const AUTO_EXTENSIONS: ReadonlyMap<string, readonly string[]> = new Map([
@@ -59,14 +59,14 @@ function sanitize(command: string): string {
 }
 
 function getSegments(sanitized: string): string[] {
-  return sanitized.split(/\s*(?:&&|\|\||;)\s*/).filter((s) => s.length > 0)
+  return sanitized.split(/\s*(?:&&|\|\||;)\s*/).filter(s => s.length > 0)
 }
 
 function extractFirstWord(segment: string): string {
   const pipeIndex = segment.indexOf('|')
   const prePipe = pipeIndex !== -1 ? segment.slice(0, pipeIndex) : segment
   const trimmed = prePipe.trim()
-  const command = trimmed.replace(/^(?:\w+=\S*\s+)*/, '') // strip VAR=val prefixes
+  const command = trimmed.replace(/^(?:\w+=\S*\s+)*/, '')  // strip VAR=val prefixes
   return command.split(/\s/)[0] || ''
 }
 
@@ -87,11 +87,7 @@ export function isBlocked(firstWord: string, expandedAllowed: Set<string>): bool
   return KNOWN_UNIVERSE.has(firstWord) && !expandedAllowed.has(firstWord)
 }
 
-export function generateBlockMessage(
-  blocked: string,
-  expandedAllowed: Set<string>,
-  allowed: string[],
-): string {
+export function generateBlockMessage(blocked: string, expandedAllowed: Set<string>, allowed: string[]): string {
   const role = KNOWN_UNIVERSE.get(blocked)
 
   let suggested: string | null = null
@@ -159,10 +155,7 @@ export function detectBlockedTool(command: string, expandedAllowed: Set<string>)
   return null
 }
 
-export function isAdditionalBlocked(
-  command: string,
-  additionalBlocked: Array<{ tool: string; message: string }>,
-): { tool: string; message: string } | null {
+export function isAdditionalBlocked(command: string, additionalBlocked: Array<{ tool: string; message: string }>): { tool: string; message: string } | null {
   const sanitized = sanitize(command)
   const segments = getSegments(sanitized)
 
@@ -228,14 +221,13 @@ Without configuration, this hook cannot protect against wrong package manager us
 
     const expandedAllowed = expandAllowed(allowed)
     const allowedTools = Array.from(expandedAllowed)
-    const blockedTools = Array.from(KNOWN_UNIVERSE.keys()).filter((t) => !expandedAllowed.has(t))
-    const allowedList = allowedTools.map((t) => `\`${t}\``).join(', ')
-    const blockedList = blockedTools.map((t) => `\`${t}\``).join(', ')
+    const blockedTools = Array.from(KNOWN_UNIVERSE.keys()).filter(t => !expandedAllowed.has(t))
+    const allowedList = allowedTools.map(t => `\`${t}\``).join(', ')
+    const blockedList = blockedTools.map(t => `\`${t}\``).join(', ')
 
-    const injectContext =
-      blockedTools.length > 0
-        ? `The js-package-manager-guard clooks hook is active in this project. Allowed JS toolchain: ${allowedList}. The Bash tool will refuse other JS package managers, runners, and runtimes: ${blockedList}.`
-        : `The js-package-manager-guard clooks hook is active in this project. Allowed JS toolchain: ${allowedList}.`
+    const injectContext = 'INFORMATION (no need to comment on it):' + (blockedTools.length > 0
+      ? `The js-package-manager-guard clooks hook is active in this project. Allowed JS toolchain: ${allowedList}. The Bash tool will refuse other JS package managers, runners, and runtimes: ${blockedList}.`
+      : `The js-package-manager-guard clooks hook is active in this project. Allowed JS toolchain: ${allowedList}.`)
 
     return ctx.skip({
       injectContext,

@@ -16,7 +16,7 @@
 //
 // No escape hatch. No config.
 
-import type { ClooksHook } from './types'
+import type { ClooksHook } from "./types"
 
 const BLOCK_REASON = `Piping auto-responses (yes, echo, printf) into a command simulates human input instead of using the command's non-interactive mode. Use the command's own flag (e.g. -y, --yes, --force, --non-interactive, -auto-approve) or ask the user to run the command interactively.`
 
@@ -28,7 +28,7 @@ export function sanitize(command: string): string {
 }
 
 export function getSegments(sanitized: string): string[] {
-  return sanitized.split(/\s*(?:&&|\|\||;)\s*/).filter((s) => s.length > 0)
+  return sanitized.split(/\s*(?:&&|\|\||;)\s*/).filter(s => s.length > 0)
 }
 
 export function stripEnvPrefix(segment: string): string {
@@ -57,7 +57,7 @@ export const hook: ClooksHook = {
 
   SessionStart(ctx) {
     return ctx.skip({
-      injectContext: `The no-auto-confirm clooks hook is active in this project. The Bash tool will refuse piping auto-confirmation into commands — \`yes |\`, \`echo y |\`, \`printf y |\`, and similar. Use the command's own non-interactive flag (\`-y\`, \`--yes\`, \`--force\`, \`--non-interactive\`, \`-auto-approve\`, etc.) instead, or ask the user to run the command interactively.`,
+      injectContext: `INFORMATION (no need to comment on it): The no-auto-confirm clooks hook is active in this project. The Bash tool will refuse piping auto-confirmation into commands — \`yes |\`, \`echo y |\`, \`printf y |\`, and similar. Use the command's own non-interactive flag (\`-y\`, \`--yes\`, \`--force\`, \`--non-interactive\`, \`-auto-approve\`, etc.) instead, or ask the user to run the command interactively.`,
       debugMessage: 'no-auto-confirm: announced',
     })
   },
@@ -65,7 +65,8 @@ export const hook: ClooksHook = {
   PreToolUse(ctx) {
     if (ctx.toolName !== 'Bash') return ctx.skip()
 
-    const command = typeof ctx.toolInput.command === 'string' ? ctx.toolInput.command : ''
+    const command = typeof ctx.toolInput.command === 'string'
+      ? ctx.toolInput.command : ''
     if (!command) return ctx.skip()
 
     try {
