@@ -1,4 +1,4 @@
-// Clooks v0.1.3 — generated type declarations
+// Clooks v0.2.0 — generated type declarations
 // Do not edit. Regenerate with: clooks types
 type EventName = "PreToolUse" | "PostToolUse" | "UserPromptSubmit" | "SessionStart" | "SessionEnd" | "Stop" | "StopFailure" | "SubagentStop" | "SubagentStart" | "InstructionsLoaded" | "PostToolUseFailure" | "Notification" | "PermissionRequest" | "PermissionDenied" | "ConfigChange" | "WorktreeCreate" | "WorktreeRemove" | "PreCompact" | "PostCompact" | "TeammateIdle" | "TaskCreated" | "TaskCompleted";
 /** Permission mode reported on `ctx.permissionMode`. Read-only — never construct. */
