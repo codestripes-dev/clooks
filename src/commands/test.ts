@@ -13,9 +13,12 @@ import { readFileSync } from 'fs'
 import { isEventName } from '../config/constants.js'
 import { validateHookExport } from '../loader.js'
 import { createHarnessContext } from '../testing/create-context.js'
+import { buildBeforeHookEvent, buildAfterHookEvent } from '../lifecycle.js'
+import { VERSION } from '../version.js'
 import { renderExample } from './test/render-example.js'
 import type { EventName } from '../types/branded.js'
 import type { CreateContextPayload } from '../testing/create-context.js'
+import type { HookEventMeta } from '../types/lifecycle.js'
 
 const HARNESS_USAGE_EXIT = 2
 const HOOK_THREW_EXIT = 2
@@ -119,16 +122,95 @@ export async function runHarness(hookFile: string, opts: { input?: string }): Pr
   // overrides (no `--config` flag in v1), so just forward the defaults.
   const config = (hook.meta.config ?? {}) as Record<string, unknown>
 
+  // Per-hook lifecycle metadata. Deterministic stub — same spirit as the
+  // `sessionId`/`transcriptPath` defaults in `createHarnessContext`. Hook
+  // authors who need real git/timestamp values run a Claude Code invocation.
+  const lifecycleMeta: HookEventMeta = {
+    gitRoot: null,
+    gitBranch: null,
+    platform: process.platform === 'darwin' ? 'darwin' : 'linux',
+    hookName: hook.meta.name,
+    hookPath: absolutePath,
+    timestamp: '2026-01-01T00:00:00.000Z',
+    clooksVersion: VERSION,
+    configPath: '/tmp/clooks-test-no-config.yml',
+  }
+
   let result: unknown
-  try {
-    result = await (handler as (ctx: unknown, config: Record<string, unknown>) => unknown)(
-      ctx,
-      config,
+  let shortCircuited = false
+
+  if (hook.beforeHook !== undefined) {
+    const beforeEvent = buildBeforeHookEvent(
+      event,
+      ctx as unknown as Record<string, unknown>,
+      lifecycleMeta,
     )
-  } catch (e) {
-    const message = e instanceof Error ? e.message : String(e)
-    process.stderr.write(`clooks test: hook threw: ${message}\n`)
-    process.exit(HOOK_THREW_EXIT)
+    let beforeRet: unknown
+    try {
+      beforeRet = await hook.beforeHook(beforeEvent, config)
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      process.stderr.write(`clooks test: beforeHook threw: ${message}\n`)
+      process.exit(HOOK_THREW_EXIT)
+    }
+    if (
+      typeof beforeRet === 'object' &&
+      beforeRet !== null &&
+      'result' in (beforeRet as Record<string, unknown>)
+    ) {
+      const tag = (beforeRet as { result: unknown }).result
+      if (tag === 'block' || tag === 'skip') {
+        result = beforeRet
+        shortCircuited = true
+      } else if (tag !== 'passthrough') {
+        // Mirror src/lifecycle.ts:121-123 — warn but continue.
+        process.stderr.write(
+          `clooks test: beforeHook returned an unrecognized shape (result=${String(tag)}). Expected event.block / event.skip / event.passthrough or void. Treating as no-op.\n`,
+        )
+      }
+    }
+  }
+
+  if (!shortCircuited) {
+    try {
+      result = await (handler as (ctx: unknown, config: Record<string, unknown>) => unknown)(
+        ctx,
+        config,
+      )
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      process.stderr.write(`clooks test: hook threw: ${message}\n`)
+      process.exit(HOOK_THREW_EXIT)
+    }
+
+    if (hook.afterHook !== undefined) {
+      const afterEvent = buildAfterHookEvent(
+        event,
+        ctx as unknown as Record<string, unknown>,
+        result,
+        lifecycleMeta,
+      )
+      let afterRet: unknown
+      try {
+        afterRet = await hook.afterHook(afterEvent, config)
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e)
+        process.stderr.write(`clooks test: afterHook threw: ${message}\n`)
+        process.exit(HOOK_THREW_EXIT)
+      }
+      if (
+        typeof afterRet === 'object' &&
+        afterRet !== null &&
+        'result' in (afterRet as Record<string, unknown>)
+      ) {
+        const tag = (afterRet as { result: unknown }).result
+        if (tag !== 'passthrough') {
+          process.stderr.write(
+            `clooks test: afterHook returned an unrecognized shape (result=${String(tag)}). Expected event.passthrough or void. Treating as no-op.\n`,
+          )
+        }
+      }
+    }
   }
 
   if (result === undefined) {

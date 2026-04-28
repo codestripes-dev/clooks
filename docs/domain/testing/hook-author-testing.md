@@ -111,6 +111,10 @@ If your hook declares `meta.config: { logDir: '.clooks' }`, the handler sees `{ 
 
 If your hook's behavior depends on a non-default value from `clooks.yml`, the harness cannot simulate that today — exercise it in a real Claude Code invocation or in a unit test that constructs the config directly. A `--config` flag is the natural follow-up if marketplace authors hit this gap.
 
+### Lifecycle wrappers
+
+`beforeHook` and `afterHook` exports run in the same order as the engine: `beforeHook` first (return `event.block` / `event.skip` to short-circuit the handler **and** `afterHook`; `event.passthrough` or void to continue), then the handler, then `afterHook` (observer-only — `event.handlerResult` is set; the return is discarded). `event.meta` uses deterministic harness stubs (`gitRoot: null`, `timestamp: '2026-01-01T00:00:00.000Z'`, real `hookName`/`hookPath`/`clooksVersion`/`platform`); hooks that branch on real git state need a real Claude Code invocation.
+
 ## Decision-result interpretation
 
 The handler returns a decision object — the value of `ctx.allow()`, `ctx.block({...})`, etc. The harness prints that object as JSON and exits with a code derived from the `result` tag.
@@ -267,7 +271,6 @@ The harness is for testing handler logic, not engine plumbing. The following are
 - **No `--config` overrides.** `meta.config` defaults flow through; `clooks.yml`-style overrides cannot be simulated in v1. See [`hookConfig` — defaults only, no overrides](#hookconfig--defaults-only-no-overrides) above.
 - **No wire normalization.** The harness consumes the cleaned-up Context shape. Bugs in the engine's wire-to-context transformation are not caught here. Covered by Clooks's E2E suite.
 - **Signal is never aborted.** `ctx.signal` is a real `AbortSignal` but the harness never aborts it. Hooks that branch on `signal.aborted` exercise only the non-aborted path. No `--abort-after` flag in v1.
-- **Lifecycle wrappers not run.** `beforeHook` and `afterHook` exports are not invoked. The harness calls the per-event handler directly. Test lifecycle wrappers in a unit test.
 - **Multi-hook reduction not run.** The harness runs exactly one hook. Composition, ordering, and reduction across multiple hooks for the same event require the engine.
 - **YAML input not supported.** JSON only.
 

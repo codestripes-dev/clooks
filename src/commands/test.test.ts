@@ -97,6 +97,10 @@ const HOOK_RETURN_STRING = join(FIXTURES, 'harness-return-string.ts')
 const HOOK_RETURN_NULL = join(FIXTURES, 'harness-return-null.ts')
 const HOOK_WRONG_EXPORT = join(FIXTURES, 'wrong-export.ts')
 const HOOK_CONFIG_DEFAULTS = join(FIXTURES, 'harness-config-defaults.ts')
+const HOOK_LIFECYCLE_BLOCK = join(FIXTURES, 'harness-lifecycle-block.ts')
+const HOOK_LIFECYCLE_SKIP = join(FIXTURES, 'harness-lifecycle-skip.ts')
+const HOOK_LIFECYCLE_FULL = join(FIXTURES, 'harness-lifecycle-full.ts')
+const HOOK_LIFECYCLE_THROWS = join(FIXTURES, 'harness-lifecycle-throws.ts')
 
 /**
  * Sentinel thrown by the mocked `process.exit`. The thrown value carries the
@@ -522,6 +526,84 @@ describe('runHarness — error paths', () => {
     )
     expect(code).toBe(0)
     expect(spies.stdoutChunks.join('')).toBe('{"result":"allow"}\n')
+  })
+
+  describe('lifecycle wrappers (beforeHook / afterHook)', () => {
+    const PRE_TOOL_USE_PAYLOAD = {
+      event: 'PreToolUse' as const,
+      toolName: 'Bash',
+      toolInput: { command: 'echo' },
+      originalToolInput: { command: 'echo' },
+      toolUseId: 'tu_lifecycle',
+    }
+
+    test('beforeHook event.passthrough → handler runs, afterHook observes handlerResult', async () => {
+      const code = await withStdin(PRE_TOOL_USE_PAYLOAD, () =>
+        runAndCaptureExit(HOOK_LIFECYCLE_FULL, {}, spies),
+      )
+      expect(code).toBe(0)
+      // Final emitted decision is the handler's allow result, not anything
+      // from before/after — afterHook is observer-only.
+      expect(spies.stdoutChunks.join('')).toBe('{"result":"allow"}\n')
+      // Phases run in order; afterHook sees handler's return tag.
+      expect(spies.stderrChunks.join('')).toBe(
+        'lifecycle:before;lifecycle:handler;lifecycle:after(allow);',
+      )
+    })
+
+    test('beforeHook event.block → handler skipped, afterHook skipped, exit 1, block decision printed', async () => {
+      const code = await withStdin(PRE_TOOL_USE_PAYLOAD, () =>
+        runAndCaptureExit(HOOK_LIFECYCLE_BLOCK, {}, spies),
+      )
+      expect(code).toBe(1)
+      expect(spies.stdoutChunks.join('')).toBe('{"result":"block","reason":"before-blocked"}\n')
+      // Only the before phase ran. The "-RAN" suffixes in the fixture would
+      // appear if handler or afterHook fired — assert their absence.
+      const stderr = spies.stderrChunks.join('')
+      expect(stderr).toBe('lifecycle:before;')
+      expect(stderr).not.toContain('-RAN')
+    })
+
+    test('beforeHook event.skip → handler skipped, afterHook skipped, exit 0, skip decision printed', async () => {
+      const code = await withStdin(PRE_TOOL_USE_PAYLOAD, () =>
+        runAndCaptureExit(HOOK_LIFECYCLE_SKIP, {}, spies),
+      )
+      expect(code).toBe(0)
+      expect(spies.stdoutChunks.join('')).toBe('{"result":"skip"}\n')
+      const stderr = spies.stderrChunks.join('')
+      expect(stderr).toBe('lifecycle:before;')
+      expect(stderr).not.toContain('-RAN')
+    })
+
+    test('beforeHook throws → exit 2 with stderr message, handler never runs', async () => {
+      const orig = process.env.LIFECYCLE_THROW
+      process.env.LIFECYCLE_THROW = 'before'
+      try {
+        const code = await withStdin(PRE_TOOL_USE_PAYLOAD, () =>
+          runAndCaptureExit(HOOK_LIFECYCLE_THROWS, {}, spies),
+        )
+        expect(code).toBe(2)
+        expect(spies.stderrChunks.join('')).toContain('beforeHook threw: boom-before')
+      } finally {
+        if (orig === undefined) delete process.env.LIFECYCLE_THROW
+        else process.env.LIFECYCLE_THROW = orig
+      }
+    })
+
+    test('afterHook throws → exit 2 (handler already ran)', async () => {
+      const orig = process.env.LIFECYCLE_THROW
+      process.env.LIFECYCLE_THROW = 'after'
+      try {
+        const code = await withStdin(PRE_TOOL_USE_PAYLOAD, () =>
+          runAndCaptureExit(HOOK_LIFECYCLE_THROWS, {}, spies),
+        )
+        expect(code).toBe(2)
+        expect(spies.stderrChunks.join('')).toContain('afterHook threw: boom-after')
+      } finally {
+        if (orig === undefined) delete process.env.LIFECYCLE_THROW
+        else process.env.LIFECYCLE_THROW = orig
+      }
+    })
   })
 
   test('hook file with no `hook` named export → exit 2', async () => {
