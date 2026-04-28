@@ -13,7 +13,7 @@ The harness deliberately skips two layers the engine runs in production:
 - **Wire normalization.** The harness consumes the cleaned-up `Context` shape that hooks program against, not Claude Code's wire-shape JSON. There is no wire-to-context translator in the harness path.
 - **The multi-hook reducer.** The harness runs exactly one hook. Composition, ordering, and result reduction are not exercised.
 
-This is intentional. The harness validates **handler logic**. Engine plumbing — wire translation, multi-hook reduction, lifecycle wrapping — is validated by Clooks's own E2E suite.
+This is intentional. The harness validates **handler logic** (and per-hook lifecycle — `beforeHook` / `afterHook` do run; see [Lifecycle wrappers](#lifecycle-wrappers) below). Engine plumbing — wire translation, multi-hook reduction — is validated by Clooks's own E2E suite.
 
 The harness body lives in `src/commands/test.ts:59` (`runHarness`). Synthetic context construction lives in `src/testing/create-context.ts:174` (`createHarnessContext`).
 
