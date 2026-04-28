@@ -96,6 +96,7 @@ const HOOK_RETURN_NUMBER = join(FIXTURES, 'harness-return-number.ts')
 const HOOK_RETURN_STRING = join(FIXTURES, 'harness-return-string.ts')
 const HOOK_RETURN_NULL = join(FIXTURES, 'harness-return-null.ts')
 const HOOK_WRONG_EXPORT = join(FIXTURES, 'wrong-export.ts')
+const HOOK_CONFIG_DEFAULTS = join(FIXTURES, 'harness-config-defaults.ts')
 
 /**
  * Sentinel thrown by the mocked `process.exit`. The thrown value carries the
@@ -482,6 +483,45 @@ describe('runHarness — error paths', () => {
     )
     expect(code).toBe(2)
     expect(spies.stderrChunks.join('')).toContain('failed to import hook file')
+  })
+
+  test('handler receives `meta.config` defaults as the second arg', async () => {
+    // harness-config-defaults.ts exposes meta.config = { greeting, count } and
+    // returns those values verbatim in `debugMessage`. Asserts the harness
+    // mirrors src/loader.ts:144-146 (production loadHook merges meta.config
+    // defaults with clooks.yml overrides) — the harness has no overrides, so
+    // bare defaults must reach the handler.
+    const code = await withStdin(
+      {
+        event: 'PreToolUse',
+        toolName: 'Bash',
+        toolInput: { command: 'echo' },
+        originalToolInput: { command: 'echo' },
+        toolUseId: 'tu_cfg',
+      },
+      () => runAndCaptureExit(HOOK_CONFIG_DEFAULTS, {}, spies),
+    )
+    expect(code).toBe(0)
+    expect(spies.stdoutChunks.join('')).toBe(
+      '{"result":"allow","debugMessage":"hello-from-defaults/7"}\n',
+    )
+  })
+
+  test('hook with no `meta.config` still gets `{}` as the second arg (no crash)', async () => {
+    // allow-all.ts has no meta.config — the harness must fall back to {} so
+    // hooks that ignore config aren't broken by the defaults-merge change.
+    const code = await withStdin(
+      {
+        event: 'PreToolUse',
+        toolName: 'Bash',
+        toolInput: { command: 'echo' },
+        originalToolInput: { command: 'echo' },
+        toolUseId: 'tu_no_cfg',
+      },
+      () => runAndCaptureExit(HOOK_ALLOW, {}, spies),
+    )
+    expect(code).toBe(0)
+    expect(spies.stdoutChunks.join('')).toBe('{"result":"allow"}\n')
   })
 
   test('hook file with no `hook` named export → exit 2', async () => {

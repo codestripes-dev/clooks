@@ -103,13 +103,13 @@ The harness fills in `BaseContext` fields the JSON omits. Authors override only 
 
 A handler that reads `ctx.cwd` to resolve a path needs no override. A handler that branches on `ctx.permissionMode` should set `permissionMode` in the JSON to exercise each branch.
 
-### Empty `hookConfig`
+### `hookConfig` — defaults only, no overrides
 
-The harness dispatches every handler with `hookConfig = {}`. **There is no `--config` flag in v1.**
+The harness dispatches every handler with the hook's `meta.config` defaults as the second argument — same merge as production (`src/loader.ts:144-146`), minus `clooks.yml` overrides. **There is no `--config` flag in v1.**
 
-This means hooks with non-trivial `meta.config` schemas exercise only their default-config code path under `clooks test`. If your hook's behavior depends on per-hook config from `clooks.yml`, the harness cannot simulate that today. Test the default-config path with the harness; exercise non-default config in a real Claude Code invocation or in a unit test that constructs the config directly.
+If your hook declares `meta.config: { logDir: '.clooks' }`, the handler sees `{ logDir: '.clooks' }`. If your hook has no `meta.config`, the handler sees `{}`. Either way, the default-config code path is exercised.
 
-This is a documented v1 limitation. A `--config` flag is the natural follow-up if marketplace authors hit this gap.
+If your hook's behavior depends on a non-default value from `clooks.yml`, the harness cannot simulate that today — exercise it in a real Claude Code invocation or in a unit test that constructs the config directly. A `--config` flag is the natural follow-up if marketplace authors hit this gap.
 
 ## Decision-result interpretation
 
@@ -264,7 +264,7 @@ The harness's stdout output is a single JSON line; chains like `... | jq '.reaso
 
 The harness is for testing handler logic, not engine plumbing. The following are deliberately out of scope for v1:
 
-- **Empty `hookConfig`.** No `--config` flag. Hooks with non-trivial `meta.config` exercise only their default-config code path. See [Empty `hookConfig`](#empty-hookconfig) above.
+- **No `--config` overrides.** `meta.config` defaults flow through; `clooks.yml`-style overrides cannot be simulated in v1. See [`hookConfig` — defaults only, no overrides](#hookconfig--defaults-only-no-overrides) above.
 - **No wire normalization.** The harness consumes the cleaned-up Context shape. Bugs in the engine's wire-to-context transformation are not caught here. Covered by Clooks's E2E suite.
 - **Signal is never aborted.** `ctx.signal` is a real `AbortSignal` but the harness never aborts it. Hooks that branch on `signal.aborted` exercise only the non-aborted path. No `--abort-after` flag in v1.
 - **Lifecycle wrappers not run.** `beforeHook` and `afterHook` exports are not invoked. The harness calls the per-event handler directly. Test lifecycle wrappers in a unit test.

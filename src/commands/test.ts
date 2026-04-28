@@ -114,9 +114,17 @@ export async function runHarness(hookFile: string, opts: { input?: string }): Pr
 
   const ctx = createHarnessContext(event, rest as CreateContextPayload<typeof event>)
 
+  // Mirror `src/loader.ts:144-146`: production loadHook merges
+  // `meta.config` defaults with clooks.yml overrides. The harness has no
+  // overrides (no `--config` flag in v1), so just forward the defaults.
+  const config = (hook.meta.config ?? {}) as Record<string, unknown>
+
   let result: unknown
   try {
-    result = await (handler as (ctx: unknown, config: Record<string, unknown>) => unknown)(ctx, {})
+    result = await (handler as (ctx: unknown, config: Record<string, unknown>) => unknown)(
+      ctx,
+      config,
+    )
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)
     process.stderr.write(`clooks test: hook threw: ${message}\n`)
