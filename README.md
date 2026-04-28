@@ -219,6 +219,17 @@ no-rm-rf: {}
 
 Reload Claude Code. Done.
 
+### 4. Test it
+
+Run a hook against a synthetic event without standing up Claude Code:
+
+```bash
+clooks test example PreToolUse        # prints a fixture template + field docs
+clooks test ./.clooks/hooks/no-rm-rf.ts --input fixture.json
+```
+
+`clooks test <hook>` emits the decision JSON to stdout (pipe to `jq`); `clooks test example <Event>` is documentation, not JSON. See [Hook Author Testing](docs/domain/testing/hook-author-testing.md) for the full guide — JSON shape, exit codes, CI loop pattern, and known limitations.
+
 ### Return values
 
 Clooks supports most of the same return values as native Claude Code hooks:

@@ -4,6 +4,12 @@ How Clooks validates its core safety invariant — fail-closed behavior — thro
 
 **For agents and subagents:** Docker is a hard dependency of this project and is expected to be available. Always use `bun run test:e2e` (it builds and runs the container for you). Do **not** run `bun test test/e2e/…` directly — that bypasses the Docker orchestration and trips the `CLOOKS_E2E_DOCKER` guard in `createSandbox()`. If `docker ps` fails, the Docker **daemon/engine is not running** — start it (or alert the user) rather than concluding Docker is unavailable.
 
+## Hook Author Testing
+
+This document covers Clooks's own E2E suite, which validates Clooks itself. It is **not** the documentation hook authors need.
+
+For the runtime-equivalent harness hook authors use to exercise a single hook against a synthetic event (`clooks test`), see [testing/hook-author-testing.md](testing/hook-author-testing.md). That doc covers the JSON shape, decision-result interpretation, exit-code mapping, and the CI loop pattern with bash + `jq`.
+
 ## Overview
 
 Clooks uses a three-layer testing strategy:

@@ -1,0 +1,7 @@
+{
+  "event": "PreToolUse",
+  "toolName": "Bash",
+  "toolInput": { "command": "echo hello" },
+  "originalToolInput": { "command": "echo hello" },
+  "toolUseId": "tu_test_0001"
+}

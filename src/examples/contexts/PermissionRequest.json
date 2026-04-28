@@ -1,0 +1,5 @@
+{
+  "event": "PermissionRequest",
+  "toolName": "Bash",
+  "toolInput": { "command": "rm -rf node_modules" }
+}

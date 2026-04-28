@@ -97,6 +97,7 @@ When creating or removing a domain doc, update the relevant table in this index.
 | Document | Path | Description |
 |----------|------|-------------|
 | E2E Testing Architecture | `testing.md` | Three-layer strategy, hermetic E2E via `bun run test:e2e`, sandbox pattern, fail-closed invariant, gotchas |
+| Hook Author Testing | `testing/hook-author-testing.md` | `clooks test` harness for hook authors: JSON shape, decision-result interpretation, exit codes, CI loop pattern, drift gate |
 
 ## Tools & Recipes
 

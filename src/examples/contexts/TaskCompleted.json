@@ -1,0 +1,5 @@
+{
+  "event": "TaskCompleted",
+  "taskId": "task-001",
+  "taskSubject": "Implement user authentication"
+}

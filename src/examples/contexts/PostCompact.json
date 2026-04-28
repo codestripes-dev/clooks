@@ -1,0 +1,5 @@
+{
+  "event": "PostCompact",
+  "trigger": "manual",
+  "compactSummary": "Summary of the compacted conversation..."
+}

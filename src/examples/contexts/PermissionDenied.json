@@ -1,0 +1,7 @@
+{
+  "event": "PermissionDenied",
+  "toolName": "Bash",
+  "toolInput": { "command": "rm -rf /tmp/build" },
+  "toolUseId": "tu_test_0001",
+  "denialReason": "Auto mode denied: command targets a path outside the project"
+}

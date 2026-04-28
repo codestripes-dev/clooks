@@ -154,3 +154,38 @@ export function createContext<E extends EventName>(
   attachDecisionMethods(event, ctx)
   return ctx as unknown as CreateContextEventMap[E]
 }
+
+/**
+ * Harness-flavored variant of `createContext` for `clooks test`. Pre-populates
+ * the harness-spec defaults via the existing `Partial<BaseContext>` payload
+ * override surface and delegates to `createContext`.
+ *
+ * Defaults applied (overridable by the caller's payload):
+ * - `sessionId: 'test-session-0000000000000000'`
+ * - `cwd: process.cwd()`
+ * - `transcriptPath: '/tmp/clooks-test-transcript.jsonl'`
+ * - `parallel: false`
+ * - `signal: new AbortController().signal` (real signal, never aborted)
+ *
+ * `createContext`'s own defaults are deliberately untouched — existing in-repo
+ * unit tests and the Docker E2E sandbox depend on them. See
+ * `docs/plans/PLAN-FEAT-0067-clooks-test-harness.md` Decision Log.
+ */
+export function createHarnessContext<E extends EventName>(
+  event: E,
+  payload: CreateContextPayload<E>,
+): CreateContextEventMap[E] {
+  const harnessDefaults: Partial<BaseContext> = {
+    sessionId: 'test-session-0000000000000000',
+    cwd: process.cwd(),
+    transcriptPath: '/tmp/clooks-test-transcript.jsonl',
+    parallel: false,
+    signal: new AbortController().signal,
+  }
+  // Caller's payload wins over harness defaults.
+  const merged = {
+    ...harnessDefaults,
+    ...(payload as Record<string, unknown>),
+  } as CreateContextPayload<E>
+  return createContext(event, merged)
+}

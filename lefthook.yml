@@ -24,3 +24,6 @@ pre-commit:
       run: bun install --frozen-lockfile --ignore-scripts
     bundle-up-to-date:
       run: bun run generate:types && git diff --exit-code src/generated/ .clooks/hooks/types.d.ts
+    verify-context-examples:
+      glob: "{src/examples/**,src/types/contexts.ts}"
+      run: bun run scripts/verify-context-examples.ts

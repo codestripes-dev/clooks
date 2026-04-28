@@ -1,0 +1,7 @@
+{
+  "event": "PostToolUse",
+  "toolName": "Bash",
+  "toolInput": { "command": "echo hello" },
+  "toolUseId": "tu_test_0001",
+  "toolResponse": { "stdout": "hello\n", "exitCode": 0 }
+}

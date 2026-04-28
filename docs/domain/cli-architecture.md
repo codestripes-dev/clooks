@@ -204,6 +204,21 @@ Exits with code 1 when all hooks fail (errors only, no successes). Supports `--j
 
 See `docs/domain/vendoring/plugin-vendoring.md` for the full update algorithm.
 
+### `clooks test <hook-file>` / `clooks test example <Event>`
+
+One-shot hook author harness. Runs a single hook handler against a synthetic event payload and prints the decision JSON to stdout, with an exit code mapped from the decision's `result` tag.
+
+Two subcommand forms with deliberately different output contracts:
+
+- **`clooks test <hook-file>`** — reads a JSON payload from stdin (or `--input <file>`), dispatches the matching per-event handler from the hook file with `hookConfig = {}`, and writes the handler's return value as a single JSON line to stdout. Output is **valid JSON** — pipe to `jq`. Input contract is the **cleaned-up `Context` shape** (the type hooks program against), not Claude Code's wire shape; the harness skips wire normalization and the multi-hook reducer.
+- **`clooks test example <Event>`** — prints prose-and-JSON documentation for the named event: a minimum-viable JSON fixture block, the required-fields list, and (for the four tool-keyed events) inline documentation of all 10 built-in tools' `toolInput` shapes plus a fallback note for `ExitPlanMode` and `mcp__*` tools. Output is **documentation, not parseable JSON** — authors copy-paste the JSON block; do **not** pipe to `jq`.
+
+**Exit codes for `clooks test <hook>`:** `allow`/`skip`/`success`/`continue`/`retry`/`ask`/`defer` and `undefined` return → 0; `block`/`failure`/`stop` → 1; hook throws or harness usage error → 2. `clooks test example` always exits 0 on a known event, 2 on unknown.
+
+**No `--config` flag in v1.** Hooks with non-trivial `meta.config` schemas exercise only their default-config code path. **No `--tool` flag** for `clooks test example` — tool-keyed events inline all 10 tools' `toolInput` shapes in one document.
+
+Routing: `clooks test` is registered in `KNOWN_COMMANDS` so the dual-mode dispatcher routes it to CLI mode; `example` is wired as a true sub-`Command` via `testCmd.addCommand(exampleCmd)`. Full rationale and exit-code mapping live in `docs/plans/PLAN-FEAT-0067-clooks-test-harness.md` Decision Log. Hook author guide: [testing/hook-author-testing.md](testing/hook-author-testing.md).
+
 ### `clooks uninstall`
 
 Removes Clooks from a project or global scope. With `--project`, removes Clooks hooks from `.claude/settings.json` and optionally deletes `.clooks/`. With `--global`, does the same for `~/.claude/settings.json` and `~/.clooks/`. Without a flag, presents an interactive scope picker (project, global, or both). `--force` skips all confirmation prompts and requires explicit scope (`--project`/`--global`) and action (`--unhook`/`--full`) flags. `--json` outputs a structured result envelope. Never loads or validates `clooks.yml` — works even when config is broken.
@@ -221,6 +236,8 @@ Removes Clooks from a project or global scope. With `--project`, removes Clooks 
 - `src/commands/add.ts` — `createAddCommand()` — GitHub URL download and registration (`clooks add`), both blob URL and repo URL flows.
 - `src/commands/uninstall.ts` — `createUninstallCommand()` — project and global uninstall (`clooks uninstall`).
 - `src/commands/update.ts` — `createUpdateCommand()` — re-vendor plugin hooks (`clooks update plugin:<pack>`).
+- `src/commands/test.ts` — `createTestCommand()` and `runHarness()` — one-shot hook harness (`clooks test <hook-file>` and `clooks test example <Event>`).
+- `src/examples/index.ts` — text-imported example payloads for all 22 events plus per-event required-fields metadata; consumed by `src/commands/test/render-example.ts`.
 - `src/manifest.ts` — `validateManifest()`, `ClooksPackManifest` type — pack manifest validation.
 - `src/platform.ts` — platform/scope helpers used by `clooks add` (`--global`/`--project`).
 - `src/tui/context.ts` — `OutputContext` type and `getCtx(cmd)` helper.

@@ -1,0 +1,7 @@
+{
+  "event": "PostToolUseFailure",
+  "toolName": "Bash",
+  "toolInput": { "command": "false" },
+  "toolUseId": "tu_test_0001",
+  "error": "Command exited with non-zero status code 1"
+}

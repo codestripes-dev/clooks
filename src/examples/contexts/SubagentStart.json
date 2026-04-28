@@ -1,0 +1,5 @@
+{
+  "event": "SubagentStart",
+  "agentId": "agent-abc123",
+  "agentType": "Explore"
+}

@@ -1,0 +1,6 @@
+{
+  "event": "InstructionsLoaded",
+  "filePath": "/Users/me/my-project/CLAUDE.md",
+  "memoryType": "Project",
+  "loadReason": "session_start"
+}

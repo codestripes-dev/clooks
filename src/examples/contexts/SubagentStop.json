@@ -1,0 +1,8 @@
+{
+  "event": "SubagentStop",
+  "stopHookActive": false,
+  "agentId": "agent-abc123",
+  "agentType": "Explore",
+  "agentTranscriptPath": "/tmp/clooks-test-subagent-transcript.jsonl",
+  "lastAssistantMessage": "Analysis complete."
+}

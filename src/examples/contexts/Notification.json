@@ -1,0 +1,6 @@
+{
+  "event": "Notification",
+  "message": "Claude needs your permission to use Bash",
+  "title": "Permission needed",
+  "notificationType": "permission_prompt"
+}
