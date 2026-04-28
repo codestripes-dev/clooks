@@ -277,6 +277,80 @@ function HookOutcome({ accent }) {
   );
 }
 
+function CursorMark({ size = 16 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+         style={{ verticalAlign: '-2px' }} aria-hidden="true">
+      <path d="M12 2 L22 7.5 V16.5 L12 22 L2 16.5 V7.5 Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" fill="none"/>
+      <path d="M12 2 V22 M2 7.5 L22 16.5 M22 7.5 L2 16.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" opacity="0.5"/>
+    </svg>
+  );
+}
+
+function ClaudeMark({ size = 16 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+         style={{ verticalAlign: '-2px' }} aria-hidden="true">
+      <path d="M12 3 V21 M3 12 H21 M5.5 5.5 L18.5 18.5 M18.5 5.5 L5.5 18.5"
+            stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
+    </svg>
+  );
+}
+
+function WindsurfMark({ size = 16 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+         style={{ verticalAlign: '-2px' }} aria-hidden="true">
+      <path d="M3 17 Q8 11, 13 14 T22 11" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" fill="none"/>
+      <path d="M3 21 Q9 16, 14 18 T22 16" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" fill="none" opacity="0.55"/>
+    </svg>
+  );
+}
+
+function JetBrainsMark({ size = 16 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+         style={{ verticalAlign: '-2px' }} aria-hidden="true">
+      <rect x="3" y="3" width="18" height="18" stroke="currentColor" strokeWidth="1.4" fill="none"/>
+      <path d="M7 7 H13 M10 7 V14 Q10 16, 8 16 H7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+      <rect x="6" y="18" width="6" height="1.2" fill="currentColor"/>
+    </svg>
+  );
+}
+
+function CompatRow({ accent }) {
+  const vp = useViewport();
+  const compact = vp.isMobile;
+  const chip = {
+    display: 'inline-flex', alignItems: 'center', gap: compact ? 6 : 8,
+    padding: compact ? '7px 10px' : '8px 12px',
+    border: `1px solid ${COL.line}`,
+    fontFamily: 'JetBrains Mono, monospace',
+    fontSize: compact ? 11.5 : 12.5,
+    color: COL.fg, background: COL.bgCode,
+    whiteSpace: 'nowrap',
+    transition: 'border-color 160ms ease, color 160ms ease',
+  };
+  const star = { color: COL.fgDim, marginLeft: 1 };
+  const iconSize = compact ? 13 : 14;
+  return (
+    <div style={{ marginBottom: 28 }}>
+      <div style={{ display: 'flex', gap: compact ? 6 : 8, flexWrap: 'wrap' }}>
+        <span style={chip}><ClaudeMark size={iconSize}/> Claude Code</span>
+        <span style={chip}><CursorMark size={iconSize}/> Cursor<span style={star}>*</span></span>
+        <span style={chip}><WindsurfMark size={iconSize}/> Windsurf<span style={star}>*</span></span>
+        <span style={chip}><JetBrainsMark size={iconSize}/> JetBrains<span style={star}>*</span></span>
+      </div>
+      <div style={{
+        marginTop: 10, fontSize: 11.5, color: COL.fgDim,
+        fontFamily: 'JetBrains Mono, monospace', letterSpacing: 0.2,
+      }}>
+        * via Claude Code's IDE integration
+      </div>
+    </div>
+  );
+}
+
 function HeroCode({ tweaks }) {
   const vp = useViewport();
   return (
@@ -306,10 +380,13 @@ function HeroCode({ tweaks }) {
           fontSize: vp.isMobile ? 16 : 18, lineHeight: 1.55, color: COL.fgMute,
           maxWidth: 640, margin: '0 0 40px',
         }}>
-          Write hooks as small TypeScript files. Clooks runs them when Claude Code
-          edits files, runs commands, or finishes a session — and blocks the
+          Write hooks as small TypeScript files.<br/>
+          Clooks runs them when Claude Code edits files, runs commands, or finishes
+          a session — and blocks the
           action if a hook{'\u00a0'}crashes.
         </p>
+
+        <CompatRow accent={tweaks.accent}/>
 
         <div style={{ maxWidth: 720, marginBottom: vp.isMobile ? 40 : 56 }}>
           <InstallBlock cmd={tweaks.installCmd} accent={tweaks.accent}/>
@@ -372,9 +449,10 @@ function HeroSplit({ tweaks }) {
             <span style={{ color: COL.fgMute }}>for Claude Code.</span>
           </h1>
           <p style={{ fontSize: 17, lineHeight: 1.55, color: COL.fgMute, margin: '0 0 32px' }}>
-            Write hooks as small TypeScript files. Clooks runs them when Claude Code
-            edits files or runs commands, and blocks the action if a hook{'\u00a0'}crashes.
+            Write hooks as small TypeScript files.<br/>
+            Clooks runs them when Claude Code edits files or runs commands, and blocks the action if a hook{'\u00a0'}crashes.
           </p>
+          <CompatRow accent={tweaks.accent}/>
           <InstallBlock cmd={tweaks.installCmd} accent={tweaks.accent}/>
           <div style={{
             marginTop: 14, fontSize: 12, color: COL.fgDim,

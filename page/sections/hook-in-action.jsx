@@ -50,7 +50,7 @@ function HookInActionSection({ accent }) {
         return;
       }
       if (!lastTsRef.current) lastTsRef.current = now;
-      const dt = now - lastTsRef.current;
+      const dt = (now - lastTsRef.current) / 1.5;
       lastTsRef.current = now;
 
       if (accumRef.current < END_MS) {
