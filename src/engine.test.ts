@@ -511,7 +511,7 @@ describe('translateResult', () => {
     expect(out.output).toBeUndefined()
   })
 
-  // --- FEAT-0017: new translateResult tests ---
+  // --- new translateResult tests ---
 
   it('PermissionRequest block → exit 0 + JSON with hookSpecificOutput.decision.behavior deny', () => {
     const out = translateResult('PermissionRequest', { result: 'block', reason: 'denied' })
@@ -1098,7 +1098,7 @@ describe('translateResult', () => {
     expect(out.stderr).toContain('retry')
   })
 
-  // --- FEAT-0059 safety-net: ask/defer fall-through on non-PreToolUse events ---
+  // --- safety-net: ask/defer fall-through on non-PreToolUse events ---
 
   it('PostToolUse with result: ask (as any) → silently absorbed by OBSERVE_EVENTS catch-all, exitCode 0', () => {
     // Safety net: ask is not a valid PostToolUse result.
@@ -1702,7 +1702,7 @@ describe('executeHooks', () => {
     expect(result.systemMessages[0]).toContain('Fix: Remove')
   })
 
-  // --- FEAT-0017: onError cascade tests ---
+  // --- onError cascade tests ---
 
   it("onError 'continue' — no block, systemMessage collected", async () => {
     const dir = makeTempDir()
@@ -1848,7 +1848,7 @@ describe('resolveOnError', () => {
   })
 })
 
-// --- FEAT-0017 M4: Trace and systemMessage output integration ---
+// --- Trace and systemMessage output integration ---
 
 describe('trace and systemMessage integration', () => {
   it('trace messages injected into injectContext on injectable event', async () => {
@@ -1947,7 +1947,7 @@ describe('trace and systemMessage integration', () => {
   })
 })
 
-// --- FEAT-0016 M3: Sequential pipeline with updatedInput ---
+// --- Sequential pipeline with updatedInput ---
 
 describe('sequential pipeline: updatedInput', () => {
   it('updatedInput piped from hook A to hook B (sequential live state; M3 reducer is authoritative for final result)', async () => {
@@ -2121,7 +2121,7 @@ describe('translateResult updatedInput', () => {
   })
 })
 
-// --- FEAT-0016 M4: Parallel batch execution ---
+// --- Parallel batch execution ---
 
 describe('parallel batch', () => {
   it('hooks run concurrently', async () => {
@@ -2610,7 +2610,7 @@ describe('parallel batch', () => {
   })
 })
 
-// --- FEAT-0016 M4: Mixed pipeline tests ---
+// --- Mixed pipeline tests ---
 
 describe('mixed pipeline', () => {
   it('sequential then parallel then sequential', async () => {
@@ -2756,7 +2756,7 @@ describe('mixed pipeline', () => {
   })
 })
 
-// --- FEAT-0016 M5: Integration tests (full pipeline) ---
+// --- Integration tests (full pipeline) ---
 
 describe('integration: full pipeline', () => {
   it('full pipeline with ordering', async () => {
@@ -3122,7 +3122,7 @@ describe('assertCategoryCompleteness', () => {
   })
 })
 
-// --- FEAT-0059 M3: PreToolUse reducer unit tests ---
+// --- PreToolUse reducer unit tests ---
 
 describe('rankPreToolUseResult', () => {
   it('block (deny) → 3', () => {

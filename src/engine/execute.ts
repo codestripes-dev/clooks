@@ -61,7 +61,7 @@ export function reducePreToolUseVotes(
   const warnings: string[] = []
   const losers = votes.filter((v) => v !== winner)
 
-  // Accumulate from losers per the FEAT-0059 D2 table.
+  // Accumulate from losers per the per-winner context-accumulation rules.
   const accumulatedContext: string[] = []
   const hasLoserUpdatedInput = losers.some((l) => l.engineResult.updatedInput !== undefined)
   const hasLoserContext = losers.some(
@@ -71,7 +71,7 @@ export function reducePreToolUseVotes(
 
   if (winner.engineResult.result === 'block') {
     // Deny: keep accumulated context from the winner itself + allow/ask losers only.
-    // Block-result losers must NOT contribute context (per FEAT-0059 D2 per-winner table).
+    // Block-result losers must NOT contribute context.
     // Iterate in vote (execution) order to preserve context ordering.
     for (const v of votes) {
       const isWinner = v === winner
@@ -130,7 +130,7 @@ export function reducePreToolUseVotes(
         (l) => l.engineResult.result === 'allow' && l.engineResult.updatedInput !== undefined,
       )
     // Iterate in vote (execution) order: collect context from winner and allow losers only.
-    // Ask-loser context must NOT contribute (per FEAT-0059 D2 per-winner table, lines 750-756).
+    // Ask-loser context must NOT contribute.
     for (const v of votes) {
       const isWinner = v === winner
       const isAllowLoser = !isWinner && v.engineResult.result === 'allow'
@@ -421,7 +421,7 @@ export async function executeHooks(
         // Runtime fallback: NOTIFY_ONLY events cannot honor "block" — output is ignored
         // upstream, so blocking is impossible. Coerce to "no-block" but still record
         // the failure so the circuit breaker can quarantine a repeatedly crashing
-        // alerting hook (per FEAT-0057 D3 — circuit-breaker applies normally).
+        // alerting hook (the circuit-breaker applies normally).
         if (effectiveMode === 'block' && NOTIFY_ONLY_EVENTS.has(eventName)) {
           process.stderr.write(
             `clooks: hook "${loaded.name}" onError: "block" cannot apply to ${eventName} ` +

@@ -55,7 +55,7 @@ stop-teammate: {}
   test('Scenario 17: SessionStart with shadow warning in systemMessage', () => {
     sandbox = createSandbox()
     // Project hook diverges from home so the shadow warning fires
-    // (byte-identical sources are now suppressed; see FEAT-0068).
+    // (byte-identical sources are suppressed).
     sandbox.writeHomeHook(
       'shared-hook.ts',
       `

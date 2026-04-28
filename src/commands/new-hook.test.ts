@@ -83,8 +83,8 @@ describe('clooks new-hook', () => {
     expect(content).toContain("name: 'my-hook'")
     expect(content).toContain('export const hook: ClooksHook<Config>')
     expect(content).toContain('type Config = {}')
-    // FEAT-0063 M5: scaffold emits the decision-method idiom for the chosen
-    // event. Default event is PreToolUse (guard), so the body is `ctx.skip()`.
+    // Scaffold emits the decision-method idiom for the chosen event.
+    // Default event is PreToolUse (guard), so the body is `ctx.skip()`.
     expect(content).toContain('PreToolUse(ctx)')
     expect(content).toContain('ctx.skip()')
   })

@@ -140,7 +140,7 @@ Clooks exposes this as the `retry` result primitive: `return ctx.retry()` emits 
 
 **Output:** **None.** Output and exit code are ignored upstream. Hooks run purely for side effects: log to a file, ping PagerDuty / Slack / Datadog, increment a Prometheus counter, kick off an automated key-rotation flow on `authentication_failed`, etc.
 
-**Filtering:** Upstream Claude Code exposes a matcher on the `error` field in `settings.json`, but **Clooks does not yet have a config-side matcher primitive** — tracked in FEAT-0055 (file-glob / literal-filename matcher). Until that lands, filter inside the handler: `if (ctx.error !== 'rate_limit') return ctx.skip()`. This is a known parity gap relative to raw `settings.json`, not an intentional design choice.
+**Filtering:** Upstream Claude Code exposes a matcher on the `error` field in `settings.json`, but **Clooks does not yet have a config-side matcher primitive** (file-glob / literal-filename matcher). Until that lands, filter inside the handler: `if (ctx.error !== 'rate_limit') return ctx.skip()`. This is a known parity gap relative to raw `settings.json`, not an intentional design choice.
 
 **`onError: "block"` is silently coerced to "do not block" + a stderr warning.** The turn has already failed at the API layer; there is nothing left to block. If a `StopFailure` hook crashes and its resolved `onError` is `"block"`, the engine continues normally and writes a one-line warning to stderr (visible in Claude Code's debug log):
 

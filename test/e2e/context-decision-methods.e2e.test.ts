@@ -1,10 +1,10 @@
 import { describe, test, expect, afterEach } from 'bun:test'
 import { createSandbox, type Sandbox } from './helpers/sandbox'
 
-// E2E coverage for FEAT-0063 M2: ctx decision methods on tool-keyed events.
+// E2E coverage for ctx decision methods on tool-keyed events.
 //
 // Scenario 1: Bash PreToolUse — `ctx.allow({ updatedInput })` patch-merges
-//   onto the running tool input (FEAT-0061 semantics surface unchanged).
+//   onto the running tool input.
 // Scenario 2: Bash PermissionRequest — `ctx.allow({ updatedInput,
 //   updatedPermissions })` echoes both onto the wire payload.
 // Scenario 3: MCP-tool PermissionRequest — author casts ctx via
@@ -12,7 +12,7 @@ import { createSandbox, type Sandbox } from './helpers/sandbox'
 //   `ctx.allow({ updatedInput })` with a loose-typed patch.
 // Scenario 4: Bash PreToolUse — `ctx.ask({ reason, updatedInput })`
 //   emits permissionDecision:'ask' with permissionDecisionReason and
-//   patch-merged updatedInput on the wire (FEAT-0061 semantics on ask).
+//   patch-merged updatedInput on the wire.
 
 let sandbox: Sandbox
 
@@ -39,7 +39,7 @@ function permissionRequestEvent(toolName: string, toolInput: Record<string, unkn
   })
 }
 
-describe('FEAT-0063 M2: ctx decision methods (tool-keyed events)', () => {
+describe('ctx decision methods (tool-keyed events)', () => {
   test('Scenario 1: PreToolUse Bash ctx.allow({ updatedInput }) merges patch into wire payload', () => {
     sandbox = createSandbox()
     sandbox.writeHook(
@@ -126,7 +126,7 @@ permreq-allow-method: {}
     // because the inline-string fixture cannot easily import from the project
     // sources at sandbox-runtime. The exported `UnknownPermissionRequestContext`
     // shape is validated separately at compile-time in
-    // `test/types/feat-0063-narrowing.types.ts` (stanza (e)).
+    // `test/types/decision-method-narrowing.types.ts` (stanza (e)).
     sandbox.writeHook(
       'permreq-mcp-unknown.ts',
       `
@@ -323,7 +323,7 @@ pretooluse-ask-method: {}
     expect(output.hookSpecificOutput.hookEventName).toBe('PreToolUse')
     expect(output.hookSpecificOutput.permissionDecision).toBe('ask')
     expect(output.hookSpecificOutput.permissionDecisionReason).toBe('verify timeout')
-    // FEAT-0061 patch-merge proof on the ask path: timeout overridden by patch,
+    // Patch-merge proof on the ask path: timeout overridden by patch,
     // command preserved from the running tool input.
     expect(output.hookSpecificOutput.updatedInput).toEqual({
       command: 'ls',

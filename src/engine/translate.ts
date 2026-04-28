@@ -27,7 +27,7 @@ export function translateResult(
   // --- NOTIFY_ONLY_EVENTS: output and exit code are ignored upstream.
   // Short-circuit to EXIT_OK with no stdout, regardless of the hook's result.
   // The crashed-hook stderr passthrough lives in the engine's run/error path
-  // (src/engine/run.ts), not here. See FEAT-0057 D1, D3.
+  // (src/engine/run.ts), not here.
   if (NOTIFY_ONLY_EVENTS.has(eventName)) {
     return { exitCode: EXIT_OK }
   }
@@ -55,7 +55,7 @@ export function translateResult(
         hookEventName: 'PreToolUse',
         permissionDecision: 'allow',
       }
-      // Optional reason on allow (FEAT-0059 D4). Surfaced to the user as
+      // Optional reason on allow — surfaced to the user as
       // permissionDecisionReason per upstream contract.
       if (typeof result.reason === 'string' && result.reason.length > 0) {
         hookOutput.permissionDecisionReason = result.reason

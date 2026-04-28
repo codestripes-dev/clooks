@@ -217,7 +217,7 @@ Two subcommand forms with deliberately different output contracts:
 
 **No `--config` flag in v1.** Hooks with non-trivial `meta.config` schemas exercise only their default-config code path. **No `--tool` flag** for `clooks test example` — tool-keyed events inline all 10 tools' `toolInput` shapes in one document.
 
-Routing: `clooks test` is registered in `KNOWN_COMMANDS` so the dual-mode dispatcher routes it to CLI mode; `example` is wired as a true sub-`Command` via `testCmd.addCommand(exampleCmd)`. Full rationale and exit-code mapping live in `docs/plans/PLAN-FEAT-0067-clooks-test-harness.md` Decision Log. Hook author guide: [testing/hook-author-testing.md](testing/hook-author-testing.md).
+Routing: `clooks test` is registered in `KNOWN_COMMANDS` so the dual-mode dispatcher routes it to CLI mode; `example` is wired as a true sub-`Command` via `testCmd.addCommand(exampleCmd)`. Hook author guide: [testing/hook-author-testing.md](testing/hook-author-testing.md).
 
 ### `clooks uninstall`
 
@@ -260,4 +260,3 @@ Removes Clooks from a project or global scope. With `--project`, removes Clooks 
 
 - `docs/domain/bun-runtime.md` — Compile targets, performance, binary virtual filesystem
 - `docs/domain/config.md` — Config parsing consumed by the `config` command
-- `docs/planned/FEAT-0026-interactive-tui-framework.md` — Feature specification with all design decisions (D1-D14)

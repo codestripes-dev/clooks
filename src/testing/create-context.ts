@@ -2,7 +2,7 @@
 //
 // Lives in `src/testing/` (NOT `src/test-utils.ts` and NOT re-exported from
 // `src/types/index.ts`) so the type-only public package surface stays free of
-// engine-runtime imports — see PLAN-FEAT-0063 Decision Log "createContext placement".
+// engine-runtime imports.
 
 import type { EventName } from '../types/branded.js'
 import type {
@@ -168,8 +168,7 @@ export function createContext<E extends EventName>(
  * - `signal: new AbortController().signal` (real signal, never aborted)
  *
  * `createContext`'s own defaults are deliberately untouched — existing in-repo
- * unit tests and the Docker E2E sandbox depend on them. See
- * `docs/plans/PLAN-FEAT-0067-clooks-test-harness.md` Decision Log.
+ * unit tests and the Docker E2E sandbox depend on them.
  */
 export function createHarnessContext<E extends EventName>(
   event: E,

@@ -1,4 +1,3 @@
-// Fixture migrated to ctx.<verb>(...) form per FEAT-0063 M4.
 type AllowCtx = {
   allow: (opts: { injectContext: string }) => { result: 'allow'; injectContext: string }
 }

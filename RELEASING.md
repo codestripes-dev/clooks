@@ -65,7 +65,7 @@ Intentionally minimal. This release workflow does NOT provide:
 
 - SLSA / build provenance attestations
 - `.tar.gz` archives
-- Homebrew tap / Scoop / `curl | sh` installer (planned as FEAT-0028 follow-up work)
+- Homebrew tap / Scoop / `curl | sh` installer (planned)
 - E2E tests as a release gate (the workflow only runs unit tests + lint + typecheck)
 
 Each of these will be added when there is a concrete reason (user report, distribution push, security requirement).

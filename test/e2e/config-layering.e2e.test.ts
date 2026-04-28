@@ -306,7 +306,7 @@ export const hook = {
     // Home keeps the hook at the convention path (~/.clooks/hooks/<name>.ts)
     // while project pulls it via short-address vendoring
     // (.clooks/vendor/github.com/<owner>/<repo>/<name>.ts) — the dominant
-    // real-world topology FEAT-0068 was built for.
+    // real-world shadow-warning topology.
     sandbox.writeHomeHook('team-hook.ts', sharedSource)
     sandbox.writeHomeConfig(`
 version: "1.0.0"

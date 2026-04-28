@@ -175,9 +175,8 @@ describe('discoverPluginPacks', () => {
     const scopes = result.map((p) => p.scope).sort()
     expect(scopes).toEqual(['project', 'user'])
     // Emission order is a deterministic contract from the discovery algorithm
-    // (iterates user → project → local; see plugin-discovery.ts and
-    // PLAN-0013 M2 algorithm step 5). Keep BOTH the set-equality assertion
-    // above and the positional assertions below.
+    // (iterates user → project → local; see plugin-discovery.ts). Keep BOTH
+    // the set-equality assertion above and the positional assertions below.
     expect(result[0]!.scope).toBe('user')
     expect(result[1]!.scope).toBe('project')
   })

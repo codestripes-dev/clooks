@@ -1,8 +1,8 @@
 // Unit tests for the `createHarnessContext` wrapper used by `clooks test`.
 //
-// M4 of PLAN-FEAT-0067 — verifies that the harness-flavored defaults match
-// the documented contract (sessionId, cwd, transcriptPath, parallel, signal)
-// and that decision methods are still attached.
+// Verifies that the harness-flavored defaults match the documented contract
+// (sessionId, cwd, transcriptPath, parallel, signal) and that decision
+// methods are still attached.
 //
 // `createContext`'s own defaults are explicitly NOT exercised here — they
 // belong to `src/engine/context-methods.test.ts` and `src/types/claude-code.test.ts`.

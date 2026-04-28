@@ -3,9 +3,6 @@
 // Reads a cleaned-up Context JSON from stdin (or `--input <file>`), dispatches
 // the matching per-event handler from a single hook file, prints the returned
 // decision JSON to stdout, and exits with a code that reflects the decision.
-//
-// See docs/plans/PLAN-FEAT-0067-clooks-test-harness.md (Decision Log) for the
-// exit-code mapping rationale and the Commander grammar choice.
 
 import { Command } from 'commander'
 import { resolve } from 'path'
@@ -235,7 +232,6 @@ export function createTestCommand(): Command {
     .option('--input <file>', 'Read JSON payload from a file instead of stdin')
     // Without this, Commander's greedy positional binding would swallow the
     // literal "example" before the subcommand router gets a chance to fire.
-    // See PLAN-FEAT-0067 Decision Log.
 
     .action(async (hookFile: string | undefined, opts: { input?: string }) => {
       if (hookFile === undefined) {
@@ -254,7 +250,7 @@ export function createTestCommand(): Command {
   // built-in tools' `toolInput` shapes.
   //
   // Commander rejects unknown options on its own — no defensive `--tool`
-  // handling needed here. See PLAN-FEAT-0067 Decision Log.
+  // handling needed here.
   const exampleCmd = new Command('example')
     .description('Print example payload + documentation for an event')
     .argument('[event]', 'Event name (e.g., PreToolUse)')

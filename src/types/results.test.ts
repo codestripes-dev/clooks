@@ -24,7 +24,7 @@ import type {
   StopFailureResult,
 } from './results.js'
 
-// --- FEAT-0059: ask / defer vocabulary ---
+// --- ask / defer vocabulary ---
 
 test('ask and defer are only valid on PreToolUseResult', () => {
   const ok1: PreToolUseResult = { result: 'ask', reason: 'confirm' }

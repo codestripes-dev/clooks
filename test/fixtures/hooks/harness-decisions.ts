@@ -1,8 +1,7 @@
-// Fixture for `clooks test` harness M4 unit tests. Each handler returns the
+// Fixture for `clooks test` harness unit tests. Each handler returns the
 // decision-result tag native to its event, exercising the harness's
-// exit-code mapping table from PLAN-FEAT-0067 Decision Log.
+// exit-code mapping:
 //
-// Mapping recap:
 //   allow / skip / success / continue / retry / ask / defer  → exit 0
 //   block / failure / stop                                   → exit 1
 //

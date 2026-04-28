@@ -2092,9 +2092,9 @@ describe('runEngine', () => {
     })
   })
 
-  // --- FEAT-0059 M3: PreToolUse collect-all-then-reduce end-to-end tests ---
+  // --- PreToolUse collect-all-then-reduce end-to-end tests ---
 
-  describe('PreToolUse M3: collect-all-then-reduce', () => {
+  describe('PreToolUse: collect-all-then-reduce', () => {
     it('allow + block + ask → deny wins; permissionDecisionReason from block; all three ran', async () => {
       let counter = 0
       mockLoadConfig.mockResolvedValue({

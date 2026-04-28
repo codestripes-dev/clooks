@@ -1,5 +1,4 @@
-// Fixture migrated to ctx.<verb>(...) form per FEAT-0063 M4. Inline structural
-// types match the runtime methods attached by `attachDecisionMethods`.
+// Inline structural types match the runtime methods attached by `attachDecisionMethods`.
 type AllowCtx = { allow: () => { result: 'allow' } }
 type SkipCtx = { skip: () => { result: 'skip' } }
 

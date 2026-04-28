@@ -488,7 +488,7 @@ post-context: {}
   })
 
   // 11. PostToolUse crash with onError:block → decision: "block" + reason
-  // (author-returnable block and cascade unified onto the same upstream shape in PLAN-0014 M5)
+  // (author-returnable block and cascade unified onto the same upstream shape)
   test('PostToolUse crash with onError:block → decision: "block" + reason', () => {
     sandbox = createSandbox()
     sandbox.writeHook(
@@ -792,7 +792,7 @@ teammate-crash:
 `)
     const result = sandbox.run([], { stdin: loadEvent('teammate-idle.json') })
     // CONTINUATION onError:block → exit-2 + stderr (upstream's documented retry path).
-    // PLAN-0015 M6: previously emitted {continue: false, stopReason} (stop-teammate path)
+    // Previously this emitted {continue: false, stopReason} (stop-teammate path),
     // which was more aggressive than upstream's documented semantic.
     expect(result.exitCode).toBe(2)
     expect(result.stderr).toContain('teammate-crash')
@@ -1153,7 +1153,7 @@ stop-failure-crash-block: {}
   })
 })
 
-describe('event formats — PreToolUse decisions (FEAT-0059)', () => {
+describe('event formats — PreToolUse decisions', () => {
   // A. defer outcome
   test('PreToolUse defer → permissionDecision:defer, no extra fields, exit 0', () => {
     sandbox = createSandbox()
@@ -1465,7 +1465,7 @@ pre-write-narrow: {}
   })
 })
 
-describe('event formats — PermissionDenied (FEAT-0058)', () => {
+describe('event formats — PermissionDenied', () => {
   // PD-1. PermissionDenied retry outcome → hookSpecificOutput with retry: true
   test('PermissionDenied retry → hookSpecificOutput with hookEventName and retry: true', () => {
     sandbox = createSandbox()

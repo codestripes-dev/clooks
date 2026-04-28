@@ -2,7 +2,7 @@
 
 The TypeScript type system for Clooks hook authoring. Provides typed per-event context and result types, config generics, and branded string enums. Hook authors get full type inference without importing individual types.
 
-This index points to focused sub-docs in `docs/domain/hook-type-system/`. The detailed material was split across files in PLAN-FEAT-0064 M3 to stay under the 300-line per-file domain-doc cap.
+This index points to focused sub-docs in `docs/domain/hook-type-system/`. The detailed material is split across files to stay under the 300-line per-file domain-doc cap.
 
 ## Overview
 
@@ -48,8 +48,5 @@ The type system is organized around the `ClooksHook<C>` interface — a single t
 
 ## Related
 
-- `docs/plans/2026-03-08-hook-type-system-design.md` — Design document (spec)
-- `docs/planned/done/FEAT-0002-hook-file-contract.md` — Originating feature
-- `docs/planned/FEAT-0012-tool-input-types.md` — Deferred typed tool inputs
 - `docs/domain/claude-code-hooks/events.md` — Claude Code event reference
 - `docs/domain/claude-code-hooks/io-contract.md` — Claude Code I/O contract

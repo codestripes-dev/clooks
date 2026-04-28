@@ -6,7 +6,7 @@ How Clooks downloads and registers hooks from GitHub, commits them to the reposi
 
 Vendoring is Clooks' mechanism for single-command hook sharing. A developer finds a useful hook on GitHub, copies the blob URL, and runs `clooks add <url>`. The hook file is downloaded to `.clooks/vendor/`, validated, and registered in `clooks.yml`. Because the vendor directory is committed to git, new team members get the hooks automatically on clone — no install step needed.
 
-V0 (FEAT-0039) is a deliberate simplification: public repos, single-file hooks, no lockfile, no SHA pinning. Full lockfile and SHA pinning land in FEAT-0025.
+V0 is a deliberate simplification: public repos, single-file hooks, no lockfile, no SHA pinning. Full lockfile and SHA pinning are planned future work.
 
 ## Vendor Directory Layout
 
@@ -22,7 +22,7 @@ Example: `clooks add https://github.com/someuser/hooks/blob/main/lint-guard.ts` 
 .clooks/vendor/github.com/someuser/hooks/lint-guard.ts
 ```
 
-This layout avoids name collisions, mirrors the source provenance, and matches FEAT-0025's planned multi-file hook convention (which will add per-hook directories for multi-file installs).
+This layout avoids name collisions, mirrors the source provenance, and matches the planned multi-file hook convention (which will add per-hook directories for multi-file installs).
 
 Plugin-delivered hooks use a separate prefix: `.clooks/vendor/plugin/<pack-name>/<hook-name>.ts`. See `vendoring/plugin-vendoring.md` for details.
 
@@ -44,22 +44,22 @@ lint-guard:
   uses: someuser/hooks:lint-guard
 ```
 
-The short address format is `owner/repo:hook-name`. It is the primary user-facing format for all vendored hooks going forward (FEAT-0040+).
+The short address format is `owner/repo:hook-name`. It is the primary user-facing format for all vendored hooks going forward.
 
 **Resolution** is deterministic: `isShortAddress()` in `src/config/resolve.ts` detects values matching `owner/repo:hook-name` (contains `:`, not path-like). The resolver splits on `:`, constructs `.clooks/vendor/github.com/<owner>/<repo>/<hook-name>.{ts,js}`, and uses `existsSync` to detect the extension. No cache or lookup table needed — the address contains all the information required to derive the file path.
 
-**Backward compatibility:** Path-like `uses:` values written by FEAT-0039 V0 (e.g., `uses: ./.clooks/vendor/github.com/someuser/hooks/lint-guard.ts`) continue to resolve correctly via `isPathLike()`. No migration is needed or performed automatically.
+**Backward compatibility:** Path-like `uses:` values written by the earlier V0 vendoring scheme (e.g., `uses: ./.clooks/vendor/github.com/someuser/hooks/lint-guard.ts`) continue to resolve correctly via `isPathLike()`. No migration is needed or performed automatically.
 
 ## Hook Registration
 
 `clooks add` writes a short address `uses:` entry to `clooks.yml` (short address format is primary; path-like is V0 legacy):
 
 ```yaml
-# Short address (current — FEAT-0040+)
+# Short address (current)
 lint-guard:
   uses: someuser/hooks:lint-guard
 
-# Path-like (V0 legacy — FEAT-0039, still supported)
+# Path-like (V0 legacy — still supported)
 lint-guard:
   uses: ./.clooks/vendor/github.com/someuser/hooks/lint-guard.ts
 ```
@@ -93,7 +93,7 @@ Vendored files in `.clooks/vendor/` are committed to git. Clooks has no install 
 
 - **Public repos only.** `fetch()` to `raw.githubusercontent.com` requires no authentication. Private repo support is deferred.
 - **Single-file only.** Either a self-contained `.ts` file or a pre-bundled `.js` file.
-- **No lockfile, no SHA pinning.** The vendored file is committed to git, which provides version history, but there is no `hooks.lock` with content hashes or resolved SHAs. Deferred to FEAT-0025.
+- **No lockfile, no SHA pinning.** The vendored file is committed to git, which provides version history, but there is no `hooks.lock` with content hashes or resolved SHAs. Deferred to a future release.
 - **No update/upgrade command.** To update a vendored hook, delete the vendor file and its `clooks.yml` entry, then re-run `clooks add` with the new URL.
 - **No `clooks remove`.** Manual deletion only.
 - **Branch/tag refs are not resolved to SHAs.** If the blob URL uses a branch name (e.g., `main`), the downloaded content may drift from what was originally installed. Use a commit SHA in the URL for reproducibility.
@@ -101,8 +101,8 @@ Vendored files in `.clooks/vendor/` are committed to git. Clooks has no install 
 
 ## Relationship to Future Features
 
-- **FEAT-0025 — Lockfile & vendoring system**: Full lockfile with SHA pinning and content hashes. Multi-file hook directories. `clooks install` to regenerate vendor from lockfile.
-- **FEAT-0019 — Full `clooks add` with marketplace/TUI**: Registry lookup, short-name addressing (`clooks add owner/hook-name`), TUI browser. The V0 URL-based command is designed so URL form and future short-name form coexist — URL detection is straightforward (starts with `https://`).
+- **Lockfile & vendoring system (planned)**: Full lockfile with SHA pinning and content hashes. Multi-file hook directories. `clooks install` to regenerate vendor from lockfile.
+- **Full `clooks add` with marketplace/TUI (planned)**: Registry lookup, short-name addressing (`clooks add owner/hook-name`), TUI browser. The V0 URL-based command is designed so URL form and future short-name form coexist — URL detection is straightforward (starts with `https://`).
 
 ## Key Files
 
@@ -121,5 +121,3 @@ Vendored files in `.clooks/vendor/` are committed to git. Clooks has no install 
 - `docs/domain/config.md` — Hook path resolution, `uses:` field, path-like values
 - `docs/domain/cli-architecture.md` — Command patterns, TUI output, JSON mode
 - `docs/research/bundled-js-dist-in-bun-compiled.md` — Full format compatibility for pre-bundled `.js` hooks
-- `docs/planned/FEAT-0039-vendoring-v0.md` — Feature specification
-- `docs/planned/FEAT-0025-lockfile-and-vendoring.md` — Future lockfile system

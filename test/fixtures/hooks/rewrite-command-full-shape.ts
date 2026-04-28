@@ -1,12 +1,10 @@
 /**
  * The full-shape `{ ...ctx.toolInput, command: "..." }` idiom kept as a
  * regression guard alongside the patch-style `rewrite-command.ts`. Both
- * produce byte-identical wire output — don't delete this one.
- *
- * Migrated to ctx.<verb>(...) form per FEAT-0063 M4. The full-shape spread
- * is preserved inside the opts bag — the test signal is that the engine's
- * patch-merge layer accepts a fully-spread updatedInput identically to a
- * partial patch.
+ * produce byte-identical wire output — don't delete this one. The
+ * full-shape spread is preserved inside the opts bag — the test signal is
+ * that the engine's patch-merge layer accepts a fully-spread updatedInput
+ * identically to a partial patch.
  */
 type AllowCtx = {
   toolInput: Record<string, unknown>

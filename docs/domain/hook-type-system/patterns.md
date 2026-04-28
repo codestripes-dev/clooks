@@ -40,7 +40,7 @@ Not all `BaseContext` fields are universally present across all events. The foll
 
 ## Tool event pipeline fields
 
-`PreToolUseContext` is a **discriminated union on `toolName`** (FEAT-0059). Narrowing on `ctx.toolName` automatically narrows `ctx.toolInput` to a tool-specific camelCase interface — no `as` cast required:
+`PreToolUseContext` is a **discriminated union on `toolName`**. Narrowing on `ctx.toolName` automatically narrows `ctx.toolInput` to a tool-specific camelCase interface — no `as` cast required:
 
 ```ts
 if (ctx.toolName === 'Write') {
@@ -49,7 +49,7 @@ if (ctx.toolName === 'Write') {
 }
 ```
 
-Typed variants: `BashToolInput`, `WriteToolInput`, `EditToolInput`, `ReadToolInput`, `GlobToolInput`, `GrepToolInput`, `AgentToolInput`, `WebFetchToolInput`, `WebSearchToolInput`, `AskUserQuestionToolInput`. All interfaces use camelCase keys because `src/normalize.ts` recursively camelCases every payload key before a handler sees it. See FEAT-0012 for higher-level matcher helpers built on top of these interfaces.
+Typed variants: `BashToolInput`, `WriteToolInput`, `EditToolInput`, `ReadToolInput`, `GlobToolInput`, `GrepToolInput`, `AgentToolInput`, `WebFetchToolInput`, `WebSearchToolInput`, `AskUserQuestionToolInput`. All interfaces use camelCase keys because `src/normalize.ts` recursively camelCases every payload key before a handler sees it.
 
 **`PreToolUseContext` does NOT include a catch-all variant.** A `toolName: string` catch-all cannot coexist with discriminated-union narrowing in TypeScript: because `string` is a supertype of every literal, narrowing on `ctx.toolName === 'Bash'` keeps both the `Bash` variant and the catch-all, making `ctx.toolInput` resolve to `BashToolInput | Record<string, unknown>` and defeating typed access. For unknown tool names (MCP tools, `ExitPlanMode`, future upstream tools), use `UnknownPreToolUseContext`:
 
@@ -64,9 +64,9 @@ if (ctx.toolName.startsWith('mcp__')) {
 
 `UnknownPreToolUseContext` is exported from `src/types/index.ts` alongside `PreToolUseContext`.
 
-`UnknownPostToolUseContext` and `UnknownPostToolUseFailureContext` are the equivalent escape-hatch siblings for the PostToolUse / PostToolUseFailure DUs (PLAN-FEAT-0064D). The full set of unknown-tool sibling types is therefore: `UnknownPreToolUseContext`, `UnknownPermissionRequestContext`, `UnknownPostToolUseContext`, `UnknownPostToolUseFailureContext`. All four follow the same pattern — an `unknown as Unknown<Event>Context` cast for handling MCP tools or future upstream additions, with `toolInput` typed as `Record<string, unknown>` and the per-event decision methods present.
+`UnknownPostToolUseContext` and `UnknownPostToolUseFailureContext` are the equivalent escape-hatch siblings for the PostToolUse / PostToolUseFailure DUs. The full set of unknown-tool sibling types is therefore: `UnknownPreToolUseContext`, `UnknownPermissionRequestContext`, `UnknownPostToolUseContext`, `UnknownPostToolUseFailureContext`. All four follow the same pattern — an `unknown as Unknown<Event>Context` cast for handling MCP tools or future upstream additions, with `toolInput` typed as `Record<string, unknown>` and the per-event decision methods present.
 
-The same DU narrowing flows through the **decision methods** (FEAT-0063): `ctx.allow({ updatedInput })`, `ctx.ask({ updatedInput })`, etc. are typed per-variant, so after `if (ctx.toolName === 'Bash')` the `updatedInput` parameter is `Patch<BashToolInput>` automatically — passing `{ filePath: '/tmp' }` on a `Bash` arm is a TypeScript error. `Patch<T>` is a partial-merge type with `null` permitted only on optional keys (`null` means "explicit unset"; the engine strips `null`-valued keys post-merge). `UnknownPreToolUseContext`'s methods are typed `Patch<Record<string, unknown>>`, matching the loose runtime input shape. `PostToolUseContext` and `PostToolUseFailureContext` follow the same DU pattern post-PLAN-FEAT-0064D — narrowing on `ctx.toolName` types `ctx.toolInput` per-tool — though those events have no `updatedInput` in their decision-method opts.
+The same DU narrowing flows through the **decision methods**: `ctx.allow({ updatedInput })`, `ctx.ask({ updatedInput })`, etc. are typed per-variant, so after `if (ctx.toolName === 'Bash')` the `updatedInput` parameter is `Patch<BashToolInput>` automatically — passing `{ filePath: '/tmp' }` on a `Bash` arm is a TypeScript error. `Patch<T>` is a partial-merge type with `null` permitted only on optional keys (`null` means "explicit unset"; the engine strips `null`-valued keys post-merge). `UnknownPreToolUseContext`'s methods are typed `Patch<Record<string, unknown>>`, matching the loose runtime input shape. `PostToolUseContext` and `PostToolUseFailureContext` follow the same DU pattern — narrowing on `ctx.toolName` types `ctx.toolInput` per-tool — though those events have no `updatedInput` in their decision-method opts.
 
 ## ToolInputMap and Prettify
 
@@ -79,7 +79,7 @@ The same DU narrowing flows through the **decision methods** (FEAT-0063): `ctx.a
 - `toolInput: <per-tool interface>` — The current tool input (typed per `toolName`), reflecting the **merge-so-far** across all prior sequential hook patches in execution order. Each prior hook's `updatedInput` is shallow-merged onto the running `toolInput`; keys whose patch value was literal `null` are stripped post-merge. **Null-propagation rule:** when hook A's patch sets a key to `null`, hook B sees that key as **absent** from `ctx.toolInput` (not as the literal `null`) — `stripNulls` runs at every merge step inside the engine, not only at the wire boundary. Comparing `ctx.toolInput.field === null` will never match a prior-hook unset; test for `ctx.toolInput.field === undefined` (or `'field' in ctx.toolInput`) instead.
 - `originalToolInput: Record<string, unknown>` — The original tool input from Claude Code, before any hook modifications. Always reflects the unmodified input, even after multiple hooks have modified `toolInput`.
 
-`PostToolUseContext` and `PostToolUseFailureContext` are now discriminated unions on `toolName` matching the `PreToolUseContext` pattern (PLAN-FEAT-0064D). They do NOT carry `originalToolInput` — that field is upstream-PreToolUse-only and was previously engine-injected on Post* contexts; PLAN-FEAT-0064D dropped it because Claude Code's wire payload doesn't include it on Post* events. Authors narrow on `ctx.toolName` to get a typed `ctx.toolInput` per tool. `UnknownPostToolUseContext` and `UnknownPostToolUseFailureContext` are sibling escape-hatch types for unknown tool names.
+`PostToolUseContext` and `PostToolUseFailureContext` are discriminated unions on `toolName` matching the `PreToolUseContext` pattern. They do NOT carry `originalToolInput` — that field is upstream-PreToolUse-only; Claude Code's wire payload doesn't include it on Post* events. Authors narrow on `ctx.toolName` to get a typed `ctx.toolInput` per tool. `UnknownPostToolUseContext` and `UnknownPostToolUseFailureContext` are sibling escape-hatch types for unknown tool names.
 
 `PreToolUseResult` (the `AllowResult` variant only) includes:
 
@@ -87,11 +87,11 @@ The same DU narrowing flows through the **decision methods** (FEAT-0063): `ctx.a
 
 ## InjectContext
 
-`InjectContext` (`injectContext?: string`) is intersected into per-event result types only where Claude Code's output contract supports `additionalContext`. Not all events support it. Renamed from `Inject` in PLAN-FEAT-0064D to better reflect the field's mapping to upstream Claude Code's `additionalContext` field.
+`InjectContext` (`injectContext?: string`) is intersected into per-event result types only where Claude Code's output contract supports `additionalContext`. Not all events support it. The name reflects the field's mapping to upstream Claude Code's `additionalContext` field.
 
 ## PermissionRequest output fields
 
-`PermissionRequestContext` is a **discriminated union on `toolName`** mirroring `PreToolUseContext` (FEAT-0063 M2). The 10 known arms (`Bash`, `Write`, `Edit`, `Read`, `Glob`, `Grep`, `WebFetch`, `WebSearch`, `Agent`, `AskUserQuestion`) intersect a `PermissionRequestDecisionMethods<ToolInput>` set per variant, so `permCtx.allow({ updatedInput })` types the patch as `Patch<NarrowedToolInput>` after a `permCtx.toolName` discriminant check. `permissionSuggestions?` stays at the outer context level, not per-variant. `UnknownPermissionRequestContext` is the sibling type for unknown tool names (MCP, future upstream tools); cast via `as unknown as UnknownPermissionRequestContext` and the methods type the patch as `Patch<Record<string, unknown>>`.
+`PermissionRequestContext` is a **discriminated union on `toolName`** mirroring `PreToolUseContext`. The 10 known arms (`Bash`, `Write`, `Edit`, `Read`, `Glob`, `Grep`, `WebFetch`, `WebSearch`, `Agent`, `AskUserQuestion`) intersect a `PermissionRequestDecisionMethods<ToolInput>` set per variant, so `permCtx.allow({ updatedInput })` types the patch as `Patch<NarrowedToolInput>` after a `permCtx.toolName` discriminant check. `permissionSuggestions?` stays at the outer context level, not per-variant. `UnknownPermissionRequestContext` is the sibling type for unknown tool names (MCP, future upstream tools); cast via `as unknown as UnknownPermissionRequestContext` and the methods type the patch as `Patch<Record<string, unknown>>`.
 
 `PermissionRequestResult` supports additional fields beyond the base guard result:
 

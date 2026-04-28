@@ -124,4 +124,3 @@ A third entrypoint variant exists for the plugin distribution model. It lives at
 - `docs/domain/claude-code-hooks/io-contract.md` — Exit code semantics
 - `docs/research/bash-entrypoint-overhead.md` — Performance measurements (~2ms bash overhead)
 - `docs/domain/testing.md` — E2E test patterns for entrypoint verification
-- `docs/plans/plugin-distribution/PLAN-FEAT-0041-D-plugin-packaging.md` — Plugin packaging plan

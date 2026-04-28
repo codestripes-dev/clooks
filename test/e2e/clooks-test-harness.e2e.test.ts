@@ -1,8 +1,8 @@
-// E2E coverage for `clooks test` (PLAN-FEAT-0067 M5).
+// E2E coverage for `clooks test`.
 //
 // Drives the compiled binary via `sandbox.run([...])` to prove the full
 // pipeline — bin entry → harness body → renderer — works hermetically inside
-// the Docker sandbox. Internal harness behavior is owned by M4
+// the Docker sandbox. Internal harness behavior is owned by the unit tests
 // (`src/commands/test.test.ts`); this file only verifies binary-level
 // observable behavior for the 7 scenarios listed in the plan's M5 section.
 

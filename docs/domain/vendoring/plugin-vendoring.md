@@ -183,8 +183,7 @@ A project-scope `enabledPlugins: { X: false }` does **not** unregister a user-sc
 
 ## See also
 
-- `docs/plans/done/PLAN-0013-plugin-enabled-activation.md` — full design and decision log for the settings-driven discovery model.
-- `docs/research/plugin-enable-state.md` — research background (concluded; superseded by the plan above).
+- `docs/research/plugin-enable-state.md` — research background.
 
 ## Update Command
 

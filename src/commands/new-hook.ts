@@ -45,8 +45,8 @@ const EVENT_NAMES = [
 type ScaffoldEventName = (typeof EVENT_NAMES)[number]
 
 // Default handler body for the chosen event. Models the decision-method
-// idiom (FEAT-0063) so first-time authors see `ctx.<verb>(...)` in the
-// generated file rather than plain-object returns.
+// idiom so first-time authors see `ctx.<verb>(...)` in the generated file
+// rather than plain-object returns.
 function defaultBody(event: ScaffoldEventName): string {
   if (event === 'WorktreeCreate') {
     return "    return ctx.success({ path: '' })"

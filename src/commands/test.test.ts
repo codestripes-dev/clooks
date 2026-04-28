@@ -1,4 +1,4 @@
-// Comprehensive coverage for `clooks test` (M4 of PLAN-FEAT-0067).
+// Comprehensive coverage for `clooks test`.
 //
 // Two suites:
 // 1. `createTestCommand — routing lock` — keeps the M1 routing-lock contract

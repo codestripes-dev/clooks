@@ -146,7 +146,7 @@ The baseline is not optional padding — it is the only thing that distinguishes
 
 ### PreToolUse deny output may carry additionalContext
 
-When a hook denies a `PreToolUse` event, the serialized output emits `permissionDecision: "deny"` plus `permissionDecisionReason`. As of FEAT-0059, the translator also emits `additionalContext` when the winning deny result has an `injectContext` field, and the multi-hook reducer accumulates `injectContext` from allow/ask losers into the deny winner. Tests asserting on deny output should check for `additionalContext` whenever a deny carries (or accumulates) injected context — see the positive reference in `src/engine.test.ts` ("PreToolUse block with injectContext → additionalContext emitted alongside deny fields").
+When a hook denies a `PreToolUse` event, the serialized output emits `permissionDecision: "deny"` plus `permissionDecisionReason`. The translator also emits `additionalContext` when the winning deny result has an `injectContext` field, and the multi-hook reducer accumulates `injectContext` from allow/ask losers into the deny winner. Tests asserting on deny output should check for `additionalContext` whenever a deny carries (or accumulates) injected context — see the positive reference in `src/engine.test.ts` ("PreToolUse block with injectContext → additionalContext emitted alongside deny fields").
 
 ### macOS BSD `date` lacks nanosecond support
 
@@ -209,7 +209,6 @@ The thresholds in `bunfig.toml` are the ratchet. To raise the bar, increment the
 
 ## Related
 
-- [E2E Testing Strategy Plan](../plans/PLAN-0009-e2e-testing-strategy.md) — original plan for the E2E test infrastructure
 - [Bun Runtime](bun-runtime.md) — compiled binary behavior, relevant to how tests invoke the binary
 - [Bash Entrypoint](bash-entrypoint.md) — entrypoint script tested by the `entrypoint` E2E suite
 - [Global Hooks](global-hooks.md) — home directory hook architecture tested by the `home-dir` E2E suite

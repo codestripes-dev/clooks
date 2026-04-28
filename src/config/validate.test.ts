@@ -264,7 +264,7 @@ describe('validateConfig', () => {
     expect(result.hooks[hn('my-hook')]!.maxFailures).toBe(0)
   })
 
-  // --- FEAT-0017: ErrorMode "trace", EventEntry rejections, hook events sub-map ---
+  // --- ErrorMode "trace", EventEntry rejections, hook events sub-map ---
 
   test('ErrorMode accepts "trace" at hook level', () => {
     const result = validateConfig({
@@ -338,7 +338,7 @@ describe('validateConfig', () => {
     ).toThrow('does not support additionalContext')
   })
 
-  // --- FEAT-0016: Config-time order validation ---
+  // --- Config-time order validation ---
 
   test('order entry referencing unknown hook throws at validation time', () => {
     expect(() =>
@@ -419,7 +419,7 @@ describe('validateConfig', () => {
     ).toThrow('must be a non-empty string')
   })
 
-  // --- FEAT-0034 M2: Chain detection ---
+  // --- Chain detection ---
 
   test('valid alias (target not in YAML) validates successfully', () => {
     const result = validateConfig({
@@ -496,7 +496,7 @@ describe('validateConfig', () => {
     expect(result.hooks[hn('my-hook')]!.uses).toBe('my-hook')
   })
 
-  // --- FEAT-0034 M2: Bare-path detection ---
+  // --- Bare-path detection ---
 
   test('bare path with .ts rejected', () => {
     expect(() =>
@@ -532,7 +532,7 @@ describe('validateConfig', () => {
     ).toThrow('doesn\'t start with "./" or "../"')
   })
 
-  // --- FEAT-0034 M2: Multiple aliases ---
+  // --- Multiple aliases ---
 
   test('two aliases of same hook validate successfully', () => {
     const result = validateConfig({
@@ -554,7 +554,7 @@ describe('validateConfig', () => {
     expect(result.hooks[hn('quiet')]!.config).toEqual({ level: 'error' })
   })
 
-  // --- FEAT-0036: Per-event hook disable (enabled field) ---
+  // --- Per-event hook disable (enabled field) ---
 
   test('hook-level enabled: false is accepted and stored on entry', () => {
     const result = validateConfig({

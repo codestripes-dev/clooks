@@ -298,9 +298,9 @@ PreToolUse:
     // deny > allow via M3 precedence — deny wins
     expect(output.hookSpecificOutput.permissionDecision).toBe('deny')
     expect(output.hookSpecificOutput.permissionDecisionReason).toContain('blocked-by-home')
-    // Under M3, both hooks run to completion; deny wins via precedence (rank 3 > rank 0).
-    // Per the M3 deny-winner accumulation rule (FEAT-0059 D2), allow-loser injectContext
-    // is merged into the deny winner and emitted as additionalContext by the M2 translator:
+    // Both hooks run to completion; deny wins via precedence (rank 3 > rank 0).
+    // Per the deny-winner accumulation rule, allow-loser injectContext is merged
+    // into the deny winner and emitted as additionalContext by the translator:
     const ctx = output.hookSpecificOutput.additionalContext ?? ''
     expect(ctx).toContain('observer-ran')
   })
@@ -704,7 +704,7 @@ hook-b: {}
 `)
 
     // Project hooks with same names — bytes diverge so the shadow warning
-    // is not suppressed by the byte-equality filter (see FEAT-0068).
+    // is not suppressed by the byte-equality filter.
     sandbox.writeHook(
       'hook-a.ts',
       `

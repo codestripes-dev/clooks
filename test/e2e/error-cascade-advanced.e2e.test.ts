@@ -205,10 +205,11 @@ PreToolUse:
     const output = JSON.parse(result.stdout)
     // Block from Hook B's beforeHook
     expect(output.hookSpecificOutput.permissionDecision).toBe('deny')
-    // Under M3, the beforeHook block is treated as a structured deny vote in the reducer
-    // (rank 3). Hook A's allow vote (rank 0) loses. Per the M3 deny-winner accumulation
-    // rule (FEAT-0059 D2), allow-loser injectContext is merged into the deny winner's
-    // injectContext. The M2 translator then emits it as additionalContext on the wire:
+    // The beforeHook block is treated as a structured deny vote in the reducer
+    // (rank 3). Hook A's allow vote (rank 0) loses. Per the deny-winner
+    // accumulation rule, allow-loser injectContext is merged into the deny
+    // winner's injectContext. The translator then emits it as additionalContext
+    // on the wire:
     expect(output.hookSpecificOutput.additionalContext).toBe('context-from-a')
     expect(output.hookSpecificOutput.permissionDecisionReason).toContain('before-hook blocked')
   })

@@ -1,7 +1,6 @@
 #!/usr/bin/env bun
-// FEAT-0067 M3 build-time gate.
-//
-// Verifies the `src/examples/contexts/` corpus stays in lock-step with
+// Build-time gate. Verifies the `src/examples/contexts/` corpus stays in
+// lock-step with
 // `src/types/contexts.ts`:
 //
 //   1. Every `<Event>.json` has a sibling `<Event>.meta.ts` and vice versa

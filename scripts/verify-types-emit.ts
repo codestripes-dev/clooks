@@ -1,6 +1,4 @@
-// FEAT-0063 M4 hard acceptance gate.
-//
-// Imports the bundled `.d.ts` and exercises each event-class's decision-method
+// Hard acceptance gate. Imports the bundled `.d.ts` and exercises each event-class's decision-method
 // set under `tsc --noEmit`. If `dts-bundle-generator` (run with `--no-check`)
 // silently elides any intersected method signature, this file fails the
 // project typecheck — which is the correctness gate the regex-against-bundle

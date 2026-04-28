@@ -113,10 +113,10 @@ Resolution does not check file existence. That is a loading concern handled by t
 
 **Short address resolution** — `isShortAddress(value)` in `resolve.ts` detects values matching `owner/repo:hook-name` (contains `:`, not path-like). The resolver splits on `:`, constructs `.clooks/vendor/github.com/<owner>/<repo>/<hook-name>.{ts,js}`, and uses `existsSync` to detect the extension. No cache needed — resolution is a pure function of the address string.
 
-**Vendored hook example** — `clooks add` writes short address `uses:` values (FEAT-0040+). Path-like values written by FEAT-0039 V0 remain fully supported via `isPathLike`.
+**Vendored hook example** — `clooks add` writes short address `uses:` values. Path-like values written by the earlier V0 vendoring scheme remain fully supported via `isPathLike`.
 
 ```yaml
-# Short address (current — FEAT-0040+)
+# Short address (current)
 lint-guard:
   uses: someuser/hooks:lint-guard
 
@@ -271,7 +271,7 @@ A hook+event pair that fails N consecutive times (default 3) enters "degraded mo
 
 **Load errors:** Hooks that fail to import (file exists but has syntax errors, missing dependencies, etc.) are routed through the circuit breaker. `loadAllHooks` is fault-tolerant — it uses `Promise.allSettled` and returns load errors alongside successfully loaded hooks. The engine processes load errors through the same threshold logic as execution errors. Note: "load error" specifically means the source file exists but could not be imported. A missing source file for a plugin-vendored hook is a "dangling hook" — see below.
 
-**Dangling hooks:** Plugin-vendored hooks whose source file does not exist on disk (detected by `existsSync()` before import) are classified as "dangling" and bypass the circuit breaker entirely. They produce a `systemMessage` warning on every invocation but never block the action. This satisfies DP-2 from FEAT-0041: dangling registrations are an expected lifecycle state (e.g., plugin uninstall deletes the vendor file), not a runtime error. Dangling detection applies only to plugin-vendored hooks (paths containing `vendor/plugin/`); non-plugin hooks with missing files still go through the normal load error → circuit breaker path. The loader returns dangling hooks as a separate `DanglingHook[]` array in `LoadAllHooksResult`, distinct from `loadErrors`. The engine clears any stale circuit breaker state for newly-dangling hooks.
+**Dangling hooks:** Plugin-vendored hooks whose source file does not exist on disk (detected by `existsSync()` before import) are classified as "dangling" and bypass the circuit breaker entirely. They produce a `systemMessage` warning on every invocation but never block the action. Dangling registrations are an expected lifecycle state (e.g., plugin uninstall deletes the vendor file), not a runtime error. Dangling detection applies only to plugin-vendored hooks (paths containing `vendor/plugin/`); non-plugin hooks with missing files still go through the normal load error → circuit breaker path. The loader returns dangling hooks as a separate `DanglingHook[]` array in `LoadAllHooksResult`, distinct from `loadErrors`. The engine clears any stale circuit breaker state for newly-dangling hooks.
 
 ## Performance
 
@@ -288,8 +288,6 @@ Config parsing takes ~15ms per invocation using Bun's native YAML parser (`Bun.Y
 ## Related
 
 - `docs/domain/hook-type-system.md` — Hook contract and type system
-- `docs/planned/done/FEAT-0001-config-file-parsing.md` — Config format feature
-- `docs/planned/done/FEAT-0003-dynamic-hook-loading.md` — Dynamic hook loading (consumes config)
 - `docs/research/config-file-parsing.md` — YAML parser research and benchmarks
 - `docs/research/yaml-parser-comparison.md` — Bun.YAML vs js-yaml comparison and benchmarks
 - `docs/research/layered-config-local-overrides.md` — Config merging research

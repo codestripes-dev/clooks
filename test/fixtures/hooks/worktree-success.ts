@@ -1,4 +1,3 @@
-// Fixture migrated to ctx.<verb>(...) form per FEAT-0063 M4.
 type SuccessCtx = {
   success: (opts: { path: string }) => { result: 'success'; path: string }
 }
