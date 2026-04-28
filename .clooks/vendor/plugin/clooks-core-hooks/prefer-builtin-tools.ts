@@ -141,6 +141,18 @@ const RULES: Rule[] = [
 
 // --- Hook export ---
 
+const RULE_LABELS: Record<string, string> = {
+  cat: 'cat',
+  head: 'head',
+  tail: 'tail',
+  grep: 'grep/rg',
+  find: 'find',
+  'sed-inplace': 'sed -i',
+  ls: 'ls',
+  sleep: 'sleep',
+  'echo-redirect': 'echo/printf with > redirects',
+}
+
 export const hook: ClooksHook<Config> = {
   meta: {
     name: 'prefer-builtin-tools',
@@ -159,13 +171,24 @@ export const hook: ClooksHook<Config> = {
     },
   },
 
+  SessionStart(ctx, config) {
+    const enabled = RULES.filter((r) => config[r.id] !== false)
+      .map((r) => RULE_LABELS[r.id])
+      .filter(Boolean)
+    if (enabled.length === 0) return ctx.skip()
+    return ctx.skip({
+      injectContext: `The prefer-builtin-tools clooks hook is active in this project. The Bash tool will refuse: ${enabled.join(', ')}. Use the dedicated tools instead — Read, Glob, Grep, Edit, Write. Stream uses (piped grep, sed without -i) are allowed.`,
+      debugMessage: 'prefer-builtin-tools: announced',
+    })
+  },
+
   PreToolUse(ctx, config) {
     // 1. Skip non-Bash tools
-    if (ctx.toolName !== 'Bash') return { result: 'skip' }
+    if (ctx.toolName !== 'Bash') return ctx.skip()
 
-    // 2. Skip empty/non-string commands
-    const command = typeof ctx.toolInput.command === 'string' ? ctx.toolInput.command : ''
-    if (!command) return { result: 'skip' }
+    // 2. Skip empty commands
+    const command = ctx.toolInput.command
+    if (!command) return ctx.skip()
 
     // 3. Sanitize: strip quoted strings and comments
     const sanitized = sanitize(command)
@@ -197,11 +220,10 @@ export const hook: ClooksHook<Config> = {
         if (rule.hasPipeException && info.hasPipe) continue
 
         // All checks passed — block
-        return {
-          result: 'block',
+        return ctx.block({
           reason: rule.reason,
           debugMessage: `prefer-builtin-tools: blocked by rule '${rule.id}'`,
-        }
+        })
       }
     }
 
@@ -210,11 +232,10 @@ export const hook: ClooksHook<Config> = {
       for (const custom of config.additionalRules) {
         try {
           if (new RegExp(custom.match).test(sanitized)) {
-            return {
-              result: 'block',
+            return ctx.block({
               reason: custom.message,
               debugMessage: `prefer-builtin-tools: blocked by additionalRule '${custom.match}'`,
-            }
+            })
           }
         } catch {
           // Invalid regex — skip silently
@@ -223,6 +244,6 @@ export const hook: ClooksHook<Config> = {
     }
 
     // 7. No match — skip (not allow)
-    return { result: 'skip' }
+    return ctx.skip()
   },
 }

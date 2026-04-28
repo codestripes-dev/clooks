@@ -43,3 +43,8 @@ no-bare-mv:
 
 no-rm-rf:
   uses: ./.clooks/vendor/plugin/clooks-core-hooks/no-rm-rf.ts
+
+block-credential-reads: {}
+
+no-pasted-placeholder:
+  uses: ./.clooks/vendor/plugin/clooks-core-hooks/no-pasted-placeholder.ts

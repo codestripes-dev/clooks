@@ -55,11 +55,18 @@ export const hook: ClooksHook = {
       'Blocks piping auto-responses (yes, echo, printf) into commands instead of using non-interactive flags',
   },
 
+  SessionStart(ctx) {
+    return ctx.skip({
+      injectContext: `The no-auto-confirm clooks hook is active in this project. The Bash tool will refuse piping auto-confirmation into commands — \`yes |\`, \`echo y |\`, \`printf y |\`, and similar. Use the command's own non-interactive flag (\`-y\`, \`--yes\`, \`--force\`, \`--non-interactive\`, \`-auto-approve\`, etc.) instead, or ask the user to run the command interactively.`,
+      debugMessage: 'no-auto-confirm: announced',
+    })
+  },
+
   PreToolUse(ctx) {
-    if (ctx.toolName !== 'Bash') return { result: 'skip' }
+    if (ctx.toolName !== 'Bash') return ctx.skip()
 
     const command = typeof ctx.toolInput.command === 'string' ? ctx.toolInput.command : ''
-    if (!command) return { result: 'skip' }
+    if (!command) return ctx.skip()
 
     try {
       const sanitized = sanitize(command)
@@ -70,17 +77,16 @@ export const hook: ClooksHook = {
         if (!stripped) continue
 
         if (isAutoConfirm(stripped)) {
-          return {
-            result: 'block',
+          return ctx.block({
             reason: BLOCK_REASON,
             debugMessage: `no-auto-confirm: blocked "${command}"`,
-          }
+          })
         }
       }
     } catch {
-      return { result: 'skip' }
+      return ctx.skip()
     }
 
-    return { result: 'skip' }
+    return ctx.skip()
   },
 }

@@ -95,8 +95,7 @@ export const hook: ClooksHook<Config> = {
     const mappings = Array.isArray(config.mappings) ? config.mappings : []
 
     if (mappings.length === 0) {
-      return {
-        result: 'skip',
+      return ctx.skip({
         injectContext: `CONFIGURATION REQUIRED: The prefer-project-scripts hook is enabled but has no mappings configured. In your very first response, regardless of what the user asked, inform them about this AND proactively offer to configure it for them.
 
 You have enough information to do the configuration yourself — do not just ask the user to do it. Offer, and if they agree, read the project's package.json, derive sensible mappings, and edit clooks.yml.
@@ -135,51 +134,57 @@ If the user wants to disable the hook instead, set enabled: false on the hook in
 
 Without configuration, this hook cannot protect against bare tool invocations that bypass project scripts. Do not wait for the user to ask — mention this immediately. This notice will stop appearing once mappings are configured.`,
         debugMessage: 'prefer-project-scripts: unconfigured, injecting warning',
-      }
+      })
     }
 
-    return { result: 'skip' }
+    const recommendations = Array.from(
+      new Set(mappings.map((m) => m.recommend).filter((r): r is string => Boolean(r))),
+    )
+    if (recommendations.length === 0) return ctx.skip()
+    const list = recommendations.map((r) => `\`${r}\``).join(', ')
+
+    return ctx.skip({
+      injectContext: `The prefer-project-scripts clooks hook is active in this project. Prefer these project scripts where applicable: ${list}. The Bash tool will refuse direct invocation of the underlying tools when a script exists for them; the block message will name the specific replacement.`,
+      debugMessage: 'prefer-project-scripts: announced',
+    })
   },
 
   PreToolUse(ctx, config) {
     // 1. Skip non-Bash tools (FEAT step 1)
-    if (ctx.toolName !== 'Bash') return { result: 'skip' }
+    if (ctx.toolName !== 'Bash') return ctx.skip()
 
-    // 2. Skip empty/non-string commands (FEAT step 2)
-    const command = typeof ctx.toolInput.command === 'string' ? ctx.toolInput.command : ''
-    if (!command) return { result: 'skip' }
+    // 2. Skip empty commands (FEAT step 2)
+    const command = ctx.toolInput.command
+    if (!command) return ctx.skip()
 
     // 3. Skip if unconfigured (FEAT step 3)
     const mappings = Array.isArray(config.mappings) ? config.mappings : []
-    if (mappings.length === 0) return { result: 'skip' }
+    if (mappings.length === 0) return ctx.skip()
 
     // 4. Check escape hatch on original command (FEAT step 7, moved early — safe
     //    because it checks the unsanitized original, independent of segment processing)
     if (hasEscapeHatch(command)) {
-      return {
-        result: 'skip',
+      return ctx.skip({
         debugMessage: 'prefer-project-scripts: escape hatch used',
-      }
+      })
     }
 
     // 5. Sanitize, segment, and match (FEAT steps 4-6, 8-9 inside detectMatch)
     const { matched, debugMessages } = detectMatch(command, mappings)
 
     if (matched) {
-      return {
-        result: 'block',
+      return ctx.block({
         reason: `[prefer-project-scripts] Use \`${matched.recommend}\` instead — project scripts include configuration and environment that direct tool invocation misses. If the bare tool is needed, prefix with ALLOW_DIRECT_TOOL=true.`,
         debugMessage:
           debugMessages.length > 0
             ? debugMessages.join('; ')
             : `prefer-project-scripts: blocked, recommending '${matched.recommend}'`,
-      }
+      })
     }
 
     // 6. No match — skip, not allow (FEAT step 10)
-    return {
-      result: 'skip',
+    return ctx.skip({
       debugMessage: debugMessages.length > 0 ? debugMessages.join('; ') : undefined,
-    }
+    })
   },
 }
