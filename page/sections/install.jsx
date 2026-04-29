@@ -2,6 +2,36 @@ function InstallSection({ accent, tweaks }) {
   const vp = useViewport();
   const stack = vp.isMobile;
   const [path, setPath] = React.useState('plugin');
+  const [copiedOneLiner, setCopiedOneLiner] = React.useState(false);
+
+  const oneLiner = 'claude plugin marketplace add codestripes-dev/clooks-marketplace && claude plugin install clooks@clooks-marketplace && claude /clooks:setup';
+
+  const copyOneLiner = async () => {
+    let ok = false;
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(oneLiner);
+        ok = true;
+      }
+    } catch {}
+    if (!ok) {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = oneLiner;
+        ta.style.position = 'fixed';
+        ta.style.top = '-9999px';
+        ta.setAttribute('readonly', '');
+        document.body.appendChild(ta);
+        ta.select();
+        ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+      } catch {}
+    }
+    if (ok) {
+      setCopiedOneLiner(true);
+      setTimeout(() => setCopiedOneLiner(false), 1800);
+    }
+  };
 
   const paths = {
     plugin: {
@@ -72,9 +102,63 @@ function InstallSection({ accent, tweaks }) {
         }}>
           Three ways to install.
         </h2>
-        <p style={{ fontSize: 15, color: COL.fgMute, maxWidth: 640, margin: '0 0 40px', lineHeight: 1.6 }}>
-          Each ends the same way: a committed <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>.clooks/</code> directory and the Clooks binary on your{'\u00a0'}PATH.
+        <p style={{ fontSize: 15, color: COL.fgMute, maxWidth: 640, margin: '0 0 28px', lineHeight: 1.6 }}>
+          Each path ends the same way — a committed <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg, whiteSpace: 'nowrap' }}>.clooks/</code> folder and the binary on your{'\u00a0'}PATH.
         </p>
+
+        <div style={{
+          fontFamily: 'JetBrains Mono, monospace',
+          fontSize: 11, letterSpacing: 2, textTransform: 'uppercase',
+          color: accent, marginBottom: 10,
+          display: 'flex', alignItems: 'center', gap: 10,
+        }}>
+          <span style={{ width: 18, height: 1, background: accent, display: 'inline-block' }}/>
+          One-liner
+        </div>
+        <div style={{
+          marginBottom: 36,
+          border: `1px solid ${COL.line}`,
+          background: COL.bgCode,
+          display: 'flex', alignItems: 'stretch',
+        }}>
+          <div style={{
+            padding: stack ? '12px 14px' : '14px 18px',
+            fontFamily: 'JetBrains Mono, monospace',
+            fontSize: stack ? 10.5 : 12.5,
+            color: COL.fg,
+            flex: 1, minWidth: 0,
+            overflowX: 'auto',
+            whiteSpace: 'nowrap',
+          }}>
+            <span style={{ color: accent, marginRight: 10 }}>$</span>
+            {oneLiner}
+          </div>
+          <button onClick={copyOneLiner} title={copiedOneLiner ? 'Copied' : 'Copy'} style={{
+            flex: '0 0 auto',
+            background: copiedOneLiner ? accent : 'transparent',
+            border: 'none', borderLeft: `1px solid ${COL.line}`,
+            color: copiedOneLiner ? COL.bg : COL.fgMute,
+            cursor: 'pointer',
+            padding: stack ? '12px 14px' : '14px 18px',
+            fontFamily: 'JetBrains Mono, monospace',
+            fontSize: 11, letterSpacing: 0.3,
+            fontWeight: copiedOneLiner ? 600 : 400,
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            whiteSpace: 'nowrap',
+            transition: 'background 120ms ease, color 120ms ease',
+          }}>
+            {copiedOneLiner ? (
+              <><svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                <path d="M2 6.5 L5 9.5 L10 3" stroke="currentColor" strokeWidth="2" strokeLinecap="square" fill="none"/>
+              </svg>Copied!</>
+            ) : (
+              <><svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                <rect x="3.5" y="3.5" width="6" height="6" stroke="currentColor" strokeWidth="1" fill="none"/>
+                <path d="M2 2 H8 V3" stroke="currentColor" strokeWidth="1" fill="none"/>
+              </svg>Copy</>
+            )}
+          </button>
+        </div>
 
         <div style={{
           display: 'flex', gap: 0, marginBottom: 0,

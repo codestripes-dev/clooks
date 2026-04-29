@@ -335,7 +335,15 @@ function CompatRow({ accent }) {
   const iconSize = compact ? 13 : 14;
   return (
     <div style={{ marginBottom: 28 }}>
-      <div style={{ display: 'flex', gap: compact ? 6 : 8, flexWrap: 'wrap' }}>
+      <div style={{
+        display: 'grid',
+        gap: compact ? 6 : 8,
+        gridTemplateColumns: compact || vp.isTablet
+          ? 'repeat(2, minmax(0, 1fr))'
+          : 'repeat(4, max-content)',
+        maxWidth: compact || vp.isTablet ? 360 : 'none',
+        justifyItems: 'stretch',
+      }}>
         <span style={chip}><ClaudeMark size={iconSize}/> Claude Code</span>
         <span style={chip}><CursorMark size={iconSize}/> Cursor<span style={star}>*</span></span>
         <span style={chip}><WindsurfMark size={iconSize}/> Windsurf<span style={star}>*</span></span>
@@ -389,9 +397,9 @@ function HeroCode({ tweaks }) {
         <CompatRow accent={tweaks.accent}/>
 
         <div style={{ maxWidth: 720, marginBottom: vp.isMobile ? 40 : 56 }}>
-          <InstallBlock cmd={tweaks.installCmd} accent={tweaks.accent}/>
+          {!vp.isMobile && <InstallBlock cmd={tweaks.installCmd} accent={tweaks.accent}/>}
           <div style={{
-            marginTop: 14, fontSize: 12, color: COL.fgDim,
+            marginTop: vp.isMobile ? 0 : 14, fontSize: 12, color: COL.fgDim,
             fontFamily: 'JetBrains Mono, monospace',
             display: 'flex', gap: 20, flexWrap: 'wrap',
           }}>
@@ -453,9 +461,9 @@ function HeroSplit({ tweaks }) {
             Clooks runs them when Claude Code edits files or runs commands, and blocks the action if a hook{'\u00a0'}crashes.
           </p>
           <CompatRow accent={tweaks.accent}/>
-          <InstallBlock cmd={tweaks.installCmd} accent={tweaks.accent}/>
+          {!vp.isMobile && <InstallBlock cmd={tweaks.installCmd} accent={tweaks.accent}/>}
           <div style={{
-            marginTop: 14, fontSize: 12, color: COL.fgDim,
+            marginTop: vp.isMobile ? 0 : 14, fontSize: 12, color: COL.fgDim,
             fontFamily: 'JetBrains Mono, monospace',
             display: 'flex', gap: 20, flexWrap: 'wrap',
           }}>
