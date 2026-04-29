@@ -55,13 +55,21 @@ If you prefer to use plugins for Claude Code, this is the fastest path:
 ```
 claude plugin marketplace add codestripes-dev/clooks-marketplace
 claude plugin install clooks
-claude plugin install clooks-core-hooks --scope user
-claude plugin install clooks-project-hooks --scope project
+claude /clooks:setup
 ```
 
-Reload Claude Code, then run `/clooks:setup` when prompted. The six core
-hooks are active immediately. The three project-configured hooks need a
-few lines in `clooks.yml` before they activate.
+This will install the clooks binary and set up the current project for clooks.
+You'll be asked if you want to set up global hooks, as well. They live in `~/.clooks`.
+
+You can then install any of the [production packs](#marketplace) from the
+[clooks-marketplace](https://github.com/codestripes-dev/clooks-marketplace)
+repo:
+```
+claude plugin install clooks-core-hooks --scope user  # If you want general-purpose global hooks 
+claude plugin install clooks-project-hooks --scope project  # If you want general-purpose project hooks
+```
+Once installed as claude plugins, they'll automatically be sourced by
+`clooks` once any hook runs and added to the corresponding `.clooks/clooks.yml` file (based on scope), where you can enable/disable them and configure their behavior.
 
 Prefer to install manually? See [Other install methods](#other-install-methods).
 
@@ -69,9 +77,10 @@ Prefer to install manually? See [Other install methods](#other-install-methods).
 
 The Quick Start above installs hooks from
 [clooks-marketplace](https://github.com/codestripes-dev/clooks-marketplace) —
-the runtime plus two packs (`clooks-core-hooks`, `clooks-project-hooks`)
-covering 9 production-ready hooks. Browse the repo for the full catalog
-and per-hook configuration.
+the runtime plus two production packs (`clooks-core-hooks`, `clooks-project-hooks`)
+and `clooks-example-hooks` — a learning/reference pack, **not for productive use**.
+Browse [clooks-marketplace](https://github.com/codestripes-dev/clooks-marketplace)
+for the full catalog and per-hook configuration.
 
 ### Bring your own marketplace
 
@@ -90,11 +99,15 @@ hooks org-wide, or share a personal toolbox across machines.
 
 ### Vendoring & updates
 
-Installed packs are vendored into your repo under `.clooks/vendor/plugin/`
-and committed. Updates never happen silently — after the plugin cache
-refreshes (e.g., via `claude plugin update`), run
-`clooks update plugin:<pack-name>` to pull the new version into your
-vendor directory, then review the diff before committing.
+Installed packs are vendored into your repo under `.clooks/vendor/plugin/` and committed. Existing hooks are never updated silently.
+
+To update hooks after a Claude marketplace plugin updates:
+
+```bash
+clooks update plugin:<pack-name>   # e.g., plugin:clooks-core-hooks
+```
+
+> **Note:** New hooks added to the pack since your last vendor are pulled in and registered automatically. They are enabled by default unless the pack marks them `autoEnable: false`.
 
 ## Other install methods
 
@@ -197,6 +210,8 @@ export const hook: ClooksHook = {
   },
 }
 ```
+
+`ctx` is a discriminated union typed per event — for example, narrowing on `ctx.toolName` yields a typed `ctx`, so autocomplete reveals the available fields for the tool you're handling, and the response methods (like `ctx.allow()`) are narrowed to the event type.
 
 Every handler receives `(ctx, config)` and returns a result appropriate
 for the event — guard events (like `PreToolUse`) use `allow`/`block`/`skip`;
