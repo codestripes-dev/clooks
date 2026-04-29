@@ -191,19 +191,22 @@ This creates `.clooks/hooks/no-rm-rf.ts` with a starter template.
 ### 2. Write the handler
 
 ```typescript
-import type { ClooksHook } from "./types"
+import type { ClooksHook } from './types'
 
-export const hook: ClooksHook = {
+type Config = {}
+
+export const hook: ClooksHook<Config> = {
   meta: {
-    name: "no-rm-rf",
-    description: "Blocks dangerous rm commands",
+    name: 'no-rm-rf',
+    description: 'Blocks dangerous rm commands',
+    config: {},
   },
 
   PreToolUse(ctx) {
-    if (ctx.toolName !== "Bash") return ctx.skip()
+    if (ctx.toolName !== 'Bash') return ctx.skip()
 
-    if (ctx.toolInput.command.includes("rm -rf /")) {
-      return ctx.block({ reason: "Blocked dangerous rm command" })
+    if (ctx.toolInput.command.includes('rm -rf /')) {
+      return ctx.block({ reason: 'Blocked dangerous rm command' })
     }
 
     return ctx.allow()
@@ -211,15 +214,9 @@ export const hook: ClooksHook = {
 }
 ```
 
-`ctx` is a discriminated union typed per event — for example, narrowing on `ctx.toolName` yields a typed `ctx`, so autocomplete reveals the available fields for the tool you're handling, and the response methods (like `ctx.allow()`) are narrowed to the event type.
+`ctx` is a discriminated union typed per event — for example, narrowing on `ctx.toolName` yields a typed `ctx`, so autocomplete reveals the available fields for the tool you're handling, and the response methods (like `ctx.allow()`) are narrowed to the event type. The `Config` generic ties `meta.config` defaults to the typed `config` parameter your handlers receive.
 
-Every handler receives `(ctx, config)` and returns a result appropriate
-for the event — guard events (like `PreToolUse`) use `allow`/`block`/`skip`;
-continuation events use `continue`/`stop`; implementation events use
-`success`/`failure`. See [Return values](#return-values) below for the
-full set, plus `injectContext` for steering the agent and `updatedInput`
-— a **partial patch** merged onto the running `toolInput` (`null` keys
-are an explicit-unset sentinel; `undefined` / absent means "no change").
+Every handler returns a result appropriate for the event — guard events (like `PreToolUse`) use `allow`/`block`/`skip`; continuation events use `continue`/`stop`; implementation events use `success`/`failure`. See [Return values](#return-values) below for the full set, plus `injectContext` for steering the agent and `updatedInput` — a **partial patch** merged onto the running `toolInput` (`null` keys are an explicit-unset sentinel; `undefined` / absent means "no change").
 
 ### 3. Register it
 
@@ -247,21 +244,28 @@ clooks test ./.clooks/hooks/no-rm-rf.ts --config-json '{"threshold":7}' --input 
 
 Clooks supports most of the same return values as native Claude Code hooks:
 
-| Return value | What it does | Where it works |
-|--------------|-------------|----------------|
-| `result: "allow"` | Lets the action proceed | All guard events |
-| `result: "block", reason` | Stops the action; `reason` is shown to the agent | All guard events |
-| `result: "skip"` | This hook has no opinion; pipeline continues | All events |
-| `result: "continue"` / `"stop"` | Continue or halt an ongoing operation | Continuation events (TeammateIdle, TaskCreated, TaskCompleted) |
-| `result: "success"` / `"failure"` | Report outcome of work performed on the agent's behalf | Implementation events (WorktreeCreate) |
-| `injectContext: "..."` | Adds text to the agent's conversation | PreToolUse, UserPromptSubmit, SessionStart, PostToolUse, PostToolUseFailure, Notification, SubagentStart |
-| `updatedInput: { ... }` | Partial patch merged onto the running `toolInput`; keys set to `null` are unset post-merge, `undefined` / absent keys are left unchanged | Sequential PreToolUse or PermissionRequest |
+| Method                       | Behavior                                                                      | Where it works                                                                                   |
+|------------------------------|-------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------|
+| `ctx.allow()`                | Proceeds; optionally patches input via `updatedInput`¹ or injects context     | Guard events (PreToolUse, UserPromptSubmit, PermissionRequest, Stop, SubagentStop, ConfigChange) |
+| `ctx.block({ reason })`      | Stops the action; `reason` is shown to the agent²                             | Guard events                                                                                     |
+| `ctx.skip()`                 | No opinion; pipeline continues                                                | All events                                                                                       |
+| `ctx.ask({ reason })`        | Surfaces a permission prompt to the user; `reason` becomes the prompt text    | PreToolUse only                                                                                  |
+| `ctx.defer()`                | Pauses the turn for `claude -p --resume`³                                     | PreToolUse only                                                                                  |
+| `ctx.continue({ feedback })` | Keeps a teammate working past idle/gate; `feedback` is sent back to the model | Continuation events (TeammateIdle, TaskCreated, TaskCompleted)                                   |
+| `ctx.stop({ reason })`       | Terminates a teammate                                                         | Continuation events (TeammateIdle, TaskCreated, TaskCompleted)                                   |
+| `ctx.success({ path })`      | Reports the absolute path of the created worktree⁴                            | WorktreeCreate                                                                                   |
+| `ctx.failure({ reason })`    | Reports a worktree-creation error to surface to the user                      | WorktreeCreate                                                                                   |
+| `ctx.retry()`                | Hints that the model may retry the denied call⁵                               | PermissionDenied only                                                                            |
 
-Clooks-specific extras layered on top:
+¹ Sequential `PreToolUse` or sequential `PermissionRequest` only. Shallow-merged onto the running `toolInput`; keys set to `null` are removed. Returning it from a parallel hook blocks the action.
 
-- **Typed config** from `clooks.yml` — declare `config: {...}` on `meta`, type with `ClooksHook<MyConfig>`
-- **Lifecycle hooks** — define `beforeHook(event, config)` / `afterHook(event, config)` to wrap every handler
-- **Debug payloads** — return `debugMessage: "..."` from any result; surfaced when `CLOOKS_DEBUG=true`
+² On `Stop`/`SubagentStop`, `block` forces the agent to keep going with `reason` as its next instruction rather than stopping it. On `ConfigChange` with `source: 'policy_settings'`, `block` is silently downgraded to `skip`.
+
+³ Honored only in `-p` mode and only when the turn has a single tool call.
+
+⁴ Replaces Claude Code's default `git worktree` behavior; the engine does not fall back to native handling.
+
+⁵ Does not reverse the denial — the action remains blocked regardless.
 
 Full type definitions live in `.clooks/hooks/types.d.ts` (generated by
 `clooks types`). For event-specific context shapes and the four unsupported
@@ -277,8 +281,18 @@ Clooks reads three config files, merged at load time:
 | Project | `.clooks/clooks.yml` | yes | Hooks shared with your team |
 | Local | `.clooks/clooks.local.yml` | no (gitignored) | Personal overrides |
 
-Project hooks shadow home hooks with the same name. Local overrides can
-modify existing hooks or add new ones.
+### File merge rules
+
+Merge rules are asymmetric per field — the same three files don't apply the same strategy to every key:
+
+| Field | Rule |
+|-------|------|
+| `config:` (global engine defaults) | Deep-merged across all three layers (home → project → local) |
+| Hook entries (top-level keys per hook name) | Replaced atomically per hook — later layer wins for the entire entry; no partial merge |
+| `events.<EventName>.order` | Home + project lists are concatenated (home first); a local entry for the same event replaces both entirely |
+| `version` | Last-writer-wins (local > project > home) |
+
+**Hook scoping constraint:** Home event `order:` lists may only reference hooks defined in `~/.clooks/clooks.yml`; project `order:` lists may only reference hooks defined in `.clooks/clooks.yml`. Clooks throws at load time if either list crosses that boundary.
 
 ### Automatic name resolution
 
@@ -354,33 +368,41 @@ PreToolUse:
 
 ### Precedence
 
-Two separate cascades:
+Two independent cascades.
 
-**Hook config** — what your handler receives as the `config` parameter:
-1. Hook defaults (`meta.config` in the `.ts` file)
-2. Per-hook `config:` in `clooks.yml` (shallow-merged)
+**Hook config** (`config` parameter your handler receives):
 
-**Engine behavior** — how the engine runs the hook:
-1. Global `config:` in `clooks.yml`
-2. Per-hook options on the hook entry
-3. Per-hook per-event under `events.<EventName>` (highest)
+| Layer | Source | Notes |
+|-------|--------|-------|
+| 1 (lowest) | `meta.config` defaults in the hook `.ts` file | |
+| 2 (highest) | Per-hook `config:` block in `clooks.yml` | Shallow merge — nested objects are replaced wholesale, not recursively merged |
 
-> Shallow merge means nested objects in `meta.config` are replaced wholesale
-> when overridden, not deep-merged.
+**Engine behavior** (`timeout`, `onError`, `enabled`, `parallel`):
 
-### Disabling a vendored hook
+| Layer | Source | Notes |
+|-------|--------|-------|
+| 1 (lowest) | Global `config:` block in `clooks.yml` | `timeout`, `onError` only |
+| 2 | Per-hook entry in `clooks.yml` | All fields |
+| 3 (highest) | `events.<EventName>` under the hook entry | `onError`, `enabled` only |
 
-To stop a vendored plugin hook from running in one project without
-uninstalling the plugin, shadow it in `.clooks/clooks.local.yml`:
+### Disabling a hook
+
+Add `enabled: false` to the hook entry — typically in `clooks.local.yml` so the disable is local to your machine.
 
 ```yaml
-<hookName>:
-  uses: ./.clooks/vendor/plugin/<packName>/<hookName>.ts
+no-rm-rf:
   enabled: false
 ```
 
-The `uses:` field is required — the local layer atomically replaces the
-project entry, so without `uses` the hook would be skipped as dangling.
+To disable for one event only, set `enabled: false` under `events.<EventName>` instead (see the `log-bash-commands` example in [What goes in clooks.yml](#what-goes-in-clooksyml)).
+
+For hooks vendored from a plugin pack, also include `uses:` in the local entry — the local layer replaces the project entry atomically (see [File merge rules](#file-merge-rules)), so without `uses:` the entry is dangling.
+
+```yaml
+tmux-notifications:
+  uses: ./.clooks/vendor/plugin/clooks-core-hooks/tmux-notifications.ts
+  enabled: false
+```
 
 ### Validation
 
@@ -434,14 +456,12 @@ it covers 22 of 26 events and all of the core return values.
 
 | Category | Events | `allow`/`block`/`skip` | `injectContext` | `updatedInput` | `continue`/`stop` | `success`/`failure` |
 |----------|--------|:---:|:---:|:---:|:---:|:---:|
-| Guard | PreToolUse, UserPromptSubmit, PermissionRequest, Stop, SubagentStop, ConfigChange | ✓ | ✓¹ | ✓² | – | – |
-| Observe | PostToolUse, PostToolUseFailure, SessionStart, SessionEnd, InstructionsLoaded, Notification, SubagentStart, WorktreeRemove, PreCompact, PostCompact, PermissionDenied, StopFailure | – | ✓¹ | – | – | – |
+| Guard | PreToolUse, UserPromptSubmit, PermissionRequest, Stop, SubagentStop, ConfigChange | ✓ | ✓ | ✓¹ | – | – |
+| Observe | PostToolUse, PostToolUseFailure, SessionStart, SessionEnd, InstructionsLoaded, Notification, SubagentStart, WorktreeRemove, PreCompact, PostCompact, PermissionDenied, StopFailure | – | ✓ | – | – | – |
 | Continuation | TeammateIdle, TaskCreated, TaskCompleted | – | – | – | ✓ | – |
 | Implementation | WorktreeCreate | – | – | – | – | ✓ |
 
-¹ Only on injectable events: PreToolUse, UserPromptSubmit, SessionStart, PostToolUse, PostToolUseFailure, Notification, SubagentStart. Returning `injectContext` on other events is silently ignored.
-
-² Sequential `PreToolUse` or sequential `PermissionRequest` only. `updatedInput` is a **partial patch** — the engine shallow-merges it onto the running `toolInput`, then strips keys whose value is `null` (the explicit-unset sentinel). `undefined` / absent keys mean "no change on this key." Upstream Claude Code still receives a full replacement object on the wire — the engine performs the merge internally. Returning `updatedInput` from a parallel `PreToolUse` **or** parallel `PermissionRequest` hook is a contract violation and blocks the action.
+¹ Sequential `PreToolUse` or sequential `PermissionRequest` only. Shallow-merged onto the running `toolInput`; keys set to `null` are removed. Returning it from a parallel hook blocks the action.
 
 </details>
 
@@ -687,6 +707,8 @@ All commands accept `--json` for machine-readable output.
 
 <details>
 <summary><b>Full list</b></summary>
+
+Hook results may include `debugMessage: "..."` — surfaced to stderr when `CLOOKS_DEBUG=true`.
 
 | Variable | Effect |
 |----------|--------|
