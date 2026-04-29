@@ -525,6 +525,12 @@ export async function executeHooks(
       if (debug && lifecycleResult.overriddenByAfter) {
         debugMessages.push(`hook="${loaded.name}" afterHook: overridden result`)
       }
+      if (debug && lifecycleResult.beforeDebug) {
+        debugMessages.push(`hook="${loaded.name}" beforeHook: ${lifecycleResult.beforeDebug}`)
+      }
+      if (debug && lifecycleResult.afterDebug) {
+        debugMessages.push(`hook="${loaded.name}" afterHook: ${lifecycleResult.afterDebug}`)
+      }
 
       const result = lifecycleResult.result
       if (result === undefined || result === null) {
@@ -774,6 +780,12 @@ export async function executeHooks(
         }
         if (debug && lr.overriddenByAfter) {
           debugMessages.push(`hook="${settled.hookName}" afterHook: overridden result (parallel)`)
+        }
+        if (debug && lr.beforeDebug) {
+          debugMessages.push(`hook="${settled.hookName}" beforeHook: ${lr.beforeDebug} (parallel)`)
+        }
+        if (debug && lr.afterDebug) {
+          debugMessages.push(`hook="${settled.hookName}" afterHook: ${lr.afterDebug} (parallel)`)
         }
 
         if (!val) continue

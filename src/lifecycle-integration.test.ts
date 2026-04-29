@@ -707,16 +707,26 @@ describe('lifecycle integration', () => {
 
     const dir = makeTempDir()
     const config = makeTestConfig({ 'passthrough-not-leaking': {} })
-    const { lastResult } = await executeHooks(
-      [hook],
-      'PreToolUse',
-      { event: 'PreToolUse', toolName: 'Bash', toolInput: {} },
-      config,
-      fp(dir),
-    )
+    const prevDebug = process.env.CLOOKS_DEBUG
+    process.env.CLOOKS_DEBUG = 'true'
+    try {
+      const { lastResult, debugMessages } = await executeHooks(
+        [hook],
+        'PreToolUse',
+        { event: 'PreToolUse', toolName: 'Bash', toolInput: {} },
+        config,
+        fp(dir),
+      )
 
-    expect(lastResult?.result).toBe('allow')
-    expect(lastResult?.result).not.toBe('passthrough')
+      expect(lastResult?.result).toBe('allow')
+      expect(lastResult?.result).not.toBe('passthrough')
+      expect(debugMessages.some((m) => m.includes('beforeHook') && m.includes('gate passed'))).toBe(
+        true,
+      )
+    } finally {
+      if (prevDebug === undefined) delete process.env.CLOOKS_DEBUG
+      else process.env.CLOOKS_DEBUG = prevDebug
+    }
   })
 
   test('afterHook passthrough does not surface as final pipeline result', async () => {
@@ -731,16 +741,26 @@ describe('lifecycle integration', () => {
 
     const dir = makeTempDir()
     const config = makeTestConfig({ 'after-passthrough-not-leaking': {} })
-    const { lastResult } = await executeHooks(
-      [hook],
-      'PreToolUse',
-      { event: 'PreToolUse', toolName: 'Bash', toolInput: {} },
-      config,
-      fp(dir),
-    )
+    const prevDebug = process.env.CLOOKS_DEBUG
+    process.env.CLOOKS_DEBUG = 'true'
+    try {
+      const { lastResult, debugMessages } = await executeHooks(
+        [hook],
+        'PreToolUse',
+        { event: 'PreToolUse', toolName: 'Bash', toolInput: {} },
+        config,
+        fp(dir),
+      )
 
-    expect(lastResult?.result).toBe('allow')
-    expect(lastResult?.result).not.toBe('passthrough')
+      expect(lastResult?.result).toBe('allow')
+      expect(lastResult?.result).not.toBe('passthrough')
+      expect(debugMessages.some((m) => m.includes('afterHook') && m.includes('observed'))).toBe(
+        true,
+      )
+    } finally {
+      if (prevDebug === undefined) delete process.env.CLOOKS_DEBUG
+      else process.env.CLOOKS_DEBUG = prevDebug
+    }
   })
 
   test('beforeHook returning unrecognized result discriminant warns and is treated as no-op', async () => {

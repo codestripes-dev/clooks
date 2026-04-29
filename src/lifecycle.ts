@@ -62,10 +62,20 @@ export interface LifecycleResult {
   blockedByBefore: boolean
   /** Always `false` today — afterHook is observer-only and cannot override. */
   overriddenByAfter: boolean
+  /** debugMessage from a `beforeHook` `passthrough` return. Surfaced by the engine when debug is on. */
+  beforeDebug?: string
+  /** debugMessage from an `afterHook` `passthrough` return. Surfaced by the engine when debug is on. */
+  afterDebug?: string
 }
 
 function isLifecycleResultObject(v: unknown): v is { result: string; [k: string]: unknown } {
   return typeof v === 'object' && v !== null && 'result' in v
+}
+
+function passthroughDebug(ret: unknown): string | undefined {
+  if (!isLifecycleResultObject(ret)) return undefined
+  if (ret.result !== 'passthrough') return undefined
+  return typeof ret.debugMessage === 'string' ? ret.debugMessage : undefined
 }
 
 const VALID_BEFORE_RESULTS = new Set(['block', 'skip', 'passthrough'])
@@ -102,6 +112,9 @@ export async function runHookLifecycle(
   async function lifecycle(): Promise<LifecycleResult> {
     attachDecisionMethods(eventName, context)
 
+    let beforeDebug: string | undefined
+    let afterDebug: string | undefined
+
     if (hasBeforeHook) {
       const meta = await metaCache.buildMeta(loaded)
       const beforeEvent = buildBeforeHookEvent(eventName, context, meta)
@@ -122,6 +135,7 @@ export async function runHookLifecycle(
           warnUnexpectedReturn('beforeHook', loaded.name, ret)
         }
       }
+      beforeDebug = passthroughDebug(ret)
     }
 
     const handlerResult = await handler(context, loaded.config)
@@ -133,9 +147,16 @@ export async function runHookLifecycle(
       if (isLifecycleResultObject(ret) && !VALID_AFTER_RESULTS.has(ret.result)) {
         warnUnexpectedReturn('afterHook', loaded.name, ret)
       }
+      afterDebug = passthroughDebug(ret)
     }
 
-    return { result: handlerResult, blockedByBefore: false, overriddenByAfter: false }
+    return {
+      result: handlerResult,
+      blockedByBefore: false,
+      overriddenByAfter: false,
+      beforeDebug,
+      afterDebug,
+    }
   }
 
   let timer: ReturnType<typeof setTimeout>
