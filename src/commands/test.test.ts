@@ -21,7 +21,7 @@ import {
   afterAll,
 } from 'bun:test'
 import { Command } from 'commander'
-import { mkdtempSync, rmSync, writeFileSync } from 'fs'
+import { copyFileSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { createTestCommand, runHarness } from './test.js'
@@ -152,7 +152,7 @@ function restoreHarnessSpies(s: HarnessSpies): void {
 /** Run runHarness, expecting it to call process.exit (which throws). */
 async function runAndCaptureExit(
   hookFile: string,
-  opts: { input?: string },
+  opts: { input?: string; config?: string; configJson?: string; hookName?: string },
   _s: HarnessSpies,
 ): Promise<number> {
   try {
@@ -812,4 +812,338 @@ describe('renderExample — structural coverage of every event', () => {
       expect(out).toContain('ExitPlanMode and any mcp__* tool')
     })
   }
+})
+
+// --- Config flags suite (M4) ---------------------------------------------
+//
+// Covers `--config`, `--config-json`, and `--hook-name` resolution paths in
+// `runHarness`. Pattern: scratch-dir per test, write a hook .ts and a YAML
+// fixture, invoke runHarness with absolute paths so the suite is independent
+// of the current working directory.
+//
+// Path-matching for `--config` relies on `entry.uses` being path-like
+// (`./relative.ts`). validateConfig stores the literal `uses` as the entry's
+// `resolvedPath`, and the harness resolves it against the YAML file's dir.
+// Hooks declared without `uses` resolve to `.clooks/hooks/<name>.ts` against
+// `process.cwd()` — fragile in a unit test, so the path-match cases below
+// always use `uses: ./<file>` and place the hook beside the YAML.
+
+const HOOK_CONFIG_PATH_CAPTURE = join(FIXTURES, 'harness-config-path-capture.ts')
+
+const PRE_TOOL_USE_PAYLOAD_CFG = {
+  event: 'PreToolUse',
+  toolName: 'Bash',
+  toolInput: { command: 'echo' },
+  originalToolInput: { command: 'echo' },
+  toolUseId: 'tu_cfg_flags',
+}
+
+/**
+ * Write an "echo config" hook to the given dir. The hook takes any meta.config
+ * (passed via `metaConfigLiteral` — a TS source snippet) and returns
+ * `ctx.allow({ injectContext: JSON.stringify(config) })` so the harness test
+ * can assert on the merged shape via captured stdout.
+ */
+function writeEchoHook(dir: string, fileName: string, metaConfigLiteral: string | null): string {
+  const path = join(dir, fileName)
+  const metaConfigField = metaConfigLiteral === null ? '' : `, config: ${metaConfigLiteral}`
+  const src = `type AllowCtx = {
+  allow: (opts: { injectContext: string }) => { result: 'allow'; injectContext: string }
+}
+export const hook = {
+  meta: { name: '${fileName.replace(/\.ts$/, '')}'${metaConfigField} },
+  PreToolUse(ctx: AllowCtx, config: Record<string, unknown>) {
+    return ctx.allow({ injectContext: JSON.stringify(config) })
+  },
+}
+`
+  writeFileSync(path, src)
+  return path
+}
+
+describe('runHarness — config flags', () => {
+  let cfgDir: string
+
+  beforeAll(() => {
+    cfgDir = mkdtempSync(join(tmpdir(), 'clooks-test-config-'))
+  })
+
+  afterAll(() => {
+    rmSync(cfgDir, { recursive: true, force: true })
+  })
+
+  test('--config and --config-json are mutually exclusive → exit 2', async () => {
+    const code = await withStdin(PRE_TOOL_USE_PAYLOAD_CFG, () =>
+      runAndCaptureExit(HOOK_ALLOW, { config: '/tmp/x.yml', configJson: '{}' }, spies),
+    )
+    expect(code).toBe(2)
+    expect(spies.stderrChunks.join('')).toContain('mutually exclusive')
+  })
+
+  test('--hook-name without --config → exit 2', async () => {
+    const code = await withStdin(PRE_TOOL_USE_PAYLOAD_CFG, () =>
+      runAndCaptureExit(HOOK_ALLOW, { hookName: 'foo' }, spies),
+    )
+    expect(code).toBe(2)
+    expect(spies.stderrChunks.join('')).toContain('--hook-name requires --config')
+  })
+
+  test('--config-json: malformed JSON → exit 2 with parse error', async () => {
+    const code = await withStdin(PRE_TOOL_USE_PAYLOAD_CFG, () =>
+      runAndCaptureExit(HOOK_ALLOW, { configJson: '{' }, spies),
+    )
+    expect(code).toBe(2)
+    expect(spies.stderrChunks.join('')).toContain('failed to parse JSON')
+  })
+
+  test('--config-json: non-object (string scalar) → exit 2', async () => {
+    const code = await withStdin(PRE_TOOL_USE_PAYLOAD_CFG, () =>
+      runAndCaptureExit(HOOK_ALLOW, { configJson: '"hi"' }, spies),
+    )
+    expect(code).toBe(2)
+    expect(spies.stderrChunks.join('')).toContain('must be a JSON object')
+  })
+
+  test('--config-json: shallow-merges over meta.config defaults', async () => {
+    const hookFile = writeEchoHook(cfgDir, 'echo-merge.ts', '{ a: 1, b: 2 }')
+    const code = await withStdin(PRE_TOOL_USE_PAYLOAD_CFG, () =>
+      runAndCaptureExit(hookFile, { configJson: '{"b":99}' }, spies),
+    )
+    expect(code).toBe(0)
+    expect(spies.stdoutChunks.join('')).toBe(
+      '{"result":"allow","injectContext":"{\\"a\\":1,\\"b\\":99}"}\n',
+    )
+  })
+
+  test('--config-json: hook with no meta.config → handler sees the JSON literal as-is', async () => {
+    const hookFile = writeEchoHook(cfgDir, 'echo-no-defaults.ts', null)
+    const code = await withStdin(PRE_TOOL_USE_PAYLOAD_CFG, () =>
+      runAndCaptureExit(hookFile, { configJson: '{"x":42}' }, spies),
+    )
+    expect(code).toBe(0)
+    expect(spies.stdoutChunks.join('')).toBe('{"result":"allow","injectContext":"{\\"x\\":42}"}\n')
+  })
+
+  test('--config-json: lifecycleMeta.configPath stays at the /tmp stub', async () => {
+    const code = await withStdin(PRE_TOOL_USE_PAYLOAD_CFG, () =>
+      runAndCaptureExit(HOOK_CONFIG_PATH_CAPTURE, { configJson: '{"any":"thing"}' }, spies),
+    )
+    expect(code).toBe(0)
+    expect(spies.stderrChunks.join('')).toContain('configPath=/tmp/clooks-test-no-config.yml;')
+  })
+
+  test('--config: missing file → exit 2 with the missing path in the message', async () => {
+    const missing = join(cfgDir, 'does-not-exist.yml')
+    const code = await withStdin(PRE_TOOL_USE_PAYLOAD_CFG, () =>
+      runAndCaptureExit(HOOK_ALLOW, { config: missing }, spies),
+    )
+    expect(code).toBe(2)
+    const stderr = spies.stderrChunks.join('')
+    expect(stderr).toContain('--config:')
+    expect(stderr).toContain(missing)
+  })
+
+  test('--config: malformed YAML → exit 2 with parseYamlFile envelope', async () => {
+    const yamlPath = join(cfgDir, 'bad.yml')
+    // ":-" is invalid YAML at root level; Bun.YAML.parse rejects.
+    writeFileSync(yamlPath, ':\n  - [\n')
+    const code = await withStdin(PRE_TOOL_USE_PAYLOAD_CFG, () =>
+      runAndCaptureExit(HOOK_ALLOW, { config: yamlPath }, spies),
+    )
+    expect(code).toBe(2)
+    const stderr = spies.stderrChunks.join('')
+    expect(stderr).toContain('clooks test: --config:')
+    // parseYamlFile prefixes its error with `clooks: invalid YAML in <path>`.
+    expect(stderr).toContain('invalid YAML')
+  })
+
+  test('--config: shape error from validateConfig (missing version) → exit 2', async () => {
+    const yamlPath = join(cfgDir, 'no-version.yml')
+    writeFileSync(yamlPath, 'my-hook:\n  uses: ./whatever.ts\n')
+    const code = await withStdin(PRE_TOOL_USE_PAYLOAD_CFG, () =>
+      runAndCaptureExit(HOOK_ALLOW, { config: yamlPath }, spies),
+    )
+    expect(code).toBe(2)
+    const stderr = spies.stderrChunks.join('')
+    expect(stderr).toContain('--config:')
+    expect(stderr).toContain('version')
+  })
+
+  test('--config: zero matching entries → exit 2 with candidate list and --hook-name hint', async () => {
+    // YAML registers two unrelated hook entries; neither path-matches the
+    // hook file under test (HOOK_ALLOW lives in test/fixtures/hooks/).
+    const yamlPath = join(cfgDir, 'no-match.yml')
+    writeFileSync(
+      yamlPath,
+      'version: "1"\n' + 'alpha:\n  uses: ./alpha.ts\n' + 'beta:\n  uses: ./beta.ts\n',
+    )
+    const code = await withStdin(PRE_TOOL_USE_PAYLOAD_CFG, () =>
+      runAndCaptureExit(HOOK_ALLOW, { config: yamlPath }, spies),
+    )
+    expect(code).toBe(2)
+    const stderr = spies.stderrChunks.join('')
+    expect(stderr).toContain('no entry in')
+    expect(stderr).toContain('Available entries: [alpha, beta]')
+    expect(stderr).toContain('--hook-name')
+  })
+
+  test('--config: multiple matching entries → exit 2 with matching-names list', async () => {
+    // Two YAML entries both point at the same hook file via path-like uses.
+    const hookFile = writeEchoHook(cfgDir, 'multi-match.ts', '{ d: 1 }')
+    const yamlPath = join(cfgDir, 'multi-match.yml')
+    writeFileSync(
+      yamlPath,
+      'version: "1"\n' +
+        'first:\n  uses: ./multi-match.ts\n  config:\n    d: 10\n' +
+        'second:\n  uses: ./multi-match.ts\n  config:\n    d: 20\n',
+    )
+    const code = await withStdin(PRE_TOOL_USE_PAYLOAD_CFG, () =>
+      runAndCaptureExit(hookFile, { config: yamlPath }, spies),
+    )
+    expect(code).toBe(2)
+    const stderr = spies.stderrChunks.join('')
+    expect(stderr).toContain('multiple entries')
+    expect(stderr).toContain('first')
+    expect(stderr).toContain('second')
+    expect(stderr).toContain('--hook-name')
+  })
+
+  test('--config + --hook-name resolves a multi-match cleanly', async () => {
+    const hookFile = writeEchoHook(cfgDir, 'pick-me.ts', '{ d: 1 }')
+    const yamlPath = join(cfgDir, 'pick-me.yml')
+    writeFileSync(
+      yamlPath,
+      'version: "1"\n' +
+        'first:\n  uses: ./pick-me.ts\n  config:\n    d: 10\n' +
+        'second:\n  uses: ./pick-me.ts\n  config:\n    d: 20\n',
+    )
+    const code = await withStdin(PRE_TOOL_USE_PAYLOAD_CFG, () =>
+      runAndCaptureExit(hookFile, { config: yamlPath, hookName: 'second' }, spies),
+    )
+    expect(code).toBe(0)
+    // meta defaults { d: 1 } shallow-merged with entry.config { d: 20 } → { d: 20 }.
+    expect(spies.stdoutChunks.join('')).toBe('{"result":"allow","injectContext":"{\\"d\\":20}"}\n')
+  })
+
+  test('--config: --hook-name not present in YAML → exit 2', async () => {
+    const yamlPath = join(cfgDir, 'no-such-name.yml')
+    writeFileSync(yamlPath, 'version: "1"\n' + 'real-name:\n  uses: ./whatever.ts\n')
+    const code = await withStdin(PRE_TOOL_USE_PAYLOAD_CFG, () =>
+      runAndCaptureExit(HOOK_ALLOW, { config: yamlPath, hookName: 'wrong-name' }, spies),
+    )
+    expect(code).toBe(2)
+    const stderr = spies.stderrChunks.join('')
+    expect(stderr).toContain('no entry named "wrong-name"')
+  })
+
+  test('--config: meta.config defaults shallow-merged with entry.config', async () => {
+    const hookFile = writeEchoHook(
+      cfgDir,
+      'merged-shape.ts',
+      "{ logDir: '.clooks', threshold: 3, sticky: 'meta' }",
+    )
+    const yamlPath = join(cfgDir, 'merged-shape.yml')
+    writeFileSync(
+      yamlPath,
+      'version: "1"\n' +
+        'merged-shape:\n' +
+        '  uses: ./merged-shape.ts\n' +
+        '  config:\n' +
+        '    threshold: 99\n' +
+        '    extra: "yaml"\n',
+    )
+    const code = await withStdin(PRE_TOOL_USE_PAYLOAD_CFG, () =>
+      runAndCaptureExit(hookFile, { config: yamlPath }, spies),
+    )
+    expect(code).toBe(0)
+    // Defaults: { logDir, threshold:3, sticky:'meta' }
+    // Entry:    { threshold:99, extra:'yaml' }
+    // Merged:   { logDir:'.clooks', threshold:99, sticky:'meta', extra:'yaml' }
+    const out = spies.stdoutChunks.join('')
+    // Parse the injectContext payload back out for shape-stable assertion.
+    const parsed = JSON.parse(out) as { injectContext: string }
+    const merged = JSON.parse(parsed.injectContext) as Record<string, unknown>
+    expect(merged).toEqual({
+      logDir: '.clooks',
+      threshold: 99,
+      sticky: 'meta',
+      extra: 'yaml',
+    })
+  })
+
+  test('--config: entry with enabled: false runs anyway, no stderr noise about "enabled"', async () => {
+    const hookFile = writeEchoHook(cfgDir, 'disabled-runs.ts', '{}')
+    const yamlPath = join(cfgDir, 'disabled-runs.yml')
+    writeFileSync(
+      yamlPath,
+      'version: "1"\n' +
+        'disabled-runs:\n' +
+        '  uses: ./disabled-runs.ts\n' +
+        '  enabled: false\n' +
+        '  config:\n' +
+        '    ran: true\n',
+    )
+    const code = await withStdin(PRE_TOOL_USE_PAYLOAD_CFG, () =>
+      runAndCaptureExit(hookFile, { config: yamlPath }, spies),
+    )
+    expect(code).toBe(0)
+    expect(spies.stdoutChunks.join('')).toBe(
+      '{"result":"allow","injectContext":"{\\"ran\\":true}"}\n',
+    )
+    // Regression guard: harness must not warn about `enabled: false`.
+    expect(spies.stderrChunks.join('')).not.toContain('enabled')
+  })
+
+  test('--config: lifecycleMeta.configPath reflects the resolved YAML absolute path', async () => {
+    // Copy the capture fixture into cfgDir so the YAML can reference it via a
+    // `./`-prefixed relative path. Embedding the absolute fixture path in
+    // `uses:` would tie the test to this checkout's filesystem layout.
+    const hookCopy = join(cfgDir, 'harness-config-path-capture.ts')
+    copyFileSync(HOOK_CONFIG_PATH_CAPTURE, hookCopy)
+    const yamlPath = join(cfgDir, 'capture-path.yml')
+    writeFileSync(
+      yamlPath,
+      'version: "1"\n' +
+        'harness-config-path-capture:\n' +
+        '  uses: ./harness-config-path-capture.ts\n',
+    )
+    const code = await withStdin(PRE_TOOL_USE_PAYLOAD_CFG, () =>
+      runAndCaptureExit(
+        hookCopy,
+        { config: yamlPath, hookName: 'harness-config-path-capture' },
+        spies,
+      ),
+    )
+    expect(code).toBe(0)
+    // configPath in lifecycleMeta should be the absolute path of the YAML file.
+    expect(spies.stderrChunks.join('')).toContain(`configPath=${yamlPath};`)
+  })
+
+  test('--config-json: empty object {} preserves meta.config defaults unchanged', async () => {
+    const hookFile = writeEchoHook(cfgDir, 'echo-empty-merge.ts', '{ a: 1, b: 2 }')
+    const code = await withStdin(PRE_TOOL_USE_PAYLOAD_CFG, () =>
+      runAndCaptureExit(hookFile, { configJson: '{}' }, spies),
+    )
+    expect(code).toBe(0)
+    const out = spies.stdoutChunks.join('')
+    const parsed = JSON.parse(out) as { injectContext: string }
+    const merged = JSON.parse(parsed.injectContext) as Record<string, unknown>
+    expect(merged).toEqual({ a: 1, b: 2 })
+  })
+
+  test('--config-json: array literal → exit 2 with "must be a JSON object"', async () => {
+    const code = await withStdin(PRE_TOOL_USE_PAYLOAD_CFG, () =>
+      runAndCaptureExit(HOOK_ALLOW, { configJson: '[1,2,3]' }, spies),
+    )
+    expect(code).toBe(2)
+    expect(spies.stderrChunks.join('')).toContain('must be a JSON object')
+  })
+
+  test('--config-json: null literal → exit 2 with "must be a JSON object"', async () => {
+    const code = await withStdin(PRE_TOOL_USE_PAYLOAD_CFG, () =>
+      runAndCaptureExit(HOOK_ALLOW, { configJson: 'null' }, spies),
+    )
+    expect(code).toBe(2)
+    expect(spies.stderrChunks.join('')).toContain('must be a JSON object')
+  })
 })

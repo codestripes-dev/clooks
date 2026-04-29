@@ -103,13 +103,14 @@ The harness fills in `BaseContext` fields the JSON omits. Authors override only 
 
 A handler that reads `ctx.cwd` to resolve a path needs no override. A handler that branches on `ctx.permissionMode` should set `permissionMode` in the JSON to exercise each branch.
 
-### `hookConfig` — defaults only, no overrides
+### `hookConfig` — overriding via `--config` / `--config-json`
 
-The harness dispatches every handler with the hook's `meta.config` defaults as the second argument — same merge as production (`src/loader.ts:144-146`), minus `clooks.yml` overrides. **There is no `--config` flag in v1.**
+The harness dispatches every handler with a `hookConfig` map as the second argument. Two mutually-exclusive flags control what reaches the handler — passing both is exit 2. When neither is passed, only `meta.config` defaults flow through (the baseline behavior). Both flags shallow-merge the override over `meta.config` defaults — same shape as production's `loadHook` (`src/loader.ts:144-146`): `{ ...hook.meta.config, ...override }`. The only difference is where `override` comes from:
 
-If your hook declares `meta.config: { logDir: '.clooks' }`, the handler sees `{ logDir: '.clooks' }`. If your hook has no `meta.config`, the handler sees `{}`. Either way, the default-config code path is exercised.
+- **`--config <path>`** — reads a `clooks.yml`-shaped YAML file. The file is the **only** merge layer; the harness does not pull in `~/.clooks/clooks.yml` or `.clooks/clooks.local.yml`. The harness finds the entry whose `resolvedPath` matches the hook file under test and uses that entry's `config:` field as `override`. `lifecycleMeta.configPath` reflects the resolved YAML path.
+- **`--config-json '<json>'`** — parses the literal as a JSON object (null/array/scalar are exit 2) and uses it directly as `override`. `lifecycleMeta.configPath` stays at the no-config stub.
 
-If your hook's behavior depends on a non-default value from `clooks.yml`, the harness cannot simulate that today — exercise it in a real Claude Code invocation or in a unit test that constructs the config directly. A `--config` flag is the natural follow-up if marketplace authors hit this gap.
+**`--hook-name <alias>`** is the documented escape hatch when path-match is ambiguous (a YAML registers the same hook under multiple aliases) or when matching needs to be explicit. It requires `--config`. If the matched entry has `enabled: false`, the harness runs the handler anyway with no warning — `enabled` is a clooks-runtime gate, not a hook-behavior concern, and the explicit `clooks test` invocation already signals intent. For a worked example showing both flags producing identical merged config, see [hook-config-overrides.md](hook-config-overrides.md).
 
 ### Lifecycle wrappers
 
@@ -268,7 +269,6 @@ The harness's stdout output is a single JSON line; chains like `... | jq '.reaso
 
 The harness is for testing handler logic, not engine plumbing. The following are deliberately out of scope for v1:
 
-- **No `--config` overrides.** `meta.config` defaults flow through; `clooks.yml`-style overrides cannot be simulated in v1. See [`hookConfig` — defaults only, no overrides](#hookconfig--defaults-only-no-overrides) above.
 - **No wire normalization.** The harness consumes the cleaned-up Context shape. Bugs in the engine's wire-to-context transformation are not caught here. Covered by Clooks's E2E suite.
 - **Signal is never aborted.** `ctx.signal` is a real `AbortSignal` but the harness never aborts it. Hooks that branch on `signal.aborted` exercise only the non-aborted path. No `--abort-after` flag in v1.
 - **Multi-hook reduction not run.** The harness runs exactly one hook. Composition, ordering, and reduction across multiple hooks for the same event require the engine.

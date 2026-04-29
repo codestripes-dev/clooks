@@ -216,3 +216,164 @@ describe('clooks test — harness E2E', () => {
     expect(result.stderr).toContain('clooks test: hook threw:')
   })
 })
+
+// Hook source for the config-flag scenarios. The handler echoes the merged
+// `config` it receives back through `injectContext` so the harness's stdout
+// reflects the post-merge shape end-to-end.
+const ECHO_HOOK_SRC = `
+export const hook = {
+  meta: { name: "echo", config: { mode: "default", threshold: 1 } },
+  PreToolUse(ctx, config) {
+    return ctx.allow({ injectContext: JSON.stringify(config) })
+  },
+}
+`
+
+describe('clooks test — config flags E2E', () => {
+  // E1
+  test('E1. --config-json round trip — JSON literal flows into handler', () => {
+    sandbox = createSandbox()
+    sandbox.writeFile('hooks/echo.ts', ECHO_HOOK_SRC)
+
+    const result = sandbox.run(['test', 'hooks/echo.ts', '--config-json', '{"x":42}'], {
+      stdin: PRE_TOOL_USE_PAYLOAD,
+    })
+
+    expect(result.exitCode).toBe(0)
+    // Hook declares meta.config defaults `{mode:'default', threshold:1}`. The
+    // --config-json literal `{x:42}` merges on top, so the handler receives
+    // `{mode:'default', threshold:1, x:42}`. Parse-then-equal keeps the assert
+    // independent of V8 spread-key ordering quirks.
+    const parsed = JSON.parse(result.stdout) as { result: string; injectContext: string }
+    expect(parsed.result).toBe('allow')
+    expect(JSON.parse(parsed.injectContext)).toEqual({ mode: 'default', threshold: 1, x: 42 })
+  })
+
+  // E2
+  test('E2. --config round trip — YAML entry config flows into handler', () => {
+    sandbox = createSandbox()
+    sandbox.writeFile('hooks/echo.ts', ECHO_HOOK_SRC)
+    // YAML lives at sandbox root; `uses: ./hooks/echo.ts` is path-like, so
+    // the harness resolves it against the YAML's own directory (sandbox root).
+    sandbox.writeFile(
+      'single.yml',
+      [
+        'version: "1"',
+        'echo:',
+        '  uses: ./hooks/echo.ts',
+        '  config:',
+        '    threshold: 5',
+        '',
+      ].join('\n'),
+    )
+
+    const result = sandbox.run(['test', 'hooks/echo.ts', '--config', 'single.yml'], {
+      stdin: PRE_TOOL_USE_PAYLOAD,
+    })
+
+    expect(result.exitCode).toBe(0)
+    // Defaults `{mode:'default', threshold:1}` merge with the YAML override
+    // `{threshold:5}`: `mode` carried, `threshold` overridden.
+    const parsed = JSON.parse(result.stdout) as { result: string; injectContext: string }
+    expect(parsed.result).toBe('allow')
+    expect(JSON.parse(parsed.injectContext)).toEqual({ mode: 'default', threshold: 5 })
+  })
+
+  // E3
+  test('E3. --config and --config-json mutex → exit 2 with mutex error on stderr', () => {
+    sandbox = createSandbox()
+    sandbox.writeFile('hooks/echo.ts', ECHO_HOOK_SRC)
+
+    // The mutex check fires before the binary tries to read the YAML, so a
+    // `--config` argument pointing at a nonexistent file still triggers the
+    // mutex error rather than a load failure.
+    const result = sandbox.run(
+      ['test', 'hooks/echo.ts', '--config', 'nonexistent.yml', '--config-json', '{}'],
+      { stdin: PRE_TOOL_USE_PAYLOAD },
+    )
+
+    expect(result.exitCode).toBe(2)
+    expect(result.stderr).toContain('mutually exclusive')
+  })
+
+  // E4
+  test('E4. --config with no matching entry → exit 2 with "no entry in" + --hook-name hint', () => {
+    sandbox = createSandbox()
+    sandbox.writeFile('hooks/echo.ts', ECHO_HOOK_SRC)
+    // `unrelated.yml` registers `./hooks/other.ts`, whose resolved absolute path
+    // does not match `./hooks/echo.ts`. The binary's path-match loop finds zero
+    // candidates and emits the "no entry in" error. `hooks/other.ts` does not
+    // need to exist because validateConfig only shape-checks the YAML.
+    sandbox.writeFile(
+      'unrelated.yml',
+      [
+        'version: "1"',
+        'other:',
+        '  uses: ./hooks/other.ts',
+        '  config:',
+        '    threshold: 99',
+        '',
+      ].join('\n'),
+    )
+
+    const result = sandbox.run(['test', 'hooks/echo.ts', '--config', 'unrelated.yml'], {
+      stdin: PRE_TOOL_USE_PAYLOAD,
+    })
+
+    expect(result.exitCode).toBe(2)
+    expect(result.stderr).toContain('no entry in')
+    expect(result.stderr).toContain('Use --hook-name')
+  })
+
+  // E5
+  test('E5. --config + --hook-name resolves a multi-match → chosen entry config flows through', () => {
+    sandbox = createSandbox()
+    sandbox.writeFile('hooks/echo.ts', ECHO_HOOK_SRC)
+    // Two aliases pointing at the same hook file. Without --hook-name the
+    // harness exits 2 (multi-match); with --hook-name it picks the named entry.
+    sandbox.writeFile(
+      'multi.yml',
+      [
+        'version: "1"',
+        'echo-a:',
+        '  uses: ./hooks/echo.ts',
+        '  config:',
+        '    flavor: "a"',
+        'echo-b:',
+        '  uses: ./hooks/echo.ts',
+        '  config:',
+        '    flavor: "b"',
+        '',
+      ].join('\n'),
+    )
+
+    const result = sandbox.run(
+      ['test', 'hooks/echo.ts', '--config', 'multi.yml', '--hook-name', 'echo-b'],
+      { stdin: PRE_TOOL_USE_PAYLOAD },
+    )
+
+    expect(result.exitCode).toBe(0)
+    // Parse to be order-insensitive on the inner JSON, even though only one
+    // key is present here.
+    const parsed = JSON.parse(result.stdout) as { result: string; injectContext: string }
+    expect(parsed.result).toBe('allow')
+    expect(JSON.parse(parsed.injectContext)).toEqual({
+      mode: 'default',
+      threshold: 1,
+      flavor: 'b',
+    })
+  })
+
+  // E6
+  test('E6. --hook-name without --config → exit 2 with usage error on stderr', () => {
+    sandbox = createSandbox()
+    sandbox.writeFile('hooks/echo.ts', ECHO_HOOK_SRC)
+
+    const result = sandbox.run(['test', 'hooks/echo.ts', '--hook-name', 'echo'], {
+      stdin: PRE_TOOL_USE_PAYLOAD,
+    })
+
+    expect(result.exitCode).toBe(2)
+    expect(result.stderr).toContain('--hook-name requires --config')
+  })
+})

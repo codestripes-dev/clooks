@@ -17,7 +17,7 @@ export const hook: ClooksHook = {
   meta: { name: "no-rm-rf" },
   PreToolUse(ctx) {
     if (ctx.toolName !== "Bash") return ctx.skip()
-    if (ctx.toolInput.command?.includes("rm -rf /")) {
+    if (ctx.toolInput.command.includes("rm -rf /")) {
       return ctx.block({ reason: "Dangerous rm" })
     }
     return ctx.allow({ updatedInput: { timeout: 60000 } })
@@ -189,10 +189,7 @@ export const hook: ClooksHook = {
   PreToolUse(ctx) {
     if (ctx.toolName !== "Bash") return ctx.skip()
 
-    const command =
-      typeof ctx.toolInput.command === "string" ? ctx.toolInput.command : ""
-
-    if (command.includes("rm -rf /")) {
+    if (ctx.toolInput.command.includes("rm -rf /")) {
       return ctx.block({ reason: "Blocked dangerous rm command" })
     }
 
@@ -224,11 +221,12 @@ Reload Claude Code. Done.
 Run a hook against a synthetic event without standing up Claude Code:
 
 ```bash
-clooks test example PreToolUse        # prints a fixture template + field docs
+clooks test example PreToolUse                              # prints a fixture template + field docs
 clooks test ./.clooks/hooks/no-rm-rf.ts --input fixture.json
+clooks test ./.clooks/hooks/no-rm-rf.ts --config-json '{"threshold":7}' --input fixture.json
 ```
 
-`clooks test <hook>` emits the decision JSON to stdout (pipe to `jq`); `clooks test example <Event>` is documentation, not JSON. See [Hook Author Testing](docs/domain/testing/hook-author-testing.md) for the full guide — JSON shape, exit codes, CI loop pattern, and known limitations.
+`clooks test <hook>` emits the decision JSON to stdout (pipe to `jq`); `clooks test example <Event>` is documentation, not JSON. `--config <path>` and `--config-json '<json>'` (mutually exclusive) shallow-merge over `meta.config` defaults so you can exercise non-default `hookConfig` values. See [Hook Author Testing](docs/domain/testing/hook-author-testing.md) for the full guide — JSON shape, exit codes, CI loop pattern, and the [worked example](docs/domain/testing/hook-config-overrides.md) for the override flags.
 
 ### Return values
 
