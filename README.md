@@ -3,7 +3,8 @@
 A TypeScript hook runtime for Claude Code.
 Write hooks once, run them safely, share them across projects and teams.
 
-> More agents (Cursor, Windsurf, VS Code Copilot) planned.
+> More agents (Cursor Agent, Codex, OpenCode, OpenClaw) planned.
+> Already works today in any IDE that hosts Claude Code — VS Code, Cursor, Windsurf, JetBrains.
 
 ## Why not native hooks?
 
@@ -746,8 +747,9 @@ bun run generate:schema        # Regenerate clooks.schema.json from source
 - **Remaining event parity** — `CwdChanged`, `FileChanged`, `Elicitation`,
   and `ElicitationResult` (the four events called out in the
   [Parity map](#parity-map)).
-- **Cross-agent support** — Cursor, Windsurf, and VS Code Copilot. Same
-  authoring model, runtime adapters per agent.
+- **Cross-agent support** — Cursor Agent, Codex, OpenCode, OpenClaw. Same
+  authoring model, runtime adapters per agent. (Today clooks works in any IDE
+  that hosts Claude Code — VS Code, Cursor, Windsurf, JetBrains.)
 
 ## License
 

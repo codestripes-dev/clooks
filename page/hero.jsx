@@ -27,7 +27,7 @@ function InstallBlock({ cmd, accent, autoType = true, lines = [] }) {
       cmd: 'claude /clooks:setup',
       output: [
         ['→ Created ', ['code', '.clooks/clooks.yml'], ', ', ['code', '.clooks/hooks/'], ', ', ['code', '.clooks/vendor/']],
-        ['→ Installed ', ['muted', `clooks-core-hooks@${window.CLOOKS_VERSION}`], ' (3 hooks)'],
+        ['→ Installed ', ['muted', `clooks-core-hooks@${window.CLOOKS_VERSION}`], ' (8 hooks)'],
       ],
       doneLabel: '✓ ready.',
       typeSpeed: 14,

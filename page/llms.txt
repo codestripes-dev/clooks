@@ -1,8 +1,8 @@
 # Clooks
 
-> A hook runtime for AI coding agents. Write hooks in TypeScript with typed contracts, not bash scripts. Starting with Claude Code; cross-agent support for Cursor, Windsurf, and VS Code Copilot is planned.
+> A hook runtime for AI coding agents. Write hooks in TypeScript with typed contracts, not bash scripts. Starting with Claude Code; cross-agent support for Cursor Agent, Codex, OpenCode, and OpenClaw is planned. Today clooks works in any IDE that hosts Claude Code (VS Code, Cursor, Windsurf, JetBrains).
 
-Clooks sits between the native hook system of an AI coding agent and user-defined hook scripts. A small bash entrypoint in the agent's config invokes a compiled Bun binary (~15ms) that reads `.clooks/clooks.yml` and runs matching TypeScript hooks. Hooks are fail-closed by default: a crash blocks the agent's action rather than silently passing through.
+Clooks sits between the native hook system of an AI coding agent and user-defined hook scripts. A small bash entrypoint in the agent's config invokes a compiled Bun binary (~15ms) that reads `.clooks/clooks.yml` and runs matching TypeScript hooks. Errors block by default: a crashed hook blocks the agent's action rather than silently passing through.
 
 Hooks are one `.ts` file each, export a `meta` descriptor (name, events, typed config schema) plus a default handler, and are installed from a marketplace into `.clooks/vendor/`. Because vendored hooks are committed to the repo, cloning gives you the hook setup with no network step.
 
