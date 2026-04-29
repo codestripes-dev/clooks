@@ -21,9 +21,7 @@ import type {
   DebugMessage,
   InjectContext,
   Reason,
-  Interrupt,
   UpdatedPermissions,
-  UpdatedMcpToolOutput,
   Allow,
   Ask,
   Block,
@@ -34,6 +32,8 @@ import type {
   Prettify,
   ToolVariant,
   ToolVariantWithOriginal,
+  EventBlockOptsMap,
+  EventSkipOptsMap,
 } from './method-primitives.js'
 import type {
   UserPromptSubmitDecisionMethods,
@@ -185,9 +185,9 @@ export type PreToolUseDecisionMethods<Input> = Allow<
   PreToolUseResult
 > &
   Ask<Reason & UpdatedInput<Patch<Input>> & InjectContext, PreToolUseResult> &
-  Block<Reason & InjectContext, PreToolUseResult> &
+  Block<EventBlockOptsMap['PreToolUse'], PreToolUseResult> &
   Defer<DebugMessage, PreToolUseResult> &
-  Skip<InjectContext, PreToolUseResult>
+  Skip<EventSkipOptsMap['PreToolUse'], PreToolUseResult>
 
 /**
  * Fires before any tool call. Narrow on `ctx.toolName` for a typed
@@ -245,8 +245,8 @@ export type PermissionRequestDecisionMethods<Input> = Allow<
   UpdatedInput<Patch<Input>> & UpdatedPermissions,
   PermissionRequestResult
 > &
-  Block<Reason & Interrupt, PermissionRequestResult> &
-  Skip<DebugMessage, PermissionRequestResult>
+  Block<EventBlockOptsMap['PermissionRequest'], PermissionRequestResult> &
+  Skip<EventSkipOptsMap['PermissionRequest'], PermissionRequestResult>
 
 /**
  * Fires when Claude Code is about to prompt the user for permission. The hook
@@ -362,10 +362,10 @@ export type InstructionsLoadedContext = BaseContext & {
  * agent) or `skip`.
  */
 export type PostToolUseDecisionMethods<_Input> = Block<
-  Reason & InjectContext & UpdatedMcpToolOutput,
+  EventBlockOptsMap['PostToolUse'],
   PostToolUseResult
 > &
-  Skip<InjectContext & UpdatedMcpToolOutput, PostToolUseResult>
+  Skip<EventSkipOptsMap['PostToolUse'], PostToolUseResult>
 
 /**
  * Fires after a tool call succeeds. Read `ctx.toolResponse` to inspect the
@@ -400,7 +400,7 @@ export type UnknownPostToolUseContext = Prettify<
 >
 
 export type PostToolUseFailureDecisionMethods<_Input> = Skip<
-  InjectContext,
+  EventSkipOptsMap['PostToolUseFailure'],
   PostToolUseFailureResult
 >
 

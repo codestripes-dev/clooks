@@ -66,8 +66,10 @@ export type {
   Result,
   ToolVariant,
   ToolVariantWithOriginal,
-  BlockOpts,
-  SkipOpts,
+  EventBlockOptsMap,
+  EventSkipOptsMap,
+  LifecycleBlockOptsMap,
+  LifecycleSkipOptsMap,
 } from './method-primitives.js'
 
 export type {

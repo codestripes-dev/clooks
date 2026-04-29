@@ -250,6 +250,17 @@ The subfolder name must match the feature name (e.g., `docs/plans/config-system/
 4. **Plan files are committed with the code.** Plans travel with the code so reviewers and future contributors can understand why changes were made. They should be included in commits.
 5. **Clean up on completion.** When a plan is complete, move it (file or folder) to `docs/plans/done/` for historical reference.
 
+## Type-system features: semantic audit
+
+Plans that change *what authors can express in types* — narrowing per-event opts, splitting surfaces, adding/removing primitives, restructuring discriminated unions — must include a semantic audit pass before locking in scope. The audit is two questions, applied to every (primitive × arm × event) cell the change touches:
+
+1. **Wire reality.** Does the runtime translator actually emit this field on this arm? Does Claude Code (or the upstream agent) actually honor it? An "yes, the wire accepts it" answer is verified against `src/engine/translate.ts` (and tests) and against the upstream agent's documented contract.
+2. **Surface fit.** *Should* this combination be expressible at this surface, given the surface's purpose? `beforeHook`'s `event.block(...)` is a meta-gate ("should this hook run?"); per-event `ctx.block(...)` is the actual decision point ("what does the hook return?"). The two surfaces can have semantically different rules even when they share a wire contract.
+
+The audit catches two kinds of error: type-system permissive of fields the wire silently drops (a pit-of-failure for authors), and type-system permissive of combinations that violate the surface's conceptual purpose (clutter that locks in muddy semantics). Plans that skip this audit tend to ship a "preserve the existing shape" tightening, then need a follow-up to enforce a principle that should have surfaced earlier. Run the audit before locking type-test stanzas — flipped stanzas are pure rework.
+
+Document the audit's findings in the plan's `Decision Log` (which combinations are kept, which are dropped, and the rationale for each — wire reality vs. project convention).
+
 ## Danger Zones & Guardrails
 
 Some areas of a codebase have outsized blast radius. A small mistake in these zones can break the entire application, corrupt data, or silently degrade performance for every user. Actively watch for changes in these areas and flag them for human review.

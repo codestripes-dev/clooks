@@ -52,7 +52,7 @@ import type {
   SkipResult,
 } from './results.js'
 
-import type { BlockOpts, SkipOpts } from './method-primitives.js'
+import type { LifecycleBlockOptsMap, LifecycleSkipOptsMap } from './method-primitives.js'
 
 /** Maps each event name to its context type. Useful for generic helpers. */
 export interface EventContextMap extends Record<EventName, unknown> {
@@ -141,8 +141,8 @@ type BeforeHookEventVariants = {
   [K in EventName]: {
     type: K
     input: EventContextMap[K]
-    block(opts: BlockOpts): BlockResult
-    skip(opts?: SkipOpts): SkipResult
+    block(opts: LifecycleBlockOptsMap[K]): BlockResult
+    skip(opts?: LifecycleSkipOptsMap[K]): SkipResult
     passthrough(opts?: LifecyclePassthroughOpts): LifecyclePassthroughResult
   }
 }[EventName]

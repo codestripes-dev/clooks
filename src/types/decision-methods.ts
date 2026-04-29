@@ -13,6 +13,8 @@ import type {
   Success,
   Failure,
   Continue,
+  EventBlockOptsMap,
+  EventSkipOptsMap,
 } from './method-primitives.js'
 import type {
   UserPromptSubmitResult,
@@ -39,61 +41,70 @@ export type UserPromptSubmitDecisionMethods = Allow<
   InjectContext & SessionTitle,
   UserPromptSubmitResult
 > &
-  Block<Reason & InjectContext & SessionTitle, UserPromptSubmitResult> &
-  Skip<InjectContext & SessionTitle, UserPromptSubmitResult>
+  Block<EventBlockOptsMap['UserPromptSubmit'], UserPromptSubmitResult> &
+  Skip<EventSkipOptsMap['UserPromptSubmit'], UserPromptSubmitResult>
 
 /**
  * `block({ reason })` prevents the agent from stopping; `reason` tells Claude
  * what to do next. There's no `stop` verb — stopping is the default.
  */
 export type StopDecisionMethods = Allow<DebugMessage, StopEventResult> &
-  Block<Reason, StopEventResult> &
-  Skip<DebugMessage, StopEventResult>
+  Block<EventBlockOptsMap['Stop'], StopEventResult> &
+  Skip<EventSkipOptsMap['Stop'], StopEventResult>
 
 /** Mirrors `StopDecisionMethods`, but for a subagent. */
 export type SubagentStopDecisionMethods = Allow<DebugMessage, SubagentStopResult> &
-  Block<Reason, SubagentStopResult> &
-  Skip<DebugMessage, SubagentStopResult>
+  Block<EventBlockOptsMap['SubagentStop'], SubagentStopResult> &
+  Skip<EventSkipOptsMap['SubagentStop'], SubagentStopResult>
 
 /**
  * `block` is silently downgraded to `skip` for `source: 'policy_settings'` —
  * those changes can't be blocked upstream.
  */
 export type ConfigChangeDecisionMethods = Allow<DebugMessage, ConfigChangeResult> &
-  Block<Reason, ConfigChangeResult> &
-  Skip<DebugMessage, ConfigChangeResult>
+  Block<EventBlockOptsMap['ConfigChange'], ConfigChangeResult> &
+  Skip<EventSkipOptsMap['ConfigChange'], ConfigChangeResult>
 
 /** PreCompact decisions don't accept `injectContext` — upstream contract doesn't carry it. */
 export type PreCompactDecisionMethods = Allow<DebugMessage, PreCompactResult> &
-  Block<Reason, PreCompactResult> &
-  Skip<DebugMessage, PreCompactResult>
+  Block<EventBlockOptsMap['PreCompact'], PreCompactResult> &
+  Skip<EventSkipOptsMap['PreCompact'], PreCompactResult>
 
 /**
  * `retry()` does NOT reverse the denial — the call stays denied. It only
  * hints that the model may try again. `skip` is a no-op.
  */
 export type PermissionDeniedDecisionMethods = Retry<DebugMessage, PermissionDeniedResult> &
-  Skip<DebugMessage, PermissionDeniedResult>
+  Skip<EventSkipOptsMap['PermissionDenied'], PermissionDeniedResult>
 
-export type SessionStartDecisionMethods = Skip<InjectContext, SessionStartResult>
+export type SessionStartDecisionMethods = Skip<EventSkipOptsMap['SessionStart'], SessionStartResult>
 
-export type SessionEndDecisionMethods = Skip<DebugMessage, SessionEndResult>
+export type SessionEndDecisionMethods = Skip<EventSkipOptsMap['SessionEnd'], SessionEndResult>
 
-export type InstructionsLoadedDecisionMethods = Skip<DebugMessage, InstructionsLoadedResult>
+export type InstructionsLoadedDecisionMethods = Skip<
+  EventSkipOptsMap['InstructionsLoaded'],
+  InstructionsLoadedResult
+>
 
-export type NotificationDecisionMethods = Skip<InjectContext, NotificationResult>
+export type NotificationDecisionMethods = Skip<EventSkipOptsMap['Notification'], NotificationResult>
 
-export type SubagentStartDecisionMethods = Skip<InjectContext, SubagentStartResult>
+export type SubagentStartDecisionMethods = Skip<
+  EventSkipOptsMap['SubagentStart'],
+  SubagentStartResult
+>
 
-export type WorktreeRemoveDecisionMethods = Skip<DebugMessage, WorktreeRemoveResult>
+export type WorktreeRemoveDecisionMethods = Skip<
+  EventSkipOptsMap['WorktreeRemove'],
+  WorktreeRemoveResult
+>
 
-export type PostCompactDecisionMethods = Skip<DebugMessage, PostCompactResult>
+export type PostCompactDecisionMethods = Skip<EventSkipOptsMap['PostCompact'], PostCompactResult>
 
 /**
  * Output is dropped upstream. `skip` exists for API uniformity — your handler
  * runs for side-effects (logging, alerting) only.
  */
-export type StopFailureDecisionMethods = Skip<DebugMessage, StopFailureResult>
+export type StopFailureDecisionMethods = Skip<EventSkipOptsMap['StopFailure'], StopFailureResult>
 
 /**
  * Hooks REPLACE Claude Code's default `git worktree` behavior.
@@ -109,7 +120,7 @@ export type WorktreeCreateDecisionMethods = Success<Path, WorktreeCreateResult> 
  */
 export type TeammateIdleDecisionMethods = Continue<Feedback, TeammateIdleResult> &
   Stop<Reason, TeammateIdleResult> &
-  Skip<DebugMessage, TeammateIdleResult>
+  Skip<EventSkipOptsMap['TeammateIdle'], TeammateIdleResult>
 
 /**
  * - `continue({ feedback })` — refuse to create the task; `feedback` is sent
@@ -118,7 +129,7 @@ export type TeammateIdleDecisionMethods = Continue<Feedback, TeammateIdleResult>
  */
 export type TaskCreatedDecisionMethods = Continue<Feedback, TaskCreatedResult> &
   Stop<Reason, TaskCreatedResult> &
-  Skip<DebugMessage, TaskCreatedResult>
+  Skip<EventSkipOptsMap['TaskCreated'], TaskCreatedResult>
 
 /**
  * - `continue({ feedback })` — refuse to mark the task complete; `feedback` is
@@ -127,4 +138,4 @@ export type TaskCreatedDecisionMethods = Continue<Feedback, TaskCreatedResult> &
  */
 export type TaskCompletedDecisionMethods = Continue<Feedback, TaskCompletedResult> &
   Stop<Reason, TaskCompletedResult> &
-  Skip<DebugMessage, TaskCompletedResult>
+  Skip<EventSkipOptsMap['TaskCompleted'], TaskCompletedResult>

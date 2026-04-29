@@ -33,15 +33,25 @@ All lifecycle types live in `src/types/lifecycle.ts` and are re-exported from `s
 | `clooksVersion` | `string` | Runtime version string |
 | `configPath` | `string` | Path to the `clooks.yml` that registered this hook |
 
-**`BeforeHookEvent`** — Discriminated union for `beforeHook`. Narrows `event.input` by `event.type`. Carries three universal constructor methods (same shape regardless of `type`):
+**`BeforeHookEvent`** — Discriminated union for `beforeHook`. Narrows `event.input` by `event.type`. Carries three constructor methods (`block` and `skip` narrow per event via the opts maps below; `passthrough` is universal):
 
 | Method | Signature | Returns |
 |--------|-----------|---------|
-| `event.block(opts)` | `(opts: BlockOpts) => BlockResult` | Short-circuits the hook with a block decision |
-| `event.skip(opts?)` | `(opts?: SkipOpts) => SkipResult` | Makes the hook invisible — handler and afterHook do NOT run |
+| `event.block(opts)` | `(opts: LifecycleBlockOptsMap[K]) => BlockResult` | Short-circuits the hook with a block decision (K = `event.type`) |
+| `event.skip(opts?)` | `(opts?: LifecycleSkipOptsMap[K]) => SkipResult` | Makes the hook invisible — handler and afterHook do NOT run (K = `event.type`) |
 | `event.passthrough(opts?)` | `(opts?: { debugMessage? }) => LifecyclePassthroughResult` | No-op with optional breadcrumb; handler runs |
 
 Returning `void` is equivalent to `event.passthrough()` with no breadcrumb.
+
+**Per-event narrowing.** `LifecycleBlockOptsMap` and `LifecycleSkipOptsMap` (both in `src/types/method-primitives.ts`) gate which opts the lifecycle `block` and `skip` methods accept per event. These are narrower than their ctx-side counterparts (`EventBlockOptsMap` / `EventSkipOptsMap`): lifecycle gates are metadata + communication only; mutations belong on per-event handlers (`ctx.block(...)`, `ctx.skip(...)`). Specifically:
+
+- `updatedMCPToolOutput` (rewriting MCP tool output) is NOT permitted on `event.block` / `event.skip` — use the per-event handler (`ctx.block({ updatedMCPToolOutput: ... })`) instead.
+- `sessionTitle` (renaming the session) is NOT permitted on `event.block` / `event.skip` — use the per-event handler instead.
+- `interrupt` on `PermissionRequest.block` IS permitted — it is a control-flow modifier on the block decision itself, not a content mutation.
+- `injectContext` is permitted on both lifecycle and ctx surfaces wherever the wire honors it (the seven injectable events: `PreToolUse`, `UserPromptSubmit`, `SessionStart`, `PostToolUse`, `PostToolUseFailure`, `Notification`, `SubagentStart`).
+- **Exception — `PreToolUse.skip`:** `LifecycleSkipOptsMap['PreToolUse']` carries only `DebugMessage` (no `injectContext`). The runtime translator at `src/engine/translate.ts` returns early on `PreToolUse.skip` (empty stdout), so `injectContext` is silently dropped on the wire. The type system enforces this on both surfaces.
+
+For example, calling `event.block({ reason, injectContext })` on a `Stop` lifecycle variant is a TypeScript error (`Stop` is not in `INJECTABLE_EVENTS`); calling `event.block({ reason, updatedMCPToolOutput: ... })` on a `PostToolUse` variant is also a TypeScript error (mutation primitives are excluded from the lifecycle surface). The runtime translator in `src/engine/translate.ts` keeps its defensive drops as belt-and-suspenders for JS callers, engine-internal injection paths, and synthetic results in tests.
 
 ```typescript
 // Example: tmux-notifications style centralized environment gate

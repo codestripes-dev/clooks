@@ -89,6 +89,12 @@ The same DU narrowing flows through the **decision methods**: `ctx.allow({ updat
 
 `InjectContext` (`injectContext?: string`) is intersected into per-event result types only where Claude Code's output contract supports `additionalContext`. Not all events support it. The name reflects the field's mapping to upstream Claude Code's `additionalContext` field.
 
+The same gating applies on the lifecycle-wrapper side via `LifecycleBlockOptsMap[K]` and `LifecycleSkipOptsMap[K]` (in `src/types/method-primitives.ts`). A `beforeHook` author cannot return `event.block({ reason, injectContext })` or `event.skip({ injectContext })` on a non-injectable event — TypeScript rejects the call at the field level. The seven `INJECTABLE_EVENTS` (in `src/config/constants.ts`) are the only events whose lifecycle opts and result types both carry `InjectContext`.
+
+One specific exception: `PreToolUse.skip` does NOT accept `injectContext` on either surface — `LifecycleSkipOptsMap['PreToolUse']` and `EventSkipOptsMap['PreToolUse']` carry only `DebugMessage`. The runtime translator at `src/engine/translate.ts` returns early on `PreToolUse.skip` (empty stdout), so `injectContext` is silently dropped on the wire regardless. The type system enforces this gap on both surfaces.
+
+The runtime defensive drop in `src/engine/translate.ts` stays as belt-and-suspenders for JS callers and engine-internal injection paths.
+
 ## PermissionRequest output fields
 
 `PermissionRequestContext` is a **discriminated union on `toolName`** mirroring `PreToolUseContext`. The 10 known arms (`Bash`, `Write`, `Edit`, `Read`, `Glob`, `Grep`, `WebFetch`, `WebSearch`, `Agent`, `AskUserQuestion`) intersect a `PermissionRequestDecisionMethods<ToolInput>` set per variant, so `permCtx.allow({ updatedInput })` types the patch as `Patch<NarrowedToolInput>` after a `permCtx.toolName` discriminant check. `permissionSuggestions?` stays at the outer context level, not per-variant. `UnknownPermissionRequestContext` is the sibling type for unknown tool names (MCP, future upstream tools); cast via `as unknown as UnknownPermissionRequestContext` and the methods type the patch as `Patch<Record<string, unknown>>`.

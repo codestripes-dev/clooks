@@ -20,20 +20,29 @@ import type {
   LifecyclePassthroughResult,
 } from '../types'
 import type {
-  BlockOpts,
   DebugMessage,
   InjectContext,
+  Interrupt,
+  Reason,
   SessionTitle,
-  SkipOpts,
+  UpdatedMcpToolOutput,
   UpdatedPermissions,
 } from '../types'
-
-export type { BlockOpts, SkipOpts }
 
 // --- Per-result-tag pure constructors ---
 //
 // Each constructor mirrors the corresponding result type from `src/types/results.ts`.
 // The opts bag is spread onto a literal-tagged object. No `ctx` access; no closures.
+
+/**
+ * Runtime parameter type is wider than any per-event lifecycle/ctx call site
+ * by design — the runtime spreads {...opts} and never inspects fields. Type-level
+ * narrowing happens at the call sites (BeforeHookEventVariants, *DecisionMethods).
+ */
+type BlockOptsRuntime = Reason &
+  DebugMessage &
+  Partial<InjectContext & Interrupt & UpdatedMcpToolOutput & SessionTitle>
+type SkipOptsRuntime = DebugMessage & Partial<InjectContext & UpdatedMcpToolOutput & SessionTitle>
 
 export interface AllowOpts extends DebugMessage, InjectContext, SessionTitle, UpdatedPermissions {
   reason?: string
@@ -73,7 +82,7 @@ export function ask(opts: AskOpts): AskResult & Record<string, unknown> {
   return { result: 'ask', ...opts }
 }
 
-export function block(opts: BlockOpts): BlockResult & Record<string, unknown> {
+export function block(opts: BlockOptsRuntime): BlockResult & Record<string, unknown> {
   return { result: 'block', ...opts }
 }
 
@@ -81,7 +90,7 @@ export function defer(opts: DeferOpts = {}): DeferResult & Record<string, unknow
   return { result: 'defer', ...opts }
 }
 
-export function skip(opts: SkipOpts = {}): SkipResult & Record<string, unknown> {
+export function skip(opts: SkipOptsRuntime = {}): SkipResult & Record<string, unknown> {
   return { result: 'skip', ...opts }
 }
 
