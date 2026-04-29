@@ -238,7 +238,7 @@ clooks test ./.clooks/hooks/no-rm-rf.ts --input fixture.json
 clooks test ./.clooks/hooks/no-rm-rf.ts --config-json '{"threshold":7}' --input fixture.json
 ```
 
-`clooks test <hook>` emits the decision JSON to stdout; `clooks test example <Event>` is documentation, not JSON. `--config <path>` and `--config-json '<json>'` (mutually exclusive) shallow-merge over `meta.config` defaults so you can exercise non-default `hookConfig` values. See [Hook Author Testing](docs/domain/testing/hook-author-testing.md) for the full guide — JSON shape, exit codes, CI loop pattern, and the [worked example](docs/domain/testing/hook-config-overrides.md) for the override flags.
+`clooks test <hook>` emits the decision JSON to stdout. Exit code: `0` unless the result is `block`/`failure`/`stop` (then `1`). `clooks test example <Event>` prints prose + annotated JSON, not parseable as a fixture.
 
 ### Return values
 
@@ -507,40 +507,39 @@ fast-logger:
 
 ### Lifecycle hooks
 
-`beforeHook` and `afterHook` wrap every event handler in the hook. The
-common use case for `beforeHook` is a shared early-exit check that all
-handlers would otherwise have to repeat — for example, skipping every
-event when the hook isn't applicable to the current environment:
+`beforeHook` and `afterHook` wrap every matched event handler. Both run
+once per handler invocation — a hook with three event handlers gets three
+`beforeHook` / `afterHook` calls per engine run.
 
 ```typescript
 export const hook: ClooksHook = {
   meta: { name: "tmux-notifications" },
 
   beforeHook(event) {
-    // Skip every handler when we're not running inside tmux.
-    if (!process.env.TMUX) {
-      return event.skip()
-    }
+    if (!process.env.TMUX) return event.skip()  // skip all handlers when not in tmux
   },
 
   Notification(ctx) {
-    setTmuxStatus("attention")
+    // set tmux status indicator
     return ctx.skip()
   },
 
   PreToolUse(ctx) {
-    resetTmuxStatus()
+    // reset tmux status indicator
     return ctx.skip()
   },
 }
 ```
 
-`beforeHook` returns one of `event.block({ reason })`, `event.skip()`, or
-`event.passthrough()` (or `void` as a shorthand for `passthrough()`) — a
-returned `block` or `skip` short-circuits the matched handler. `afterHook`
-is observer-only: it runs after the handler returns normally (not on throw),
-reads `event.handlerResult` typed once narrowed on `event.type`, and emits
-side effects (telemetry, logging, timing) without mutating the result.
+**`beforeHook(event, config)`** — runs before each matched handler:
+- `event.block({ reason })` — short-circuit; block the action
+- `event.skip()` — short-circuit; skip the handler (hook is invisible to the agent)
+- `return;` — proceed to the handler; optionally `event.passthrough({ debugMessage })` to surface a debug message in `--debug` output
+
+**`afterHook(event, config)`** — runs after the handler returns. Not called if the handler throws:
+- `event.handlerResult` is typed per event (narrow on `event.type` for full types)
+- Observer-only — cannot mutate the handler result
+- `return;` — completes; optionally `event.passthrough({ debugMessage })` to surface a debug message in `--debug` output
 
 ## Safety
 
@@ -653,6 +652,8 @@ A hook that exceeds its timeout is treated like any other crash — the
 | `clooks new-hook --scope user` | Scaffold a global (user-scope) hook |
 | `clooks types` | Extract / refresh `.clooks/hooks/types.d.ts` |
 | `clooks types --global` | Extract types to `~/.clooks/hooks/` |
+| `clooks test <hook> [flags]` | Run a hook against a JSON fixture event. Flags: `--input <file>` (fixture path; reads stdin if omitted), `--config <path>` / `--config-json '<json>'` (mutually exclusive — shallow-merge over `meta.config` defaults), `--hook-name <name>` (pick entry when `--config` matches multiple hooks) |
+| `clooks test example <Event>` | Print fixture template + field docs for `<Event>` (prose + annotated JSON, not parseable as fixture) |
 
 </details>
 
