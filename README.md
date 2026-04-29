@@ -26,7 +26,7 @@ export const hook: ClooksHook = {
 ```
 
 Typed contexts, structured results, multi-hook composition, and
-fail-closed defaults — all built in.
+safe defaults — all built in.
 
 ## What Clooks gives you
 
@@ -45,12 +45,10 @@ fail-closed defaults — all built in.
 - **Pinned third-party hooks** — Installed marketplace hooks are vendored and
   committed. No silent updates, no supply-chain surprises.
 
-- **Fail-closed by default** — A crashed hook blocks the action, never silently
+- **Errors block by default** — A crashed hook blocks the action, never silently
   passes through. Configurable per hook.
 
 ## Quick Start
-
-If you prefer to use plugins for Claude Code, this is the fastest path:
 
 ```
 claude plugin marketplace add codestripes-dev/clooks-marketplace
@@ -58,29 +56,21 @@ claude plugin install clooks
 claude /clooks:setup
 ```
 
-This will install the clooks binary and set up the current project for clooks.
-You'll be asked if you want to set up global hooks, as well. They live in `~/.clooks`.
-
-You can then install any of the [production packs](#marketplace) from the
+Install any of the [production packs](#marketplace) from the
 [clooks-marketplace](https://github.com/codestripes-dev/clooks-marketplace)
 repo:
 ```
-claude plugin install clooks-core-hooks --scope user  # If you want general-purpose global hooks 
+claude plugin install clooks-core-hooks --scope user  # If you want general-purpose global hooks and installed clooks globally
 claude plugin install clooks-project-hooks --scope project  # If you want general-purpose project hooks
 ```
 Once installed as claude plugins, they'll automatically be sourced by
-`clooks` once any hook runs and added to the corresponding `.clooks/clooks.yml` file (based on scope), where you can enable/disable them and configure their behavior.
+`clooks` once any hook runs and added to the corresponding `.clooks/clooks.yml` file (based on scope).
 
-Prefer to install manually? See [Other install methods](#other-install-methods).
+For manual install, see [Other install methods](#other-install-methods).
 
 ## Marketplace
 
-The Quick Start above installs hooks from
-[clooks-marketplace](https://github.com/codestripes-dev/clooks-marketplace) —
-the runtime plus two production packs (`clooks-core-hooks`, `clooks-project-hooks`)
-and `clooks-example-hooks` — a learning/reference pack, **not for productive use**.
-Browse [clooks-marketplace](https://github.com/codestripes-dev/clooks-marketplace)
-for the full catalog and per-hook configuration.
+Two production packs (`clooks-core-hooks`, `clooks-project-hooks`) plus `clooks-example-hooks` (a learning/reference pack — **not for productive use**).
 
 ### Bring your own marketplace
 
@@ -93,10 +83,6 @@ claude plugin marketplace add my-org/internal-hooks
 claude plugin install <pack-name> --scope project
 ```
 
-The same mechanism lets you ship hooks alongside an open-source project
-(enforce project conventions for contributors), distribute security
-hooks org-wide, or share a personal toolbox across machines.
-
 ### Vendoring & updates
 
 Installed packs are vendored into your repo under `.clooks/vendor/plugin/` and committed. Existing hooks are never updated silently.
@@ -107,7 +93,7 @@ To update hooks after a Claude marketplace plugin updates:
 clooks update plugin:<pack-name>   # e.g., plugin:clooks-core-hooks
 ```
 
-> **Note:** New hooks added to the pack since your last vendor are pulled in and registered automatically. They are enabled by default unless the pack marks them `autoEnable: false`.
+> New hooks added to the pack since your last vendor are pulled in and registered automatically. They are enabled by default unless the pack marks them `autoEnable: false`.
 
 ## Other install methods
 
@@ -145,8 +131,7 @@ clooks init
 
 ### Global (user-wide) setup
 
-In addition to project hooks, you can also configure global hooks that
-apply to every Claude Code session, regardless of project:
+Configure global hooks (apply to every Claude Code session):
 
 ```
 clooks init --global
@@ -155,9 +140,6 @@ clooks init --global
 This creates `~/.clooks/` (mirroring the project layout) and registers
 a global entrypoint in `~/.claude/settings.json`. Project hooks layer
 on top and can override them.
-
-The `/clooks:setup` skill prompts you for this automatically. With the
-prebuilt or source paths, run it manually.
 
 ### What `init` creates
 
@@ -178,15 +160,13 @@ and `.clooks/.failures`.
 ## Write your own hook
 
 A hook is a single TypeScript file in `.clooks/hooks/` that exports a
-`hook` object. Three steps:
+`hook` object.
 
 ### 1. Scaffold the file
 
 ```
 clooks new-hook --name no-rm-rf
 ```
-
-This creates `.clooks/hooks/no-rm-rf.ts` with a starter template.
 
 ### 2. Write the handler
 
@@ -226,19 +206,17 @@ Add the hook name to `.clooks/clooks.yml`:
 no-rm-rf: {}
 ```
 
-Reload Claude Code. Done.
+Clooks hooks are picked up dynamically - no reloading necessary.
 
 ### 4. Test it
 
 Run a hook against a synthetic event without standing up Claude Code:
 
 ```bash
-clooks test example PreToolUse                              # prints a fixture template + field docs
-clooks test ./.clooks/hooks/no-rm-rf.ts --input fixture.json
+clooks test example PreToolUse                              # prints fixture template + field docs (not parseable JSON)
+clooks test ./.clooks/hooks/no-rm-rf.ts --input fixture.json                          # exit 0 unless block/failure/stop (then 1)
 clooks test ./.clooks/hooks/no-rm-rf.ts --config-json '{"threshold":7}' --input fixture.json
 ```
-
-`clooks test <hook>` emits the decision JSON to stdout. Exit code: `0` unless the result is `block`/`failure`/`stop` (then `1`). `clooks test example <Event>` prints prose + annotated JSON, not parseable as a fixture.
 
 ### Return values
 
@@ -267,9 +245,13 @@ Clooks supports most of the same return values as native Claude Code hooks:
 
 ⁵ Does not reverse the denial — the action remains blocked regardless.
 
-Full type definitions live in `.clooks/hooks/types.d.ts` (generated by
-`clooks types`). For event-specific context shapes and the four unsupported
-events, see the [Parity map](#parity-map).
+Full type definitions live in `.clooks/hooks/types.d.ts`. Regenerate with:
+
+```bash
+clooks types
+```
+
+For event-specific context shapes and the four unsupported events, see the [Parity map](#parity-map).
 
 ## Configuration
 
@@ -296,8 +278,7 @@ Merge rules are asymmetric per field — the same three files don't apply the sa
 
 ### Automatic name resolution
 
-Register a hook by its name in `clooks.yml` and Clooks resolves the file
-path automatically:
+Clooks resolves the file path from the key name:
 
 ```yaml
 no-rm-rf: {}
@@ -308,8 +289,7 @@ the YAML key — Clooks rejects the config at load time if they disagree.
 
 ### Custom names with `uses:`
 
-Use `uses:` to register a hook under a different name — useful when you
-want **multiple variations** of the same hook with different configs:
+Use `uses:` to register **multiple variations** of the same hook with different configs:
 
 ```yaml
 log-bash-to-tmp:
@@ -323,8 +303,7 @@ log-bash-to-project:
     logDir: "logs"
 ```
 
-Both entries load the same hook file but run as independent registrations
-with their own configs. `uses:` accepts:
+`uses:` accepts:
 
 - A path (`./...` or `/...`) to load any `.ts` file
 - A bare hook name to alias another registered hook
@@ -387,7 +366,7 @@ Two independent cascades.
 
 ### Disabling a hook
 
-Add `enabled: false` to the hook entry — typically in `clooks.local.yml` so the disable is local to your machine.
+Add `enabled: false` to the hook entry — typically in `clooks.local.yml`.
 
 ```yaml
 no-rm-rf:
@@ -543,13 +522,9 @@ export const hook: ClooksHook = {
 
 ## Safety
 
-### Fail-closed by default
+### Errors block by default
 
-Clooks relies on hooks being correctly configured to keep an AI agent in
-check. Any error path therefore blocks the action by default — a hook
-that crashes, misbehaves, or returns garbage must not silently let the
-agent through, since that's exactly the situation a hook was supposed
-to catch.
+Any error path blocks the action by default.
 
 | Scenario | Default behavior |
 |----------|-----------------|
@@ -591,14 +566,12 @@ at runtime with a warning.
 
 ### Circuit breaker
 
-After repeated consecutive failures, a hook is automatically disabled
-rather than repeatedly blocking work:
+After repeated consecutive failures, a hook is automatically disabled:
 
 ```
 Failure 1/3 → block, record
 Failure 2/3 → block, record
 Failure 3/3 → disable hook, allow action, show warning
-             (stays disabled until a successful run resets the counter)
 ```
 
 Tune via `maxFailures` (default `3`). Set `maxFailures: 0` to disable
@@ -747,9 +720,8 @@ bun run test:e2e:run -- test/e2e/smoke.e2e.test.ts   # Single test file
 ```
 
 The Docker image contains only the base environment (Bun, deps, testuser).
-Source and tests are bind-mounted at runtime, so `test:e2e:run` picks up
-changes instantly without a rebuild. Only run `test:e2e:build` when
-dependencies change.
+Source and tests are bind-mounted at runtime; rebuild only when dependencies
+change.
 
 </details>
 
