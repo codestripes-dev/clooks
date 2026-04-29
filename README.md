@@ -226,7 +226,7 @@ clooks test ./.clooks/hooks/no-rm-rf.ts --input fixture.json
 clooks test ./.clooks/hooks/no-rm-rf.ts --config-json '{"threshold":7}' --input fixture.json
 ```
 
-`clooks test <hook>` emits the decision JSON to stdout (pipe to `jq`); `clooks test example <Event>` is documentation, not JSON. `--config <path>` and `--config-json '<json>'` (mutually exclusive) shallow-merge over `meta.config` defaults so you can exercise non-default `hookConfig` values. See [Hook Author Testing](docs/domain/testing/hook-author-testing.md) for the full guide — JSON shape, exit codes, CI loop pattern, and the [worked example](docs/domain/testing/hook-config-overrides.md) for the override flags.
+`clooks test <hook>` emits the decision JSON to stdout; `clooks test example <Event>` is documentation, not JSON. `--config <path>` and `--config-json '<json>'` (mutually exclusive) shallow-merge over `meta.config` defaults so you can exercise non-default `hookConfig` values. See [Hook Author Testing](docs/domain/testing/hook-author-testing.md) for the full guide — JSON shape, exit codes, CI loop pattern, and the [worked example](docs/domain/testing/hook-config-overrides.md) for the override flags.
 
 ### Return values
 

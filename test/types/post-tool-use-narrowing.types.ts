@@ -1,9 +1,8 @@
-// PLAN-FEAT-0064D M4 type-narrowing regression checks for the new
-// PostToolUse / PostToolUseFailure discriminated unions.
+// Type-narrowing regression checks for the PostToolUse / PostToolUseFailure
+// discriminated unions.
 //
-// `PostToolUseContext` and `PostToolUseFailureContext` were promoted from
-// flat record types to discriminated unions over the 10 known tool names in
-// PLAN-FEAT-0064D, mirroring `PreToolUseContext` and
+// `PostToolUseContext` and `PostToolUseFailureContext` are discriminated
+// unions over the 10 known tool names, mirroring `PreToolUseContext` and
 // `PermissionRequestContext`. These tests assert that narrowing on
 // `ctx.toolName` produces the typed `ctx.toolInput` shape, and that the
 // per-arm decision methods are present post-narrowing.
@@ -16,8 +15,8 @@
 // Stanzas:
 //   (a) PostToolUse Bash arm — `ctx.toolInput.command` typed `string`;
 //       a Write-only field is rejected; `toolResponse: unknown` reachable
-//       at the prefix; `originalToolInput` is NOT present (Plan D regression
-//       gate).
+//       at the prefix; `originalToolInput` is NOT present (regression gate
+//       — upstream Claude Code does not send this field on Post* events).
 //   (b) PostToolUse Write arm — `ctx.toolInput.filePath` typed `string`;
 //       a Bash-only field is rejected.
 //   (c) PostToolUse — `ctx.skip()` and `ctx.block({ reason })` available
@@ -26,7 +25,7 @@
 //   (d) PostToolUseFailure Bash arm — `ctx.toolInput.command` typed
 //       `string`; `ctx.error` typed `string` at the prefix; foreign field
 //       rejected; `block` is NOT a method (only `skip` is defined);
-//       `originalToolInput` is NOT present (Plan D regression gate).
+//       `originalToolInput` is NOT present (regression gate).
 //   (e) PostToolUseFailure Write arm — foreign Bash field rejected.
 //   (f) PostToolUseFailure — `ctx.skip()` available post-narrowing.
 //   (g) UnknownPostToolUseContext — type-level shape assertions; methods
@@ -48,8 +47,8 @@ declare const unknownFailCtx: UnknownPostToolUseFailureContext
 
 // (a) PostToolUse: Bash arm — `command` typed string; foreign Write field rejected;
 //     `toolResponse: unknown` is reachable on every narrowed arm; `originalToolInput`
-//     is NOT present (Plan D dropped it — upstream Claude Code does not send this
-//     field on Post* events; only Pre* via ToolVariantWithOriginal). Regression gate.
+//     is NOT present (upstream Claude Code does not send this field on Post*
+//     events; only Pre* carries it via ToolVariantWithOriginal). Regression gate.
 if (ctx.toolName === 'Bash') {
   const _cmd: string = ctx.toolInput.command
   void _cmd
@@ -97,7 +96,7 @@ if (ctx.toolName === 'Write') {
 
 // (d) PostToolUseFailure: Bash arm — typed input + `error: string` prefix;
 //     `block` is NOT a method on PostToolUseFailureDecisionMethods (only `skip`
-//     is declared); `originalToolInput` is NOT present (Plan D regression gate).
+//     is declared); `originalToolInput` is NOT present (regression gate).
 if (failCtx.toolName === 'Bash') {
   const _cmd: string = failCtx.toolInput.command
   const _err: string = failCtx.error

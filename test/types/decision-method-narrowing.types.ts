@@ -1,4 +1,4 @@
-// FEAT-0063 M2 type-narrowing regression checks.
+// Type-narrowing regression checks for the decision-method DU.
 //
 // The `@ts-expect-error` directives below MUST fire — if they don't, the type
 // system has weakened and `Patch<T>` / DU narrowing has regressed.
@@ -53,10 +53,9 @@ if (permCtx.toolName === 'Bash') {
 }
 
 // (f) `createContext` payload tightening regression check.
-//     Verifies `CreateContextPayload<E>` tightening — was `Partial<...>` in
-//     M1, tightened to `Omit<EventContext, BaseDefaultedKeys |
-//     DecisionMethodKeys>` in M3. Excess-property checks must reject keys
-//     that are not on the per-event payload type.
+//     Verifies `CreateContextPayload<E>` is `Omit<EventContext,
+//     BaseDefaultedKeys | DecisionMethodKeys>`. Excess-property checks must
+//     reject keys that are not on the per-event payload type.
 import { createContext } from '../../src/testing/create-context.js'
 
 // Stop's payload accepts `stopHookActive` and `lastAssistantMessage`. A key
@@ -65,7 +64,7 @@ import { createContext } from '../../src/testing/create-context.js'
 createContext('Stop', { unrelatedKey: 'x', stopHookActive: false, lastAssistantMessage: '' })
 
 // WorktreeCreate's payload requires `name: string` only. Extra keys are
-// rejected by the excess-property check that the M3 `Omit<...>` form enables.
+// rejected by the excess-property check that the `Omit<...>` form enables.
 // @ts-expect-error — `someOtherKey` is not a key on the WorktreeCreate payload
 createContext('WorktreeCreate', { name: 'x', someOtherKey: 1 })
 

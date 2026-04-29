@@ -1,4 +1,4 @@
-// FEAT-0064 M3 acceptance-gate test.
+// Acceptance-gate test for decision-method shape coverage.
 //
 // Coverage is allocated per *primitive shape × opts-bag combination actually in
 // use* across the 22 events (~12-15 unique combos). For each method-shape
@@ -12,7 +12,7 @@
 //
 // Run via `bun run typecheck`. The expect-error directives are the gate:
 // if any directive does NOT fire, `tsc --noEmit` reports "unused
-// ts-expect-error" and this milestone fails.
+// ts-expect-error" and this gate fails.
 
 import type {
   PreToolUseContext,
