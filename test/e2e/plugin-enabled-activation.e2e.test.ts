@@ -687,6 +687,59 @@ describe('plugin-enabled-activation', () => {
     expect(sysMsg).toContain('clooks.local.yml')
   })
 
+  test('E2E-M4-1b. Stale-registration advisory collapses by (scope, plugin)', () => {
+    sandbox = createSandbox()
+    sandbox.writeHomeConfig('version: "1.0.0"\n')
+
+    // Three hooks under one un-enabled plugin should produce a single collapsed
+    // advisory, not three separate ones.
+    setupPluginWithEnable(sandbox, {
+      pluginKey: 'm4multi@mp',
+      packName: 'm4multi',
+      installRecordScope: 'user',
+      enable: {},
+      hooks: {
+        'multi-a': {
+          path: 'hooks/multi-a.ts',
+          description: 'Multi A',
+          code: HOOK_CODE('multi-a', 'multi-a-ran'),
+        },
+        'multi-b': {
+          path: 'hooks/multi-b.ts',
+          description: 'Multi B',
+          code: HOOK_CODE('multi-b', 'multi-b-ran'),
+        },
+        'multi-c': {
+          path: 'hooks/multi-c.ts',
+          description: 'Multi C',
+          code: HOOK_CODE('multi-c', 'multi-c-ran'),
+        },
+      },
+    })
+    seedVendoredEntry(sandbox, 'home', 'm4multi', 'multi-a')
+    seedVendoredEntry(sandbox, 'home', 'm4multi', 'multi-b')
+    seedVendoredEntry(sandbox, 'home', 'm4multi', 'multi-c')
+
+    const result = sandbox.run([], { stdin: loadEvent('session-start.json') })
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout.length).toBeGreaterThan(0)
+    const sysMsg: string = JSON.parse(result.stdout).systemMessage ?? ''
+
+    // One header line, not three.
+    const headerMatches = sysMsg.match(/clooks: \d+ hooks from plugin m4multi@mp/g) ?? []
+    expect(headerMatches.length).toBe(1)
+    expect(sysMsg).toContain('3 hooks from plugin m4multi@mp')
+    // All hook names listed in the collapsed message.
+    expect(sysMsg).toContain('multi-a')
+    expect(sysMsg).toContain('multi-b')
+    expect(sysMsg).toContain('multi-c')
+    // Remediation guidance survives the collapse.
+    expect(sysMsg).toContain('clooks.local.yml')
+    expect(sysMsg).toContain('enabled: false')
+    // Per-hook header line MUST NOT appear when collapsed.
+    expect(sysMsg).not.toContain('hook "multi-a" (from plugin')
+  })
+
   test('E2E-M4-2. Enable-without-install advisory on SessionStart', () => {
     sandbox = createSandbox()
     sandbox.writeHomeConfig('version: "1.0.0"\n')

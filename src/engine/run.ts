@@ -42,36 +42,79 @@ const CONFIG_ERROR_HOOK = '__config__' as HookName
 const CONFIG_ERROR_EVENT = '__parse__' as EventName
 
 /**
- * Render a StaleAdvisory as a user-facing `systemMessage` line.
+ * Render advisories as user-facing `systemMessage` lines.
+ *
+ * Stale-registration advisories that share the same (scope, pluginKey) are
+ * coalesced into a single message so a project that registers N hooks from
+ * one un-enabled plugin produces one warning, not N. Enable-without-install
+ * advisories are already keyed per (scope, pluginKey) by the detector.
+ *
  * Paths are taken from the live homeRoot / projectRoot so a user with
  * CLOOKS_HOME_ROOT overridden sees the correct paths.
  */
-function formatAdvisory(
-  a: StaleAdvisory,
+function formatAdvisories(
+  advisories: StaleAdvisory[],
   roots: { homeRoot: string; projectRoot: string },
-): string {
-  const scopeYmlPath =
-    a.scope === 'user'
+): string[] {
+  const scopeYmlPath = (scope: StaleAdvisory['scope']): string =>
+    scope === 'user'
       ? join(roots.homeRoot, '.clooks/clooks.yml')
-      : a.scope === 'project'
+      : scope === 'project'
         ? join(roots.projectRoot, '.clooks/clooks.yml')
         : join(roots.projectRoot, '.clooks/clooks.local.yml')
   const localOverridePath = join(roots.projectRoot, '.clooks/clooks.local.yml')
-  if (a.kind === 'stale-registration') {
-    return (
-      `clooks: hook "${a.hookName}" (from plugin ${a.pluginKey}) is registered in ${scopeYmlPath} ` +
-      `but the plugin is not enabled at ${a.scope} scope in Claude settings. ` +
-      `To stop this hook from running in the current project, add to ${localOverridePath}:\n` +
-      `  ${a.hookName}:\n    enabled: false\n` +
-      `To remove it entirely, delete the ${a.hookName} entry from ${scopeYmlPath}.`
+
+  // Group stale-registration by (scope, pluginKey); pass enable-without-install through.
+  const groups = new Map<string, StaleAdvisory[]>()
+  const passthrough: StaleAdvisory[] = []
+  for (const a of advisories) {
+    if (a.kind === 'stale-registration') {
+      const key = `${a.scope}::${a.pluginKey}`
+      const arr = groups.get(key)
+      if (arr) arr.push(a)
+      else groups.set(key, [a])
+    } else {
+      passthrough.push(a)
+    }
+  }
+
+  const out: string[] = []
+
+  for (const group of groups.values()) {
+    const first = group[0]!
+    const ymlPath = scopeYmlPath(first.scope)
+    const hooks = group.map((a) => a.hookName!).filter(Boolean)
+    if (hooks.length === 1) {
+      const name = hooks[0]!
+      out.push(
+        `clooks: hook "${name}" (from plugin ${first.pluginKey}) is registered in ${ymlPath} ` +
+          `but the plugin is not enabled at ${first.scope} scope in Claude settings. ` +
+          `To stop this hook from running in the current project, add to ${localOverridePath}:\n` +
+          `  ${name}:\n    enabled: false\n` +
+          `To remove it entirely, delete the ${name} entry from ${ymlPath}.`,
+      )
+      continue
+    }
+    out.push(
+      `clooks: ${hooks.length} hooks from plugin ${first.pluginKey} are registered in ${ymlPath} ` +
+        `but the plugin is not enabled at ${first.scope} scope in Claude settings.\n` +
+        `  Hooks: ${hooks.join(', ')}\n` +
+        `  Fix: enable ${first.pluginKey} at ${first.scope} scope (Claude /plugin), ` +
+        `or remove these entries from ${ymlPath}.\n` +
+        `  To silence individually, add \`<hook>: { enabled: false }\` in ${localOverridePath}.`,
     )
   }
-  return (
-    `clooks: plugin ${a.pluginKey} is enabled at ${a.scope} scope in Claude settings ` +
-    `but no install record exists on disk. ` +
-    `Run /plugin install ${a.pluginKey} to install it, ` +
-    `or remove the ${a.pluginKey} entry from ${a.scope} Claude settings.`
-  )
+
+  for (const a of passthrough) {
+    out.push(
+      `clooks: plugin ${a.pluginKey} is enabled at ${a.scope} scope in Claude settings ` +
+        `but no install record exists on disk. ` +
+        `Run /plugin install ${a.pluginKey} to install it, ` +
+        `or remove the ${a.pluginKey} entry from ${a.scope} Claude settings.`,
+    )
+  }
+
+  return out
 }
 
 export const defaultDeps: RunEngineDeps = {
@@ -298,8 +341,8 @@ export async function runEngine(deps: RunEngineDeps = defaultDeps): Promise<void
           local: () => readVendoredPluginEntries(join(projectRoot, '.clooks', 'clooks.local.yml')),
         },
       })
-      for (const a of advisories) {
-        pluginSystemMessages.push(formatAdvisory(a, { homeRoot, projectRoot }))
+      for (const msg of formatAdvisories(advisories, { homeRoot, projectRoot })) {
+        pluginSystemMessages.push(msg)
       }
     }
 
