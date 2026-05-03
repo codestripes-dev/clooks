@@ -8,6 +8,7 @@ import type { LoadConfigResult } from '../config/index.js'
 import { loadAllHooks } from '../loader.js'
 import { INJECTABLE_EVENTS, NOTIFY_ONLY_EVENTS, isEventName } from '../config/constants.js'
 import { DEFAULT_MAX_FAILURES } from '../config/constants.js'
+import type { MatchContext } from './matcher.js'
 import {
   getFailurePath,
   readFailures,
@@ -29,7 +30,7 @@ import {
 import type { StaleAdvisory } from '../claude-settings.js'
 import type { RunEngineDeps } from './types.js'
 import { EXIT_OK, EXIT_STDERR } from './types.js'
-import { matchHooksForEvent, buildShadowWarnings } from './match.js'
+import { matchHooksForEvent, filterByMatcher, buildShadowWarnings } from './match.js'
 import { executeHooks } from './execute.js'
 import { translateResult } from './translate.js'
 
@@ -367,8 +368,29 @@ export async function runEngine(deps: RunEngineDeps = defaultDeps): Promise<void
       process.exit(EXIT_OK)
     }
 
+    // --- Normalize payload ---
+    const normalized = normalizeKeys(payload)
+    normalized.event = normalized.hookEventName
+    delete normalized.hookEventName
+    if (eventName === 'PermissionDenied') {
+      normalized.denialReason = normalized.reason
+      delete normalized.reason
+    }
+
+    // --- Build MatchContext for matcher filtering ---
+    const matchContext: MatchContext = {
+      event: eventName,
+      toolName: normalized.toolName as string | undefined,
+      toolInput: normalized.toolInput as Record<string, unknown> | undefined,
+      prompt: normalized.prompt as string | undefined,
+    }
+
     // --- Match hooks for this event ---
-    const { matched, disabledSkips } = matchHooksForEvent(hooks, eventName, config)
+    let matchResult = matchHooksForEvent(hooks, eventName, config)
+
+    // --- Filter by matcher patterns ---
+    matchResult = filterByMatcher(matchResult, eventName, matchContext, config, debug)
+    const { matched, disabledSkips } = matchResult
 
     if (debug) {
       for (const skip of disabledSkips) {
@@ -420,6 +442,21 @@ export async function runEngine(deps: RunEngineDeps = defaultDeps): Promise<void
       }
     }
 
+    // --- Startup validation: warn about hook-level trace on non-injectable events ---
+    for (const loaded of hooks) {
+      const hookEntry = config.hooks[loaded.name]
+      if (hookEntry?.onError === 'trace' && !INJECTABLE_EVENTS.has(eventName)) {
+        const handlesEvent =
+          typeof (loaded.hook as unknown as Record<string, unknown>)[eventName] === 'function'
+        if (handlesEvent) {
+          startupWarnings.push(
+            `Hook "${loaded.name}" has onError: "trace" but ${eventName} ` +
+              `does not support additionalContext. Trace will fall back to "continue" for ${eventName}.`,
+          )
+        }
+      }
+    }
+
     if (matched.length === 0 && loadErrors.length === 0) {
       const earlyMessages = [...pluginSystemMessages, ...danglingWarnings, ...startupWarnings]
       if (earlyMessages.length > 0) {
@@ -439,30 +476,6 @@ export async function runEngine(deps: RunEngineDeps = defaultDeps): Promise<void
         }
       }
       process.exit(EXIT_OK)
-    }
-
-    // --- Normalize payload ---
-    const normalized = normalizeKeys(payload)
-    normalized.event = normalized.hookEventName
-    delete normalized.hookEventName
-    if (eventName === 'PermissionDenied') {
-      normalized.denialReason = normalized.reason
-      delete normalized.reason
-    }
-
-    // --- Startup validation: warn about hook-level trace on non-injectable events ---
-    for (const loaded of hooks) {
-      const hookEntry = config.hooks[loaded.name]
-      if (hookEntry?.onError === 'trace' && !INJECTABLE_EVENTS.has(eventName)) {
-        const handlesEvent =
-          typeof (loaded.hook as unknown as Record<string, unknown>)[eventName] === 'function'
-        if (handlesEvent) {
-          startupWarnings.push(
-            `Hook "${loaded.name}" has onError: "trace" but ${eventName} ` +
-              `does not support additionalContext. Trace will fall back to "continue" for ${eventName}.`,
-          )
-        }
-      }
     }
 
     // --- Execute hooks with circuit breaker ---
