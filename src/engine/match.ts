@@ -1,6 +1,7 @@
 import type { EventName, HookName } from '../types/branded.js'
-import type { ClooksConfig } from '../config/schema.js'
+import type { ClooksConfig, Matcher } from '../config/schema.js'
 import type { LoadedHook } from '../loader.js'
+import { matchesContext, type MatchContext } from './matcher.js'
 
 /**
  * Result of matching hooks for an event: the matched hooks plus any hooks
@@ -52,6 +53,72 @@ export function matchHooksForEvent(
   }
 
   return { matched, disabledSkips }
+}
+
+/**
+ * Resolves the effective matcher for a hook+event pair.
+ * Per-event matcher overrides per-hook matcher.
+ */
+function resolveMatcher(
+  hookName: HookName,
+  eventName: EventName,
+  config: ClooksConfig,
+): Matcher | undefined {
+  const hookEntry = config.hooks[hookName]
+  if (!hookEntry) return undefined
+
+  // Per-event matcher takes precedence
+  const eventMatcher = hookEntry.events?.[eventName]?.matcher
+  if (eventMatcher) return eventMatcher
+
+  // Fall back to hook-level matcher
+  return hookEntry.matcher
+}
+
+/**
+ * Filters matched hooks by their matcher patterns against the event context.
+ * Hooks whose matcher does not match are removed from the matched set.
+ * If CLOOKS_DEBUG is set, debug messages are emitted for skipped hooks.
+ *
+ * Returns the filtered match result with matcher-skipped hooks added to disabledSkips.
+ */
+export function filterByMatcher(
+  result: MatchResult,
+  eventName: EventName,
+  context: MatchContext,
+  config: ClooksConfig,
+  debug: boolean,
+): MatchResult {
+  const filtered: LoadedHook[] = []
+  const { matched, disabledSkips } = result
+
+  for (const h of matched) {
+    const matcher = resolveMatcher(h.name, eventName, config)
+    if (!matcher) {
+      // No matcher — hook passes through
+      filtered.push(h)
+      continue
+    }
+
+    const didMatch = matchesContext(matcher, context)
+    if (didMatch) {
+      filtered.push(h)
+    } else if (debug) {
+      const matchLogic = matcher.matchLogic ?? 'and'
+      const conditions = []
+      if (matcher.command) conditions.push(`command:/${matcher.command}/`)
+      if (matcher.tool) conditions.push(`tool:${matcher.tool}`)
+      if (matcher.file) conditions.push(`file:${matcher.file}`)
+      if (matcher.prompt) conditions.push(`prompt:/${matcher.prompt}/`)
+      disabledSkips.push({
+        hook: h.name,
+        reason: `hook "${h.name}" did not match (matchLogic: ${matchLogic}, conditions: ${conditions.join(', ')})`,
+      })
+    }
+    // If not debug mode and no match, silently skip (no log entry)
+  }
+
+  return { matched: filtered, disabledSkips }
 }
 
 /**
