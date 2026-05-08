@@ -34,7 +34,6 @@ import { createNewHookCommand } from './new-hook.js'
 import os from 'os'
 
 let tempDir: string
-let originalCwd: () => string
 let exitSpy: ReturnType<typeof spyOn>
 let stdoutSpy: ReturnType<typeof spyOn>
 
@@ -42,14 +41,12 @@ function createTestProgram() {
   const program = new Command()
   program.exitOverride()
   program.option('--json', 'JSON output')
-  program.addCommand(createNewHookCommand())
+  program.addCommand(createNewHookCommand(() => Promise.resolve(tempDir)))
   return program
 }
 
 beforeEach(() => {
   tempDir = mkdtempSync(join(tmpdir(), 'clooks-new-hook-test-'))
-  originalCwd = process.cwd
-  process.cwd = () => tempDir
   exitSpy = spyOn(process, 'exit').mockImplementation((() => {
     throw new Error('process.exit called')
   }) as () => never)
@@ -57,7 +54,6 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  process.cwd = originalCwd
   exitSpy.mockRestore()
   stdoutSpy.mockRestore()
   if (tempDir) {

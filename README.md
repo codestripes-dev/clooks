@@ -256,6 +256,8 @@ For event-specific context shapes and the four unsupported events, see the [Pari
 
 ## Configuration
 
+Clooks finds the project's `.clooks/clooks.yml` by walking up parent directories from the current working directory, the same way `git`, `tsc`, and `prettier` find their config — anchored on `$CLAUDE_PROJECT_DIR` so an agent that changes cwd cannot bypass project hooks. Use `CLOOKS_PROJECT_ROOT=/path` to override unconditionally.
+
 Clooks reads three config files, merged at load time:
 
 | Layer | Path | Committed? | Purpose |
@@ -691,6 +693,7 @@ Hook results may include `debugMessage: "..."` — surfaced to stderr when `CLOO
 | `CLOOKS_DEBUG=true` | Enable debug logging — stderr output + JSON request dumps to `CLOOKS_LOGDIR` |
 | `CLOOKS_LOGDIR=/path` | Directory for `CLOOKS_DEBUG` JSON dumps (default: `/tmp/clooks-debug`) |
 | `CLOOKS_HOME_ROOT=/path` | Override the home directory used for config resolution (mostly for tests) |
+| `CLOOKS_PROJECT_ROOT=/path` | Skip discovery and treat `/path` as the project root unconditionally |
 | `CLOOKS_SILENCE_STALE_PLUGIN_ADVISORIES=true` | Suppress plugin drift advisories on `SessionStart` |
 
 </details>

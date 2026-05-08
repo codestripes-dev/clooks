@@ -41,12 +41,6 @@ mock.module('../platform.js', () => ({
   },
 }))
 
-// Mock git.js so getGitRoot() returns null (temp dirs are not git repos).
-// This prevents resolveScopeRoot from finding the real repo's .clooks/clooks.yml.
-mock.module('../git.js', () => ({
-  getGitRoot: () => Promise.resolve(null),
-}))
-
 // Import after mocking
 import { createAddCommand } from './add.js'
 
@@ -75,7 +69,6 @@ const VALID_MANIFEST = {
 
 let tempDir: string
 let fakeHomeDir: string
-let originalCwd: () => string
 let exitSpy: ReturnType<typeof spyOn>
 let stdoutSpy: ReturnType<typeof spyOn>
 let originalFetch: typeof globalThis.fetch
@@ -89,7 +82,7 @@ function createTestProgram() {
   const program = new Command()
   program.exitOverride()
   program.option('--json', 'JSON output')
-  program.addCommand(createAddCommand())
+  program.addCommand(createAddCommand(() => Promise.resolve(tempDir)))
   return program
 }
 
@@ -190,8 +183,6 @@ beforeEach(() => {
   mkdirSync(fakeHomeDir, { recursive: true })
   setMockHomeDir(fakeHomeDir)
 
-  originalCwd = process.cwd
-  process.cwd = () => tempDir
   exitSpy = spyOn(process, 'exit').mockImplementation((() => {
     throw new Error('process.exit called')
   }) as () => never)
@@ -206,7 +197,6 @@ beforeEach(() => {
 
 afterEach(() => {
   _mockHomeDirValue = null
-  process.cwd = originalCwd
   exitSpy.mockRestore()
   stdoutSpy.mockRestore()
   globalThis.fetch = originalFetch

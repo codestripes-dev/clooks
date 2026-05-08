@@ -4,6 +4,7 @@ import type { loadConfig } from '../config/index.js'
 import type { loadAllHooks } from '../loader.js'
 import type { discoverPluginPacks } from '../plugin-discovery.js'
 import type { vendorAndRegisterPack } from '../plugin-vendor.js'
+import type { discoverProjectRoot } from '../config/discovery.js'
 
 /** Typed result object used within the engine after the hook return boundary. */
 export interface EngineResult {
@@ -50,4 +51,5 @@ export interface RunEngineDeps {
   readStdin: () => Promise<unknown>
   discoverPluginPacks?: typeof discoverPluginPacks
   vendorAndRegisterPack?: typeof vendorAndRegisterPack
+  discoverProjectRoot?: typeof discoverProjectRoot
 }

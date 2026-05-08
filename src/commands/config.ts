@@ -3,6 +3,8 @@ import { existsSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
 import { loadConfig as defaultLoadConfig } from '../config/index.js'
+import { discoverProjectRoot } from '../config/discovery.js'
+import type { DiscoveryResult } from '../config/discovery.js'
 import type { LoadConfigResult, LoadConfigOptions } from '../config/index.js'
 import { parseYamlFile } from '../config/parse.js'
 import { classifyConfigKeys } from '../config/classify.js'
@@ -64,6 +66,8 @@ interface ResolvedOutput {
   fields: ResolvedField[]
   hooks: ResolvedHook[]
   events: ResolvedEvent[]
+  projectRoot: string
+  discovery: DiscoveryResult
 }
 
 /**
@@ -73,6 +77,7 @@ interface ResolvedOutput {
 async function buildResolved(
   projectRoot: string,
   homeRoot: string,
+  discovery: DiscoveryResult,
 ): Promise<ResolvedOutput | null> {
   const homePath = join(homeRoot, '.clooks', 'clooks.yml')
   const projectPath = join(projectRoot, '.clooks', 'clooks.yml')
@@ -349,7 +354,7 @@ async function buildResolved(
     }
   }
 
-  return { fields, hooks, events }
+  return { fields, hooks, events, projectRoot, discovery }
 }
 
 function formatValue(val: unknown): string {
@@ -361,6 +366,17 @@ function formatValue(val: unknown): string {
 
 function formatHumanResolved(resolved: ResolvedOutput): string {
   const lines: string[] = []
+
+  // Discovery header — one line showing how the project root was found.
+  const { signal, from, checked, boundary, boundaryPath } = resolved.discovery
+  lines.push(`Project root: ${resolved.projectRoot} (via ${signal} from ${from})`)
+  if ((signal === 'walk-up' || signal === 'claude-project-dir') && checked && checked.length > 0) {
+    lines.push(`  checked: [${checked.join(', ')}]`)
+    if (boundary && boundaryPath) {
+      lines.push(`  boundary: ${boundary} at ${boundaryPath}`)
+    }
+  }
+  lines.push('')
 
   for (const field of resolved.fields) {
     lines.push(`${field.key}: ${formatValue(field.effectiveValue)}`)
@@ -437,7 +453,18 @@ function formatHumanResolved(resolved: ResolvedOutput): string {
 }
 
 function buildJsonResolved(resolved: ResolvedOutput): Record<string, unknown> {
-  const result: Record<string, unknown> = {}
+  const result: Record<string, unknown> = {
+    projectRoot: resolved.projectRoot,
+    discovery: {
+      signal: resolved.discovery.signal,
+      from: resolved.discovery.from,
+      ...(resolved.discovery.checked !== undefined && { checked: resolved.discovery.checked }),
+      ...(resolved.discovery.boundary !== undefined && { boundary: resolved.discovery.boundary }),
+      ...(resolved.discovery.boundaryPath !== undefined && {
+        boundaryPath: resolved.discovery.boundaryPath,
+      }),
+    },
+  }
 
   // Fields (version, config.*)
   const fieldEntries: Record<string, unknown> = {}
@@ -539,19 +566,23 @@ function buildJsonResolved(resolved: ResolvedOutput): Record<string, unknown> {
   return result
 }
 
-export function createConfigCommand(loadConfig: LoadConfigFn = defaultLoadConfig): Command {
+export function createConfigCommand(
+  loadConfig: LoadConfigFn = defaultLoadConfig,
+  discover: () => Promise<DiscoveryResult> = discoverProjectRoot,
+): Command {
   return new Command('config')
     .description('Show resolved clooks configuration')
     .option('--resolved', 'Show fully merged config with provenance annotations')
     .action(async (opts: { resolved?: boolean }, cmd: Command) => {
       const ctx = getCtx(cmd)
-      const projectRoot = process.cwd()
+      const discovery = await discover()
+      const projectRoot = discovery.projectRoot
       const homeRoot = process.env.CLOOKS_HOME_ROOT ?? homedir()
 
       try {
         // --- Resolved mode ---
         if (opts.resolved) {
-          const resolved = await buildResolved(projectRoot, homeRoot)
+          const resolved = await buildResolved(projectRoot, homeRoot, discovery)
 
           if (resolved === null) {
             printError(ctx, 'config', 'No clooks.yml found. Run `clooks init` to get started.')

@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import { createConfigCommand } from './config.js'
+import type { DiscoveryResult } from '../config/discovery.js'
 import type { ClooksConfig } from '../config/schema.js'
 import type { LoadConfigResult, LoadConfigOptions } from '../config/index.js'
 import type { HookName, Milliseconds } from '../types/branded.js'
@@ -51,13 +52,29 @@ function makeResult(overrides?: Partial<LoadConfigResult>): LoadConfigResult {
   }
 }
 
+function makeDiscovery(projectRoot: string, overrides?: Partial<DiscoveryResult>): DiscoveryResult {
+  return {
+    projectRoot,
+    signal: 'cwd-fallback',
+    from: projectRoot,
+    ...overrides,
+  }
+}
+
 function createTestProgram(
   loadConfig: (root: string, options?: LoadConfigOptions) => Promise<LoadConfigResult | null>,
+  discover: () => Promise<DiscoveryResult> = async () =>
+    makeDiscovery(process.cwd(), {
+      signal: 'walk-up',
+      checked: [process.cwd()],
+      boundary: 'git-root',
+      boundaryPath: process.cwd(),
+    }),
 ) {
   const program = new Command()
   program.exitOverride()
   program.option('--json', 'JSON output')
-  program.addCommand(createConfigCommand(loadConfig))
+  program.addCommand(createConfigCommand(loadConfig, discover))
   return program
 }
 
@@ -245,21 +262,28 @@ describe('config --resolved', () => {
     return { homeDir, projectDir }
   }
 
-  function createResolvedProgram() {
+  function createResolvedProgram(discover?: () => Promise<DiscoveryResult>) {
     const loadConfig = mock().mockResolvedValue(null) // not used in --resolved mode
     const program = new Command()
     program.exitOverride()
     program.option('--json', 'JSON output')
-    program.addCommand(createConfigCommand(loadConfig))
+    program.addCommand(createConfigCommand(loadConfig, discover))
     return program
   }
 
   test('--resolved outputs provenance for a three-layer config', async () => {
     const { homeDir, projectDir } = setupThreeLayer()
-    process.chdir(projectDir)
     process.env.CLOOKS_HOME_ROOT = homeDir
 
-    const program = createResolvedProgram()
+    const program = createResolvedProgram(async () =>
+      makeDiscovery(projectDir, {
+        signal: 'walk-up',
+        from: projectDir,
+        checked: [projectDir],
+        boundary: 'git-root',
+        boundaryPath: projectDir,
+      }),
+    )
     await program.parseAsync(['config', '--resolved'], { from: 'user' })
 
     const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
@@ -285,10 +309,17 @@ describe('config --resolved', () => {
 
   test('--resolved --json outputs structured data', async () => {
     const { homeDir, projectDir } = setupThreeLayer()
-    process.chdir(projectDir)
     process.env.CLOOKS_HOME_ROOT = homeDir
 
-    const program = createResolvedProgram()
+    const program = createResolvedProgram(async () =>
+      makeDiscovery(projectDir, {
+        signal: 'walk-up',
+        from: projectDir,
+        checked: [projectDir],
+        boundary: 'git-root',
+        boundaryPath: projectDir,
+      }),
+    )
     await program.parseAsync(['--json', 'config', '--resolved'], { from: 'user' })
 
     const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
@@ -319,10 +350,17 @@ describe('config --resolved', () => {
 
   test('--resolved with home-only config works', async () => {
     const { homeDir, projectDir } = setupHomeOnly()
-    process.chdir(projectDir)
     process.env.CLOOKS_HOME_ROOT = homeDir
 
-    const program = createResolvedProgram()
+    const program = createResolvedProgram(async () =>
+      makeDiscovery(projectDir, {
+        signal: 'walk-up',
+        from: projectDir,
+        checked: [projectDir],
+        boundary: 'git-root',
+        boundaryPath: projectDir,
+      }),
+    )
     await program.parseAsync(['config', '--resolved'], { from: 'user' })
 
     const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
@@ -354,10 +392,17 @@ describe('config --resolved', () => {
       `version: "1.0.0"\nsecurity-audit:\n  config:\n    blocked:\n      - "rm -rf"\n      - "curl | sh"\n`,
     )
 
-    process.chdir(projectDir)
     process.env.CLOOKS_HOME_ROOT = homeDir
 
-    const program = createResolvedProgram()
+    const program = createResolvedProgram(async () =>
+      makeDiscovery(projectDir, {
+        signal: 'walk-up',
+        from: projectDir,
+        checked: [projectDir],
+        boundary: 'git-root',
+        boundaryPath: projectDir,
+      }),
+    )
     await program.parseAsync(['config', '--resolved'], { from: 'user' })
 
     const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
@@ -388,10 +433,17 @@ describe('config --resolved', () => {
       `version: "1.0.0"\nsecurity-audit:\n  config:\n    strict: true\n`,
     )
 
-    process.chdir(projectDir)
     process.env.CLOOKS_HOME_ROOT = homeDir
 
-    const program = createResolvedProgram()
+    const program = createResolvedProgram(async () =>
+      makeDiscovery(projectDir, {
+        signal: 'walk-up',
+        from: projectDir,
+        checked: [projectDir],
+        boundary: 'git-root',
+        boundaryPath: projectDir,
+      }),
+    )
     await program.parseAsync(['--json', 'config', '--resolved'], { from: 'user' })
 
     const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
@@ -424,10 +476,17 @@ describe('config --resolved', () => {
     mkdirSync(projectDir, { recursive: true })
     mkdirSync(homeDir, { recursive: true })
 
-    process.chdir(projectDir)
     process.env.CLOOKS_HOME_ROOT = homeDir
 
-    const program = createResolvedProgram()
+    const program = createResolvedProgram(async () =>
+      makeDiscovery(projectDir, {
+        signal: 'walk-up',
+        from: projectDir,
+        checked: [projectDir],
+        boundary: 'git-root',
+        boundaryPath: projectDir,
+      }),
+    )
     await program.parseAsync(['config', '--resolved'], { from: 'user' }).catch(() => {})
 
     expect(exitSpy).toHaveBeenCalledWith(1)
@@ -446,10 +505,17 @@ describe('config --resolved', () => {
       `version: "1.0.0"\nverbose-logger:\n  uses: log-bash\n  config:\n    verbose: true\n`,
     )
 
-    process.chdir(projectDir)
     process.env.CLOOKS_HOME_ROOT = homeDir
 
-    const program = createResolvedProgram()
+    const program = createResolvedProgram(async () =>
+      makeDiscovery(projectDir, {
+        signal: 'walk-up',
+        from: projectDir,
+        checked: [projectDir],
+        boundary: 'git-root',
+        boundaryPath: projectDir,
+      }),
+    )
     await program.parseAsync(['config', '--resolved'], { from: 'user' })
 
     const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
@@ -472,10 +538,17 @@ describe('config --resolved', () => {
 
     writeFileSync(join(projectDir, '.clooks/clooks.yml'), `version: "1.0.0"\nlog-bash: {}\n`)
 
-    process.chdir(projectDir)
     process.env.CLOOKS_HOME_ROOT = homeDir
 
-    const program = createResolvedProgram()
+    const program = createResolvedProgram(async () =>
+      makeDiscovery(projectDir, {
+        signal: 'walk-up',
+        from: projectDir,
+        checked: [projectDir],
+        boundary: 'git-root',
+        boundaryPath: projectDir,
+      }),
+    )
     await program.parseAsync(['config', '--resolved'], { from: 'user' })
 
     const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
@@ -499,10 +572,17 @@ describe('config --resolved', () => {
       `version: "1.0.0"\nverbose-logger:\n  uses: log-bash\n  config:\n    verbose: true\n`,
     )
 
-    process.chdir(projectDir)
     process.env.CLOOKS_HOME_ROOT = homeDir
 
-    const program = createResolvedProgram()
+    const program = createResolvedProgram(async () =>
+      makeDiscovery(projectDir, {
+        signal: 'walk-up',
+        from: projectDir,
+        checked: [projectDir],
+        boundary: 'git-root',
+        boundaryPath: projectDir,
+      }),
+    )
     await program.parseAsync(['--json', 'config', '--resolved'], { from: 'user' })
 
     const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
@@ -530,10 +610,17 @@ describe('config --resolved', () => {
 
     writeFileSync(join(projectDir, '.clooks/clooks.yml'), `version: "1.0.0"\nlog-bash: {}\n`)
 
-    process.chdir(projectDir)
     process.env.CLOOKS_HOME_ROOT = homeDir
 
-    const program = createResolvedProgram()
+    const program = createResolvedProgram(async () =>
+      makeDiscovery(projectDir, {
+        signal: 'walk-up',
+        from: projectDir,
+        checked: [projectDir],
+        boundary: 'git-root',
+        boundaryPath: projectDir,
+      }),
+    )
     await program.parseAsync(['--json', 'config', '--resolved'], { from: 'user' })
 
     const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
@@ -559,10 +646,17 @@ describe('config --resolved', () => {
       `version: "1.0.0"\ncustom-hook:\n  uses: "./lib/hook.ts"\n`,
     )
 
-    process.chdir(projectDir)
     process.env.CLOOKS_HOME_ROOT = homeDir
 
-    const program = createResolvedProgram()
+    const program = createResolvedProgram(async () =>
+      makeDiscovery(projectDir, {
+        signal: 'walk-up',
+        from: projectDir,
+        checked: [projectDir],
+        boundary: 'git-root',
+        boundaryPath: projectDir,
+      }),
+    )
     await program.parseAsync(['config', '--resolved'], { from: 'user' })
 
     const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
@@ -584,10 +678,17 @@ describe('config --resolved', () => {
       `version: "1.0.0"\nverbose:\n  uses: base\nquiet:\n  uses: base\n`,
     )
 
-    process.chdir(projectDir)
     process.env.CLOOKS_HOME_ROOT = homeDir
 
-    const program = createResolvedProgram()
+    const program = createResolvedProgram(async () =>
+      makeDiscovery(projectDir, {
+        signal: 'walk-up',
+        from: projectDir,
+        checked: [projectDir],
+        boundary: 'git-root',
+        boundaryPath: projectDir,
+      }),
+    )
     await program.parseAsync(['config', '--resolved'], { from: 'user' })
 
     const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
@@ -612,10 +713,17 @@ describe('config --resolved', () => {
     // Hook registered in YAML but no .ts file on disk
     writeFileSync(join(projectDir, '.clooks/clooks.yml'), `version: "1.0.0"\nphantom-hook: {}\n`)
 
-    process.chdir(projectDir)
     process.env.CLOOKS_HOME_ROOT = homeDir
 
-    const program = createResolvedProgram()
+    const program = createResolvedProgram(async () =>
+      makeDiscovery(projectDir, {
+        signal: 'walk-up',
+        from: projectDir,
+        checked: [projectDir],
+        boundary: 'git-root',
+        boundaryPath: projectDir,
+      }),
+    )
     await program.parseAsync(['config', '--resolved'], { from: 'user' })
 
     const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
@@ -634,10 +742,17 @@ describe('config --resolved', () => {
 
     writeFileSync(join(projectDir, '.clooks/clooks.yml'), `version: "1.0.0"\nphantom-hook: {}\n`)
 
-    process.chdir(projectDir)
     process.env.CLOOKS_HOME_ROOT = homeDir
 
-    const program = createResolvedProgram()
+    const program = createResolvedProgram(async () =>
+      makeDiscovery(projectDir, {
+        signal: 'walk-up',
+        from: projectDir,
+        checked: [projectDir],
+        boundary: 'git-root',
+        boundaryPath: projectDir,
+      }),
+    )
     await program.parseAsync(['--json', 'config', '--resolved'], { from: 'user' })
 
     const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
@@ -667,10 +782,17 @@ describe('config --resolved', () => {
     // Create the actual hook file so it is NOT dangling
     writeFileSync(join(projectDir, '.clooks/hooks/real-hook.ts'), 'export const hook = {}')
 
-    process.chdir(projectDir)
     process.env.CLOOKS_HOME_ROOT = homeDir
 
-    const program = createResolvedProgram()
+    const program = createResolvedProgram(async () =>
+      makeDiscovery(projectDir, {
+        signal: 'walk-up',
+        from: projectDir,
+        checked: [projectDir],
+        boundary: 'git-root',
+        boundaryPath: projectDir,
+      }),
+    )
     await program.parseAsync(['config', '--resolved'], { from: 'user' })
 
     const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
@@ -694,10 +816,17 @@ describe('config --resolved', () => {
     writeFileSync(join(projectDir, '.clooks/clooks.yml'), `version: "1.0.0"\nproject-real: {}\n`)
     writeFileSync(join(projectDir, '.clooks/hooks/project-real.ts'), 'export const hook = {}')
 
-    process.chdir(projectDir)
     process.env.CLOOKS_HOME_ROOT = homeDir
 
-    const program = createResolvedProgram()
+    const program = createResolvedProgram(async () =>
+      makeDiscovery(projectDir, {
+        signal: 'walk-up',
+        from: projectDir,
+        checked: [projectDir],
+        boundary: 'git-root',
+        boundaryPath: projectDir,
+      }),
+    )
     await program.parseAsync(['config', '--resolved'], { from: 'user' })
 
     const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
@@ -734,10 +863,17 @@ describe('config --resolved', () => {
     // Create the hook file so it is NOT dangling
     writeFileSync(join(projectDir, '.clooks/hooks/local-only-hook.ts'), 'export const hook = {}')
 
-    process.chdir(projectDir)
     process.env.CLOOKS_HOME_ROOT = homeDir
 
-    const program = createResolvedProgram()
+    const program = createResolvedProgram(async () =>
+      makeDiscovery(projectDir, {
+        signal: 'walk-up',
+        from: projectDir,
+        checked: [projectDir],
+        boundary: 'git-root',
+        boundaryPath: projectDir,
+      }),
+    )
     await program.parseAsync(['config', '--resolved'], { from: 'user' })
 
     const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
@@ -766,10 +902,17 @@ describe('config --resolved', () => {
     // Create the hook file so it is NOT dangling
     writeFileSync(join(projectDir, '.clooks/hooks/local-only-hook.ts'), 'export const hook = {}')
 
-    process.chdir(projectDir)
     process.env.CLOOKS_HOME_ROOT = homeDir
 
-    const program = createResolvedProgram()
+    const program = createResolvedProgram(async () =>
+      makeDiscovery(projectDir, {
+        signal: 'walk-up',
+        from: projectDir,
+        checked: [projectDir],
+        boundary: 'git-root',
+        boundaryPath: projectDir,
+      }),
+    )
     await program.parseAsync(['--json', 'config', '--resolved'], { from: 'user' })
 
     const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
@@ -800,10 +943,17 @@ describe('config --resolved', () => {
 
     // Do NOT create the hook file — it should be dangling
 
-    process.chdir(projectDir)
     process.env.CLOOKS_HOME_ROOT = homeDir
 
-    const program = createResolvedProgram()
+    const program = createResolvedProgram(async () =>
+      makeDiscovery(projectDir, {
+        signal: 'walk-up',
+        from: projectDir,
+        checked: [projectDir],
+        boundary: 'git-root',
+        boundaryPath: projectDir,
+      }),
+    )
     await program.parseAsync(['config', '--resolved'], { from: 'user' })
 
     const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
@@ -833,10 +983,17 @@ describe('config --resolved', () => {
     writeFileSync(join(projectDir, '.clooks/hooks/project-hook.ts'), 'export const hook = {}')
     writeFileSync(join(projectDir, '.clooks/hooks/local-only-hook.ts'), 'export const hook = {}')
 
-    process.chdir(projectDir)
     process.env.CLOOKS_HOME_ROOT = homeDir
 
-    const program = createResolvedProgram()
+    const program = createResolvedProgram(async () =>
+      makeDiscovery(projectDir, {
+        signal: 'walk-up',
+        from: projectDir,
+        checked: [projectDir],
+        boundary: 'git-root',
+        boundaryPath: projectDir,
+      }),
+    )
     await program.parseAsync(['config', '--resolved'], { from: 'user' })
 
     const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
@@ -855,5 +1012,135 @@ describe('config --resolved', () => {
     )
     expect(projectHookOriginLine).toBeDefined()
     expect(projectHookOriginLine).not.toContain('[local]')
+  })
+
+  // --- M5a: discovery header in human output ---
+
+  test('--resolved human output: shows Project root line with walk-up signal', async () => {
+    const { homeDir, projectDir } = setupThreeLayer()
+    process.env.CLOOKS_HOME_ROOT = homeDir
+    const subDir = join(projectDir, 'sub')
+
+    const program = createResolvedProgram(async () =>
+      makeDiscovery(projectDir, {
+        signal: 'walk-up',
+        from: subDir,
+        checked: [subDir, projectDir],
+        boundary: 'git-root',
+        boundaryPath: projectDir,
+      }),
+    )
+    await program.parseAsync(['config', '--resolved'], { from: 'user' })
+
+    const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
+
+    expect(output).toContain(`Project root: ${projectDir} (via walk-up from ${subDir})`)
+    expect(output).toContain(`checked: [${subDir}, ${projectDir}]`)
+    expect(output).toContain(`boundary: git-root at ${projectDir}`)
+  })
+
+  test('--resolved human output: shows Project root line with claude-project-dir signal including checked and boundary', async () => {
+    const { homeDir, projectDir } = setupThreeLayer()
+    process.env.CLOOKS_HOME_ROOT = homeDir
+    const anchorDir = join(projectDir, 'sub')
+
+    const program = createResolvedProgram(async () =>
+      makeDiscovery(projectDir, {
+        signal: 'claude-project-dir',
+        from: anchorDir,
+        checked: [anchorDir, projectDir],
+        boundary: 'git-root',
+        boundaryPath: projectDir,
+      }),
+    )
+    await program.parseAsync(['config', '--resolved'], { from: 'user' })
+
+    const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
+
+    expect(output).toContain(
+      `Project root: ${projectDir} (via claude-project-dir from ${anchorDir})`,
+    )
+    expect(output).toContain(`checked: [${anchorDir}, ${projectDir}]`)
+    expect(output).toContain(`boundary: git-root at ${projectDir}`)
+  })
+
+  test('--resolved human output: shows Project root line with explicit-env signal (no checked block)', async () => {
+    const { homeDir, projectDir } = setupThreeLayer()
+    process.env.CLOOKS_HOME_ROOT = homeDir
+
+    const program = createResolvedProgram(async () =>
+      makeDiscovery(projectDir, {
+        signal: 'explicit-env',
+        from: projectDir,
+      }),
+    )
+    await program.parseAsync(['config', '--resolved'], { from: 'user' })
+
+    const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
+
+    expect(output).toContain(`Project root: ${projectDir} (via explicit-env from ${projectDir})`)
+    expect(output).not.toContain('checked:')
+    expect(output).not.toContain('boundary:')
+  })
+
+  // --- M5a: discovery fields in JSON output ---
+
+  test('--resolved --json output: includes projectRoot and discovery at top level', async () => {
+    const { homeDir, projectDir } = setupThreeLayer()
+    process.env.CLOOKS_HOME_ROOT = homeDir
+    const subDir = join(projectDir, 'sub')
+
+    const program = createResolvedProgram(async () =>
+      makeDiscovery(projectDir, {
+        signal: 'walk-up',
+        from: subDir,
+        checked: [subDir, projectDir],
+        boundary: 'git-root',
+        boundaryPath: projectDir,
+      }),
+    )
+    await program.parseAsync(['--json', 'config', '--resolved'], { from: 'user' })
+
+    const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
+    const parsed = JSON.parse(output.trim())
+
+    expect(parsed.ok).toBe(true)
+    const data = parsed.data
+
+    expect(data.projectRoot).toBe(projectDir)
+    expect(data.discovery).toBeDefined()
+    expect(data.discovery.signal).toBe('walk-up')
+    expect(data.discovery.from).toBe(subDir)
+    expect(data.discovery.checked).toEqual([subDir, projectDir])
+    expect(data.discovery.boundary).toBe('git-root')
+    expect(data.discovery.boundaryPath).toBe(projectDir)
+
+    // Existing fields must still be present (additive, not breaking)
+    expect(data.hooks).toBeDefined()
+    expect(data.events).toBeDefined()
+  })
+
+  test('--resolved --json output: explicit-env signal omits checked/boundary', async () => {
+    const { homeDir, projectDir } = setupThreeLayer()
+    process.env.CLOOKS_HOME_ROOT = homeDir
+
+    const program = createResolvedProgram(async () =>
+      makeDiscovery(projectDir, {
+        signal: 'explicit-env',
+        from: projectDir,
+      }),
+    )
+    await program.parseAsync(['--json', 'config', '--resolved'], { from: 'user' })
+
+    const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
+    const parsed = JSON.parse(output.trim())
+
+    expect(parsed.ok).toBe(true)
+    const disc = parsed.data.discovery
+    expect(disc.signal).toBe('explicit-env')
+    expect(disc.from).toBe(projectDir)
+    expect(disc.checked).toBeUndefined()
+    expect(disc.boundary).toBeUndefined()
+    expect(disc.boundaryPath).toBeUndefined()
   })
 })

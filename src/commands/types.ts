@@ -3,6 +3,7 @@ import { mkdirSync, writeFileSync, existsSync } from 'fs'
 import { join } from 'path'
 import os from 'os'
 import { getCtx } from '../tui/context.js'
+import { findProjectRoot } from '../config/discovery.js'
 import { jsonSuccess } from '../tui/json-envelope.js'
 import {
   printIntro,
@@ -14,7 +15,7 @@ import {
 } from '../tui/output.js'
 import EMBEDDED_TYPES_DTS from '../generated/clooks-types.d.ts.txt' with { type: 'text' }
 
-export function createTypesCommand(): Command {
+export function createTypesCommand(findRoot: () => Promise<string> = findProjectRoot): Command {
   return new Command('types')
     .description('Extract type declarations for hook authoring')
     .option('--global', 'Write to ~/.clooks/hooks/ instead of .clooks/hooks/')
@@ -22,7 +23,7 @@ export function createTypesCommand(): Command {
       const ctx = getCtx(cmd)
 
       try {
-        const root = opts.global ? os.homedir() : process.cwd()
+        const root = opts.global ? os.homedir() : await findRoot()
         const hooksDir = join(root, '.clooks', 'hooks')
         const typesPath = join(hooksDir, 'types.d.ts')
 

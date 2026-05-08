@@ -3,6 +3,7 @@ import { writeFileSync, existsSync, mkdirSync } from 'fs'
 import { join } from 'path'
 import os from 'os'
 import { getCtx } from '../tui/context.js'
+import { findProjectRoot } from '../config/discovery.js'
 import { jsonSuccess } from '../tui/json-envelope.js'
 import {
   printIntro,
@@ -81,7 +82,7 @@ function isScaffoldEvent(v: string): v is ScaffoldEventName {
   return (EVENT_NAMES as readonly string[]).includes(v)
 }
 
-export function createNewHookCommand(): Command {
+export function createNewHookCommand(findRoot: () => Promise<string> = findProjectRoot): Command {
   return new Command('new-hook')
     .description('Scaffold a new hook file')
     .option('--name <name>', 'Hook name (kebab-case)')
@@ -145,7 +146,7 @@ export function createNewHookCommand(): Command {
         }
 
         // --- Determine target path ---
-        const root = scope === 'user' ? os.homedir() : process.cwd()
+        const root = scope === 'user' ? os.homedir() : await findRoot()
         const hooksDir = join(root, '.clooks', 'hooks')
         const hookPath = join(hooksDir, `${hookName}.ts`)
 
@@ -171,10 +172,7 @@ export function createNewHookCommand(): Command {
           )
         }
 
-        const configPath =
-          scope === 'user'
-            ? join(os.homedir(), '.clooks', 'clooks.yml')
-            : join(process.cwd(), '.clooks', 'clooks.yml')
+        const configPath = join(root, '.clooks', 'clooks.yml')
         if (!existsSync(configPath)) {
           printWarning(ctx, "No clooks.yml found. Run 'clooks init' to set up the project.")
         }

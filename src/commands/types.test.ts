@@ -24,22 +24,19 @@ import { createTypesCommand } from './types.js'
 import os from 'os'
 
 let tempDir: string
-let originalCwd: () => string
 let exitSpy: ReturnType<typeof spyOn>
 let stdoutSpy: ReturnType<typeof spyOn>
 
-function createTestProgram() {
+function createTestProgram(findRoot?: () => Promise<string>) {
   const program = new Command()
   program.exitOverride()
   program.option('--json', 'JSON output')
-  program.addCommand(createTypesCommand())
+  program.addCommand(createTypesCommand(findRoot ?? (() => Promise.resolve(tempDir))))
   return program
 }
 
 beforeEach(() => {
   tempDir = mkdtempSync(join(tmpdir(), 'clooks-types-test-'))
-  originalCwd = process.cwd
-  process.cwd = () => tempDir
   exitSpy = spyOn(process, 'exit').mockImplementation((() => {
     throw new Error('process.exit called')
   }) as () => never)
@@ -47,7 +44,6 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  process.cwd = originalCwd
   exitSpy.mockRestore()
   stdoutSpy.mockRestore()
   if (tempDir) {
@@ -154,10 +150,8 @@ describe('clooks types --global', () => {
 
 describe('clooks types error handling', () => {
   test('catches write errors and calls process.exit(1)', async () => {
-    // Point cwd to a path that will cause writeFileSync to fail
-    process.cwd = () => '/dev/null/impossible'
-
-    const program = createTestProgram()
+    // Inject a findRoot that returns a path that will cause writeFileSync to fail.
+    const program = createTestProgram(() => Promise.resolve('/dev/null/impossible'))
     await program.parseAsync(['types'], { from: 'user' }).catch(() => {})
 
     expect(exitSpy).toHaveBeenCalledWith(1)

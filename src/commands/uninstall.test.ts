@@ -26,19 +26,11 @@ mock.module('../platform.js', () => ({
   getHomeDir: () => fakeHome,
 }))
 
-// Mock git module so getGitRoot returns null (falls back to process.cwd)
-mock.module('../git.js', () => ({
-  getGitRoot: mock(() => Promise.resolve(null)),
-  getGitBranch: mock(() => Promise.resolve(null)),
-  resetGitCache: mock(),
-}))
-
 // Import after mocking
 import { createUninstallCommand } from './uninstall.js'
 import { registerClooks, CLOOKS_ENTRYPOINT_PATH } from '../settings.js'
 
 let tempDir: string
-let originalCwd: () => string
 let originalIsTTY: boolean | undefined
 let exitSpy: ReturnType<typeof spyOn>
 let stdoutSpy: ReturnType<typeof spyOn>
@@ -47,7 +39,7 @@ function createTestProgram() {
   const program = new Command()
   program.exitOverride()
   program.option('--json', 'JSON output')
-  program.addCommand(createUninstallCommand())
+  program.addCommand(createUninstallCommand(() => Promise.resolve(tempDir)))
   return program
 }
 
@@ -71,8 +63,6 @@ beforeEach(() => {
   tempDir = mkdtempSync(join(tmpdir(), 'clooks-uninstall-test-'))
   fakeHome = join(tempDir, 'fakehome')
   mkdirSync(fakeHome, { recursive: true })
-  originalCwd = process.cwd
-  process.cwd = () => tempDir
   originalIsTTY = process.stdin.isTTY
   exitSpy = spyOn(process, 'exit').mockImplementation((() => {
     throw new Error('process.exit called')
@@ -81,7 +71,6 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  process.cwd = originalCwd
   Object.defineProperty(process.stdin, 'isTTY', { value: originalIsTTY, writable: true })
   exitSpy.mockRestore()
   stdoutSpy.mockRestore()

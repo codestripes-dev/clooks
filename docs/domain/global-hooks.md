@@ -38,7 +38,7 @@ Three config layers, merged in order (last writer wins for scalars):
 | Project | `.clooks/clooks.yml` | Project-specific hooks and overrides |
 | Local | `.clooks/clooks.local.yml` | Developer-local overrides (gitignored) |
 
-If neither home nor project config exists, the engine exits cleanly (no hooks to run).
+If neither home nor project config exists, the engine exits cleanly (no hooks to run). "Project config" here means the nearest `.clooks/clooks.yml` found by walking up from `$CLAUDE_PROJECT_DIR` (or cwd when `$CLAUDE_PROJECT_DIR` is unset or yields nothing) — not necessarily a file at cwd. On `SessionStart` events, an absent project config with a cwd-fallback produces a one-line stderr advisory. See `docs/domain/config/discovery.md` for the full discovery algorithm and precedence order.
 
 ## Merge Semantics
 

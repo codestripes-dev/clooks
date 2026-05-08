@@ -19,6 +19,7 @@ import {
 } from '../failures.js'
 import { discoverPluginPacks as defaultDiscoverPluginPacks } from '../plugin-discovery.js'
 import { vendorAndRegisterPack as defaultVendorAndRegisterPack } from '../plugin-vendor.js'
+import { discoverProjectRoot } from '../config/discovery.js'
 import {
   defaultSettingsPaths,
   detectStaleAdvisories,
@@ -123,6 +124,7 @@ export const defaultDeps: RunEngineDeps = {
   readStdin: () => Bun.stdin.json(),
   discoverPluginPacks: defaultDiscoverPluginPacks,
   vendorAndRegisterPack: defaultVendorAndRegisterPack,
+  discoverProjectRoot,
 }
 
 /**
@@ -131,7 +133,8 @@ export const defaultDeps: RunEngineDeps = {
  */
 export async function runEngine(deps: RunEngineDeps = defaultDeps): Promise<void> {
   try {
-    const projectRoot = process.cwd()
+    const discovery = await (deps.discoverProjectRoot ?? discoverProjectRoot)()
+    const projectRoot = discovery.projectRoot
     const homeRoot = process.env.CLOOKS_HOME_ROOT ?? homedir()
 
     // --- Load config (optional — no config = no hooks) ---
@@ -171,6 +174,27 @@ export async function runEngine(deps: RunEngineDeps = defaultDeps): Promise<void
     }
 
     if (result === null) {
+      // Emit the cwd-fallback warning before exiting so the user knows why hooks were skipped.
+      // We read stdin here only to get the event name for the SessionStart gate.
+      if (discovery.signal === 'cwd-fallback') {
+        let earlyInput: unknown
+        try {
+          earlyInput = await deps.readStdin()
+        } catch {
+          // If stdin read fails here we still exit cleanly — just skip the warning.
+          earlyInput = null
+        }
+        if (earlyInput !== null && typeof earlyInput === 'object' && !Array.isArray(earlyInput)) {
+          const earlyPayload = earlyInput as Record<string, unknown>
+          if (earlyPayload.hook_event_name === 'SessionStart') {
+            const boundary = discovery.boundary ?? 'fs-root'
+            const boundaryPath = discovery.boundaryPath ?? '/'
+            process.stderr.write(
+              `clooks: no .clooks/clooks.yml found walking up from ${discovery.from} (bounded by ${boundary} at ${boundaryPath})\n`,
+            )
+          }
+        }
+      }
       process.exit(EXIT_OK)
     }
 
@@ -320,6 +344,22 @@ export async function runEngine(deps: RunEngineDeps = defaultDeps): Promise<void
       process.exit(EXIT_STDERR)
     }
     const eventName: EventName = rawEventName
+
+    // --- M5b: cwd-fallback warning ---
+    // Emit a one-line stderr warning when the project layer is absent and no
+    // config was found on the walk. Gated to SessionStart so the noise floor
+    // stays low (one warning per session open, not per tool call).
+    if (
+      eventName === 'SessionStart' &&
+      discovery.signal === 'cwd-fallback' &&
+      !result.hasProjectConfig
+    ) {
+      const boundary = discovery.boundary ?? 'fs-root'
+      const boundaryPath = discovery.boundaryPath ?? '/'
+      process.stderr.write(
+        `clooks: no .clooks/clooks.yml found walking up from ${discovery.from} (bounded by ${boundary} at ${boundaryPath})\n`,
+      )
+    }
 
     // --- SessionStart stale-plugin advisories (M4) ---
     // Detect (a) plugin-vendored hook entries whose plugin key is no longer

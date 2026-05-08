@@ -72,6 +72,8 @@ When creating or removing a domain doc, update the relevant table in this index.
 | Bun Runtime | `bun-runtime.md` | Compile targets, startup performance, binary sizes, platform gotchas |
 | CLI Architecture | `cli-architecture.md` | Dual-mode dispatch, Commander.js setup, TUI wrappers, JSON output, command patterns |
 | Config System | `config.md` | Config format, parsing, validation, merging, resolution rules |
+| Config — Discovery | `config/discovery.md` | Walk-up algorithm, precedence order, boundary rules, `$CLAUDE_PROJECT_DIR` anchor, observability |
+| Config — Execution & Circuit Breaker | `config/execution.md` | Execution group partitioning, ordering, group execution semantics, circuit breaker state |
 | Claude Code Hooks — Overview | `claude-code-hooks/overview.md` | Configuration schema, 4 handler types, hook locations, environment variables |
 | Claude Code Hooks — Events | `claude-code-hooks/events.md` | All 22 lifecycle events: matchers, input fields, decision control |
 | Claude Code Hooks — I/O Contract | `claude-code-hooks/io-contract.md` | Exit codes, JSON output, decision patterns, tool_input schemas |

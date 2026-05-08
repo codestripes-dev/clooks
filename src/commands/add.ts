@@ -15,7 +15,7 @@ import {
 import { withSpinner } from '../tui/spinner.js'
 import { classifyGitHubInput, toRawUrl, getRawBaseUrl } from '../github-url.js'
 import type { GitHubBlobInfo, GitHubRepoInfo } from '../github-url.js'
-import { getGitRoot } from '../git.js'
+import { findProjectRoot } from '../config/discovery.js'
 import { loadConfig } from '../config/index.js'
 import type { LoadConfigResult } from '../config/index.js'
 import { validateHookExport } from '../loader.js'
@@ -25,7 +25,7 @@ import { isNonInteractive } from '../tui/prompts.js'
 import type { HookName } from '../types/branded.js'
 import type { OutputContext } from '../tui/context.js'
 
-export function createAddCommand(): Command {
+export function createAddCommand(findRoot: () => Promise<string> = findProjectRoot): Command {
   return new Command('add')
     .description('Download and install a hook from a GitHub URL')
     .argument('<url>', 'GitHub URL (blob URL for single file, repo URL for hook pack)')
@@ -38,7 +38,7 @@ export function createAddCommand(): Command {
 
       try {
         const input = classifyGitHubInput(url)
-        const scopeRoot = await resolveScopeRoot(ctx, opts)
+        const scopeRoot = await resolveScopeRoot(ctx, opts, findRoot)
 
         if (input.type === 'blob') {
           await handleBlobUrl(ctx, input.info, opts, scopeRoot)
@@ -58,6 +58,7 @@ export function createAddCommand(): Command {
 async function resolveScopeRoot(
   ctx: OutputContext,
   opts: Record<string, unknown>,
+  findRoot: () => Promise<string>,
 ): Promise<string> {
   if (opts.global && opts.project) {
     throw new Error('Cannot use both --global and --project flags.')
@@ -65,9 +66,7 @@ async function resolveScopeRoot(
   if (opts.global) {
     return getHomeDir()
   }
-  // Resolve project root from git root (falls back to cwd if not in a git repo)
-  const gitRoot = await getGitRoot()
-  const projectRoot = gitRoot ?? process.cwd()
+  const projectRoot = await findRoot()
 
   if (opts.project) {
     return projectRoot

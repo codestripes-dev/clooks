@@ -53,6 +53,19 @@ export SKIP_CLOOKS=true
 
 This is an escape hatch for when the binary is broken and blocking all Claude Code actions. The bypass check runs before binary location, so it works even if the binary path is invalid.
 
+## Environment Variables
+
+The entrypoint and the binary react to a small set of environment variables:
+
+| Variable | Effect |
+|----------|--------|
+| `SKIP_CLOOKS=true` | Bypass all hook processing (entrypoint exits 0 immediately). |
+| `CLOOKS_DEBUG=true` | Enable debug logging — stderr output + JSON request dumps to `CLOOKS_LOGDIR`. |
+| `CLOOKS_LOGDIR=/path` | Directory for `CLOOKS_DEBUG` JSON dumps (default `/tmp/clooks-debug`). |
+| `CLOOKS_HOME_ROOT=/path` | Override the home directory used for config resolution (mostly for tests). |
+| `CLOOKS_PROJECT_ROOT=/path` | Skip discovery and treat `/path` as the project root unconditionally. Highest-priority override (wins over `$CLAUDE_PROJECT_DIR` and the cwd walk). Mirrors `prettier --config` / `tsc --project` / `GIT_DIR`. |
+| `$CLAUDE_PROJECT_DIR` | Set by Claude Code itself. Used by clooks as the **primary anchor** for config discovery — the walk-up starts here so an agent that runs `cd /tmp && <action>` cannot bypass project hooks. |
+
 ## Hook Registration
 
 The entrypoint is registered in `.claude/settings.json` for all events with a single matcher group containing the Clooks entrypoint (no matchers, no timeout — Clooks handles event routing and timeouts internally).
@@ -110,7 +123,8 @@ A third entrypoint variant exists for the plugin distribution model. It lives at
 
 ## Gotchas
 
-- **Claude Code cwd is not guaranteed to be project root.** Some hook events (notably Stop, SessionEnd) may run with a different cwd. This means relative paths in `settings.json` (e.g., `.clooks/bin/entrypoint.sh`) can fail with `/bin/sh: .clooks/bin/entrypoint.sh: not found`. Project-level registration must use `$CLAUDE_PROJECT_DIR` to resolve the entrypoint path reliably. Global-level registration uses absolute paths and is unaffected.
+- **Claude Code cwd is not guaranteed to be project root.** Some hook events (notably Stop, SessionEnd) may run with a different cwd. This means relative paths in `settings.json` (e.g., `.clooks/bin/entrypoint.sh`) can fail with `/bin/sh: .clooks/bin/entrypoint.sh: not found`. Project-level registration must use `$CLAUDE_PROJECT_DIR` to resolve the entrypoint path reliably. Global-level registration uses absolute paths and is unaffected. The same cwd-instability also affects *config discovery*; clooks handles that internally by walking up parent directories anchored on `$CLAUDE_PROJECT_DIR` — see `docs/domain/config/discovery.md` for the full discovery algorithm and precedence order.
+- **`$CLAUDE_PROJECT_DIR` fallback surprise.** When `$CLAUDE_PROJECT_DIR` is set but its walk-up finds no `.clooks/clooks.yml`, clooks falls back to walking up from cwd. If cwd happens to be inside a *different* project that has `.clooks/clooks.yml`, that project's hooks fire — even though cwd is unrelated to the Claude session's project directory. This is the correct fall-through behavior (the anchor walk found nothing; cwd walk is the designed fallback), but it can be surprising in unusual layouts such as nested git repositories or workspaces where the agent changes directory across project boundaries. Run `clooks config --resolved` to see which config clooks resolved and via which signal (`claude-project-dir`, `walk-up`, or `cwd-fallback`).
 - **`set -e` and exit code capture:** The script uses `cmd && var=0 || var=$?` to capture exit codes without triggering `set -e`. A naive `cmd; var=$?` would cause the script to exit before reaching `$?` on non-zero.
 - **No `exec`:** The script does NOT use `exec` to replace itself with the binary, because that would prevent exit code inspection. The binary runs as a child process instead.
 - **Heredoc whitespace:** The bootstrap message uses `<<'MSG'` (single-quoted delimiter) to prevent variable expansion. The message lines must start at column 1 (no indentation).

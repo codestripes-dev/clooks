@@ -12,7 +12,7 @@ import {
   printInfo,
 } from '../tui/output.js'
 import { getHomeDir } from '../platform.js'
-import { getGitRoot } from '../git.js'
+import { findProjectRoot } from '../config/discovery.js'
 import { discoverPluginPacks } from '../plugin-discovery.js'
 import { validateHookExport } from '../loader.js'
 import type { DiscoveredPack, DiscoverOptions } from '../plugin-discovery.js'
@@ -149,7 +149,7 @@ export async function updatePluginPack(
   return result
 }
 
-export function createUpdateCommand(): Command {
+export function createUpdateCommand(findRoot: () => Promise<string> = findProjectRoot): Command {
   return new Command('update')
     .description('Update a vendored plugin pack from the plugin cache')
     .argument('<target>', 'Update target (e.g., plugin:<pack-name>)')
@@ -181,8 +181,7 @@ export function createUpdateCommand(): Command {
         }
 
         const homeRoot = getHomeDir()
-        const gitRoot = await getGitRoot()
-        const projectRoot = gitRoot ?? process.cwd()
+        const projectRoot = await findRoot()
 
         const result = await updatePluginPack(packName, projectRoot, homeRoot)
 

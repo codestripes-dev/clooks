@@ -13,7 +13,7 @@ import {
 } from '../tui/output.js'
 import { promptConfirm, promptSelect, isNonInteractive, CancelError } from '../tui/prompts.js'
 import { unregisterClooks, isClooksRegistered } from '../settings.js'
-import { getGitRoot } from '../git.js'
+import { findProjectRoot } from '../config/discovery.js'
 import { getHomeDir } from '../platform.js'
 
 /**
@@ -33,10 +33,10 @@ function detectCustomHooks(hooksDir: string): string[] {
 async function uninstallProject(
   ctx: OutputContext,
   opts: { force?: boolean; unhook?: boolean; full?: boolean },
+  findRoot: () => Promise<string>,
 ): Promise<void> {
   // a. Resolve project root
-  const gitRoot = await getGitRoot()
-  const projectRoot = gitRoot ?? process.cwd()
+  const projectRoot = await findRoot()
   const clooksDir = join(projectRoot, '.clooks')
   const settingsDir = join(projectRoot, '.claude')
 
@@ -328,7 +328,7 @@ async function uninstallGlobal(
   printInfo(ctx, 'To also remove the clooks binary: rm $(which clooks)')
 }
 
-export function createUninstallCommand(): Command {
+export function createUninstallCommand(findRoot: () => Promise<string> = findProjectRoot): Command {
   return new Command('uninstall')
     .description('Uninstall clooks from this project or globally')
     .option('--project', 'Uninstall from current project')
@@ -384,7 +384,7 @@ export function createUninstallCommand(): Command {
 
           // Dispatch
           if (opts.project) {
-            await uninstallProject(ctx, opts)
+            await uninstallProject(ctx, opts, findRoot)
           } else if (opts.global) {
             await uninstallGlobal(ctx, opts)
           } else {
@@ -400,7 +400,7 @@ export function createUninstallCommand(): Command {
             })
 
             if (scope === 'project' || scope === 'both') {
-              await uninstallProject(ctx, opts)
+              await uninstallProject(ctx, opts, findRoot)
             }
             if (scope === 'global' || scope === 'both') {
               await uninstallGlobal(ctx, opts)
