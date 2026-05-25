@@ -1,10 +1,10 @@
 # Bash Entrypoint
 
-The bash entrypoint is the bridge between Claude Code's native hook system and the compiled Clooks binary. Claude Code invokes this script for every hook event; the script locates the binary, pipes stdin through, and translates exit codes.
+The bash entrypoint is the bridge between an agent's native hook system and the compiled Clooks binary. Claude Code invokes this script for every hook event today; future agent registrations may reuse it by setting an explicit agent marker. The script locates the binary, pipes stdin through, and translates exit codes.
 
 ## Overview
 
-The entrypoint lives at `.clooks/bin/entrypoint.sh` in the project root. It is registered in `.claude/settings.json` for all Claude Code lifecycle events. No positional arguments are passed — the event name comes from the `hook_event_name` field in the stdin JSON payload. The script is written by `clooks init` from an embedded template in `src/commands/init-entrypoint.ts`.
+The entrypoint lives at `.clooks/bin/entrypoint.sh` in the project root. It is registered in `.claude/settings.json` for all Claude Code lifecycle events. No positional arguments are passed; the event name comes from the `hook_event_name` field in the stdin JSON payload. The script is written by `clooks init` from an embedded template in `src/commands/init-entrypoint.ts`.
 
 The script performs six steps in order:
 
@@ -62,9 +62,13 @@ The entrypoint and the binary react to a small set of environment variables:
 | `SKIP_CLOOKS=true` | Bypass all hook processing (entrypoint exits 0 immediately). |
 | `CLOOKS_DEBUG=true` | Enable debug logging — stderr output + JSON request dumps to `CLOOKS_LOGDIR`. |
 | `CLOOKS_LOGDIR=/path` | Directory for `CLOOKS_DEBUG` JSON dumps (default `/tmp/clooks-debug`). |
+| `CLOOKS_AGENT=claude-code` | Optional explicit selector for the current Claude Code adapter. Unset or empty means the same thing for backward compatibility. |
+| `CLOOKS_AGENT=codex` | Reserved future selector for Codex registration. In the current adapter boundary, this fails closed with a not-implemented diagnostic; it is not user-facing Codex support. |
 | `CLOOKS_HOME_ROOT=/path` | Override the home directory used for config resolution (mostly for tests). |
 | `CLOOKS_PROJECT_ROOT=/path` | Skip discovery and treat `/path` as the project root unconditionally. Highest-priority override (wins over `$CLAUDE_PROJECT_DIR` and the cwd walk). Mirrors `prettier --config` / `tsc --project` / `GIT_DIR`. |
 | `$CLAUDE_PROJECT_DIR` | Set by Claude Code itself. Used by clooks as the **primary anchor** for config discovery — the walk-up starts here so an agent that runs `cd /tmp && <action>` cannot bypass project hooks. |
+
+Claude Code registration does not need to set `CLOOKS_AGENT`; the binary defaults to the Claude Code adapter. A future Codex registration must set `CLOOKS_AGENT=codex` and should also set `CLOOKS_PROJECT_ROOT` or use an absolute entrypoint path so Codex cwd changes do not detach Clooks from the intended project.
 
 ## Hook Registration
 

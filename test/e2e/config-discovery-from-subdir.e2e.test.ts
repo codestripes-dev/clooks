@@ -4,7 +4,7 @@ import { symlinkSync } from 'fs'
 import { createSandbox, type Sandbox } from './helpers/sandbox'
 
 /*
- * E2E tests for config discovery walk-up (FEAT-0071 M6).
+ * E2E tests for config discovery walk-up.
  *
  * Each test runs the compiled binary from a directory other than the project
  * root and verifies that clooks finds the correct .clooks/clooks.yml.
@@ -56,7 +56,7 @@ afterEach(() => {
 })
 
 /*
- * Existing E2E test audit (required by FEAT-0071 M6):
+ * Existing E2E test audit for config discovery walk-up:
  *
  * grep -rln -E "process\.cwd|projectRoot|loadConfig" test/e2e/ found three files:
  *

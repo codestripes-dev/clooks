@@ -1,0 +1,14 @@
+{
+  "session_id": "codex-session-123",
+  "transcript_path": "/tmp/clooks-codex/project/.codex/sessions/session.jsonl",
+  "cwd": "/tmp/clooks-codex/project",
+  "hook_event_name": "SubagentStop",
+  "model": "gpt-5.5",
+  "permission_mode": "default",
+  "turn_id": "turn-123",
+  "agent_id": "agent-123",
+  "agent_type": "reviewer",
+  "agent_transcript_path": null,
+  "stop_hook_active": false,
+  "last_assistant_message": "No issues found."
+}

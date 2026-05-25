@@ -6,7 +6,7 @@ How the clooks binary dispatches between hook engine mode and interactive CLI mo
 
 `src/cli.ts` is the compiled binary's entrypoint. It serves two roles from a single executable:
 
-1. **Engine mode** — Claude Code pipes a JSON event on stdin with no arguments. The engine runs hooks and writes a JSON response to stdout.
+1. **Engine mode** — An agent hook system pipes a JSON event on stdin with no arguments. Today the supported runtime adapter is Claude Code, so the engine writes Claude Code-compatible JSON to stdout.
 2. **CLI mode** — A developer types a subcommand (e.g., `clooks config`). Commander.js parses arguments and runs the command's action handler.
 
 ### Dispatch logic
@@ -19,6 +19,19 @@ The dispatch reads `process.argv.slice(2)` and applies these rules in order:
 4. **Has args but no known subcommand** — Same as above. Covers `--help`, misspelled subcommands, and unknown flags. Commander handles the error/help display.
 5. **No args, piped stdin** (`!process.stdin.isTTY`) — Engine mode. Call `runEngine()`.
 6. **No args, TTY stdin** — CLI mode. Call `runCLI(args)` with empty args, which triggers Commander's help output.
+
+### Engine mode flow
+
+`runEngine()` selects an agent adapter from `CLOOKS_AGENT` before reading stdin:
+
+- unset or empty `CLOOKS_AGENT` -> `claude-code`
+- `CLOOKS_AGENT=claude-code` -> explicit Claude Code adapter
+- `CLOOKS_AGENT=codex` -> reserved Codex placeholder that fails closed until Codex normalization and output translation are implemented
+- any other value -> fail-closed exit code 2 with a diagnostic
+
+The selector does not inspect stdin. Registration owns agent identity because Claude and Codex share event names such as `SessionStart`, `PreToolUse`, `PostToolUse`, and `Stop`.
+
+After selection, `runEngine()` delegates to `runEngineCore(adapter, deps)`. The core remains responsible for project discovery, config loading, hook loading, matching, execution, lifecycle handling, circuit-breaker behavior, and result reduction. The adapter owns the wire-specific operations: event-name parsing and validation from the raw payload, late context normalization, Claude-only plugin/settings advisories, notify-only/system-message routing, and final wire output.
 
 ### KNOWN_COMMANDS
 

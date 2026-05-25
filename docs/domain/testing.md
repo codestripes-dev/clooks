@@ -30,6 +30,7 @@ E2E tests never import modules directly. They invoke the compiled binary as a su
 | `test/docker-entrypoint.sh` | Container entrypoint. Compiles the binary from mounted source, then runs tests. |
 | `test/fixtures/hooks/` | Shared hook fixtures used across multiple test files (e.g., allow-all, crash-on-run, hang-forever). |
 | `test/fixtures/events/` | Event JSON fixtures representing Claude Code hook payloads. |
+| `test/fixtures/codex/events/` | Codex hook payload fixtures shaped from official Codex wire docs. These are contract artifacts until the Codex adapter exists. |
 | `test/e2e/*.e2e.test.ts` | E2E test files organized by domain. |
 
 ## Patterns
@@ -84,6 +85,7 @@ E2E test files are organized by the domain they exercise, not by implementation 
 - `error-cascade-advanced` — cascading failure scenarios
 - `stdin-advanced` — stdin piping edge cases
 - `environment-edge-cases` — unusual environment configurations
+- `agent-adapter` — compiled-binary engine mode adapter selection, default Claude behavior, explicit Claude selection, unknown-agent fail-closed behavior, and the reserved Codex placeholder fail-closed diagnostic
 - `vendoring` — `clooks add` pipeline: URL parsing, download, vendor directory layout, validation, `clooks.yml` registration, conflict detection
 - `plugin-vendoring` — plugin discovery, vendoring from plugin cache, registration, idempotency, collision detection, `clooks update` command, coexistence with manual hooks, local-scoped plugin registration
 - `short-address` — short address resolution, backward compatibility with path-like hooks
@@ -93,6 +95,21 @@ E2E test files are organized by the domain they exercise, not by implementation 
 **Shared hooks** that are reused across multiple test files live in `test/fixtures/hooks/`. These are named by behavior (e.g., `allow-all.ts`, `crash-on-run.ts`, `hang-forever.ts`) and represent canonical test scenarios.
 
 **Test-specific hooks** that are unique to a single test are written inline via `sandbox.writeHook()`. This keeps the fixture directory focused on truly shared artifacts and makes individual tests self-contained.
+
+### Codex event fixtures
+
+Codex wire fixtures live under `test/fixtures/codex/events/`. They use Codex's snake_case input field names exactly as the upstream command hook receives them, not Clooks' camelCase normalized names. The fixture set is validated by `src/codex-fixtures.test.ts`, which checks exact event coverage and basic per-event fields without treating the shapes as runtime-captured payloads.
+
+Until the Codex adapter ships, these fixtures are not E2E inputs for Clooks. They are docs-shaped, runtime-unverified contract artifacts for later normalization, translation, and registration tests. Live Codex CLI hook spikes should stay opt-in and disposable: use temporary `HOME`, `CODEX_HOME`, and project directories, avoid real `~/.codex` or trust-state changes, and promote only summarized evidence back into docs.
+
+### Agent adapter boundary tests
+
+The adapter boundary has unit and E2E coverage. Unit tests cover selector behavior, no payload sniffing, Claude event recognition/final-output behavior, Claude plugin/advisory isolation, and the Codex placeholder's no-op/fail-closed contract. The E2E file `test/e2e/agent-adapter.e2e.test.ts` exercises the compiled binary in engine mode with a Claude fixture and asserts:
+
+- unset `CLOOKS_AGENT` produces the existing Claude Code output shape
+- `CLOOKS_AGENT=claude-code` matches the unset path
+- unknown `CLOOKS_AGENT` values fail closed before hook execution
+- `CLOOKS_AGENT=codex` fails closed with a not-implemented diagnostic until Codex runtime support exists
 
 ### How to run
 

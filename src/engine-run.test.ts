@@ -31,6 +31,7 @@ let exitSpy: ReturnType<typeof spyOn>
 let stdoutSpy: ReturnType<typeof spyOn>
 let stderrSpy: ReturnType<typeof spyOn>
 let originalCwd: () => string
+let originalClooksAgent: string | undefined
 
 // Mock dep functions that get reset each test
 let mockLoadConfig: ReturnType<typeof mock>
@@ -50,6 +51,8 @@ function makeDeps(): RunEngineDeps {
 }
 
 beforeEach(() => {
+  originalClooksAgent = process.env.CLOOKS_AGENT
+  delete process.env.CLOOKS_AGENT
   tempDir = mkdtempSync(join(tmpdir(), 'clooks-engine-run-test-'))
   mkdirSync(join(tempDir, '.clooks'), { recursive: true })
   originalCwd = process.cwd
@@ -80,6 +83,11 @@ afterEach(() => {
   stderrSpy.mockRestore()
   delete process.env.CLOOKS_DEBUG
   delete process.env.CLOOKS_HOME_ROOT
+  if (originalClooksAgent === undefined) {
+    delete process.env.CLOOKS_AGENT
+  } else {
+    process.env.CLOOKS_AGENT = originalClooksAgent
+  }
   if (tempDir) {
     rmSync(tempDir, { recursive: true, force: true })
   }
@@ -731,8 +739,6 @@ describe('runEngine', () => {
   })
 
   it('trace messages appended to existing lastResult on injectable event', async () => {
-    // Covers lines 216-218: trace messages + existing lastResult (else branch)
-    // Need two hooks: one succeeds (produces lastResult), one with onError: "trace" that throws
     mockLoadConfig.mockResolvedValue({
       config: makeConfig({ good: {}, tracer: { onError: 'trace' } }),
       shadows: [],
@@ -756,8 +762,6 @@ describe('runEngine', () => {
   })
 
   it('degraded messages appended to existing lastResult on injectable event', async () => {
-    // Covers lines 228-230: degraded messages + existing lastResult (else branch)
-    // Need a hook that succeeds + a hook degraded by circuit breaker on injectable event
     const { writeFailures, recordFailure } = await import('./failures.js')
     const failurePath = join(tempDir, '.clooks/.failures')
     let state: any = {}
@@ -789,9 +793,6 @@ describe('runEngine', () => {
   })
 
   it('debug lines injected into context when no hook result (lastResult undefined)', async () => {
-    // Covers line 252: debug mode with allDebug.length > 0 but lastResult === undefined
-    // Need a hook with onError: "continue" that throws, so lastResult stays undefined,
-    // but debug lines exist from the engine.
     process.env.CLOOKS_DEBUG = 'true'
     mockLoadConfig.mockResolvedValue({
       config: makeConfig({ crasher: { onError: 'continue' } }),
@@ -1474,7 +1475,7 @@ describe('runEngine', () => {
     })
   })
 
-  describe('ConfigChange policy_settings runtime fallback (M5)', () => {
+  describe('ConfigChange policy_settings runtime fallback', () => {
     // (a) block for policy_settings → warning systemMessage, NO decision: "block"
     it('downgrades block to skip for source: "policy_settings"', async () => {
       mockLoadConfig.mockResolvedValue({
@@ -2422,13 +2423,6 @@ describe('runEngine', () => {
     })
 
     it('accumulator dead-state proof: deny winner uses reducer path; no outer-accumulator double-counting; systemMessage is absent', async () => {
-      // allow-hook runs first and returns injectContext: 'ghost'.
-      // deny-hook runs second and returns injectContext: 'policy-ctx'.
-      // Deny wins via reducer (rank 3 > rank 0). The reducer assembles
-      // merged.injectContext = 'ghost\npolicy-ctx' (allow loser + deny winner, execution order).
-      // The translator now wires additionalContext on the deny path (M3 QA fix).
-      // The dead-state check: no systemMessage warning (no double-counted context from the reducer),
-      // and additionalContext carries exactly the merged context — not a doubled/leaked value.
       mockLoadConfig.mockResolvedValue({
         config: makeConfig({ 'allow-hook': {}, 'deny-hook': {} }),
         shadows: [],
@@ -2451,7 +2445,6 @@ describe('runEngine', () => {
       const parsed = JSON.parse(stdout.trim().split('\n')[0]!)
       expect(parsed.hookSpecificOutput.permissionDecision).toBe('deny')
       expect(parsed.hookSpecificOutput.permissionDecisionReason).toBe('policy')
-      // Translator now emits additionalContext for deny (M3 QA fix: plan-vs-code gap patched).
       // 'ghost\npolicy-ctx' = allow loser's context + deny winner's context, in execution order.
       // A doubled value like 'ghost\nghost\npolicy-ctx' would indicate outer-accumulator leak.
       expect(parsed.systemMessage).toBeUndefined()

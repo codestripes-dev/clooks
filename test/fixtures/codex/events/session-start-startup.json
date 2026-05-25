@@ -1,0 +1,9 @@
+{
+  "session_id": "codex-session-123",
+  "transcript_path": null,
+  "cwd": "/tmp/clooks-codex/project",
+  "hook_event_name": "SessionStart",
+  "model": "gpt-5.5",
+  "permission_mode": "default",
+  "source": "startup"
+}

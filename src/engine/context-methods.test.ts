@@ -84,7 +84,7 @@ function fp(dir: string): string {
   return join(dir, '.clooks/.failures')
 }
 
-describe('M1 decision-method smoke fixture', () => {
+describe('decision-method smoke fixture', () => {
   test('createContext attaches PreToolUse methods', () => {
     const ctx = createContext('PreToolUse', {
       toolName: 'Bash',
@@ -95,8 +95,7 @@ describe('M1 decision-method smoke fixture', () => {
     expect(typeof (ctx as unknown as { skip: unknown }).skip).toBe('function')
     expect(typeof (ctx as unknown as { allow: unknown }).allow).toBe('function')
     expect(typeof (ctx as unknown as { block: unknown }).block).toBe('function')
-    // M2 Gap 4: confirm `defer` and `ask` are also attached for the full set,
-    // and that calling `defer()` produces the constructor's pure return shape.
+    // `defer` and `ask` complete the PreToolUse guard method set.
     expect(typeof (ctx as unknown as { defer: unknown }).defer).toBe('function')
     expect(typeof (ctx as unknown as { ask: unknown }).ask).toBe('function')
     const deferResult = (ctx as unknown as { defer: () => unknown }).defer()
@@ -115,7 +114,7 @@ describe('M1 decision-method smoke fixture', () => {
   })
 })
 
-describe('M1 decision-method engine integration', () => {
+describe('decision-method engine integration', () => {
   test('sequential path: PreToolUse:Bash ctx carries allow/block/skip methods', async () => {
     let observed: { allow: boolean; block: boolean; skip: boolean } | null = null
 
@@ -256,11 +255,9 @@ describe('per-result-tag constructor return shapes', () => {
 })
 
 describe('attachDecisionMethods runtime behavior', () => {
-  // M3: with the table now complete, attachDecisionMethods throws on a missed
-  // EventName lookup. The Record<EventName, ...> typing prevents this at
-  // compile time; the throw catches `as EventName` escape-hatch misuse at
-  // runtime. Replaces the M1 no-op behavior.
-  test('unknown event name throws (M3 tightening)', () => {
+  // The Record<EventName, ...> table catches drift at compile time; this
+  // runtime throw covers `as EventName` escape-hatch misuse.
+  test('unknown event name throws', () => {
     const ctx: Record<string, unknown> = { event: 'UnknownEvent', flag: 1 }
     expect(() => {
       attachDecisionMethods('UnknownEvent' as EventName, ctx)
@@ -316,10 +313,8 @@ describe('attachDecisionMethods runtime behavior', () => {
 })
 
 describe('createContext per-event behavior', () => {
-  // M2 wired the PermissionRequest method set: { allow, block, skip }. The DU
-  // promotion of PermissionRequestContext mirrors PreToolUseContext so per-tool
-  // narrowing flows through `ctx.allow({ updatedInput })`.
-  test('PermissionRequest M2: allow/block/skip methods attached', () => {
+  // PermissionRequest mirrors PreToolUse-style per-tool narrowing.
+  test('PermissionRequest: allow/block/skip methods attached', () => {
     const ctx = createContext('PermissionRequest', {
       toolName: 'Bash',
       toolInput: { command: 'ls' },
@@ -362,11 +357,9 @@ describe('createContext per-event behavior', () => {
   })
 })
 
-// M3: per-event method-attachment smoke tests. One representative event per
-// category (guard / observe / observe-with-multi-method / continuation /
-// notify-only / impl / retry-shaped). Verifies METHOD_SETS wiring landed and
-// that the runtime constructors return the expected discriminated shapes.
-describe('M3 per-event method attachment', () => {
+// One representative event per method category verifies METHOD_SETS wiring and
+// the runtime constructors' discriminated result shapes.
+describe('per-event method attachment', () => {
   test('UserPromptSubmit (guard): allow/block/skip attached', () => {
     const ctx = createContext('UserPromptSubmit', { prompt: 'hi' })
     const c = ctx as unknown as Record<string, unknown>
@@ -449,9 +442,8 @@ describe('M3 per-event method attachment', () => {
     expect((c.retry as () => unknown)()).toEqual({ result: 'retry' })
   })
 
-  // M3 Gap 3: cover the two remaining continuation events. TeammateIdle is
-  // already covered above; TaskCreated and TaskCompleted share the verb set
-  // but live on different event names and must each be exercised.
+  // TaskCreated and TaskCompleted share the continuation verb set but live on
+  // different event names, so each gets its own smoke coverage.
   test('TaskCreated (continuation): continue/stop/skip attached, no allow/block', () => {
     const ctx = createContext('TaskCreated', {
       taskId: 'task-001',
@@ -493,24 +485,15 @@ describe('M3 per-event method attachment', () => {
   })
 })
 
-// M3 Gap 1: exhaustive table-driven test that asserts EVERY event in
-// `EventName` exposes EXACTLY the method names the spike documents — no more,
-// no less. The `Record<EventName, ...>` typing on EXPECTED_METHODS forces TS
-// to flag any drift between EventName and the table at compile time; the
-// runtime set-comparison catches drift between METHOD_SETS and the table.
-//
-// Source of truth: `docs/research/feat-0063-decision-methods.md` Summary
-// Matrix + per-event sections. Kept in lockstep with
-// `src/engine/context-methods.ts:METHOD_SETS`.
+// Exhaustive table-driven check: every EventName exposes exactly the method
+// names in the decision-method matrix, and no stale methods remain wired.
 describe('METHOD_SETS exhaustive wiring', () => {
   const EXPECTED_METHODS: Record<EventName, ReadonlyArray<string>> = Object.freeze({
     // Guard events — `allow`/`block`/`skip` plus PreToolUse extras.
     PreToolUse: ['allow', 'ask', 'block', 'defer', 'skip'],
     PermissionRequest: ['allow', 'block', 'skip'],
     UserPromptSubmit: ['allow', 'block', 'skip'],
-    // Stop / SubagentStop: spike + METHOD_SETS both wire allow/block/skip
-    // (StopEventResult = AllowResult | BlockResult | SkipResult). Diverges
-    // from the gap-spec's draft table which listed only block/skip.
+    // Stop / SubagentStop intentionally include allow for symmetry with their result type.
     Stop: ['allow', 'block', 'skip'],
     SubagentStop: ['allow', 'block', 'skip'],
     ConfigChange: ['allow', 'block', 'skip'],

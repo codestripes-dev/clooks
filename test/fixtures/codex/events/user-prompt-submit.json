@@ -1,0 +1,10 @@
+{
+  "session_id": "codex-session-123",
+  "transcript_path": "/tmp/clooks-codex/project/.codex/sessions/session.jsonl",
+  "cwd": "/tmp/clooks-codex/project",
+  "hook_event_name": "UserPromptSubmit",
+  "model": "gpt-5.5",
+  "permission_mode": "default",
+  "turn_id": "turn-123",
+  "prompt": "Run the test suite and summarize failures."
+}

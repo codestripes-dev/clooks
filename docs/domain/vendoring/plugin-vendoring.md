@@ -50,7 +50,7 @@ Clooks has no `managed/.clooks/clooks.yml` layer to register into, and managed C
 
 ### Plugin cache structure
 
-The cache lives at `~/.claude/plugins/cache/` with a 3-level hierarchy: `<marketplace>/<plugin>/<version>/`. Version directories may use semver (`1.0.0`) or truncated git SHAs (`a5c3762d7ad8`). Orphaned directories (from plugin updates/uninstalls) contain an `.orphaned_at` marker file with an epoch-millisecond timestamp. See `docs/research/feat-0041/s3-plugin-cache-structure.md` and `docs/research/feat-0041/spike-cache-inspection.md` for full details.
+The cache lives at `~/.claude/plugins/cache/` with a 3-level hierarchy: `<marketplace>/<plugin>/<version>/`. Version directories may use semver (`1.0.0`) or truncated git SHAs (`a5c3762d7ad8`). Orphaned directories (from plugin updates/uninstalls) contain an `.orphaned_at` marker file with an epoch-millisecond timestamp.
 
 ## Plugin Vendoring
 
@@ -201,7 +201,7 @@ A project-scope `enabledPlugins: { X: false }` does **not** unregister a user-sc
 
 ### What it does NOT do
 
-- Does not remove config entries for hooks deleted from the manifest. Dangling entries are handled by Plan C (dangling detection).
+- Does not remove config entries for hooks deleted from the manifest. Dangling entries are handled by the dangling-hook detection path.
 - Does not modify existing YAML entries — only appends new ones.
 - Does not re-validate existing hooks on update — they were validated on initial install.
 
@@ -221,5 +221,3 @@ A project-scope `enabledPlugins: { X: false }` does **not** unregister a user-sc
 - `docs/domain/vendoring/clooks-add.md` — `clooks add` workflow (GitHub-based vendoring)
 - `docs/domain/config.md` — Config merging, YAML write patterns
 - `docs/domain/global-hooks.md` — Home config loading (user-scoped plugin hooks)
-- `docs/research/feat-0041/s3-plugin-cache-structure.md` — Plugin cache directory structure
-- `docs/research/feat-0041/spike-cache-inspection.md` — Real installed_plugins.json format
