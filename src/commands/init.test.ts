@@ -28,13 +28,20 @@ mock.module('@clack/prompts', () => ({
 }))
 
 // Import after mocking
+import { confirm, log } from '@clack/prompts'
 import { createInitCommand } from './init.js'
 import { ENTRYPOINT_SCRIPT, GLOBAL_ENTRYPOINT_SCRIPT } from './init-entrypoint.js'
 import { CLOOKS_ENTRYPOINT_PATH } from '../settings.js'
+import {
+  CODEX_REGISTRATION_EVENTS,
+  makeCodexGlobalEntrypointCommand,
+  makeCodexProjectEntrypointCommand,
+} from '../agents/codex/settings.js'
 import os from 'os'
 
 let tempDir: string
 let originalCwd: () => string
+let originalStdinIsTTY: boolean | undefined
 let exitSpy: ReturnType<typeof spyOn>
 let stdoutSpy: ReturnType<typeof spyOn>
 
@@ -50,18 +57,47 @@ function readSettings(root: string): Record<string, unknown> {
   return JSON.parse(readFileSync(join(root, '.claude', 'settings.json'), 'utf-8'))
 }
 
+function readCodexHooks(root: string): Record<string, unknown> {
+  return JSON.parse(readFileSync(join(root, '.codex', 'hooks.json'), 'utf-8'))
+}
+
+function warningMessages(): string[] {
+  return ((log.warning as unknown as ReturnType<typeof mock>).mock.calls as unknown[][]).map(
+    (call) => String(call[0]),
+  )
+}
+
+function successMessages(): string[] {
+  return ((log.success as unknown as ReturnType<typeof mock>).mock.calls as unknown[][]).map(
+    (call) => String(call[0]),
+  )
+}
+
+function infoMessages(): string[] {
+  return ((log.info as unknown as ReturnType<typeof mock>).mock.calls as unknown[][]).map((call) =>
+    String(call[0]),
+  )
+}
+
 beforeEach(() => {
   tempDir = mkdtempSync(join(tmpdir(), 'clooks-init-test-'))
   originalCwd = process.cwd
+  originalStdinIsTTY = process.stdin.isTTY
   process.cwd = () => tempDir
   exitSpy = spyOn(process, 'exit').mockImplementation((() => {
     throw new Error('process.exit called')
   }) as () => never)
   stdoutSpy = spyOn(process.stdout, 'write').mockImplementation(() => true)
+  ;(log.success as unknown as ReturnType<typeof mock>).mockClear()
+  ;(log.info as unknown as ReturnType<typeof mock>).mockClear()
+  ;(log.warning as unknown as ReturnType<typeof mock>).mockClear()
+  ;(confirm as unknown as ReturnType<typeof mock>).mockReset()
+  ;(confirm as unknown as ReturnType<typeof mock>).mockImplementation(() => true)
 })
 
 afterEach(() => {
   process.cwd = originalCwd
+  Object.defineProperty(process.stdin, 'isTTY', { value: originalStdinIsTTY, writable: true })
   exitSpy.mockRestore()
   stdoutSpy.mockRestore()
   if (tempDir) {
@@ -213,6 +249,9 @@ describe('clooks init', () => {
     expect(parsed.data.created.length).toBeGreaterThan(0)
     // types.d.ts should be in created on fresh init
     expect(parsed.data.created).toContain('.clooks/hooks/types.d.ts')
+    expect(parsed.data.agent).toBe('claude-code')
+    expect(parsed.data.agents).toEqual(['claude-code'])
+    expect(existsSync(join(tempDir, '.codex', 'hooks.json'))).toBe(false)
   })
 
   test('handles malformed settings.json with clear error', async () => {
@@ -261,7 +300,6 @@ describe('clooks init', () => {
   })
 
   test('guardrail: homedir detection with interactive confirm decline aborts', async () => {
-    const { confirm } = await import('@clack/prompts')
     const confirmMock = confirm as unknown as ReturnType<typeof mock>
     confirmMock.mockImplementationOnce(() => false)
 
@@ -285,13 +323,12 @@ describe('clooks init', () => {
   })
 
   test('guardrail: no-git with interactive confirm decline aborts', async () => {
-    const { confirm } = await import('@clack/prompts')
     const confirmMock = confirm as unknown as ReturnType<typeof mock>
     confirmMock.mockImplementationOnce(() => false)
 
     Object.defineProperty(process.stdin, 'isTTY', { value: true, writable: true })
-    // Fresh dir with no .git/
-    const noGitDir = join(tempDir, 'no-git-decline')
+    // Fresh dir with no .git/ in any parent. /tmp has a synthetic .git in this test sandbox.
+    const noGitDir = mkdtempSync(join('/dev/shm', 'clooks-init-no-git-'))
     mkdirSync(noGitDir, { recursive: true })
     process.cwd = () => noGitDir
 
@@ -300,6 +337,7 @@ describe('clooks init', () => {
 
     // User declined — no clooks.yml should be created
     expect(existsSync(join(noGitDir, '.clooks', 'clooks.yml'))).toBe(false)
+    rmSync(noGitDir, { recursive: true, force: true })
   })
 
   test('guardrail: no-git detection proceeds in non-interactive mode', async () => {
@@ -431,6 +469,199 @@ describe('clooks init', () => {
     const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
     const parsed = JSON.parse(output.trim())
     expect(parsed.data.skipped).toContain('.clooks/hooks/types.d.ts')
+  })
+
+  test('--agent claude-code is equivalent to omitted agent for project init', async () => {
+    const program = createTestProgram()
+    await program.parseAsync(['init', '--agent', 'claude-code'], { from: 'user' })
+
+    expect(existsSync(join(tempDir, '.claude', 'settings.json'))).toBe(true)
+    expect(existsSync(join(tempDir, '.codex', 'hooks.json'))).toBe(false)
+
+    const settings = readSettings(tempDir)
+    const hooks = settings.hooks as Record<string, unknown[]>
+    expect(Object.keys(hooks)).toHaveLength(22)
+  })
+
+  test('--agent codex creates project hooks.json and not Claude settings', async () => {
+    const program = createTestProgram()
+    await program.parseAsync(['init', '--agent', 'codex'], { from: 'user' })
+
+    expect(existsSync(join(tempDir, '.clooks', 'bin', 'entrypoint.sh'))).toBe(true)
+    expect(existsSync(join(tempDir, '.gitignore'))).toBe(true)
+    expect(existsSync(join(tempDir, '.claude', 'settings.json'))).toBe(false)
+    expect(existsSync(join(tempDir, '.codex', 'hooks.json'))).toBe(true)
+
+    const hooksFile = readCodexHooks(tempDir)
+    const hooks = hooksFile.hooks as Record<string, unknown[]>
+    expect(Object.keys(hooks)).toEqual([...CODEX_REGISTRATION_EVENTS])
+
+    const expectedCommand = makeCodexProjectEntrypointCommand(tempDir)
+    for (const event of CODEX_REGISTRATION_EVENTS) {
+      const matcherGroups = hooks[event]!
+      expect(matcherGroups).toHaveLength(1)
+      const hookEntries = (matcherGroups[0] as Record<string, unknown>).hooks as Record<
+        string,
+        string
+      >[]
+      expect(hookEntries).toEqual([{ type: 'command', command: expectedCommand }])
+      expect(expectedCommand).toContain('CLOOKS_PROJECT_ROOT=')
+    }
+  })
+
+  test('--agent all registers both Claude and Codex after shared project setup', async () => {
+    const program = createTestProgram()
+    await program.parseAsync(['init', '--agent', 'all'], { from: 'user' })
+
+    expect(existsSync(join(tempDir, '.clooks', 'clooks.yml'))).toBe(true)
+    expect(existsSync(join(tempDir, '.claude', 'settings.json'))).toBe(true)
+    expect(existsSync(join(tempDir, '.codex', 'hooks.json'))).toBe(true)
+  })
+
+  test('--agent codex JSON output preserves existing keys and adds agent fields', async () => {
+    const program = createTestProgram()
+    await program.parseAsync(['--json', 'init', '--agent', 'codex'], { from: 'user' })
+
+    const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
+    const parsed = JSON.parse(output.trim())
+
+    expect(parsed.ok).toBe(true)
+    expect(parsed.command).toBe('init')
+    expect(parsed.data.created).toBeInstanceOf(Array)
+    expect(parsed.data.skipped).toBeInstanceOf(Array)
+    expect(parsed.data.updated).toBeInstanceOf(Array)
+    expect(parsed.data.agent).toBe('codex')
+    expect(parsed.data.agents).toEqual(['codex'])
+    expect(parsed.data.created.some((item: string) => item.includes('.codex/hooks.json'))).toBe(
+      true,
+    )
+  })
+
+  test('--agent all JSON output reports expanded agents', async () => {
+    const program = createTestProgram()
+    await program.parseAsync(['--json', 'init', '--agent', 'all'], { from: 'user' })
+
+    const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
+    const parsed = JSON.parse(output.trim())
+
+    expect(parsed.data.agent).toBe('all')
+    expect(parsed.data.agents).toEqual(['claude-code', 'codex'])
+  })
+
+  test('invalid --agent values fail clearly', async () => {
+    const program = createTestProgram()
+    await program
+      .parseAsync(['--json', 'init', '--agent', 'unknown'], { from: 'user' })
+      .catch(() => {})
+
+    expect(exitSpy).toHaveBeenCalledWith(1)
+    const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
+    const parsed = JSON.parse(output.trim())
+    expect(parsed.ok).toBe(false)
+    expect(parsed.error).toContain('Invalid --agent value "unknown"')
+    expect(parsed.error).toContain('claude-code, codex, all')
+  })
+
+  test('--agent codex idempotent rerun skips hooks.json without duplicate registrations', async () => {
+    const program1 = createTestProgram()
+    await program1.parseAsync(['init', '--agent', 'codex'], { from: 'user' })
+    const hooksAfterFirst = readFileSync(join(tempDir, '.codex', 'hooks.json'), 'utf-8')
+
+    stdoutSpy.mockClear()
+    const program2 = createTestProgram()
+    await program2.parseAsync(['--json', 'init', '--agent', 'codex'], { from: 'user' })
+
+    expect(readFileSync(join(tempDir, '.codex', 'hooks.json'), 'utf-8')).toBe(hooksAfterFirst)
+    const parsed = JSON.parse(
+      stdoutSpy.mock.calls
+        .map((c: unknown[]) => String(c[0]))
+        .join('')
+        .trim(),
+    )
+    expect(parsed.data.skipped).toContain('.codex/hooks.json')
+
+    const hooks = readCodexHooks(tempDir).hooks as Record<string, unknown[]>
+    for (const event of CODEX_REGISTRATION_EVENTS) {
+      expect(hooks[event]).toHaveLength(1)
+    }
+  })
+
+  test('--agent codex prints trust warning and no runtime-placeholder warning', async () => {
+    const program = createTestProgram()
+    await program.parseAsync(['init', '--agent', 'codex'], { from: 'user' })
+
+    const warnings = warningMessages()
+    expect(warnings.some((message) => message.includes('Codex hook'))).toBe(true)
+    expect(warnings.join('\n')).not.toContain('runtime adapter')
+    expect(warnings.join('\n')).not.toContain('not implemented')
+  })
+
+  test('--agent codex human output reports created and skipped hooks.json', async () => {
+    const program1 = createTestProgram()
+    await program1.parseAsync(['init', '--agent', 'codex'], { from: 'user' })
+
+    expect(successMessages().some((message) => message.includes('Created .codex/hooks.json'))).toBe(
+      true,
+    )
+    expect(warningMessages().some((message) => message.includes('Codex hook'))).toBe(true)
+    expect(
+      [...successMessages(), ...infoMessages(), ...warningMessages()].join('\n'),
+    ).not.toContain('not implemented')
+    ;(log.success as unknown as ReturnType<typeof mock>).mockClear()
+    ;(log.info as unknown as ReturnType<typeof mock>).mockClear()
+    ;(log.warning as unknown as ReturnType<typeof mock>).mockClear()
+
+    const program2 = createTestProgram()
+    await program2.parseAsync(['init', '--agent', 'codex'], { from: 'user' })
+
+    expect(infoMessages()).toContain('Skipped .codex/hooks.json')
+    expect(warningMessages().some((message) => message.includes('Codex hook'))).toBe(true)
+    expect(
+      [...successMessages(), ...infoMessages(), ...warningMessages()].join('\n'),
+    ).not.toContain('runtime adapter')
+  })
+
+  test('--agent codex human output reports updated hooks.json', async () => {
+    mkdirSync(join(tempDir, '.codex'), { recursive: true })
+    writeFileSync(
+      join(tempDir, '.codex', 'hooks.json'),
+      JSON.stringify({
+        hooks: {
+          PreToolUse: [
+            {
+              matcher: '*',
+              hooks: [
+                {
+                  type: 'command',
+                  command: "CLOOKS_AGENT=codex '/old/project/.clooks/bin/entrypoint.sh'",
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    )
+
+    const program = createTestProgram()
+    await program.parseAsync(['init', '--agent', 'codex'], { from: 'user' })
+
+    expect(successMessages().some((message) => message.includes('Updated .codex/hooks.json'))).toBe(
+      true,
+    )
+    expect(warningMessages().some((message) => message.includes('Codex hook'))).toBe(true)
+  })
+
+  test('--agent all project human output reports Codex hooks and trust warning', async () => {
+    const program = createTestProgram()
+    await program.parseAsync(['init', '--agent', 'all'], { from: 'user' })
+
+    expect(successMessages().some((message) => message.includes('Created .codex/hooks.json'))).toBe(
+      true,
+    )
+    expect(warningMessages().some((message) => message.includes('Codex hook'))).toBe(true)
+    expect(
+      [...successMessages(), ...infoMessages(), ...warningMessages()].join('\n'),
+    ).not.toContain('runtime adapter')
   })
 })
 
@@ -661,6 +892,108 @@ describe('clooks init --global', () => {
     // Should complete successfully
     expect(exitSpy).not.toHaveBeenCalled()
   })
+
+  test('--agent codex creates global hooks.json and not Claude settings', async () => {
+    const program = createTestProgram()
+    await program.parseAsync(['init', '--global', '--agent', 'codex'], { from: 'user' })
+
+    expect(existsSync(join(fakeHome, '.clooks', '.global-entrypoint-active'))).toBe(false)
+    expect(existsSync(join(fakeHome, '.clooks', '.global-entrypoint-active.codex'))).toBe(true)
+    expect(existsSync(join(fakeHome, '.claude', 'settings.json'))).toBe(false)
+    expect(existsSync(join(fakeHome, '.codex', 'hooks.json'))).toBe(true)
+
+    const hooksFile = readCodexHooks(fakeHome)
+    const hooks = hooksFile.hooks as Record<string, unknown[]>
+    expect(Object.keys(hooks)).toEqual([...CODEX_REGISTRATION_EVENTS])
+
+    const expectedCommand = makeCodexGlobalEntrypointCommand(fakeHome)
+    expect(expectedCommand).not.toContain('CLOOKS_PROJECT_ROOT')
+    for (const event of CODEX_REGISTRATION_EVENTS) {
+      const matcherGroups = hooks[event]!
+      const hookEntries = (matcherGroups[0] as Record<string, unknown>).hooks as Record<
+        string,
+        string
+      >[]
+      expect(hookEntries).toEqual([{ type: 'command', command: expectedCommand }])
+    }
+  })
+
+  test('--agent all registers both Claude and Codex globally', async () => {
+    const program = createTestProgram()
+    await program.parseAsync(['init', '--global', '--agent', 'all'], { from: 'user' })
+
+    expect(existsSync(join(fakeHome, '.clooks', '.global-entrypoint-active'))).toBe(true)
+    expect(existsSync(join(fakeHome, '.clooks', '.global-entrypoint-active.codex'))).toBe(true)
+    expect(existsSync(join(fakeHome, '.claude', 'settings.json'))).toBe(true)
+    expect(existsSync(join(fakeHome, '.codex', 'hooks.json'))).toBe(true)
+  })
+
+  test('--agent codex global JSON output preserves global flag and adds agent fields', async () => {
+    const program = createTestProgram()
+    await program.parseAsync(['--json', 'init', '--global', '--agent', 'codex'], { from: 'user' })
+
+    const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
+    const parsed = JSON.parse(output.trim())
+
+    expect(parsed.ok).toBe(true)
+    expect(parsed.command).toBe('init')
+    expect(parsed.data.global).toBe(true)
+    expect(parsed.data.created).toBeInstanceOf(Array)
+    expect(parsed.data.skipped).toBeInstanceOf(Array)
+    expect(parsed.data.updated).toBeInstanceOf(Array)
+    expect(parsed.data.agent).toBe('codex')
+    expect(parsed.data.agents).toEqual(['codex'])
+    expect(parsed.data.created.some((item: string) => item.includes('~/.codex/hooks.json'))).toBe(
+      true,
+    )
+  })
+
+  test('--agent codex global rerun is idempotent', async () => {
+    const program1 = createTestProgram()
+    await program1.parseAsync(['init', '--global', '--agent', 'codex'], { from: 'user' })
+    const hooksAfterFirst = readFileSync(join(fakeHome, '.codex', 'hooks.json'), 'utf-8')
+
+    stdoutSpy.mockClear()
+    const program2 = createTestProgram()
+    await program2.parseAsync(['--json', 'init', '--global', '--agent', 'codex'], {
+      from: 'user',
+    })
+
+    expect(readFileSync(join(fakeHome, '.codex', 'hooks.json'), 'utf-8')).toBe(hooksAfterFirst)
+    const parsed = JSON.parse(
+      stdoutSpy.mock.calls
+        .map((c: unknown[]) => String(c[0]))
+        .join('')
+        .trim(),
+    )
+    expect(parsed.data.skipped).toContain('~/.codex/hooks.json')
+  })
+
+  test('--agent codex global human output reports trust warning and no runtime-placeholder warning', async () => {
+    const program = createTestProgram()
+    await program.parseAsync(['init', '--global', '--agent', 'codex'], { from: 'user' })
+
+    expect(
+      successMessages().some((message) => message.includes('Created ~/.codex/hooks.json')),
+    ).toBe(true)
+    expect(warningMessages().some((message) => message.includes('Codex hook'))).toBe(true)
+    expect(
+      [...successMessages(), ...infoMessages(), ...warningMessages()].join('\n'),
+    ).not.toContain('runtime adapter')
+  })
+
+  test('--agent all global human output reports trust warning and no runtime-placeholder warning', async () => {
+    const program = createTestProgram()
+    await program.parseAsync(['init', '--global', '--agent', 'all'], { from: 'user' })
+
+    expect(
+      successMessages().some((message) => message.includes('Created ~/.codex/hooks.json')),
+    ).toBe(true)
+    expect(warningMessages().some((message) => message.includes('Codex hook'))).toBe(true)
+    expect(
+      [...successMessages(), ...infoMessages(), ...warningMessages()].join('\n'),
+    ).not.toContain('not implemented')
+  })
 })
 
 describe('ENTRYPOINT_SCRIPT', () => {
@@ -687,7 +1020,13 @@ describe('ENTRYPOINT_SCRIPT', () => {
 
   test('project entrypoint includes dedup check for .global-entrypoint-active', () => {
     expect(ENTRYPOINT_SCRIPT).toContain('.global-entrypoint-active')
-    expect(ENTRYPOINT_SCRIPT).toContain('if [ -f "$HOME/.clooks/.global-entrypoint-active" ]')
+    expect(ENTRYPOINT_SCRIPT).toContain('CLOOKS_DEDUP_AGENT="${CLOOKS_AGENT:-claude-code}"')
+    expect(ENTRYPOINT_SCRIPT).toContain(
+      '[ "$CLOOKS_DEDUP_AGENT" = "claude-code" ] && [ -f "$HOME/.clooks/.global-entrypoint-active" ]',
+    )
+    expect(ENTRYPOINT_SCRIPT).toContain(
+      'if [ -f "$HOME/.clooks/.global-entrypoint-active.$CLOOKS_DEDUP_AGENT" ]',
+    )
   })
 
   test('dedup check appears after SKIP_CLOOKS and before CLOOKS_BIN', () => {
@@ -778,5 +1117,46 @@ describe('entrypoint dedup behavior', () => {
     expect(proc.exitCode).toBe(0)
     const stderr = proc.stderr.toString()
     expect(stderr).toContain('Binary not found')
+  })
+
+  test('Codex-only global init does not make Claude project entrypoint exit early', async () => {
+    const globalProgram = createTestProgram()
+    await globalProgram.parseAsync(['init', '--global', '--agent', 'codex'], { from: 'user' })
+
+    expect(existsSync(join(fakeHome, '.clooks', '.global-entrypoint-active'))).toBe(false)
+    expect(existsSync(join(fakeHome, '.clooks', '.global-entrypoint-active.codex'))).toBe(true)
+
+    const projectProgram = createTestProgram()
+    await projectProgram.parseAsync(['init'], { from: 'user' })
+
+    const entrypointPath = join(tempDir, '.clooks', 'bin', 'entrypoint.sh')
+    const proc = Bun.spawnSync(['bash', entrypointPath], {
+      env: { HOME: fakeHome, PATH: '/usr/local/bin:/usr/bin:/bin' },
+      stdin: Buffer.from('{}'),
+    })
+
+    expect(proc.exitCode).toBe(0)
+    expect(proc.stderr.toString()).toContain('Binary not found')
+  })
+
+  test('Codex project entrypoint exits early when Codex global flag exists', async () => {
+    const program = createTestProgram()
+    await program.parseAsync(['init', '--agent', 'codex'], { from: 'user' })
+
+    mkdirSync(join(fakeHome, '.clooks'), { recursive: true })
+    writeFileSync(join(fakeHome, '.clooks', '.global-entrypoint-active.codex'), '')
+
+    const entrypointPath = join(tempDir, '.clooks', 'bin', 'entrypoint.sh')
+    const proc = Bun.spawnSync(['bash', entrypointPath], {
+      env: {
+        HOME: fakeHome,
+        PATH: '/usr/local/bin:/usr/bin:/bin',
+        CLOOKS_AGENT: 'codex',
+      },
+      stdin: Buffer.from('{}'),
+    })
+
+    expect(proc.exitCode).toBe(0)
+    expect(proc.stderr.toString()).not.toContain('Binary not found')
   })
 })

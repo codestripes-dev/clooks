@@ -1,5 +1,5 @@
 import { Command } from 'commander'
-import { existsSync, rmSync, readdirSync, readFileSync } from 'fs'
+import { existsSync, rmSync, readdirSync, readFileSync, unlinkSync } from 'fs'
 import { join } from 'path'
 import { getCtx, type OutputContext } from '../tui/context.js'
 import { jsonSuccess } from '../tui/json-envelope.js'
@@ -13,8 +13,131 @@ import {
 } from '../tui/output.js'
 import { promptConfirm, promptSelect, isNonInteractive, CancelError } from '../tui/prompts.js'
 import { unregisterClooks, isClooksRegistered } from '../settings.js'
+import { unregisterCodexClooks, isCodexClooksRegistered } from '../agents/codex/settings.js'
 import { findProjectRoot } from '../config/discovery.js'
 import { getHomeDir } from '../platform.js'
+
+const UNINSTALL_AGENTS = ['claude-code', 'codex', 'all'] as const
+
+type UninstallAgent = (typeof UNINSTALL_AGENTS)[number]
+type ConcreteUninstallAgent = Exclude<UninstallAgent, 'all'>
+
+interface AgentUninstallCounts {
+  claudeEventsRemoved: string[]
+  codexEventsRemoved: string[]
+  claudeNonClooksPreserved: number
+  codexNonClooksPreserved: number
+}
+
+interface UninstallOptions {
+  force?: boolean
+  unhook?: boolean
+  full?: boolean
+  agent?: string
+}
+
+function parseUninstallAgent(value: unknown): UninstallAgent {
+  const agent = value ?? 'claude-code'
+  if (typeof agent === 'string' && UNINSTALL_AGENTS.includes(agent as UninstallAgent)) {
+    return agent as UninstallAgent
+  }
+
+  throw new Error(
+    `Invalid --agent value "${String(agent)}". Expected one of: claude-code, codex, all.`,
+  )
+}
+
+function selectedAgents(agent: UninstallAgent): ConcreteUninstallAgent[] {
+  return agent === 'all' ? ['claude-code', 'codex'] : [agent]
+}
+
+function includesAgent(agent: UninstallAgent, target: ConcreteUninstallAgent): boolean {
+  return selectedAgents(agent).includes(target)
+}
+
+function agentsForAction(agent: UninstallAgent, opts: UninstallOptions): ConcreteUninstallAgent[] {
+  return opts.full ? selectedAgents('all') : selectedAgents(agent)
+}
+
+function fullUninstallWidensToAllAgents(
+  agent: UninstallAgent,
+  opts: UninstallOptions,
+  hasActionClaudeRegistration: boolean,
+  hasActionCodexRegistration: boolean,
+): boolean {
+  if (!opts.full || agent === 'all') return false
+
+  const selected = selectedAgents(agent)
+  return (
+    (!selected.includes('claude-code') && hasActionClaudeRegistration) ||
+    (!selected.includes('codex') && hasActionCodexRegistration)
+  )
+}
+
+function agentLabel(agent: UninstallAgent): string {
+  if (agent === 'claude-code') return 'Claude Code'
+  if (agent === 'codex') return 'Codex'
+  return 'Claude Code and Codex'
+}
+
+function globalEntrypointFlagPath(homeRoot: string, agent: ConcreteUninstallAgent): string {
+  const flagName =
+    agent === 'claude-code' ? '.global-entrypoint-active' : `.global-entrypoint-active.${agent}`
+  return join(homeRoot, '.clooks', flagName)
+}
+
+function removeGlobalEntrypointFlags(homeRoot: string, agents: ConcreteUninstallAgent[]): string[] {
+  const removed: string[] = []
+
+  for (const agent of agents) {
+    const flagPath = globalEntrypointFlagPath(homeRoot, agent)
+    if (existsSync(flagPath)) {
+      unlinkSync(flagPath)
+      removed.push(agent)
+    }
+  }
+
+  return removed
+}
+
+function countClaudeMatcherGroups(settingsDir: string): number {
+  const settingsPath = join(settingsDir, 'settings.json')
+  if (!existsSync(settingsPath)) return 0
+
+  const settingsContent = JSON.parse(readFileSync(settingsPath, 'utf-8'))
+  const remainingHooks = settingsContent.hooks as Record<string, unknown[]> | undefined
+  if (!remainingHooks) return 0
+
+  let count = 0
+  for (const matchers of Object.values(remainingHooks)) {
+    if (Array.isArray(matchers)) count += matchers.length
+  }
+  return count
+}
+
+function countCodexMatcherGroups(codexDir: string): number {
+  const hooksPath = join(codexDir, 'hooks.json')
+  if (!existsSync(hooksPath)) return 0
+
+  const hooksFile = JSON.parse(readFileSync(hooksPath, 'utf-8'))
+  const hooks = hooksFile.hooks as Record<string, unknown[]> | undefined
+  if (!hooks) return 0
+
+  let count = 0
+  for (const matchers of Object.values(hooks)) {
+    if (Array.isArray(matchers)) count += matchers.length
+  }
+  return count
+}
+
+function emptyCounts(): AgentUninstallCounts {
+  return {
+    claudeEventsRemoved: [],
+    codexEventsRemoved: [],
+    claudeNonClooksPreserved: 0,
+    codexNonClooksPreserved: 0,
+  }
+}
 
 /**
  * Detect custom hooks in the hooks directory.
@@ -32,24 +155,46 @@ function detectCustomHooks(hooksDir: string): string[] {
  */
 async function uninstallProject(
   ctx: OutputContext,
-  opts: { force?: boolean; unhook?: boolean; full?: boolean },
+  opts: UninstallOptions,
   findRoot: () => Promise<string>,
 ): Promise<void> {
   // a. Resolve project root
   const projectRoot = await findRoot()
   const clooksDir = join(projectRoot, '.clooks')
   const settingsDir = join(projectRoot, '.claude')
+  const codexDir = join(projectRoot, '.codex')
+  const agent = parseUninstallAgent(opts.agent)
+  const agents = selectedAgents(agent)
+  const actionAgents = agentsForAction(agent, opts)
+  const hasSelectedClaudeRegistration =
+    includesAgent(agent, 'claude-code') && isClooksRegistered(settingsDir)
+  const hasSelectedCodexRegistration =
+    includesAgent(agent, 'codex') && isCodexClooksRegistered(codexDir)
+  const hasActionClaudeRegistration =
+    actionAgents.includes('claude-code') && isClooksRegistered(settingsDir)
+  const hasActionCodexRegistration =
+    actionAgents.includes('codex') && isCodexClooksRegistered(codexDir)
+  const shouldExplainFullAgentWidening = fullUninstallWidensToAllAgents(
+    agent,
+    opts,
+    hasActionClaudeRegistration,
+    hasActionCodexRegistration,
+  )
 
   // b. No-op check
-  if (!isClooksRegistered(settingsDir) && !existsSync(clooksDir)) {
+  if (!hasActionClaudeRegistration && !hasActionCodexRegistration && !existsSync(clooksDir)) {
     if (ctx.json) {
       process.stdout.write(
         jsonSuccess('uninstall', {
           scope: 'project',
+          agent,
+          agents,
           unhooked: false,
           deleted: false,
           customHooksDeleted: [],
           eventsRemoved: [],
+          claudeEventsRemoved: [],
+          codexEventsRemoved: [],
         }) + '\n',
       )
       return
@@ -67,9 +212,9 @@ async function uninstallProject(
     shouldDelete = opts.full || false
   } else {
     // Interactive mode
-    if (isClooksRegistered(settingsDir)) {
+    if (hasSelectedClaudeRegistration || hasSelectedCodexRegistration) {
       shouldUnhook = await promptConfirm(ctx, {
-        message: 'Remove Clooks hooks from .claude/settings.json?',
+        message: `Remove ${agentLabel(agent)} Clooks hook registrations?`,
         defaultValue: true,
       })
     }
@@ -98,26 +243,31 @@ async function uninstallProject(
   let unhooked = false
   let deleted = false
   let customHooksDeleted: string[] = []
-  let eventsRemoved: string[] = []
+  const counts = emptyCounts()
 
   if (shouldUnhook) {
-    const result = unregisterClooks(settingsDir)
-    unhooked = true
-    eventsRemoved = result.removed
+    if (actionAgents.includes('claude-code')) {
+      const result = unregisterClooks(settingsDir)
+      counts.claudeEventsRemoved = result.removed
+    }
+    if (actionAgents.includes('codex')) {
+      const result = unregisterCodexClooks(codexDir)
+      counts.codexEventsRemoved = result.removed
+    }
+    unhooked =
+      counts.claudeEventsRemoved.length > 0 ||
+      counts.codexEventsRemoved.length > 0 ||
+      hasActionClaudeRegistration ||
+      hasActionCodexRegistration
   }
 
   // Count remaining non-Clooks hooks
-  let nonClooksPreserved = 0
   if (unhooked) {
-    const settingsPath = join(settingsDir, 'settings.json')
-    if (existsSync(settingsPath)) {
-      const settingsContent = JSON.parse(readFileSync(settingsPath, 'utf-8'))
-      const remainingHooks = settingsContent.hooks as Record<string, unknown[]> | undefined
-      if (remainingHooks) {
-        for (const matchers of Object.values(remainingHooks)) {
-          if (Array.isArray(matchers)) nonClooksPreserved += matchers.length
-        }
-      }
+    if (actionAgents.includes('claude-code')) {
+      counts.claudeNonClooksPreserved = countClaudeMatcherGroups(settingsDir)
+    }
+    if (actionAgents.includes('codex')) {
+      counts.codexNonClooksPreserved = countCodexMatcherGroups(codexDir)
     }
   }
 
@@ -132,26 +282,58 @@ async function uninstallProject(
     process.stdout.write(
       jsonSuccess('uninstall', {
         scope: 'project',
+        agent,
+        agents,
         unhooked,
         deleted,
         customHooksDeleted,
-        eventsRemoved,
-        nonClooksPreserved,
+        eventsRemoved: counts.claudeEventsRemoved,
+        nonClooksPreserved: counts.claudeNonClooksPreserved,
+        claudeEventsRemoved: counts.claudeEventsRemoved,
+        codexEventsRemoved: counts.codexEventsRemoved,
+        claudeNonClooksPreserved: counts.claudeNonClooksPreserved,
+        codexNonClooksPreserved: counts.codexNonClooksPreserved,
       }) + '\n',
     )
     return
   }
 
+  if (!unhooked && !deleted) {
+    printInfo(ctx, `No ${agentLabel(agent)} Clooks hook registrations found. Nothing changed.`)
+    return
+  }
+
   if (unhooked) {
-    printSuccess(
-      ctx,
-      'Removed Clooks hooks from .claude/settings.json (' + eventsRemoved.length + ' events).',
-    )
-    if (nonClooksPreserved > 0) {
-      printInfo(ctx, `${nonClooksPreserved} non-Clooks hook(s) preserved.`)
+    if (counts.claudeEventsRemoved.length > 0) {
+      printSuccess(
+        ctx,
+        'Removed Clooks hooks from .claude/settings.json (' +
+          counts.claudeEventsRemoved.length +
+          ' events).',
+      )
+      if (counts.claudeNonClooksPreserved > 0) {
+        printInfo(ctx, `${counts.claudeNonClooksPreserved} Claude non-Clooks hook(s) preserved.`)
+      }
+    }
+    if (counts.codexEventsRemoved.length > 0) {
+      printSuccess(
+        ctx,
+        'Removed Clooks hooks from .codex/hooks.json (' +
+          counts.codexEventsRemoved.length +
+          ' events).',
+      )
+      if (counts.codexNonClooksPreserved > 0) {
+        printInfo(ctx, `${counts.codexNonClooksPreserved} Codex non-Clooks hook(s) preserved.`)
+      }
     }
   }
   if (deleted) {
+    if (shouldExplainFullAgentWidening) {
+      printInfo(
+        ctx,
+        '--full removes all Clooks agent registrations because it deletes the shared .clooks/ entrypoint directory.',
+      )
+    }
     printSuccess(ctx, 'Deleted .clooks/ directory.')
     if (customHooksDeleted.length > 0) {
       printWarning(
@@ -181,25 +363,44 @@ async function uninstallProject(
 /**
  * Uninstall Clooks globally (~/.clooks/).
  */
-async function uninstallGlobal(
-  ctx: OutputContext,
-  opts: { force?: boolean; unhook?: boolean; full?: boolean },
-): Promise<void> {
+async function uninstallGlobal(ctx: OutputContext, opts: UninstallOptions): Promise<void> {
   // a. Resolve global root
   const homeRoot = getHomeDir()
   const clooksDir = join(homeRoot, '.clooks')
   const settingsDir = join(homeRoot, '.claude')
+  const codexDir = join(homeRoot, '.codex')
+  const agent = parseUninstallAgent(opts.agent)
+  const agents = selectedAgents(agent)
+  const actionAgents = agentsForAction(agent, opts)
+  const hasSelectedClaudeRegistration =
+    includesAgent(agent, 'claude-code') && isClooksRegistered(settingsDir)
+  const hasSelectedCodexRegistration =
+    includesAgent(agent, 'codex') && isCodexClooksRegistered(codexDir)
+  const hasActionClaudeRegistration =
+    actionAgents.includes('claude-code') && isClooksRegistered(settingsDir)
+  const hasActionCodexRegistration =
+    actionAgents.includes('codex') && isCodexClooksRegistered(codexDir)
+  const shouldExplainFullAgentWidening = fullUninstallWidensToAllAgents(
+    agent,
+    opts,
+    hasActionClaudeRegistration,
+    hasActionCodexRegistration,
+  )
 
   // b. No-op check
-  if (!isClooksRegistered(settingsDir) && !existsSync(clooksDir)) {
+  if (!hasActionClaudeRegistration && !hasActionCodexRegistration && !existsSync(clooksDir)) {
     if (ctx.json) {
       process.stdout.write(
         jsonSuccess('uninstall', {
           scope: 'global',
+          agent,
+          agents,
           unhooked: false,
           deleted: false,
           customHooksDeleted: [],
           eventsRemoved: [],
+          claudeEventsRemoved: [],
+          codexEventsRemoved: [],
         }) + '\n',
       )
       return
@@ -217,9 +418,9 @@ async function uninstallGlobal(
     shouldDelete = opts.full || false
   } else {
     // Interactive mode
-    if (isClooksRegistered(settingsDir)) {
+    if (hasSelectedClaudeRegistration || hasSelectedCodexRegistration) {
       shouldUnhook = await promptConfirm(ctx, {
-        message: 'Remove Clooks hooks from ~/.claude/settings.json?',
+        message: `Remove ${agentLabel(agent)} global Clooks hook registrations?`,
         defaultValue: true,
       })
     }
@@ -248,26 +449,34 @@ async function uninstallGlobal(
   let unhooked = false
   let deleted = false
   let customHooksDeleted: string[] = []
-  let eventsRemoved: string[] = []
+  let globalFlagsRemoved: string[] = []
+  const counts = emptyCounts()
 
   if (shouldUnhook) {
-    const result = unregisterClooks(settingsDir)
-    unhooked = true
-    eventsRemoved = result.removed
+    if (actionAgents.includes('claude-code')) {
+      const result = unregisterClooks(settingsDir)
+      counts.claudeEventsRemoved = result.removed
+    }
+    if (actionAgents.includes('codex')) {
+      const result = unregisterCodexClooks(codexDir)
+      counts.codexEventsRemoved = result.removed
+    }
+    globalFlagsRemoved = removeGlobalEntrypointFlags(homeRoot, actionAgents)
+    unhooked =
+      counts.claudeEventsRemoved.length > 0 ||
+      counts.codexEventsRemoved.length > 0 ||
+      globalFlagsRemoved.length > 0 ||
+      hasActionClaudeRegistration ||
+      hasActionCodexRegistration
   }
 
   // Count remaining non-Clooks hooks
-  let nonClooksPreserved = 0
   if (unhooked) {
-    const settingsPath = join(settingsDir, 'settings.json')
-    if (existsSync(settingsPath)) {
-      const settingsContent = JSON.parse(readFileSync(settingsPath, 'utf-8'))
-      const remainingHooks = settingsContent.hooks as Record<string, unknown[]> | undefined
-      if (remainingHooks) {
-        for (const matchers of Object.values(remainingHooks)) {
-          if (Array.isArray(matchers)) nonClooksPreserved += matchers.length
-        }
-      }
+    if (actionAgents.includes('claude-code')) {
+      counts.claudeNonClooksPreserved = countClaudeMatcherGroups(settingsDir)
+    }
+    if (actionAgents.includes('codex')) {
+      counts.codexNonClooksPreserved = countCodexMatcherGroups(codexDir)
     }
   }
 
@@ -282,26 +491,65 @@ async function uninstallGlobal(
     process.stdout.write(
       jsonSuccess('uninstall', {
         scope: 'global',
+        agent,
+        agents,
         unhooked,
         deleted,
         customHooksDeleted,
-        eventsRemoved,
-        nonClooksPreserved,
+        eventsRemoved: counts.claudeEventsRemoved,
+        nonClooksPreserved: counts.claudeNonClooksPreserved,
+        claudeEventsRemoved: counts.claudeEventsRemoved,
+        codexEventsRemoved: counts.codexEventsRemoved,
+        claudeNonClooksPreserved: counts.claudeNonClooksPreserved,
+        codexNonClooksPreserved: counts.codexNonClooksPreserved,
+        globalFlagsRemoved,
       }) + '\n',
     )
     return
   }
 
-  if (unhooked) {
-    printSuccess(
+  if (!unhooked && !deleted) {
+    printInfo(
       ctx,
-      'Removed Clooks hooks from ~/.claude/settings.json (' + eventsRemoved.length + ' events).',
+      `No ${agentLabel(agent)} global Clooks hook registrations found. Nothing changed.`,
     )
-    if (nonClooksPreserved > 0) {
-      printInfo(ctx, `${nonClooksPreserved} non-Clooks hook(s) preserved.`)
+    return
+  }
+
+  if (unhooked) {
+    if (counts.claudeEventsRemoved.length > 0) {
+      printSuccess(
+        ctx,
+        'Removed Clooks hooks from ~/.claude/settings.json (' +
+          counts.claudeEventsRemoved.length +
+          ' events).',
+      )
+      if (counts.claudeNonClooksPreserved > 0) {
+        printInfo(ctx, `${counts.claudeNonClooksPreserved} Claude non-Clooks hook(s) preserved.`)
+      }
+    }
+    if (counts.codexEventsRemoved.length > 0) {
+      printSuccess(
+        ctx,
+        'Removed Clooks hooks from ~/.codex/hooks.json (' +
+          counts.codexEventsRemoved.length +
+          ' events).',
+      )
+      if (counts.codexNonClooksPreserved > 0) {
+        printInfo(ctx, `${counts.codexNonClooksPreserved} Codex non-Clooks hook(s) preserved.`)
+      }
+    }
+    if (globalFlagsRemoved.length > 0) {
+      printInfo(ctx, `Removed ${globalFlagsRemoved.length} global entrypoint flag(s).`)
     }
   }
   if (deleted) {
+    if (shouldExplainFullAgentWidening) {
+      printInfo(
+        ctx,
+        '--full removes all Clooks agent registrations because it deletes the shared ~/.clooks/ entrypoint directory.',
+      )
+    }
     printSuccess(ctx, 'Deleted ~/.clooks/ directory.')
     if (customHooksDeleted.length > 0) {
       printWarning(
@@ -336,14 +584,12 @@ export function createUninstallCommand(findRoot: () => Promise<string> = findPro
     .option('--force', 'Skip confirmation prompts (requires explicit scope + action flags)')
     .option('--unhook', 'Only remove from settings.json')
     .option('--full', 'Unhook + delete .clooks/ directory')
+    .option('--agent <agent>', 'Agent registration to remove: claude-code, codex, or all')
     .action(
       async (
-        opts: {
+        opts: UninstallOptions & {
           project?: boolean
           global?: boolean
-          force?: boolean
-          unhook?: boolean
-          full?: boolean
         },
         cmd: Command,
       ) => {
@@ -351,6 +597,8 @@ export function createUninstallCommand(findRoot: () => Promise<string> = findPro
         printIntro(ctx, 'clooks uninstall')
 
         try {
+          parseUninstallAgent(opts.agent)
+
           // Non-interactive guard
           if (isNonInteractive(ctx) && !opts.force) {
             printError(

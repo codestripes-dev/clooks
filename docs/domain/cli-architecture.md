@@ -150,9 +150,13 @@ interface JsonEnvelope {
 
 ### `clooks init` / `clooks init --global`
 
-Project setup command. Creates `.clooks/` directory, writes default `clooks.yml`, generates the bash entrypoint, and registers it in `.claude/settings.json`.
+Project setup command. Creates `.clooks/` directory, writes default `clooks.yml`, generates the bash entrypoint, and registers it with the selected agent hook system.
 
-With `--global`, operates on `~/.clooks/` instead: creates the home directory structure, writes a global `clooks.yml`, generates a global entrypoint, registers it in `~/.claude/settings.json`, and creates the `.global-entrypoint-active` flag file for entrypoint dedup.
+Agent routing is explicit through `--agent claude-code`, `--agent codex`, or `--agent all`. Omitting `--agent` is equivalent to `--agent claude-code` for backward compatibility: project init writes `.claude/settings.json`, and global init writes `~/.claude/settings.json`.
+
+`--agent codex` still creates the shared `.clooks/` runtime files, but registers `.codex/hooks.json` or `~/.codex/hooks.json` instead of Claude settings. The Codex registration writes one Clooks command hook per supported Codex registration event and warns that Codex may require hook review/trust before project hooks run. `--agent all` performs the shared `.clooks/` setup once, then registers both Claude Code and Codex.
+
+With `--global`, operates on `~/.clooks/` instead: creates the home directory structure, writes a global `clooks.yml`, generates a global entrypoint, registers the selected global agent files, and creates agent-specific global entrypoint flag files for dedup. Claude Code uses the legacy `~/.clooks/.global-entrypoint-active` flag; Codex uses `~/.clooks/.global-entrypoint-active.codex`.
 
 ### `clooks config` / `clooks config --resolved`
 
@@ -234,7 +238,13 @@ Routing: `clooks test` is registered in `KNOWN_COMMANDS` so the dual-mode dispat
 
 ### `clooks uninstall`
 
-Removes Clooks from a project or global scope. With `--project`, removes Clooks hooks from `.claude/settings.json` and optionally deletes `.clooks/`. With `--global`, does the same for `~/.claude/settings.json` and `~/.clooks/`. Without a flag, presents an interactive scope picker (project, global, or both). `--force` skips all confirmation prompts and requires explicit scope (`--project`/`--global`) and action (`--unhook`/`--full`) flags. `--json` outputs a structured result envelope. Never loads or validates `clooks.yml` — works even when config is broken.
+Removes Clooks from a project or global scope. Agent routing mirrors init: `--agent claude-code`, `--agent codex`, or `--agent all`; omitting `--agent` preserves the legacy Claude Code-only behavior.
+
+With `--project --unhook`, the command removes Clooks-owned registrations for the selected agent from `.claude/settings.json`, `.codex/hooks.json`, or both, while preserving unrelated hooks. With `--global --unhook`, it does the same for `~/.claude/settings.json` and `~/.codex/hooks.json`, and removes the selected global dedup flag files.
+
+With `--full`, the command first unhooks all known Clooks agent registrations in the selected project/global scope, regardless of the requested `--agent`, then deletes the shared `.clooks/` or `~/.clooks/` directory. This avoids leaving another agent registration pointing at a deleted shared entrypoint. Without a scope flag, uninstall presents an interactive scope picker (project, global, or both). `--force` skips all confirmation prompts and requires explicit scope (`--project`/`--global`) and action (`--unhook`/`--full`) flags. `--json` outputs a structured result envelope with legacy Claude fields plus separate Claude/Codex counts. Never loads or validates `clooks.yml` — works even when config is broken.
+
+For JSON compatibility, `eventsRemoved` and `nonClooksPreserved` remain Claude Code aliases. Agent-aware callers should read `claudeEventsRemoved`, `codexEventsRemoved`, `claudeNonClooksPreserved`, and `codexNonClooksPreserved`. For example, `clooks uninstall --agent codex --json` reports Codex removals in `codexEventsRemoved`; `eventsRemoved` stays empty unless Claude registrations were also removed.
 
 ## Key Files
 

@@ -111,6 +111,12 @@ The adapter boundary has unit and E2E coverage. Unit tests cover selector behavi
 - unknown `CLOOKS_AGENT` values fail closed before hook execution
 - `CLOOKS_AGENT=codex` fails closed with a not-implemented diagnostic until Codex runtime support exists
 
+### Codex registration tests
+
+Codex registration has unit and compiled-binary E2E coverage without invoking live Codex. Unit tests in `src/agents/codex/settings.test.ts` pin the `.codex/hooks.json` merge rules: exact ten-event registration coverage, one managed Clooks command group per event, idempotent convergence of stale/duplicate Clooks entries, preservation of unrelated hooks and top-level fields, shell quoting for project paths, and conservative unregistration.
+
+`test/e2e/codex-registration.e2e.test.ts` exercises the user-facing CLI through the compiled binary. It verifies `clooks init --agent codex`, idempotent reruns, `clooks init --agent all`, global Codex registration, agent-aware global dedup flags, and `clooks uninstall --agent codex --unhook` preserving unrelated Codex hooks. These tests inspect generated files and command strings only. Codex event fixtures under `test/fixtures/codex/events/` remain runtime-contract inputs for Plan D/E normalization and translation; they are not consumed by registration E2E until the Codex runtime adapter exists.
+
 ### How to run
 
 ```bash

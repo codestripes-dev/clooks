@@ -42,7 +42,7 @@ Make Clooks usable as a general-purpose hook framework across Claude Code and Co
 | Doc | Status | What it verified |
 |-----|--------|-----------------|
 | Codex CLI runtime hook smoke spike | attempted | Disposable `HOME`, `CODEX_HOME`, and project directories were used with `codex-cli 0.133.0`. Network sandboxing first blocked the WebSocket; escalated rerun reached the OpenAI API but failed with `401 Unauthorized`, so no hook payloads were captured. |
-| Codex registration/trust spike | partially attempted | The disposable project-local `.codex/hooks.json` shape could be created and passed to `codex exec --dangerously-bypass-hook-trust`, but model/auth access blocked confirming hook execution. Full registration/trust behavior remains Plan C. |
+| Codex registration/trust spike | partially attempted | The disposable project-local `.codex/hooks.json` shape could be created and passed to `codex exec --dangerously-bypass-hook-trust`, but model/auth access blocked confirming hook execution. Plan C implemented generated registration and file-level E2E without live Codex hook firing. |
 
 ## User Journey
 
@@ -154,7 +154,7 @@ Plan A: Codex Runtime Contract Verification
 Plan F: Docs + Distribution Guidance follows Plans C-E.
 ```
 
-Plan B and Plan C can proceed in parallel after Plan A resolves the supported Codex surface. Plan D depends on the adapter boundary. Plan E validates the whole path. Plan F packages the user-facing story.
+Plan B and Plan C are complete. Plan D depends on the adapter boundary. Plan E validates the whole Codex runtime path after Plan D. Plan F packages the user-facing support story.
 
 ### Plan A: Codex Runtime Contract Verification
 
@@ -215,32 +215,34 @@ Plan B and Plan C can proceed in parallel after Plan A resolves the supported Co
 - Moved Claude wire event recognition, normalization, final-output translation, notify-only routing, `ConfigChange policy_settings` downgrade behavior, and Claude plugin/settings advisories behind the Claude adapter.
 - Added unit and compiled-binary E2E coverage for adapter selection, Claude preservation, no payload sniffing, Claude-only advisory isolation, and the Codex placeholder.
 
-**Remaining downstream scope:** Plan C still owns `.codex/hooks.json` registration and entrypoint command generation. Plan D still owns Codex normalization and Codex JSON output translation. Plan E still owns Codex fixture/E2E and any live Codex confidence decision. Plan F still owns user-facing Codex support docs and README claims.
+**Remaining downstream scope:** Plan D still owns Codex normalization and Codex JSON output translation. Plan E still owns Codex fixture replay through the runtime path and any live Codex confidence decision. Plan F still owns user-facing Codex support docs and README claims.
 
 ---
 
 ### Plan C: Codex Registration + Entrypoint
 
-**Status:** not started
-**Plan file:** not yet written
-**Depends on:** Plan A.
+**Status:** completed
+**Plan file:** [`docs/plans/feat-0044-cross-agent-portability/PLAN-FEAT-0044C-codex-registration-entrypoint.md`](../plans/feat-0044-cross-agent-portability/PLAN-FEAT-0044C-codex-registration-entrypoint.md)
+**Depends on:** Plan A, Plan B.
 
 **Goal:** Add `clooks init --agent codex` registration that writes Codex hook config and invokes the existing Clooks entrypoint with explicit agent/project context.
 
-**Scope:**
-- Add Codex-specific registrar for `.codex/hooks.json` and `~/.codex/hooks.json`.
-- Register one Clooks command hook per MVP-supported Codex event. Start with all ten release-documented Codex events: `SessionStart`, `SubagentStart`, `PreToolUse`, `PermissionRequest`, `PostToolUse`, `PreCompact`, `PostCompact`, `UserPromptSubmit`, `SubagentStop`, and `Stop`.
-- Use absolute entrypoint paths or set `CLOOKS_PROJECT_ROOT`; do not depend on Claude-specific environment variables.
-- Preserve existing `clooks init` behavior for Claude Code.
-- Decide CLI shape: `--agent codex`, `--agent claude-code`, `--agent all`, and defaults.
-- Make init output explain Codex trust/review requirements.
-- Add unregister/update behavior to `clooks uninstall` if needed.
+**Result:**
+- Added Codex-specific registrar support for `.codex/hooks.json` and `~/.codex/hooks.json`.
+- Registered one Clooks command hook per MVP-supported Codex event: `SessionStart`, `SubagentStart`, `PreToolUse`, `PermissionRequest`, `PostToolUse`, `PreCompact`, `PostCompact`, `UserPromptSubmit`, `SubagentStop`, and `Stop`.
+- Project Codex commands set `CLOOKS_AGENT=codex`, set `CLOOKS_PROJECT_ROOT` to the absolute project root, and call the absolute project `.clooks/bin/entrypoint.sh`. Global Codex commands set `CLOOKS_AGENT=codex`, call the absolute `~/.clooks/bin/entrypoint.sh`, and intentionally omit `CLOOKS_PROJECT_ROOT`.
+- `clooks init` now accepts `--agent claude-code`, `--agent codex`, and `--agent all`; omitted `--agent` remains Claude Code-only for compatibility. Codex init output explains Codex hook review/trust requirements without claiming runtime Codex support.
+- `clooks uninstall` now accepts the same agent selector. `--unhook` removes selected-agent registrations while preserving unrelated hooks. `--full` unhooks all known Clooks agent registrations before deleting the shared `.clooks/` entrypoint directory to avoid dangling registrations.
+- Global entrypoint dedup is agent-aware: Claude Code keeps `~/.clooks/.global-entrypoint-active`, and Codex uses `~/.clooks/.global-entrypoint-active.codex`.
+- Added focused unit coverage and compiled-binary E2E coverage for Codex registration, idempotency, all-agent init, global flags, and Codex-only unhook preservation.
+
+**Remaining downstream scope:** Plan D still owns Codex runtime normalization and Codex JSON output translation. Plan E still owns fixture replay through the Codex runtime path and any live Codex confidence decision. Plan F still owns user-facing Codex support docs and README claims.
 
 **Key files:**
 - `src/commands/init.ts`
 - `src/commands/init-entrypoint.ts`
 - `src/settings.ts`
-- new Codex registration module, likely `src/codex-settings.ts` or `src/agents/codex/settings.ts`
+- `src/agents/codex/settings.ts`
 - `src/commands/uninstall.ts`
 
 **Relevant research:** Codex hooks docs, verifier report.
@@ -285,11 +287,10 @@ Plan B and Plan C can proceed in parallel after Plan A resolves the supported Co
 
 **Scope:**
 - Add unit tests for Codex normalization and translation.
-- Add integration tests around `clooks init --agent codex` generated config.
 - Add fixture-based end-to-end tests that replay Codex event payloads into the entrypoint/binary.
 - Decide whether live Codex CLI tests belong in normal e2e, an opt-in suite, or a documented manual smoke test.
 - Test unsupported capability diagnostics.
-- Test project/global registration and `CLOOKS_PROJECT_ROOT` behavior.
+- Test `CLOOKS_PROJECT_ROOT` behavior in the runtime path using generated Codex-style commands.
 
 **Key files:**
 - `src/agents/codex/*.test.ts`
@@ -345,9 +346,6 @@ Plan B and Plan C can proceed in parallel after Plan A resolves the supported Co
 | What is the exact Codex-compatible fail-closed channel? | Plan A, Plan D | Docs describe JSON stdout and selected exit-code behavior, but live verification remains blocked by disposable auth. |
 | Should `transcriptPath` stay a string with an adapter fallback, or become nullable in public types? | Plan D | Prefer adapter fallback for first pass. |
 | Should `ctx.raw` / `ctx.agent` become public? | Plan D or later feature | Useful for cross-agent hooks, but it is a public API decision. |
-| What should `clooks init` default to when no `--agent` is passed? | Plan C | Current behavior implicitly means Claude Code. |
-| Should Codex registration be project-committed by default? | Plan C | Need to reconcile team onboarding with Codex trust/review. |
-| Should `clooks uninstall` remove Codex registrations in the same command? | Plan C | Likely yes, but depends on CLI shape. |
 | Should `clooks test` gain `--agent codex`? | Plan E or separate feature | Useful for hook authors once adapter exists. |
 
 ## Revision Log
@@ -356,6 +354,7 @@ Plan B and Plan C can proceed in parallel after Plan A resolves the supported Co
 - 2026-05-23: Updated after Plan A execution. Codex docs now show ten release events, Plan A produced a docs-backed matrix and fixtures, and downstream plans remain gated for safety-critical runtime behavior until live hook firing can be verified.
 - 2026-05-25: Promoted Codex `PreCompact` and `PostCompact` into the first adapter MVP because they mirror existing Clooks events. This was later expanded the same day to include subagent events too.
 - 2026-05-25: Promoted Codex `SubagentStart` and `SubagentStop` into the first adapter MVP after confirming README documents matching Clooks/Claude events. Subagent semantics remain implementation risks to test, not scope exclusions.
+- 2026-05-26: Completed Plan C registration/entrypoint work. Codex hook registration and uninstall are implemented and tested; Codex runtime normalization/translation remains Plan D/E scope.
 
 ## Instruction Prompts
 

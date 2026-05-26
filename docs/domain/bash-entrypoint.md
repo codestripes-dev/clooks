@@ -1,10 +1,10 @@
 # Bash Entrypoint
 
-The bash entrypoint is the bridge between an agent's native hook system and the compiled Clooks binary. Claude Code invokes this script for every hook event today; future agent registrations may reuse it by setting an explicit agent marker. The script locates the binary, pipes stdin through, and translates exit codes.
+The bash entrypoint is the bridge between an agent's native hook system and the compiled Clooks binary. Claude Code and Codex registrations invoke this script for hook events; Codex identifies itself by setting an explicit agent marker. The script locates the binary, pipes stdin through, and translates exit codes.
 
 ## Overview
 
-The entrypoint lives at `.clooks/bin/entrypoint.sh` in the project root. It is registered in `.claude/settings.json` for all Claude Code lifecycle events. No positional arguments are passed; the event name comes from the `hook_event_name` field in the stdin JSON payload. The script is written by `clooks init` from an embedded template in `src/commands/init-entrypoint.ts`.
+The entrypoint lives at `.clooks/bin/entrypoint.sh` in the project root. It is registered in `.claude/settings.json` for Claude Code lifecycle events and in `.codex/hooks.json` for Codex registration events. No positional arguments are passed; the event name comes from the agent's stdin JSON payload. The script is written by `clooks init` from an embedded template in `src/commands/init-entrypoint.ts`.
 
 The script performs six steps in order:
 
@@ -63,34 +63,52 @@ The entrypoint and the binary react to a small set of environment variables:
 | `CLOOKS_DEBUG=true` | Enable debug logging — stderr output + JSON request dumps to `CLOOKS_LOGDIR`. |
 | `CLOOKS_LOGDIR=/path` | Directory for `CLOOKS_DEBUG` JSON dumps (default `/tmp/clooks-debug`). |
 | `CLOOKS_AGENT=claude-code` | Optional explicit selector for the current Claude Code adapter. Unset or empty means the same thing for backward compatibility. |
-| `CLOOKS_AGENT=codex` | Reserved future selector for Codex registration. In the current adapter boundary, this fails closed with a not-implemented diagnostic; it is not user-facing Codex support. |
+| `CLOOKS_AGENT=codex` | Explicit selector used by generated Codex registrations. In the current adapter boundary, this reaches a named runtime placeholder that fails closed with a not-implemented diagnostic; registration exists before runtime Codex support. |
 | `CLOOKS_HOME_ROOT=/path` | Override the home directory used for config resolution (mostly for tests). |
 | `CLOOKS_PROJECT_ROOT=/path` | Skip discovery and treat `/path` as the project root unconditionally. Highest-priority override (wins over `$CLAUDE_PROJECT_DIR` and the cwd walk). Mirrors `prettier --config` / `tsc --project` / `GIT_DIR`. |
 | `$CLAUDE_PROJECT_DIR` | Set by Claude Code itself. Used by clooks as the **primary anchor** for config discovery — the walk-up starts here so an agent that runs `cd /tmp && <action>` cannot bypass project hooks. |
 
-Claude Code registration does not need to set `CLOOKS_AGENT`; the binary defaults to the Claude Code adapter. A future Codex registration must set `CLOOKS_AGENT=codex` and should also set `CLOOKS_PROJECT_ROOT` or use an absolute entrypoint path so Codex cwd changes do not detach Clooks from the intended project.
+Claude Code registration does not need to set `CLOOKS_AGENT`; the binary defaults to the Claude Code adapter. Codex registration always sets `CLOOKS_AGENT=codex`. Project Codex registration also sets `CLOOKS_PROJECT_ROOT` to the absolute project root so Codex cwd changes do not detach Clooks from the intended project. Global Codex registration intentionally omits `CLOOKS_PROJECT_ROOT`, letting normal discovery walk from Codex's cwd so global hooks can merge with the current project's `.clooks/clooks.yml`.
 
 ## Hook Registration
 
-The entrypoint is registered in `.claude/settings.json` for all events with a single matcher group containing the Clooks entrypoint (no matchers, no timeout — Clooks handles event routing and timeouts internally).
+The entrypoint is registered with the selected agent hook system. Clooks handles event routing and timeouts internally, so upstream registration points at one Clooks command per upstream event rather than at individual hook files.
 
 Two registration scopes exist:
 
 - **Project-level** — `.claude/settings.json` in the project root. Hooks travel with the repository. Created by `clooks init`. The entrypoint path uses `$CLAUDE_PROJECT_DIR` for reliable resolution (e.g., `"$CLAUDE_PROJECT_DIR"/.clooks/bin/entrypoint.sh`). Claude Code does not guarantee that the cwd is the project root for all hook events (notably Stop/SessionEnd), so relative paths like `.clooks/bin/entrypoint.sh` break. `$CLAUDE_PROJECT_DIR` is set by Claude Code for all hook commands and always contains the project root absolute path.
 - **Global-level** — `~/.claude/settings.json` in the user's home directory. Hooks apply to all projects. Created by `clooks init --global`. The entrypoint path is absolute (e.g., `/home/joe/.clooks/bin/entrypoint.sh`).
 
-## Global Entrypoint and Dedup
-
-When a global entrypoint is registered, it handles all hook processing including merged home + project hooks. If a project also has its own entrypoint, the project entrypoint checks for the flag file `~/.clooks/.global-entrypoint-active` and exits early (exit 0) to avoid double execution:
+Codex registration uses `.codex/hooks.json` or `~/.codex/hooks.json` and command strings shaped like:
 
 ```bash
-# Global entrypoint dedup check
+CLOOKS_AGENT=codex CLOOKS_PROJECT_ROOT='/abs/repo' '/abs/repo/.clooks/bin/entrypoint.sh'
+CLOOKS_AGENT=codex '/home/joe/.clooks/bin/entrypoint.sh'
+```
+
+The first form is project registration. The second form is global registration and deliberately has no `CLOOKS_PROJECT_ROOT`.
+
+## Global Entrypoint and Dedup
+
+When a global entrypoint is registered, it handles all hook processing including merged home + project hooks. If a project also has its own entrypoint, the project entrypoint checks for an agent-specific global flag file and exits early (exit 0) to avoid double execution.
+
+Claude Code uses the legacy flag:
+
+```bash
 if [ -f "$HOME/.clooks/.global-entrypoint-active" ]; then
   exit 0
 fi
 ```
 
-The flag file is a simple empty file created by `clooks init --global`. Its presence signals that the global entrypoint is active and project entrypoints should defer to it.
+Codex uses an agent-scoped flag:
+
+```bash
+if [ -f "$HOME/.clooks/.global-entrypoint-active.codex" ]; then
+  exit 0
+fi
+```
+
+The flag files are simple empty files created by `clooks init --global`. Their presence signals that a global entrypoint is active for that agent and matching project entrypoints should defer to it.
 
 ## Plugin Entrypoint (Bootstrap)
 

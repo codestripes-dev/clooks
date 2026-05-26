@@ -14,6 +14,11 @@ import {
 } from '../tui/output.js'
 import { promptConfirm, isNonInteractive } from '../tui/prompts.js'
 import { registerClooks, CLOOKS_ENTRYPOINT_PATH } from '../settings.js'
+import {
+  makeCodexGlobalEntrypointCommand,
+  makeCodexProjectEntrypointCommand,
+  registerCodexClooks,
+} from '../agents/codex/settings.js'
 import { ENTRYPOINT_SCRIPT, GLOBAL_ENTRYPOINT_SCRIPT } from './init-entrypoint.js'
 import EMBEDDED_TYPES_DTS from '../generated/clooks-types.d.ts.txt' with { type: 'text' }
 import _EMBEDDED_SCHEMA from '../../schemas/clooks.schema.json' with { type: 'text' }
@@ -22,6 +27,56 @@ const STARTER_CONFIG =
   '# yaml-language-server: $schema=./clooks.schema.json\nversion: "1.0.0"\n\nconfig: {}\n'
 
 const GITIGNORE_LINES = ['# Clooks', 'clooks.local.yml', '.clooks/.cache/', '.clooks/.failures']
+const INIT_AGENTS = ['claude-code', 'codex', 'all'] as const
+
+type InitAgent = (typeof INIT_AGENTS)[number]
+type ConcreteInitAgent = Exclude<InitAgent, 'all'>
+
+function parseInitAgent(value: unknown): InitAgent {
+  const agent = value ?? 'claude-code'
+  if (typeof agent === 'string' && INIT_AGENTS.includes(agent as InitAgent)) {
+    return agent as InitAgent
+  }
+
+  throw new Error(
+    `Invalid --agent value "${String(agent)}". Expected one of: claude-code, codex, all.`,
+  )
+}
+
+function selectedAgents(agent: InitAgent): ConcreteInitAgent[] {
+  return agent === 'all' ? ['claude-code', 'codex'] : [agent]
+}
+
+function includesAgent(agent: InitAgent, target: ConcreteInitAgent): boolean {
+  return selectedAgents(agent).includes(target)
+}
+
+function printCodexTrustWarning(ctx: ReturnType<typeof getCtx>): void {
+  printWarning(
+    ctx,
+    'Review Codex hook changes before trusting this project; Codex may require hook review before project hooks run.',
+  )
+}
+
+function printCodexSkippedRegistrations(ctx: ReturnType<typeof getCtx>, skipped: string[]): void {
+  for (const item of skipped) {
+    if (item.includes('.codex/hooks.json')) {
+      printInfo(ctx, `Skipped ${item}`)
+    }
+  }
+}
+
+function globalEntrypointFlagPath(homeRoot: string, agent: ConcreteInitAgent): string {
+  const flagName =
+    agent === 'claude-code' ? '.global-entrypoint-active' : `.global-entrypoint-active.${agent}`
+  return join(homeRoot, '.clooks', flagName)
+}
+
+function globalEntrypointFlagLabel(agent: ConcreteInitAgent): string {
+  return agent === 'claude-code'
+    ? '~/.clooks/.global-entrypoint-active'
+    : `~/.clooks/.global-entrypoint-active.${agent}`
+}
 
 /**
  * Checks whether `.git/` exists in cwd or any parent directory up to `/`.
@@ -40,7 +95,7 @@ function hasGitRepo(from: string): boolean {
 /**
  * Initialize global hooks at ~/.clooks/.
  */
-async function initGlobal(cmd: Command): Promise<void> {
+async function initGlobal(cmd: Command, agent: InitAgent): Promise<void> {
   const ctx = getCtx(cmd)
 
   try {
@@ -126,35 +181,68 @@ async function initGlobal(cmd: Command): Promise<void> {
       skipped.push('~/.clooks/bin/entrypoint.sh')
     }
 
-    // -- Step 4: Create .global-entrypoint-active flag file --
-    const flagPath = join(homeRoot, '.clooks', '.global-entrypoint-active')
-    if (!existsSync(flagPath)) {
-      writeFileSync(flagPath, '')
-      created.push('~/.clooks/.global-entrypoint-active')
-    } else {
-      skipped.push('~/.clooks/.global-entrypoint-active')
+    // -- Step 4: Create agent-specific global entrypoint flags --
+    for (const selectedAgent of selectedAgents(agent)) {
+      const flagPath = globalEntrypointFlagPath(homeRoot, selectedAgent)
+      const flagLabel = globalEntrypointFlagLabel(selectedAgent)
+      if (!existsSync(flagPath)) {
+        writeFileSync(flagPath, '')
+        created.push(flagLabel)
+      } else {
+        skipped.push(flagLabel)
+      }
     }
 
-    // -- Step 5: Register in ~/.claude/settings.json --
-    const globalEntrypointCommand = join(homeRoot, '.clooks/bin/entrypoint.sh')
-    const settingsDir = join(homeRoot, '.claude')
-    const regResult = registerClooks(settingsDir, globalEntrypointCommand)
-    const totalEvents = regResult.added.length + regResult.updated.length + regResult.skipped.length
-    if (regResult.added.length > 0 || regResult.updated.length > 0) {
-      if (regResult.created) {
-        created.push(`~/.claude/settings.json (${totalEvents} events)`)
+    // -- Step 5: Register selected agents --
+    if (includesAgent(agent, 'claude-code')) {
+      const globalEntrypointCommand = join(homeRoot, '.clooks/bin/entrypoint.sh')
+      const settingsDir = join(homeRoot, '.claude')
+      const regResult = registerClooks(settingsDir, globalEntrypointCommand)
+      const totalEvents =
+        regResult.added.length + regResult.updated.length + regResult.skipped.length
+      if (regResult.added.length > 0 || regResult.updated.length > 0) {
+        if (regResult.created) {
+          created.push(`~/.claude/settings.json (${totalEvents} events)`)
+        } else {
+          updated.push(
+            `~/.claude/settings.json (${regResult.added.length} added, ${regResult.updated.length} updated)`,
+          )
+        }
       } else {
-        updated.push(
-          `~/.claude/settings.json (${regResult.added.length} added, ${regResult.updated.length} updated)`,
-        )
+        skipped.push('~/.claude/settings.json')
       }
-    } else {
-      skipped.push('~/.claude/settings.json')
+    }
+
+    if (includesAgent(agent, 'codex')) {
+      const codexEntrypointCommand = makeCodexGlobalEntrypointCommand(homeRoot)
+      const regResult = registerCodexClooks(join(homeRoot, '.codex'), codexEntrypointCommand)
+      const totalEvents =
+        regResult.added.length + regResult.updated.length + regResult.skipped.length
+      if (regResult.added.length > 0 || regResult.updated.length > 0) {
+        if (regResult.created) {
+          created.push(`~/.codex/hooks.json (${totalEvents} events)`)
+        } else {
+          updated.push(
+            `~/.codex/hooks.json (${regResult.added.length} added, ${regResult.updated.length} updated)`,
+          )
+        }
+      } else {
+        skipped.push('~/.codex/hooks.json')
+      }
     }
 
     // -- Output --
     if (ctx.json) {
-      process.stdout.write(jsonSuccess('init', { created, skipped, updated, global: true }) + '\n')
+      process.stdout.write(
+        jsonSuccess('init', {
+          created,
+          skipped,
+          updated,
+          global: true,
+          agent,
+          agents: selectedAgents(agent),
+        }) + '\n',
+      )
       return
     }
 
@@ -171,12 +259,20 @@ async function initGlobal(cmd: Command): Promise<void> {
         printSuccess(ctx, `Updated ${item}`)
       }
     }
+    if (includesAgent(agent, 'codex')) {
+      printCodexSkippedRegistrations(ctx, skipped)
+    }
 
     printWarning(
       ctx,
       'If you have existing project entrypoints, re-run `clooks init` in each project to update them with the dedup check.',
     )
-    printInfo(ctx, 'Restart Claude Code for hooks to take effect.')
+    if (includesAgent(agent, 'claude-code')) {
+      printInfo(ctx, 'Restart Claude Code for hooks to take effect.')
+    }
+    if (includesAgent(agent, 'codex')) {
+      printCodexTrustWarning(ctx)
+    }
 
     printOutro(ctx, 'Done.')
   } catch (e) {
@@ -189,7 +285,7 @@ async function initGlobal(cmd: Command): Promise<void> {
 /**
  * Initialize clooks in the current project directory.
  */
-async function initProject(cmd: Command): Promise<void> {
+async function initProject(cmd: Command, agent: InitAgent): Promise<void> {
   const ctx = getCtx(cmd)
   const projectRoot = process.cwd()
 
@@ -310,19 +406,40 @@ async function initProject(cmd: Command): Promise<void> {
       skipped.push('.clooks/bin/entrypoint.sh')
     }
 
-    // -- Step 4: Register in settings.json --
-    const regResult = registerClooks(join(projectRoot, '.claude'), CLOOKS_ENTRYPOINT_PATH)
-    const totalEvents = regResult.added.length + regResult.updated.length + regResult.skipped.length
-    if (regResult.added.length > 0 || regResult.updated.length > 0) {
-      if (regResult.created) {
-        created.push(`.claude/settings.json (${totalEvents} events)`)
+    // -- Step 4: Register selected agents --
+    if (includesAgent(agent, 'claude-code')) {
+      const regResult = registerClooks(join(projectRoot, '.claude'), CLOOKS_ENTRYPOINT_PATH)
+      const totalEvents =
+        regResult.added.length + regResult.updated.length + regResult.skipped.length
+      if (regResult.added.length > 0 || regResult.updated.length > 0) {
+        if (regResult.created) {
+          created.push(`.claude/settings.json (${totalEvents} events)`)
+        } else {
+          updated.push(
+            `.claude/settings.json (${regResult.added.length} added, ${regResult.updated.length} updated)`,
+          )
+        }
       } else {
-        updated.push(
-          `.claude/settings.json (${regResult.added.length} added, ${regResult.updated.length} updated)`,
-        )
+        skipped.push('.claude/settings.json')
       }
-    } else {
-      skipped.push('.claude/settings.json')
+    }
+
+    if (includesAgent(agent, 'codex')) {
+      const codexEntrypointCommand = makeCodexProjectEntrypointCommand(projectRoot)
+      const regResult = registerCodexClooks(join(projectRoot, '.codex'), codexEntrypointCommand)
+      const totalEvents =
+        regResult.added.length + regResult.updated.length + regResult.skipped.length
+      if (regResult.added.length > 0 || regResult.updated.length > 0) {
+        if (regResult.created) {
+          created.push(`.codex/hooks.json (${totalEvents} events)`)
+        } else {
+          updated.push(
+            `.codex/hooks.json (${regResult.added.length} added, ${regResult.updated.length} updated)`,
+          )
+        }
+      } else {
+        skipped.push('.codex/hooks.json')
+      }
     }
 
     // -- Step 5: Update .gitignore --
@@ -354,7 +471,10 @@ async function initProject(cmd: Command): Promise<void> {
 
     // -- Output --
     if (ctx.json) {
-      process.stdout.write(jsonSuccess('init', { created, skipped, updated }) + '\n')
+      process.stdout.write(
+        jsonSuccess('init', { created, skipped, updated, agent, agents: selectedAgents(agent) }) +
+          '\n',
+      )
       return
     }
 
@@ -375,7 +495,13 @@ async function initProject(cmd: Command): Promise<void> {
         ctx,
         'Next: run `clooks new-hook` to scaffold a hook, then register it in clooks.yml.',
       )
-      printWarning(ctx, 'Restart Claude Code for hooks to take effect.')
+      if (includesAgent(agent, 'claude-code')) {
+        printWarning(ctx, 'Restart Claude Code for hooks to take effect.')
+      }
+    }
+    if (includesAgent(agent, 'codex')) {
+      printCodexSkippedRegistrations(ctx, skipped)
+      printCodexTrustWarning(ctx)
     }
 
     printOutro(ctx, 'Done.')
@@ -390,10 +516,21 @@ export function createInitCommand(): Command {
   return new Command('init')
     .description('Initialize clooks in this project')
     .option('--global', 'Initialize global hooks at ~/.clooks/')
-    .action(async (opts: { global?: boolean }, cmd: Command) => {
-      if (opts.global) {
-        return initGlobal(cmd)
+    .option('--agent <agent>', 'Agent registration target: claude-code, codex, or all')
+    .action(async (opts: { global?: boolean; agent?: string }, cmd: Command) => {
+      let agent: InitAgent
+      try {
+        agent = parseInitAgent(opts.agent)
+      } catch (e) {
+        const ctx = getCtx(cmd)
+        const message = e instanceof Error ? e.message : String(e)
+        printError(ctx, 'init', message)
+        process.exit(1)
       }
-      return initProject(cmd)
+
+      if (opts.global) {
+        return initGlobal(cmd, agent)
+      }
+      return initProject(cmd, agent)
     })
 }

@@ -10,8 +10,12 @@ if [ "${SKIP_CLOOKS:-}" = "true" ]; then
 fi
 
 # Global entrypoint dedup: if a global entrypoint is active, this project
-# entrypoint is a noop (the global one handles the merged pipeline).
-if [ -f "$HOME/.clooks/.global-entrypoint-active" ]; then
+# entrypoint is a noop for that same agent (the global one handles the merged pipeline).
+CLOOKS_DEDUP_AGENT="${CLOOKS_AGENT:-claude-code}"
+if [ "$CLOOKS_DEDUP_AGENT" = "claude-code" ] && [ -f "$HOME/.clooks/.global-entrypoint-active" ]; then
+  exit 0
+fi
+if [ -f "$HOME/.clooks/.global-entrypoint-active.$CLOOKS_DEDUP_AGENT" ]; then
   exit 0
 fi
 

@@ -23,12 +23,16 @@ const SKIP_CLOOKS_CHECK =
   '  exit 0\n' +
   'fi\n'
 
-/** Dedup check: project entrypoint yields to the global one when active. */
+/** Dedup check: project entrypoint yields to the global one when active for the same agent. */
 const DEDUP_CHECK =
   '\n' +
   '# Global entrypoint dedup: if a global entrypoint is active, this project\n' +
-  '# entrypoint is a noop (the global one handles the merged pipeline).\n' +
-  'if [ -f "$HOME/.clooks/.global-entrypoint-active" ]; then\n' +
+  '# entrypoint is a noop for that same agent (the global one handles the merged pipeline).\n' +
+  'CLOOKS_DEDUP_AGENT="${CLOOKS_AGENT:-claude-code}"\n' +
+  'if [ "$CLOOKS_DEDUP_AGENT" = "claude-code" ] && [ -f "$HOME/.clooks/.global-entrypoint-active" ]; then\n' +
+  '  exit 0\n' +
+  'fi\n' +
+  'if [ -f "$HOME/.clooks/.global-entrypoint-active.$CLOOKS_DEDUP_AGENT" ]; then\n' +
   '  exit 0\n' +
   'fi\n'
 

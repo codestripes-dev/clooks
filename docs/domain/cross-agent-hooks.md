@@ -9,7 +9,7 @@ Five major AI coding agents have hook systems with similar enough patterns to su
 | Agent | Hook System | Maturity | Viable for Clooks? |
 |-------|------------|----------|-------------------|
 | **Claude Code** | 22 events, 4 hook types | Mature | Yes (primary target) |
-| **Codex** | 10 documented release events | Active | Yes, adapter boundary only today |
+| **Codex** | 10 documented release events | Active | Yes, registration implemented; runtime placeholder today |
 | **Cursor** | ~6 events | Beta (since 1.7, improved 2026) | Yes |
 | **Windsurf** | ~8 events | Active | Yes |
 | **VS Code Copilot** | ~8 events | Preview | Yes |
@@ -58,7 +58,7 @@ Current release behavior checked against the official Codex hooks docs on 2026-0
 - **Timeout:** seconds, defaulting to 600
 - **Coverage caveat:** `PostToolUse` covers Bash, `apply_patch`, and MCP tool calls, but shell interception is incomplete and WebSearch/non-shell/non-MCP tools are not intercepted yet
 - **Verification status:** docs-backed but runtime-unverified. A disposable live spike reached the OpenAI API only after sandbox escalation and then failed with `401 Unauthorized`, so no hook payloads were captured.
-- **Implementation status:** Clooks now has an internal agent adapter boundary selected by `CLOOKS_AGENT`. The unset/default path and `CLOOKS_AGENT=claude-code` both select the Claude Code adapter. `CLOOKS_AGENT=codex` selects a named placeholder that fails closed with a not-implemented diagnostic; it does not normalize Codex payloads, run hooks for Codex, or emit Codex decision JSON yet.
+- **Implementation status:** Clooks now has Codex registration support plus an internal agent adapter boundary selected by `CLOOKS_AGENT`. `clooks init --agent codex` writes `.codex/hooks.json`, and `clooks init --global --agent codex` writes `~/.codex/hooks.json`. The unset/default path and `CLOOKS_AGENT=claude-code` both select the Claude Code adapter. `CLOOKS_AGENT=codex` selects a named runtime placeholder that fails closed with a not-implemented diagnostic; it does not normalize Codex payloads, run hooks for Codex, or emit Codex decision JSON yet.
 
 Mapping fit:
 
@@ -77,7 +77,7 @@ Mapping fit:
 
 Recommended integration shape: use the agent adapter boundary around the existing Clooks engine. Agent selection is explicit: the registration command is responsible for setting `CLOOKS_AGENT`, and the runtime must not infer Claude versus Codex from payload shape because many event names overlap. The shared engine core owns project discovery, config loading, hook loading, matching, execution, lifecycle handling, ordering, circuit-breaker behavior, and result reduction. Adapters own wire event recognition, context normalization, agent-specific advisories, output routing, and final wire output.
 
-The Claude Code adapter is the only implemented runtime adapter today. It preserves the existing Claude behavior, including snake_case-to-camelCase normalization, Claude output translation, notify-only stderr routing, `ConfigChange` `policy_settings` downgrade behavior, and Claude plugin/settings advisories. The Codex adapter is reserved for future runtime support. Future Codex registration should register one Clooks entrypoint per supported Codex event so Clooks preserves its own internal ordering even though Codex launches matching command hooks concurrently. The capability classification for Codex mappings uses these statuses: supported, docs-backed, unsupported/fail-open, unsupported/fail-closed, needs careful translation, or unverified.
+The Claude Code adapter is the only implemented runtime adapter today. It preserves the existing Claude behavior, including snake_case-to-camelCase normalization, Claude output translation, notify-only stderr routing, `ConfigChange` `policy_settings` downgrade behavior, and Claude plugin/settings advisories. The Codex adapter is reserved for future runtime support. Codex registration already registers one Clooks entrypoint per supported Codex event so Clooks can preserve its own internal ordering even though Codex launches matching command hooks concurrently. The capability classification for Codex mappings uses these statuses: supported, docs-backed, unsupported/fail-open, unsupported/fail-closed, needs careful translation, or unverified.
 
 Codex behavior notes are summarized here because planning and research artifacts are not part of the committed domain documentation.
 

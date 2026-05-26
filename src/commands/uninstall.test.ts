@@ -29,6 +29,12 @@ mock.module('../platform.js', () => ({
 // Import after mocking
 import { createUninstallCommand } from './uninstall.js'
 import { registerClooks, CLOOKS_ENTRYPOINT_PATH } from '../settings.js'
+import {
+  CODEX_REGISTRATION_EVENTS,
+  makeCodexGlobalEntrypointCommand,
+  makeCodexProjectEntrypointCommand,
+  registerCodexClooks,
+} from '../agents/codex/settings.js'
 
 let tempDir: string
 let originalIsTTY: boolean | undefined
@@ -55,8 +61,22 @@ function setupProject(root: string) {
   registerClooks(join(root, '.claude'), CLOOKS_ENTRYPOINT_PATH)
 }
 
+function setupCodexProject(root: string) {
+  mkdirSync(join(root, '.clooks', 'hooks'), { recursive: true })
+  mkdirSync(join(root, '.clooks', 'bin'), { recursive: true })
+  mkdirSync(join(root, '.clooks', 'vendor'), { recursive: true })
+  writeFileSync(join(root, '.clooks', 'clooks.yml'), 'version: "1.0.0"\nconfig: {}\n')
+  writeFileSync(join(root, '.clooks', 'hooks', 'types.d.ts'), '// generated types\n')
+  writeFileSync(join(root, '.clooks', 'bin', 'entrypoint.sh'), '#!/bin/bash\n')
+  registerCodexClooks(join(root, '.codex'), makeCodexProjectEntrypointCommand(root))
+}
+
 function readSettings(root: string): Record<string, unknown> {
   return JSON.parse(readFileSync(join(root, '.claude', 'settings.json'), 'utf-8'))
+}
+
+function readCodexHooks(root: string): Record<string, unknown> {
+  return JSON.parse(readFileSync(join(root, '.codex', 'hooks.json'), 'utf-8'))
 }
 
 beforeEach(() => {
@@ -174,16 +194,21 @@ describe('clooks uninstall — force mode', () => {
     expect(parsed).toEqual({
       ok: true,
       command: 'uninstall',
-      data: {
+      data: expect.objectContaining({
         scope: 'project',
+        agent: 'claude-code',
+        agents: ['claude-code'],
         unhooked: true,
         deleted: true,
         customHooksDeleted: [],
         eventsRemoved: expect.any(Array),
         nonClooksPreserved: 0,
-      },
+        claudeEventsRemoved: expect.any(Array),
+        codexEventsRemoved: [],
+      }),
     })
     expect(parsed.data.eventsRemoved).toHaveLength(22)
+    expect(parsed.data.claudeEventsRemoved).toHaveLength(22)
   })
 })
 
@@ -222,6 +247,353 @@ describe('clooks uninstall — force validation', () => {
       .catch(() => {})
 
     expect(exitSpy).toHaveBeenCalledWith(1)
+  })
+
+  test('invalid --agent value errors clearly', async () => {
+    const program = createTestProgram()
+    await program
+      .parseAsync(['uninstall', '--project', '--agent', 'cursor', '--unhook', '--force'], {
+        from: 'user',
+      })
+      .catch(() => {})
+
+    expect(exitSpy).toHaveBeenCalledWith(1)
+  })
+})
+
+describe('clooks uninstall — codex agents', () => {
+  test('--project --agent codex --unhook --force removes only .codex/hooks.json entries', async () => {
+    setupProject(tempDir)
+    setupCodexProject(tempDir)
+
+    const claudeBefore = readFileSync(join(tempDir, '.claude', 'settings.json'), 'utf-8')
+
+    const program = createTestProgram()
+    await program.parseAsync(
+      ['uninstall', '--project', '--agent', 'codex', '--unhook', '--force'],
+      {
+        from: 'user',
+      },
+    )
+
+    expect(readFileSync(join(tempDir, '.claude', 'settings.json'), 'utf-8')).toBe(claudeBefore)
+    expect(existsSync(join(tempDir, '.clooks'))).toBe(true)
+    expect(readCodexHooks(tempDir).hooks).toBeUndefined()
+  })
+
+  test('--project --agent codex --unhook --force preserves unrelated Codex hooks', async () => {
+    setupCodexProject(tempDir)
+
+    const hooksFile = readCodexHooks(tempDir)
+    const hooks = hooksFile.hooks as Record<string, unknown[]>
+    const [firstGroup] = hooks['PreToolUse'] as Record<string, unknown>[]
+    expect(firstGroup).toBeDefined()
+    if (!firstGroup) throw new Error('expected PreToolUse Codex matcher group')
+    firstGroup.hooks = [
+      ...((firstGroup.hooks as unknown[]) ?? []),
+      { type: 'command', command: '/usr/local/bin/unrelated-codex-hook' },
+    ]
+    writeFileSync(join(tempDir, '.codex', 'hooks.json'), JSON.stringify(hooksFile, null, 2) + '\n')
+
+    const program = createTestProgram()
+    await program.parseAsync(
+      ['uninstall', '--project', '--agent', 'codex', '--unhook', '--force'],
+      {
+        from: 'user',
+      },
+    )
+
+    const updatedHooks = readCodexHooks(tempDir).hooks as Record<string, unknown[]>
+    expect(updatedHooks['PreToolUse']).toHaveLength(1)
+    const preservedGroup = updatedHooks['PreToolUse']![0] as Record<string, unknown>
+    expect(preservedGroup.hooks).toEqual([
+      { type: 'command', command: '/usr/local/bin/unrelated-codex-hook' },
+    ])
+    for (const event of CODEX_REGISTRATION_EVENTS.filter((event) => event !== 'PreToolUse')) {
+      expect(updatedHooks[event]).toBeUndefined()
+    }
+  })
+
+  test('--project --agent all --unhook --force removes Claude and Codex registrations', async () => {
+    setupProject(tempDir)
+    setupCodexProject(tempDir)
+
+    const program = createTestProgram()
+    await program.parseAsync(['uninstall', '--project', '--agent', 'all', '--unhook', '--force'], {
+      from: 'user',
+    })
+
+    expect(readSettings(tempDir).hooks).toBeUndefined()
+    expect(readCodexHooks(tempDir).hooks).toBeUndefined()
+    expect(existsSync(join(tempDir, '.clooks'))).toBe(true)
+  })
+
+  test('--project --agent codex --full --force unhooks all agents before deleting shared .clooks', async () => {
+    setupProject(tempDir)
+    setupCodexProject(tempDir)
+
+    const program = createTestProgram()
+    await program.parseAsync(['uninstall', '--project', '--agent', 'codex', '--full', '--force'], {
+      from: 'user',
+    })
+
+    expect(readSettings(tempDir).hooks).toBeUndefined()
+    expect(readCodexHooks(tempDir).hooks).toBeUndefined()
+    expect(existsSync(join(tempDir, '.clooks'))).toBe(false)
+  })
+
+  test('--project --agent codex --full --force explains all-agent unhooking when shared .clooks is deleted', async () => {
+    setupProject(tempDir)
+    setupCodexProject(tempDir)
+
+    const clack = await import('@clack/prompts')
+    const infoMock = clack.log.info as unknown as ReturnType<typeof mock>
+    infoMock.mockClear()
+
+    const program = createTestProgram()
+    await program.parseAsync(['uninstall', '--project', '--agent', 'codex', '--full', '--force'], {
+      from: 'user',
+    })
+
+    const infoCalls = infoMock.mock.calls.map((c: unknown[]) => String(c[0]))
+    expect(
+      infoCalls.some((msg: string) =>
+        msg.includes(
+          '--full removes all Clooks agent registrations because it deletes the shared .clooks/ entrypoint directory.',
+        ),
+      ),
+    ).toBe(true)
+  })
+
+  test('--project --agent all --full --force does not print all-agent widening explanation', async () => {
+    setupProject(tempDir)
+    setupCodexProject(tempDir)
+
+    const clack = await import('@clack/prompts')
+    const infoMock = clack.log.info as unknown as ReturnType<typeof mock>
+    infoMock.mockClear()
+
+    const program = createTestProgram()
+    await program.parseAsync(['uninstall', '--project', '--agent', 'all', '--full', '--force'], {
+      from: 'user',
+    })
+
+    const infoCalls = infoMock.mock.calls.map((c: unknown[]) => String(c[0]))
+    expect(
+      infoCalls.some((msg: string) => msg.includes('shared .clooks/ entrypoint directory')),
+    ).toBe(false)
+  })
+
+  test('--project --agent codex --full --json --force reports codex counts separately', async () => {
+    setupCodexProject(tempDir)
+
+    const program = createTestProgram()
+    await program.parseAsync(
+      ['--json', 'uninstall', '--project', '--agent', 'codex', '--full', '--force'],
+      { from: 'user' },
+    )
+
+    const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
+    const parsed = JSON.parse(output.trim())
+
+    expect(parsed.data.agent).toBe('codex')
+    expect(parsed.data.agents).toEqual(['codex'])
+    expect(parsed.data.eventsRemoved).toEqual([])
+    expect(parsed.data.claudeEventsRemoved).toEqual([])
+    expect(parsed.data.codexEventsRemoved).toHaveLength(CODEX_REGISTRATION_EVENTS.length)
+    expect(parsed.data.deleted).toBe(true)
+  })
+
+  test('--project --agent codex --full --force human output omits unregistered agent zero-count lines', async () => {
+    setupCodexProject(tempDir)
+
+    const clack = await import('@clack/prompts')
+    const successMock = clack.log.success as unknown as ReturnType<typeof mock>
+    successMock.mockClear()
+
+    const program = createTestProgram()
+    await program.parseAsync(['uninstall', '--project', '--agent', 'codex', '--full', '--force'], {
+      from: 'user',
+    })
+
+    const successCalls = successMock.mock.calls.map((c: unknown[]) => String(c[0]))
+    expect(
+      successCalls.some((msg: string) =>
+        msg.includes('Removed Clooks hooks from .claude/settings.json (0 events).'),
+      ),
+    ).toBe(false)
+    expect(
+      successCalls.some((msg: string) =>
+        msg.includes(
+          `Removed Clooks hooks from .codex/hooks.json (${CODEX_REGISTRATION_EVENTS.length} events).`,
+        ),
+      ),
+    ).toBe(true)
+  })
+
+  test('--project --agent codex --full --json --force reports Claude too when present', async () => {
+    setupProject(tempDir)
+    setupCodexProject(tempDir)
+
+    const program = createTestProgram()
+    await program.parseAsync(
+      ['--json', 'uninstall', '--project', '--agent', 'codex', '--full', '--force'],
+      { from: 'user' },
+    )
+
+    const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
+    const parsed = JSON.parse(output.trim())
+
+    expect(parsed.data.agent).toBe('codex')
+    expect(parsed.data.claudeEventsRemoved).toHaveLength(22)
+    expect(parsed.data.codexEventsRemoved).toHaveLength(CODEX_REGISTRATION_EVENTS.length)
+    expect(parsed.data.eventsRemoved).toHaveLength(22)
+  })
+
+  test('--project --agent claude-code --unhook --force preserves Codex registration', async () => {
+    setupProject(tempDir)
+    setupCodexProject(tempDir)
+    const codexBefore = readFileSync(join(tempDir, '.codex', 'hooks.json'), 'utf-8')
+
+    const program = createTestProgram()
+    await program.parseAsync(
+      ['uninstall', '--project', '--agent', 'claude-code', '--unhook', '--force'],
+      { from: 'user' },
+    )
+
+    expect(readSettings(tempDir).hooks).toBeUndefined()
+    expect(readFileSync(join(tempDir, '.codex', 'hooks.json'), 'utf-8')).toBe(codexBefore)
+  })
+
+  test('--project --agent codex --unhook --force human no-op is clear in Claude-only setup', async () => {
+    setupProject(tempDir)
+
+    const clack = await import('@clack/prompts')
+    const infoMock = clack.log.info as unknown as ReturnType<typeof mock>
+    infoMock.mockClear()
+
+    const program = createTestProgram()
+    await program.parseAsync(
+      ['uninstall', '--project', '--agent', 'codex', '--unhook', '--force'],
+      {
+        from: 'user',
+      },
+    )
+
+    const infoCalls = infoMock.mock.calls.map((c: unknown[]) => String(c[0]))
+    expect(
+      infoCalls.some((msg: string) =>
+        msg.includes('No Codex Clooks hook registrations found. Nothing changed.'),
+      ),
+    ).toBe(true)
+  })
+
+  test('--project --agent codex --unhook --force human output reports Codex count', async () => {
+    setupCodexProject(tempDir)
+
+    const clack = await import('@clack/prompts')
+    const successMock = clack.log.success as unknown as ReturnType<typeof mock>
+    successMock.mockClear()
+
+    const program = createTestProgram()
+    await program.parseAsync(
+      ['uninstall', '--project', '--agent', 'codex', '--unhook', '--force'],
+      {
+        from: 'user',
+      },
+    )
+
+    const successCalls = successMock.mock.calls.map((c: unknown[]) => String(c[0]))
+    expect(
+      successCalls.some((msg: string) =>
+        msg.includes(
+          `Removed Clooks hooks from .codex/hooks.json (${CODEX_REGISTRATION_EVENTS.length} events).`,
+        ),
+      ),
+    ).toBe(true)
+  })
+
+  test('--project --agent all --unhook --json --force reports Claude and Codex counts', async () => {
+    setupProject(tempDir)
+    setupCodexProject(tempDir)
+
+    const program = createTestProgram()
+    await program.parseAsync(
+      ['--json', 'uninstall', '--project', '--agent', 'all', '--unhook', '--force'],
+      { from: 'user' },
+    )
+
+    const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
+    const parsed = JSON.parse(output.trim())
+    expect(parsed.data.agent).toBe('all')
+    expect(parsed.data.agents).toEqual(['claude-code', 'codex'])
+    expect(parsed.data.claudeEventsRemoved).toHaveLength(22)
+    expect(parsed.data.codexEventsRemoved).toHaveLength(CODEX_REGISTRATION_EVENTS.length)
+  })
+
+  test('--project --agent all --unhook --force human output reports separate counts', async () => {
+    setupProject(tempDir)
+    setupCodexProject(tempDir)
+
+    const clack = await import('@clack/prompts')
+    const successMock = clack.log.success as unknown as ReturnType<typeof mock>
+    successMock.mockClear()
+
+    const program = createTestProgram()
+    await program.parseAsync(['uninstall', '--project', '--agent', 'all', '--unhook', '--force'], {
+      from: 'user',
+    })
+
+    const successCalls = successMock.mock.calls.map((c: unknown[]) => String(c[0]))
+    expect(
+      successCalls.some((msg: string) =>
+        msg.includes('Removed Clooks hooks from .claude/settings.json (22 events).'),
+      ),
+    ).toBe(true)
+    expect(
+      successCalls.some((msg: string) =>
+        msg.includes(
+          `Removed Clooks hooks from .codex/hooks.json (${CODEX_REGISTRATION_EVENTS.length} events).`,
+        ),
+      ),
+    ).toBe(true)
+  })
+
+  test('omitted --agent remains Claude-only and preserves Codex registration', async () => {
+    setupProject(tempDir)
+    setupCodexProject(tempDir)
+
+    const codexBefore = readFileSync(join(tempDir, '.codex', 'hooks.json'), 'utf-8')
+
+    const program = createTestProgram()
+    await program.parseAsync(['uninstall', '--project', '--unhook', '--force'], { from: 'user' })
+
+    expect(readSettings(tempDir).hooks).toBeUndefined()
+    expect(readFileSync(join(tempDir, '.codex', 'hooks.json'), 'utf-8')).toBe(codexBefore)
+  })
+
+  test('--project --agent codex --unhook --force JSON no-op when only Claude is registered', async () => {
+    setupProject(tempDir)
+
+    const program = createTestProgram()
+    await program.parseAsync(
+      ['--json', 'uninstall', '--project', '--agent', 'codex', '--unhook', '--force'],
+      { from: 'user' },
+    )
+
+    const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
+    const parsed = JSON.parse(output.trim())
+    expect(parsed.data).toEqual(
+      expect.objectContaining({
+        agent: 'codex',
+        agents: ['codex'],
+        unhooked: false,
+        deleted: false,
+        claudeEventsRemoved: [],
+        codexEventsRemoved: [],
+      }),
+    )
+    expect(readSettings(tempDir).hooks).toBeDefined()
   })
 })
 
@@ -423,13 +795,17 @@ describe('clooks uninstall — general', () => {
     expect(parsed).toEqual({
       ok: true,
       command: 'uninstall',
-      data: {
+      data: expect.objectContaining({
         scope: 'project',
+        agent: 'claude-code',
+        agents: ['claude-code'],
         unhooked: false,
         deleted: false,
         customHooksDeleted: [],
         eventsRemoved: [],
-      },
+        claudeEventsRemoved: [],
+        codexEventsRemoved: [],
+      }),
     })
   })
 
@@ -534,8 +910,22 @@ function setupGlobal(homeRoot: string) {
   registerClooks(join(homeRoot, '.claude'), globalEntrypointCommand)
 }
 
+function setupCodexGlobal(homeRoot: string) {
+  mkdirSync(join(homeRoot, '.clooks', 'hooks'), { recursive: true })
+  mkdirSync(join(homeRoot, '.clooks', 'bin'), { recursive: true })
+  mkdirSync(join(homeRoot, '.clooks', 'vendor'), { recursive: true })
+  writeFileSync(join(homeRoot, '.clooks', 'clooks.yml'), 'version: "1.0.0"\nconfig: {}\n')
+  writeFileSync(join(homeRoot, '.clooks', 'hooks', 'types.d.ts'), '// generated types\n')
+  writeFileSync(join(homeRoot, '.clooks', 'bin', 'entrypoint.sh'), '#!/bin/bash\n')
+  registerCodexClooks(join(homeRoot, '.codex'), makeCodexGlobalEntrypointCommand(homeRoot))
+}
+
 function readHomeSettings(): Record<string, unknown> {
   return JSON.parse(readFileSync(join(fakeHome, '.claude', 'settings.json'), 'utf-8'))
+}
+
+function readHomeCodexHooks(): Record<string, unknown> {
+  return JSON.parse(readFileSync(join(fakeHome, '.codex', 'hooks.json'), 'utf-8'))
 }
 
 describe('clooks uninstall — global scope', () => {
@@ -551,13 +941,17 @@ describe('clooks uninstall — global scope', () => {
     expect(parsed).toEqual({
       ok: true,
       command: 'uninstall',
-      data: {
+      data: expect.objectContaining({
         scope: 'global',
+        agent: 'claude-code',
+        agents: ['claude-code'],
         unhooked: false,
         deleted: false,
         customHooksDeleted: [],
         eventsRemoved: [],
-      },
+        claudeEventsRemoved: [],
+        codexEventsRemoved: [],
+      }),
     })
   })
 
@@ -673,6 +1067,223 @@ describe('clooks uninstall — global scope', () => {
     expect(parsed.ok).toBe(true)
     expect(parsed.data.unhooked).toBe(true)
     expect(parsed.data.deleted).toBe(true)
+  })
+
+  test('--global --agent codex --unhook --force removes Codex registration and codex flag only', async () => {
+    setupGlobal(fakeHome)
+    setupCodexGlobal(fakeHome)
+    writeFileSync(join(fakeHome, '.clooks', '.global-entrypoint-active'), '')
+    writeFileSync(join(fakeHome, '.clooks', '.global-entrypoint-active.codex'), '')
+
+    const program = createTestProgram()
+    await program.parseAsync(['uninstall', '--global', '--agent', 'codex', '--unhook', '--force'], {
+      from: 'user',
+    })
+
+    expect(readHomeSettings().hooks).toBeDefined()
+    expect(readHomeCodexHooks().hooks).toBeUndefined()
+    expect(existsSync(join(fakeHome, '.clooks', '.global-entrypoint-active'))).toBe(true)
+    expect(existsSync(join(fakeHome, '.clooks', '.global-entrypoint-active.codex'))).toBe(false)
+    expect(existsSync(join(fakeHome, '.clooks'))).toBe(true)
+  })
+
+  test('--global omitted agent --unhook --force preserves Codex registration and flag', async () => {
+    setupGlobal(fakeHome)
+    setupCodexGlobal(fakeHome)
+    writeFileSync(join(fakeHome, '.clooks', '.global-entrypoint-active'), '')
+    writeFileSync(join(fakeHome, '.clooks', '.global-entrypoint-active.codex'), '')
+    const codexBefore = readFileSync(join(fakeHome, '.codex', 'hooks.json'), 'utf-8')
+
+    const program = createTestProgram()
+    await program.parseAsync(['uninstall', '--global', '--unhook', '--force'], { from: 'user' })
+
+    expect(readHomeSettings().hooks).toBeUndefined()
+    expect(readFileSync(join(fakeHome, '.codex', 'hooks.json'), 'utf-8')).toBe(codexBefore)
+    expect(existsSync(join(fakeHome, '.clooks', '.global-entrypoint-active.codex'))).toBe(true)
+  })
+
+  test('--global --agent claude-code --unhook --force preserves Codex registration and flag', async () => {
+    setupGlobal(fakeHome)
+    setupCodexGlobal(fakeHome)
+    writeFileSync(join(fakeHome, '.clooks', '.global-entrypoint-active'), '')
+    writeFileSync(join(fakeHome, '.clooks', '.global-entrypoint-active.codex'), '')
+    const codexBefore = readFileSync(join(fakeHome, '.codex', 'hooks.json'), 'utf-8')
+
+    const program = createTestProgram()
+    await program.parseAsync(
+      ['uninstall', '--global', '--agent', 'claude-code', '--unhook', '--force'],
+      { from: 'user' },
+    )
+
+    expect(readHomeSettings().hooks).toBeUndefined()
+    expect(readFileSync(join(fakeHome, '.codex', 'hooks.json'), 'utf-8')).toBe(codexBefore)
+    expect(existsSync(join(fakeHome, '.clooks', '.global-entrypoint-active.codex'))).toBe(true)
+  })
+
+  test('--global --agent codex --full --force unhooks all agents before deleting shared .clooks', async () => {
+    setupGlobal(fakeHome)
+    setupCodexGlobal(fakeHome)
+    writeFileSync(join(fakeHome, '.clooks', '.global-entrypoint-active'), '')
+    writeFileSync(join(fakeHome, '.clooks', '.global-entrypoint-active.codex'), '')
+
+    const program = createTestProgram()
+    await program.parseAsync(['uninstall', '--global', '--agent', 'codex', '--full', '--force'], {
+      from: 'user',
+    })
+
+    expect(readHomeSettings().hooks).toBeUndefined()
+    expect(readHomeCodexHooks().hooks).toBeUndefined()
+    expect(existsSync(join(fakeHome, '.clooks'))).toBe(false)
+  })
+
+  test('--global --agent codex --full --force explains all-agent unhooking when shared ~/.clooks is deleted', async () => {
+    setupGlobal(fakeHome)
+    setupCodexGlobal(fakeHome)
+
+    const clack = await import('@clack/prompts')
+    const infoMock = clack.log.info as unknown as ReturnType<typeof mock>
+    infoMock.mockClear()
+
+    const program = createTestProgram()
+    await program.parseAsync(['uninstall', '--global', '--agent', 'codex', '--full', '--force'], {
+      from: 'user',
+    })
+
+    const infoCalls = infoMock.mock.calls.map((c: unknown[]) => String(c[0]))
+    expect(
+      infoCalls.some((msg: string) =>
+        msg.includes(
+          '--full removes all Clooks agent registrations because it deletes the shared ~/.clooks/ entrypoint directory.',
+        ),
+      ),
+    ).toBe(true)
+  })
+
+  test('--global --agent codex --unhook --force human no-op is clear in Claude-only setup', async () => {
+    setupGlobal(fakeHome)
+
+    const clack = await import('@clack/prompts')
+    const infoMock = clack.log.info as unknown as ReturnType<typeof mock>
+    infoMock.mockClear()
+
+    const program = createTestProgram()
+    await program.parseAsync(['uninstall', '--global', '--agent', 'codex', '--unhook', '--force'], {
+      from: 'user',
+    })
+
+    const infoCalls = infoMock.mock.calls.map((c: unknown[]) => String(c[0]))
+    expect(
+      infoCalls.some((msg: string) =>
+        msg.includes('No Codex global Clooks hook registrations found. Nothing changed.'),
+      ),
+    ).toBe(true)
+  })
+
+  test('--global --agent all --unhook --json --force reports Claude and Codex counts', async () => {
+    setupGlobal(fakeHome)
+    setupCodexGlobal(fakeHome)
+
+    const program = createTestProgram()
+    await program.parseAsync(
+      ['--json', 'uninstall', '--global', '--agent', 'all', '--unhook', '--force'],
+      { from: 'user' },
+    )
+
+    const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
+    const parsed = JSON.parse(output.trim())
+    expect(parsed.data.agent).toBe('all')
+    expect(parsed.data.claudeEventsRemoved).toHaveLength(22)
+    expect(parsed.data.codexEventsRemoved).toHaveLength(CODEX_REGISTRATION_EVENTS.length)
+  })
+
+  test('--global --agent all --unhook --force human output reports separate counts', async () => {
+    setupGlobal(fakeHome)
+    setupCodexGlobal(fakeHome)
+
+    const clack = await import('@clack/prompts')
+    const successMock = clack.log.success as unknown as ReturnType<typeof mock>
+    successMock.mockClear()
+
+    const program = createTestProgram()
+    await program.parseAsync(['uninstall', '--global', '--agent', 'all', '--unhook', '--force'], {
+      from: 'user',
+    })
+
+    const successCalls = successMock.mock.calls.map((c: unknown[]) => String(c[0]))
+    expect(
+      successCalls.some((msg: string) =>
+        msg.includes('Removed Clooks hooks from ~/.claude/settings.json (22 events).'),
+      ),
+    ).toBe(true)
+    expect(
+      successCalls.some((msg: string) =>
+        msg.includes(
+          `Removed Clooks hooks from ~/.codex/hooks.json (${CODEX_REGISTRATION_EVENTS.length} events).`,
+        ),
+      ),
+    ).toBe(true)
+  })
+
+  test('--global --agent all --unhook --force removes both registrations and both flags', async () => {
+    setupGlobal(fakeHome)
+    setupCodexGlobal(fakeHome)
+    writeFileSync(join(fakeHome, '.clooks', '.global-entrypoint-active'), '')
+    writeFileSync(join(fakeHome, '.clooks', '.global-entrypoint-active.codex'), '')
+
+    const program = createTestProgram()
+    await program.parseAsync(['uninstall', '--global', '--agent', 'all', '--unhook', '--force'], {
+      from: 'user',
+    })
+
+    expect(readHomeSettings().hooks).toBeUndefined()
+    expect(readHomeCodexHooks().hooks).toBeUndefined()
+    expect(existsSync(join(fakeHome, '.clooks', '.global-entrypoint-active'))).toBe(false)
+    expect(existsSync(join(fakeHome, '.clooks', '.global-entrypoint-active.codex'))).toBe(false)
+  })
+
+  test('--global --agent codex --unhook --json --force reports global flag removal', async () => {
+    setupCodexGlobal(fakeHome)
+    writeFileSync(join(fakeHome, '.clooks', '.global-entrypoint-active.codex'), '')
+
+    const program = createTestProgram()
+    await program.parseAsync(
+      ['--json', 'uninstall', '--global', '--agent', 'codex', '--unhook', '--force'],
+      { from: 'user' },
+    )
+
+    const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
+    const parsed = JSON.parse(output.trim())
+
+    expect(parsed.data.agent).toBe('codex')
+    expect(parsed.data.codexEventsRemoved).toHaveLength(CODEX_REGISTRATION_EVENTS.length)
+    expect(parsed.data.globalFlagsRemoved).toEqual(['codex'])
+  })
+
+  test('--global --agent codex --unhook --force human output omits hook zero-count line when only flag is removed', async () => {
+    mkdirSync(join(fakeHome, '.clooks'), { recursive: true })
+    writeFileSync(join(fakeHome, '.clooks', '.global-entrypoint-active.codex'), '')
+
+    const clack = await import('@clack/prompts')
+    const successMock = clack.log.success as unknown as ReturnType<typeof mock>
+    const infoMock = clack.log.info as unknown as ReturnType<typeof mock>
+    successMock.mockClear()
+    infoMock.mockClear()
+
+    const program = createTestProgram()
+    await program.parseAsync(['uninstall', '--global', '--agent', 'codex', '--unhook', '--force'], {
+      from: 'user',
+    })
+
+    const successCalls = successMock.mock.calls.map((c: unknown[]) => String(c[0]))
+    const infoCalls = infoMock.mock.calls.map((c: unknown[]) => String(c[0]))
+    expect(
+      successCalls.some((msg: string) =>
+        msg.includes('Removed Clooks hooks from ~/.codex/hooks.json (0 events).'),
+      ),
+    ).toBe(false)
+    expect(
+      infoCalls.some((msg: string) => msg.includes('Removed 1 global entrypoint flag(s).')),
+    ).toBe(true)
   })
 
   test('--project and --global together errors', async () => {
