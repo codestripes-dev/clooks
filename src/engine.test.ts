@@ -1307,7 +1307,144 @@ describe('matchHooksForEvent', () => {
   })
 })
 
-// --- interpolateMessage ---
+// --- filterByMatcher ---
+
+import { filterByMatcher } from './engine/match.js'
+import type { MatchContext } from './engine/matcher.js'
+import type { Matcher } from './config/schema.js'
+
+describe('filterByMatcher', () => {
+  function configWithMatcher(name: string, matcher?: Matcher): ClooksConfig {
+    const hooks = {} as Record<HookName, import('./config/schema.js').HookEntry>
+    hooks[hn(name)] = {
+      resolvedPath: `.clooks/hooks/${name}.ts`,
+      config: {},
+      parallel: false,
+      origin: 'project',
+      matcher,
+    }
+    return {
+      version: '1.0.0',
+      global: {
+        timeout: ms(30000),
+        onError: 'block',
+        maxFailures: 3,
+        maxFailuresMessage: DEFAULT_MAX_FAILURES_MESSAGE,
+      },
+      hooks,
+      events: {},
+    }
+  }
+
+  function makeMatchContext(overrides: Partial<MatchContext>): MatchContext {
+    return {
+      event: 'PreToolUse',
+      ...overrides,
+    }
+  }
+
+  it('passes through hooks when no matcher is configured', () => {
+    const hookA = makeLoadedHook('a', {
+      PreToolUse: () => ({ result: 'skip' }),
+    })
+    const config = configWithMatcher('a')
+    const initial = { matched: [hookA], disabledSkips: [] as Array<{ hook: HookName; reason: string }> }
+    const result = filterByMatcher(initial, 'PreToolUse', makeMatchContext({}), config, false)
+    expect(result.matched).toHaveLength(1)
+    expect(result.disabledSkips).toEqual([])
+  })
+
+  it('filters out hook when matcher does not match (AND)', () => {
+    const hookA = makeLoadedHook('a', {
+      PreToolUse: () => ({ result: 'skip' }),
+    })
+    const config = configWithMatcher('a', { command: 'rm -rf' })
+    const initial = { matched: [hookA], disabledSkips: [] as Array<{ hook: HookName; reason: string }> }
+    const result = filterByMatcher(
+      initial,
+      'PreToolUse',
+      makeMatchContext({ toolName: 'Bash', toolInput: { command: 'ls -la' } }),
+      config,
+      false,
+    )
+    expect(result.matched).toHaveLength(0)
+    expect(result.disabledSkips).toEqual([]) // silent skip in non-debug mode
+  })
+
+  it('keeps hook when matcher matches', () => {
+    const hookA = makeLoadedHook('a', {
+      PreToolUse: () => ({ result: 'skip' }),
+    })
+    const config = configWithMatcher('a', { command: 'rm -rf' })
+    const initial = { matched: [hookA], disabledSkips: [] as Array<{ hook: HookName; reason: string }> }
+    const result = filterByMatcher(
+      initial,
+      'PreToolUse',
+      makeMatchContext({ toolName: 'Bash', toolInput: { command: 'rm -rf /tmp/foo' } }),
+      config,
+      false,
+    )
+    expect(result.matched).toHaveLength(1)
+  })
+
+  it('logs skip reason in debug mode when matcher does not match', () => {
+    const hookA = makeLoadedHook('a', {
+      PreToolUse: () => ({ result: 'skip' }),
+    })
+    const config = configWithMatcher('a', { command: 'rm -rf' })
+    const initial = { matched: [hookA], disabledSkips: [] as Array<{ hook: HookName; reason: string }> }
+    const result = filterByMatcher(
+      initial,
+      'PreToolUse',
+      makeMatchContext({ toolName: 'Bash', toolInput: { command: 'ls -la' } }),
+      config,
+      true, // debug mode
+    )
+    expect(result.matched).toHaveLength(0)
+    expect(result.disabledSkips).toHaveLength(1)
+    expect(result.disabledSkips[0]!.reason).toContain('did not match')
+  })
+
+  it('uses per-event matcher override when present', () => {
+    const hookA = makeLoadedHook('a', {
+      PreToolUse: () => ({ result: 'skip' }),
+    })
+    const hooks = {} as Record<HookName, import('./config/schema.js').HookEntry>
+    hooks[hn('a')] = {
+      resolvedPath: `.clooks/hooks/a.ts`,
+      config: {},
+      parallel: false,
+      origin: 'project',
+      matcher: { command: 'global-pattern' }, // hook-level matcher
+      events: {
+        PreToolUse: {
+          matcher: { command: 'event-specific' }, // per-event override
+        },
+      },
+    }
+    const config: ClooksConfig = {
+      version: '1.0.0',
+      global: {
+        timeout: ms(30000),
+        onError: 'block',
+        maxFailures: 3,
+        maxFailuresMessage: DEFAULT_MAX_FAILURES_MESSAGE,
+      },
+      hooks,
+      events: {},
+    }
+    const initial = { matched: [hookA], disabledSkips: [] as Array<{ hook: HookName; reason: string }> }
+    // event-specific matcher should be used, not hook-level
+    const result = filterByMatcher(
+      initial,
+      'PreToolUse',
+      makeMatchContext({ toolName: 'Bash', toolInput: { command: 'completely-different' } }),
+      config,
+      false,
+    )
+    expect(result.matched).toHaveLength(0) // 'event-specific' doesn't match 'completely-different'
+  })
+})
 
 describe('interpolateMessage', () => {
   it('substitutes all four variables correctly', () => {

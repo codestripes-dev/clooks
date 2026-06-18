@@ -14,6 +14,19 @@ import type { EventName, HookName, Milliseconds } from '../types/branded.js'
 
 const ErrorModeSchema = z.enum(['block', 'continue', 'trace'])
 const ErrorModeGlobalSchema = z.enum(['block', 'continue'])
+const MatchLogicSchema = z.enum(['and', 'or'])
+
+// ── Matcher schema ──
+
+export const MatcherSchema = z
+  .object({
+    matchLogic: MatchLogicSchema.optional(),
+    command: z.string().min(1).optional(),
+    tool: z.string().min(1).optional(),
+    file: z.string().min(1).optional(),
+    prompt: z.string().min(1).optional(),
+  })
+  .strict()
 
 // ── GlobalConfig schema ──
 
@@ -43,6 +56,7 @@ const HookEventOverrideSchema = z
   .object({
     onError: ErrorModeSchema.optional(),
     enabled: z.boolean().optional(),
+    matcher: MatcherSchema.optional(),
   })
   .strict()
 
@@ -66,6 +80,7 @@ export const HookEntrySchema = z
     maxFailuresMessage: z.string().optional(),
     enabled: z.boolean().optional(),
     events: HookEventsMapSchema.optional(),
+    matcher: MatcherSchema.optional(),
   })
   .strict()
 
@@ -239,6 +254,52 @@ export const ClooksConfigSchema = ClooksConfigStructuralSchema.superRefine((val,
       }
     }
   }
+
+  // ── 5. Matcher regex validation ──
+  function validateMatcherRegex(
+    pattern: string | undefined,
+    field: string,
+    hookName: string,
+    path: (string | number)[],
+  ): boolean {
+    if (pattern === undefined) return true
+    try {
+      new RegExp(pattern)
+      return true
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          `hook "${hookName}" ${field} has invalid regex pattern "${pattern}": ${message}`,
+        path,
+      })
+      return false
+    }
+  }
+
+  for (const hookName of hookNames) {
+    const hook = val[hookName] as z.infer<typeof HookEntrySchema>
+
+    // Validate hook-level matcher
+    if (hook?.matcher) {
+      const m = hook.matcher
+      validateMatcherRegex(m.command, `${hookName}.matcher.command`, hookName, [hookName, 'matcher', 'command'])
+      validateMatcherRegex(m.prompt, `${hookName}.matcher.prompt`, hookName, [hookName, 'matcher', 'prompt'])
+      // file pattern is a glob, not regex — no validation here (minimatch handles it at runtime)
+    }
+
+    // Validate per-event matchers
+    if (hook?.events) {
+      for (const [eventKey, override] of Object.entries(hook.events)) {
+        if (override?.matcher) {
+          const m = override.matcher
+          validateMatcherRegex(m.command, `${hookName}.events.${eventKey}.matcher.command`, hookName, [hookName, 'events', eventKey, 'matcher', 'command'])
+          validateMatcherRegex(m.prompt, `${hookName}.events.${eventKey}.matcher.prompt`, hookName, [hookName, 'events', eventKey, 'matcher', 'prompt'])
+        }
+      }
+    }
+  }
 })
 
 // ── Derived TypeScript types ──
@@ -304,7 +365,9 @@ export interface HookEntry {
   /** If false, this hook is fully disabled — it loads but never runs. Default true. */
   enabled?: boolean
   /** Per-hook, per-event overrides. Currently only onError and enabled are supported. */
-  events?: Partial<Record<EventName, { onError?: ErrorMode; enabled?: boolean }>>
+  events?: Partial<Record<EventName, { onError?: ErrorMode; enabled?: boolean; matcher?: Matcher }>>
+  /** Per-hook matcher for conditional execution. */
+  matcher?: Matcher
   /** Which config layer this hook originated from. */
   origin: HookOrigin
 }
@@ -312,6 +375,26 @@ export interface HookEntry {
 export interface EventEntry {
   /** Explicit execution order for hooks registered to this event. */
   order?: HookName[]
+}
+
+export type MatchLogic = 'and' | 'or'
+
+/**
+ * Matcher configuration for conditional hook execution.
+ * When specified on a hook entry, the hook only fires when the
+ * event context satisfies the matcher conditions.
+ */
+export interface Matcher {
+  /** How to combine multiple conditions: 'and' (all must match) or 'or' (any must match). Default: 'and'. */
+  matchLogic?: MatchLogic
+  /** Regex pattern matched against the Bash command string (PreToolUse only). */
+  command?: string
+  /** Exact tool name to match (PreToolUse, PermissionRequest). */
+  tool?: string
+  /** Glob or regex pattern matched against file paths (Write, Edit, Read, Glob tools). */
+  file?: string
+  /** Regex pattern matched against the user prompt (UserPromptSubmit only). */
+  prompt?: string
 }
 
 /** Raw inferred type from the structural schema */

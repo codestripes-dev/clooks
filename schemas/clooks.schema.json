@@ -17,7 +17,10 @@
         },
         "onError": {
           "type": "string",
-          "enum": ["block", "continue"]
+          "enum": [
+            "block",
+            "continue"
+          ]
         },
         "maxFailures": {
           "type": "integer",
@@ -317,7 +320,9 @@
       "additionalProperties": {}
     }
   },
-  "required": ["version"],
+  "required": [
+    "version"
+  ],
   "additionalProperties": {
     "type": "object",
     "properties": {
@@ -338,7 +343,11 @@
       },
       "onError": {
         "type": "string",
-        "enum": ["block", "continue", "trace"]
+        "enum": [
+          "block",
+          "continue",
+          "trace"
+        ]
       },
       "parallel": {
         "type": "boolean"
@@ -362,10 +371,43 @@
             "properties": {
               "onError": {
                 "type": "string",
-                "enum": ["block", "continue", "trace"]
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
               },
               "enabled": {
                 "type": "boolean"
+              },
+              "matcher": {
+                "type": "object",
+                "properties": {
+                  "matchLogic": {
+                    "type": "string",
+                    "enum": [
+                      "and",
+                      "or"
+                    ]
+                  },
+                  "command": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "tool": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "file": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "additionalProperties": false
               }
             },
             "additionalProperties": false
@@ -375,10 +417,43 @@
             "properties": {
               "onError": {
                 "type": "string",
-                "enum": ["block", "continue", "trace"]
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
               },
               "enabled": {
                 "type": "boolean"
+              },
+              "matcher": {
+                "type": "object",
+                "properties": {
+                  "matchLogic": {
+                    "type": "string",
+                    "enum": [
+                      "and",
+                      "or"
+                    ]
+                  },
+                  "command": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "tool": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "file": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "additionalProperties": false
               }
             },
             "additionalProperties": false
@@ -388,10 +463,43 @@
             "properties": {
               "onError": {
                 "type": "string",
-                "enum": ["block", "continue", "trace"]
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
               },
               "enabled": {
                 "type": "boolean"
+              },
+              "matcher": {
+                "type": "object",
+                "properties": {
+                  "matchLogic": {
+                    "type": "string",
+                    "enum": [
+                      "and",
+                      "or"
+                    ]
+                  },
+                  "command": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "tool": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "file": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "additionalProperties": false
               }
             },
             "additionalProperties": false
@@ -401,10 +509,43 @@
             "properties": {
               "onError": {
                 "type": "string",
-                "enum": ["block", "continue", "trace"]
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
               },
               "enabled": {
                 "type": "boolean"
+              },
+              "matcher": {
+                "type": "object",
+                "properties": {
+                  "matchLogic": {
+                    "type": "string",
+                    "enum": [
+                      "and",
+                      "or"
+                    ]
+                  },
+                  "command": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "tool": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "file": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "additionalProperties": false
               }
             },
             "additionalProperties": false
@@ -414,10 +555,43 @@
             "properties": {
               "onError": {
                 "type": "string",
-                "enum": ["block", "continue", "trace"]
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
               },
               "enabled": {
                 "type": "boolean"
+              },
+              "matcher": {
+                "type": "object",
+                "properties": {
+                  "matchLogic": {
+                    "type": "string",
+                    "enum": [
+                      "and",
+                      "or"
+                    ]
+                  },
+                  "command": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "tool": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "file": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "additionalProperties": false
               }
             },
             "additionalProperties": false
@@ -427,10 +601,43 @@
             "properties": {
               "onError": {
                 "type": "string",
-                "enum": ["block", "continue", "trace"]
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
               },
               "enabled": {
                 "type": "boolean"
+              },
+              "matcher": {
+                "type": "object",
+                "properties": {
+                  "matchLogic": {
+                    "type": "string",
+                    "enum": [
+                      "and",
+                      "or"
+                    ]
+                  },
+                  "command": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "tool": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "file": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "additionalProperties": false
               }
             },
             "additionalProperties": false
@@ -440,10 +647,43 @@
             "properties": {
               "onError": {
                 "type": "string",
-                "enum": ["block", "continue", "trace"]
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
               },
               "enabled": {
                 "type": "boolean"
+              },
+              "matcher": {
+                "type": "object",
+                "properties": {
+                  "matchLogic": {
+                    "type": "string",
+                    "enum": [
+                      "and",
+                      "or"
+                    ]
+                  },
+                  "command": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "tool": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "file": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "additionalProperties": false
               }
             },
             "additionalProperties": false
@@ -453,10 +693,43 @@
             "properties": {
               "onError": {
                 "type": "string",
-                "enum": ["block", "continue", "trace"]
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
               },
               "enabled": {
                 "type": "boolean"
+              },
+              "matcher": {
+                "type": "object",
+                "properties": {
+                  "matchLogic": {
+                    "type": "string",
+                    "enum": [
+                      "and",
+                      "or"
+                    ]
+                  },
+                  "command": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "tool": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "file": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "additionalProperties": false
               }
             },
             "additionalProperties": false
@@ -466,10 +739,43 @@
             "properties": {
               "onError": {
                 "type": "string",
-                "enum": ["block", "continue", "trace"]
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
               },
               "enabled": {
                 "type": "boolean"
+              },
+              "matcher": {
+                "type": "object",
+                "properties": {
+                  "matchLogic": {
+                    "type": "string",
+                    "enum": [
+                      "and",
+                      "or"
+                    ]
+                  },
+                  "command": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "tool": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "file": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "additionalProperties": false
               }
             },
             "additionalProperties": false
@@ -479,10 +785,43 @@
             "properties": {
               "onError": {
                 "type": "string",
-                "enum": ["block", "continue", "trace"]
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
               },
               "enabled": {
                 "type": "boolean"
+              },
+              "matcher": {
+                "type": "object",
+                "properties": {
+                  "matchLogic": {
+                    "type": "string",
+                    "enum": [
+                      "and",
+                      "or"
+                    ]
+                  },
+                  "command": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "tool": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "file": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "additionalProperties": false
               }
             },
             "additionalProperties": false
@@ -492,10 +831,43 @@
             "properties": {
               "onError": {
                 "type": "string",
-                "enum": ["block", "continue", "trace"]
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
               },
               "enabled": {
                 "type": "boolean"
+              },
+              "matcher": {
+                "type": "object",
+                "properties": {
+                  "matchLogic": {
+                    "type": "string",
+                    "enum": [
+                      "and",
+                      "or"
+                    ]
+                  },
+                  "command": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "tool": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "file": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "additionalProperties": false
               }
             },
             "additionalProperties": false
@@ -505,10 +877,43 @@
             "properties": {
               "onError": {
                 "type": "string",
-                "enum": ["block", "continue", "trace"]
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
               },
               "enabled": {
                 "type": "boolean"
+              },
+              "matcher": {
+                "type": "object",
+                "properties": {
+                  "matchLogic": {
+                    "type": "string",
+                    "enum": [
+                      "and",
+                      "or"
+                    ]
+                  },
+                  "command": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "tool": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "file": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "additionalProperties": false
               }
             },
             "additionalProperties": false
@@ -518,10 +923,43 @@
             "properties": {
               "onError": {
                 "type": "string",
-                "enum": ["block", "continue", "trace"]
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
               },
               "enabled": {
                 "type": "boolean"
+              },
+              "matcher": {
+                "type": "object",
+                "properties": {
+                  "matchLogic": {
+                    "type": "string",
+                    "enum": [
+                      "and",
+                      "or"
+                    ]
+                  },
+                  "command": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "tool": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "file": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "additionalProperties": false
               }
             },
             "additionalProperties": false
@@ -531,10 +969,43 @@
             "properties": {
               "onError": {
                 "type": "string",
-                "enum": ["block", "continue", "trace"]
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
               },
               "enabled": {
                 "type": "boolean"
+              },
+              "matcher": {
+                "type": "object",
+                "properties": {
+                  "matchLogic": {
+                    "type": "string",
+                    "enum": [
+                      "and",
+                      "or"
+                    ]
+                  },
+                  "command": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "tool": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "file": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "additionalProperties": false
               }
             },
             "additionalProperties": false
@@ -544,10 +1015,43 @@
             "properties": {
               "onError": {
                 "type": "string",
-                "enum": ["block", "continue", "trace"]
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
               },
               "enabled": {
                 "type": "boolean"
+              },
+              "matcher": {
+                "type": "object",
+                "properties": {
+                  "matchLogic": {
+                    "type": "string",
+                    "enum": [
+                      "and",
+                      "or"
+                    ]
+                  },
+                  "command": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "tool": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "file": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "additionalProperties": false
               }
             },
             "additionalProperties": false
@@ -557,10 +1061,43 @@
             "properties": {
               "onError": {
                 "type": "string",
-                "enum": ["block", "continue", "trace"]
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
               },
               "enabled": {
                 "type": "boolean"
+              },
+              "matcher": {
+                "type": "object",
+                "properties": {
+                  "matchLogic": {
+                    "type": "string",
+                    "enum": [
+                      "and",
+                      "or"
+                    ]
+                  },
+                  "command": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "tool": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "file": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "additionalProperties": false
               }
             },
             "additionalProperties": false
@@ -570,10 +1107,43 @@
             "properties": {
               "onError": {
                 "type": "string",
-                "enum": ["block", "continue", "trace"]
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
               },
               "enabled": {
                 "type": "boolean"
+              },
+              "matcher": {
+                "type": "object",
+                "properties": {
+                  "matchLogic": {
+                    "type": "string",
+                    "enum": [
+                      "and",
+                      "or"
+                    ]
+                  },
+                  "command": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "tool": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "file": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "additionalProperties": false
               }
             },
             "additionalProperties": false
@@ -583,10 +1153,43 @@
             "properties": {
               "onError": {
                 "type": "string",
-                "enum": ["block", "continue", "trace"]
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
               },
               "enabled": {
                 "type": "boolean"
+              },
+              "matcher": {
+                "type": "object",
+                "properties": {
+                  "matchLogic": {
+                    "type": "string",
+                    "enum": [
+                      "and",
+                      "or"
+                    ]
+                  },
+                  "command": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "tool": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "file": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "additionalProperties": false
               }
             },
             "additionalProperties": false
@@ -596,10 +1199,43 @@
             "properties": {
               "onError": {
                 "type": "string",
-                "enum": ["block", "continue", "trace"]
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
               },
               "enabled": {
                 "type": "boolean"
+              },
+              "matcher": {
+                "type": "object",
+                "properties": {
+                  "matchLogic": {
+                    "type": "string",
+                    "enum": [
+                      "and",
+                      "or"
+                    ]
+                  },
+                  "command": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "tool": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "file": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "additionalProperties": false
               }
             },
             "additionalProperties": false
@@ -609,10 +1245,43 @@
             "properties": {
               "onError": {
                 "type": "string",
-                "enum": ["block", "continue", "trace"]
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
               },
               "enabled": {
                 "type": "boolean"
+              },
+              "matcher": {
+                "type": "object",
+                "properties": {
+                  "matchLogic": {
+                    "type": "string",
+                    "enum": [
+                      "and",
+                      "or"
+                    ]
+                  },
+                  "command": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "tool": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "file": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "additionalProperties": false
               }
             },
             "additionalProperties": false
@@ -622,10 +1291,43 @@
             "properties": {
               "onError": {
                 "type": "string",
-                "enum": ["block", "continue", "trace"]
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
               },
               "enabled": {
                 "type": "boolean"
+              },
+              "matcher": {
+                "type": "object",
+                "properties": {
+                  "matchLogic": {
+                    "type": "string",
+                    "enum": [
+                      "and",
+                      "or"
+                    ]
+                  },
+                  "command": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "tool": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "file": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "additionalProperties": false
               }
             },
             "additionalProperties": false
@@ -635,13 +1337,75 @@
             "properties": {
               "onError": {
                 "type": "string",
-                "enum": ["block", "continue", "trace"]
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
               },
               "enabled": {
                 "type": "boolean"
+              },
+              "matcher": {
+                "type": "object",
+                "properties": {
+                  "matchLogic": {
+                    "type": "string",
+                    "enum": [
+                      "and",
+                      "or"
+                    ]
+                  },
+                  "command": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "tool": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "file": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "additionalProperties": false
               }
             },
             "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "matcher": {
+        "type": "object",
+        "properties": {
+          "matchLogic": {
+            "type": "string",
+            "enum": [
+              "and",
+              "or"
+            ]
+          },
+          "command": {
+            "type": "string",
+            "minLength": 1
+          },
+          "tool": {
+            "type": "string",
+            "minLength": 1
+          },
+          "file": {
+            "type": "string",
+            "minLength": 1
+          },
+          "prompt": {
+            "type": "string",
+            "minLength": 1
           }
         },
         "additionalProperties": false

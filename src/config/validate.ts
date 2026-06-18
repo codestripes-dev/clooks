@@ -68,12 +68,13 @@ function transformToConfig(validated: z.output<typeof ClooksConfigSchema>): Cloo
     if (raw.maxFailuresMessage !== undefined) entry.maxFailuresMessage = raw.maxFailuresMessage
     if (raw.enabled !== undefined) entry.enabled = raw.enabled
     if (raw.events) {
-      const eventsMap: Partial<Record<EventName, { onError?: ErrorMode; enabled?: boolean }>> = {}
+      const eventsMap: Partial<Record<EventName, { onError?: ErrorMode; enabled?: boolean; matcher?: import('./schema.js').Matcher }>> = {}
       for (const [ek, ev] of Object.entries(raw.events)) {
-        if (ev) eventsMap[ek as EventName] = ev as { onError?: ErrorMode; enabled?: boolean }
+        if (ev) eventsMap[ek as EventName] = ev as { onError?: ErrorMode; enabled?: boolean; matcher?: import('./schema.js').Matcher }
       }
       if (Object.keys(eventsMap).length > 0) entry.events = eventsMap
     }
+    if (raw.matcher) entry.matcher = raw.matcher
 
     hooks[hookName] = entry
   }

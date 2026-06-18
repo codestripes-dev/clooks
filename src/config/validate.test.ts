@@ -841,4 +841,113 @@ describe('validateConfig', () => {
     expect(result.events['PostCompact']).toBeDefined()
     expect(result.hooks['PostCompact' as any]).toBeUndefined()
   })
+
+  // --- Matcher validation ---
+
+  test('valid hook-level matcher', () => {
+    const result = validateConfig({
+      version: '1.0.0',
+      'guard-rm': {
+        matcher: {
+          command: 'rm -rf',
+          tool: 'Bash',
+        },
+      },
+    })
+    const hook = result.hooks['guard-rm' as any]!
+    expect(hook).toBeDefined()
+    expect(hook.matcher).toEqual({
+      command: 'rm -rf',
+      tool: 'Bash',
+    })
+  })
+
+  test('valid per-event matcher override', () => {
+    const result = validateConfig({
+      version: '1.0.0',
+      'guard-rm': {
+        events: {
+          PreToolUse: {
+            matcher: {
+              command: 'rm -rf',
+            },
+          },
+        },
+      },
+    })
+    const hook = result.hooks['guard-rm' as any]!
+    expect(hook.events!.PreToolUse!.matcher).toEqual({
+      command: 'rm -rf',
+    })
+  })
+
+  test('matcher with matchLogic', () => {
+    const result = validateConfig({
+      version: '1.0.0',
+      'guard-rm': {
+        matcher: {
+          matchLogic: 'or',
+          command: 'rm -rf',
+          tool: 'Bash',
+        },
+      },
+    })
+    const hook = result.hooks['guard-rm' as any]!
+    expect(hook.matcher!.matchLogic).toBe('or')
+  })
+
+  test('invalid matchLogic throws', () => {
+    expect(() =>
+      validateConfig({
+        version: '1.0.0',
+        'guard-rm': {
+          matcher: {
+            matchLogic: 'xor',
+          },
+        },
+      }),
+    ).toThrow('one of "and"|"or"')
+  })
+
+  test('matcher with invalid regex throws', () => {
+    expect(() =>
+      validateConfig({
+        version: '1.0.0',
+        'guard-rm': {
+          matcher: {
+            command: '[invalid(regex',
+          },
+        },
+      }),
+    ).toThrow('invalid regex')
+  })
+
+  test('matcher with valid regex compiles', () => {
+    const result = validateConfig({
+      version: '1.0.0',
+      'guard-rm': {
+        matcher: {
+          command: 'rm\\s+-rf',
+          prompt: 'deploy\\b',
+        },
+      },
+    })
+    const hook = result.hooks['guard-rm' as any]!
+    expect(hook.matcher!.command).toBe('rm\\s+-rf')
+    expect(hook.matcher!.prompt).toBe('deploy\\b')
+  })
+
+  test('matcher file pattern (glob) is accepted as string', () => {
+    const result = validateConfig({
+      version: '1.0.0',
+      'ts-guard': {
+        matcher: {
+          file: '**/*.ts',
+        },
+      },
+    })
+    // file is a glob pattern, validated at runtime by minimatch
+    const hook = result.hooks['ts-guard' as any]!
+    expect(hook.matcher).toBeDefined()
+  })
 })
