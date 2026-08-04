@@ -6,14 +6,25 @@
  * The three representations can never drift apart.
  */
 import { z } from 'zod'
-import { CLAUDE_CODE_EVENTS, INJECTABLE_EVENTS } from './constants.js'
+import {
+  CLAUDE_CODE_EVENTS,
+  HANDOFF_ELIGIBLE_EVENTS,
+  INJECTABLE_EVENTS,
+  type HandoffSetting,
+} from './constants.js'
 import { isPathLike, isShortAddress } from './resolve.js'
 import type { EventName, HookName, Milliseconds } from '../types/branded.js'
+
+export type { HandoffSetting }
 
 // ── Primitive schemas ──
 
 const ErrorModeSchema = z.enum(['block', 'continue', 'trace'])
 const ErrorModeGlobalSchema = z.enum(['block', 'continue'])
+
+const HandoffSchema = z.union([z.boolean(), z.number().int().positive()], {
+  error: 'must be true, false, or a positive integer character threshold',
+})
 
 // ── GlobalConfig schema ──
 
@@ -34,6 +45,7 @@ export const GlobalConfigSchema = z
       })
       .optional(),
     maxFailuresMessage: z.string().optional(),
+    handoff: HandoffSchema.optional(),
   })
   .strict()
 
@@ -43,6 +55,7 @@ const HookEventOverrideSchema = z
   .object({
     onError: ErrorModeSchema.optional(),
     enabled: z.boolean().optional(),
+    handoff: HandoffSchema.optional(),
   })
   .strict()
 
@@ -65,6 +78,7 @@ export const HookEntrySchema = z
     maxFailures: z.number().int().nonnegative().optional(),
     maxFailuresMessage: z.string().optional(),
     enabled: z.boolean().optional(),
+    handoff: HandoffSchema.optional(),
     events: HookEventsMapSchema.optional(),
   })
   .strict()
@@ -201,7 +215,30 @@ export const ClooksConfigSchema = ClooksConfigStructuralSchema.superRefine((val,
     }
   }
 
-  // ── 3. Bare-path detection ──
+  // ── 3. Handoff only on events with a model-facing payload ──
+  // An explicit `handoff: false` is accepted everywhere — disabling something
+  // that can never fire is harmless, and rejecting it would add another way to
+  // deadlock config validation.
+  for (const hookName of hookNames) {
+    const hook = val[hookName] as z.infer<typeof HookEntrySchema>
+    if (hook?.events) {
+      for (const [eventKey, override] of Object.entries(hook.events)) {
+        const handoff = override?.handoff
+        if (handoff === undefined || handoff === false) continue
+        if (!HANDOFF_ELIGIBLE_EVENTS.has(eventKey as EventName)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message:
+              `hook "${hookName}" events.${eventKey} handoff cannot be enabled — ` +
+              `${eventKey} has no model-facing payload to hand off`,
+            path: [hookName, 'events', eventKey, 'handoff'],
+          })
+        }
+      }
+    }
+  }
+
+  // ── 4. Bare-path detection ──
   for (const hookName of hookNames) {
     const hook = val[hookName] as z.infer<typeof HookEntrySchema>
     if (hook?.uses && hook.uses.endsWith('.ts') && !isPathLike(hook.uses)) {
@@ -216,7 +253,7 @@ export const ClooksConfigSchema = ClooksConfigStructuralSchema.superRefine((val,
     }
   }
 
-  // ── 4. Alias chain detection ──
+  // ── 5. Alias chain detection ──
   for (const hookName of hookNames) {
     const hook = val[hookName] as z.infer<typeof HookEntrySchema>
     if (hook?.uses === undefined) continue
@@ -282,6 +319,8 @@ export interface GlobalConfig {
   onError: ErrorMode
   maxFailures: number
   maxFailuresMessage: string
+  /** Default handoff policy for every hook. Resolved — always present. */
+  handoff: HandoffSetting
 }
 
 export interface HookEntry {
@@ -303,8 +342,12 @@ export interface HookEntry {
   maxFailuresMessage?: string
   /** If false, this hook is fully disabled — it loads but never runs. Default true. */
   enabled?: boolean
-  /** Per-hook, per-event overrides. Currently only onError and enabled are supported. */
-  events?: Partial<Record<EventName, { onError?: ErrorMode; enabled?: boolean }>>
+  /** Per-hook handoff policy override, if set. */
+  handoff?: HandoffSetting
+  /** Per-hook, per-event overrides. Currently only onError, enabled, and handoff are supported. */
+  events?: Partial<
+    Record<EventName, { onError?: ErrorMode; enabled?: boolean; handoff?: HandoffSetting }>
+  >
   /** Which config layer this hook originated from. */
   origin: HookOrigin
 }

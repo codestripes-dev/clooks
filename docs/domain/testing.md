@@ -43,7 +43,10 @@ Every E2E test uses `createSandbox()` to get an isolated environment:
 - Symlinks the compiled binary into the sandbox.
 - Sets `HOME` and `CLOOKS_HOME_ROOT` env vars to point at the sandbox's `home/` directory.
 - Provides `run()` for subprocess invocation against the binary.
+- Provides `runAsync()` for invocations that must overlap in time.
 - Provides setup helpers: `writeConfig()`, `writeHook()`, `writeHomeConfig()`, `writeHomeHook()`.
+
+`run()` is synchronous (`Bun.spawnSync`) and is the default for everything. `runAsync()` is its promise-returning sibling built on `Bun.spawn`, with the same binary, environment, and defaults; use it only when a test needs several invocations in flight at once — lock contention, overlapping writers — and `Promise.all` the batch. A test that merely runs the binary repeatedly should stay on `run()`, which keeps ordering obvious.
 
 This ensures every test starts from a clean state with no cross-test contamination.
 

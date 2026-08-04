@@ -32,6 +32,18 @@ The `ExitCode` type is `typeof EXIT_OK | typeof EXIT_HOOK_FAILURE | typeof EXIT_
 - `parallel: boolean` — True when the hook is running in a parallel batch, false for sequential execution. Hook authors can use this to guard against operations that are unsafe in parallel mode (e.g., mutating shared state).
 - `signal: AbortSignal` — Scoped to the current execution group. In parallel groups, this signal is aborted when a short-circuit condition is detected (block result, contract violation). In sequential groups, the signal is scoped per-group but never aborted in the current implementation. Hooks can check `signal.aborted` or listen for the `abort` event to clean up early.
 
+## BaseContext turn state
+
+`BaseContext` also carries `turn: TurnContext` — this hook's own prior runs during the current turn, maintained by the engine:
+
+- `prior: TurnRecord[]` — completed prior runs of *this* hook this turn, across every event it ran on, oldest first.
+- `priorRuns: number` — how many of those were on the current event.
+- `priorInterventions: number` — how many of those actually intervened, on the current event.
+
+The field is **required, never optional**, and is always a freshly allocated object — including when the engine could not read stored state, in which case it is empty. There is no shared singleton: a shared `prior` array would let one hook's push rewrite what a later hook sees. A hook cannot distinguish "no history" from "storage failed", so `turn` is an optimization signal rather than a guarantee.
+
+See [Turn State](../turn-state.md) for the intervention predicate, scope keys, boundary rules, storage format, and both fail-safe directions.
+
 ## BaseContext field optionality
 
 Not all `BaseContext` fields are universally present across all events. The following field is optional because Claude Code omits it from certain event payloads:

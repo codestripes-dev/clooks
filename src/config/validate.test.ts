@@ -12,6 +12,7 @@ describe('validateConfig', () => {
       onError: 'block',
       maxFailures: DEFAULT_MAX_FAILURES,
       maxFailuresMessage: DEFAULT_MAX_FAILURES_MESSAGE,
+      handoff: false,
     })
     expect(result.hooks).toEqual({})
     expect(result.events).toEqual({})
@@ -46,6 +47,7 @@ describe('validateConfig', () => {
       onError: 'continue',
       maxFailures: DEFAULT_MAX_FAILURES,
       maxFailuresMessage: DEFAULT_MAX_FAILURES_MESSAGE,
+      handoff: false,
     })
 
     expect(Object.keys(result.hooks)).toEqual([
@@ -629,6 +631,130 @@ describe('validateConfig', () => {
     expect(result.events['PreToolUse']!.order).toEqual([hn('hook-a'), hn('hook-b')])
   })
 
+  // --- handoff ---
+
+  test('global handoff defaults to false', () => {
+    expect(validateConfig({ version: '1.0.0' }).global.handoff).toBe(false)
+  })
+
+  test('global handoff accepts true, false, and a positive integer', () => {
+    expect(validateConfig({ version: '1.0.0', config: { handoff: true } }).global.handoff).toBe(
+      true,
+    )
+    expect(validateConfig({ version: '1.0.0', config: { handoff: false } }).global.handoff).toBe(
+      false,
+    )
+    expect(validateConfig({ version: '1.0.0', config: { handoff: 2000 } }).global.handoff).toBe(
+      2000,
+    )
+  })
+
+  test('hook-level handoff accepts true, false, and a positive integer', () => {
+    expect(
+      validateConfig({ version: '1.0.0', 'my-hook': { handoff: true } }).hooks[hn('my-hook')]!
+        .handoff,
+    ).toBe(true)
+    expect(
+      validateConfig({ version: '1.0.0', 'my-hook': { handoff: false } }).hooks[hn('my-hook')]!
+        .handoff,
+    ).toBe(false)
+    expect(
+      validateConfig({ version: '1.0.0', 'my-hook': { handoff: 500 } }).hooks[hn('my-hook')]!
+        .handoff,
+    ).toBe(500)
+  })
+
+  test('hook-level handoff is absent when not configured', () => {
+    expect(
+      validateConfig({ version: '1.0.0', 'my-hook': {} }).hooks[hn('my-hook')]!.handoff,
+    ).toBeUndefined()
+  })
+
+  test('event-level handoff accepted on eligible events', () => {
+    const result = validateConfig({
+      version: '1.0.0',
+      scanner: {
+        events: {
+          PreToolUse: { handoff: true },
+          Stop: { handoff: 1000 },
+          TaskCompleted: { handoff: false },
+        },
+      },
+    })
+    const events = result.hooks[hn('scanner')]!.events!
+    expect(events['PreToolUse']).toEqual({ handoff: true })
+    expect(events['Stop']).toEqual({ handoff: 1000 })
+    expect(events['TaskCompleted']).toEqual({ handoff: false })
+  })
+
+  test('event-level handoff: false visible under hook-level handoff: true', () => {
+    const result = validateConfig({
+      version: '1.0.0',
+      config: { handoff: 100 },
+      scanner: {
+        handoff: true,
+        events: { PreToolUse: { handoff: false } },
+      },
+    })
+    expect(result.global.handoff).toBe(100)
+    const hook = result.hooks[hn('scanner')]!
+    expect(hook.handoff).toBe(true)
+    expect(hook.events!['PreToolUse']).toEqual({ handoff: false })
+  })
+
+  test('global handoff rejects zero, negatives, floats, and strings', () => {
+    for (const bad of [0, -1, 2.5, 'yes']) {
+      expect(() => validateConfig({ version: '1.0.0', config: { handoff: bad } })).toThrow(
+        'global config "handoff" must be true, false, or a positive integer character threshold',
+      )
+    }
+  })
+
+  test('hook-level handoff rejects zero, negatives, floats, and strings', () => {
+    for (const bad of [0, -1, 2.5, 'yes']) {
+      expect(() => validateConfig({ version: '1.0.0', 'my-hook': { handoff: bad } })).toThrow(
+        'invalid "handoff": must be true, false, or a positive integer character threshold',
+      )
+    }
+  })
+
+  test('event-level handoff rejects zero, negatives, floats, and strings', () => {
+    for (const bad of [0, -1, 2.5, 'yes']) {
+      expect(() =>
+        validateConfig({
+          version: '1.0.0',
+          scanner: { events: { PreToolUse: { handoff: bad } } },
+        }),
+      ).toThrow(
+        'events.PreToolUse "handoff" must be true, false, or a positive integer character threshold',
+      )
+    }
+  })
+
+  test('event-level handoff rejected on an ineligible event', () => {
+    expect(() =>
+      validateConfig({
+        version: '1.0.0',
+        scanner: { events: { SessionEnd: { handoff: true } } },
+      }),
+    ).toThrow('events.SessionEnd handoff cannot be enabled')
+
+    expect(() =>
+      validateConfig({
+        version: '1.0.0',
+        scanner: { events: { SessionEnd: { handoff: 100 } } },
+      }),
+    ).toThrow('events.SessionEnd handoff cannot be enabled')
+  })
+
+  test('event-level handoff: false accepted on an ineligible event', () => {
+    const result = validateConfig({
+      version: '1.0.0',
+      scanner: { events: { SessionEnd: { handoff: false } } },
+    })
+    expect(result.hooks[hn('scanner')]!.events!['SessionEnd']).toEqual({ handoff: false })
+  })
+
   // --- Unknown-key rejection ---
 
   test('global config rejects unknown keys', () => {
@@ -666,6 +792,21 @@ describe('validateConfig', () => {
         },
       }),
     ).toThrow('unknown key "timeout"')
+  })
+
+  test('unknown-key messages list handoff as a known key', () => {
+    expect(() => validateConfig({ version: '1.0.0', config: { handof: true } })).toThrow(
+      'Known keys: handoff, maxFailures',
+    )
+    expect(() => validateConfig({ version: '1.0.0', 'my-hook': { handof: true } })).toThrow(
+      'Known keys: config, enabled, events, handoff, maxFailures',
+    )
+    expect(() =>
+      validateConfig({
+        version: '1.0.0',
+        scanner: { events: { PreToolUse: { handof: true } } },
+      }),
+    ).toThrow('Known keys: enabled, handoff, onError')
   })
 
   test('hook entry rejects misspelled onError', () => {

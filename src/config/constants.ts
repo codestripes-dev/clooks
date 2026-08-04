@@ -56,6 +56,25 @@ export const INJECTABLE_EVENTS: Set<EventName> = new Set<EventName>([
 // The engine short-circuits translateResult() to EXIT_OK with no output.
 export const NOTIFY_ONLY_EVENTS: Set<EventName> = new Set<EventName>(['StopFailure'])
 
+/**
+ * Handoff delivery setting: false = never, true = always,
+ * positive integer N = hand off only when the payload exceeds N characters.
+ */
+export type HandoffSetting = boolean | number
+
+// Events that carry at least one model-facing payload handoff can replace:
+// injectContext (injectable events), block reasons delivered to the model
+// (Stop, SubagentStop), and continuation feedback (TeammateIdle, TaskCreated,
+// TaskCompleted). Event-level handoff on anything else can never fire.
+export const HANDOFF_ELIGIBLE_EVENTS: Set<EventName> = new Set<EventName>([
+  ...INJECTABLE_EVENTS,
+  'Stop',
+  'SubagentStop',
+  'TeammateIdle',
+  'TaskCreated',
+  'TaskCompleted',
+])
+
 // Default values for global config
 import type { ErrorMode } from './schema.js'
 export const CLOOKS_DIR = '.clooks'
@@ -63,6 +82,7 @@ export const CLOOKS_CONFIG_FILENAME = 'clooks.yml'
 export const DEFAULT_TIMEOUT = 30_000 as Milliseconds
 export const DEFAULT_ON_ERROR: ErrorMode = 'block'
 export const DEFAULT_MAX_FAILURES = 3
+export const DEFAULT_HANDOFF: HandoffSetting = false
 export const DEFAULT_MAX_FAILURES_MESSAGE =
   "Hook '{hook}' has failed {count} consecutive times on {event} and will be skipped. " +
   'Last error: {error}. Fix the issue or comment out the hook in clooks.yml. ' +

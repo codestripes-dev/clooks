@@ -74,6 +74,7 @@ When creating or removing a domain doc, update the relevant table in this index.
 | Config System | `config.md` | Config format, parsing, validation, merging, resolution rules |
 | Config — Discovery | `config/discovery.md` | Walk-up algorithm, precedence order, boundary rules, `$CLAUDE_PROJECT_DIR` anchor, observability |
 | Config — Execution & Circuit Breaker | `config/execution.md` | Execution group partitioning, ordering, group execution semantics, circuit breaker state |
+| Config — Handoff | `config/handoff.md` | Long-message delivery: value shape, three-level precedence, eligibility, file protocol, cleanup |
 | Claude Code Hooks — Overview | `claude-code-hooks/overview.md` | Configuration schema, 4 handler types, hook locations, environment variables |
 | Claude Code Hooks — Events | `claude-code-hooks/events.md` | All 22 lifecycle events: matchers, input fields, decision control |
 | Claude Code Hooks — I/O Contract | `claude-code-hooks/io-contract.md` | Exit codes, JSON output, decision patterns, tool_input schemas |
@@ -85,6 +86,7 @@ When creating or removing a domain doc, update the relevant table in this index.
 | Hook Type System — Decision Methods | `hook-type-system/decision-methods.md` | Per-event decision methods, runtime attachment, type-composition primitive vocabulary, worked composition example |
 | Hook Type System — Lifecycle Types | `hook-type-system/lifecycle-types.md` | `beforeHook` / `afterHook`, `BeforeHookEvent` / `AfterHookEvent`, `HookEventMeta` |
 | Hook Type System — `.d.ts` Bundle | `hook-type-system/dts-bundle.md` | Bundle generation, binary embedding, hook-author imports |
+| Turn State | `turn-state.md` | `ctx.turn`, once-per-turn pattern, intervention predicate, scopes, boundaries, storage/lock protocol, fail-safe directions |
 | Vendoring — Overview | `vendoring/overview.md` | Core vendoring concepts, vendor directory layout, formats, registration, V0 limitations |
 | Vendoring — clooks add | `vendoring/clooks-add.md` | `clooks add` workflow (blob URL + repo URL), multi-hook packs, manifest format |
 | Vendoring — Plugin Vendoring | `vendoring/plugin-vendoring.md` | Plugin cache discovery, plugin hook vendoring, scope-based routing |

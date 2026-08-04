@@ -11,6 +11,7 @@ import type {
 } from './branded.js'
 import type { StopFailureErrorType } from './claude-code.js'
 import type { Patch } from './patch.js'
+import type { TurnContext } from './turn.js'
 import type {
   PreToolUseResult,
   PermissionRequestResult,
@@ -70,6 +71,11 @@ export interface BaseContext {
   parallel: boolean
   /** Aborted when a parallel batch short-circuits. Pass to long-running async work. */
   signal: AbortSignal
+  /**
+   * This hook's own prior runs during the current turn. Always present; empty
+   * when the engine could not read stored turn state.
+   */
+  turn: TurnContext
 }
 
 // Tool input shapes mirror Claude Code's `tool_input`, normalized to camelCase.

@@ -461,4 +461,33 @@ describe('mergeThreeLayerConfig', () => {
     )
     expect(() => mergeThreeLayerConfig(home, undefined, undefined)).toThrow('got empty string')
   })
+
+  test('global handoff deep-merges across all three layers', () => {
+    const home = { version: '1.0.0', config: { handoff: true, timeout: 5000 } }
+    const project = { config: { handoff: 2000 } }
+    const local = { config: { handoff: false } }
+
+    expect(
+      (mergeThreeLayerConfig(home, undefined, undefined).merged.config as Record<string, unknown>)
+        .handoff,
+    ).toBe(true)
+    expect(
+      (mergeThreeLayerConfig(home, project, undefined).merged.config as Record<string, unknown>)
+        .handoff,
+    ).toBe(2000)
+
+    const all = mergeThreeLayerConfig(home, project, local).merged.config as Record<string, unknown>
+    expect(all.handoff).toBe(false)
+    // Deep merge keeps sibling keys from lower layers
+    expect(all.timeout).toBe(5000)
+  })
+
+  test('hook handoff is replaced atomically, not merged, when a layer shadows the hook', () => {
+    const home = { version: '1.0.0', scanner: { handoff: true, timeout: 5000 } }
+    const project = { scanner: { handoff: 300 } }
+    const result = mergeThreeLayerConfig(home, project, undefined)
+
+    expect(result.merged.scanner).toEqual({ handoff: 300 })
+    expect(result.shadows).toEqual(['scanner'])
+  })
 })

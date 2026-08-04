@@ -41,6 +41,7 @@ function makeConfig(hooks: Record<string, HookEntry>): ClooksConfig {
       onError: 'block',
       maxFailures: 3,
       maxFailuresMessage: 'test message',
+      handoff: false,
     },
     hooks: typedHooks,
     events: {},

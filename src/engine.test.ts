@@ -1,11 +1,11 @@
 import { describe, expect, it, afterEach, spyOn } from 'bun:test'
 import { mkdtempSync, rmSync, mkdirSync } from 'fs'
-import { join } from 'path'
+import { dirname, join } from 'path'
 import { tmpdir } from 'os'
 import {
   translateResult,
   matchHooksForEvent,
-  executeHooks,
+  executeHooks as executeHooksImpl,
   interpolateMessage,
   resolveOnError,
   buildShadowWarnings,
@@ -1171,6 +1171,7 @@ describe('matchHooksForEvent', () => {
         onError: 'block',
         maxFailures: 3,
         maxFailuresMessage: DEFAULT_MAX_FAILURES_MESSAGE,
+        handoff: false,
       },
       hooks,
       events: {},
@@ -1350,6 +1351,33 @@ function fp(dir: string): string {
   return join(dir, '.clooks/.failures')
 }
 
+type ExecuteArgs = Parameters<typeof executeHooksImpl>
+
+/**
+ * Test wrapper: supplies `handoffRoot` (the temp project root, derived from the
+ * failure path) so the ~130 call sites below keep their original argument order.
+ */
+function executeHooks(
+  matched: ExecuteArgs[0],
+  eventName: ExecuteArgs[1],
+  normalized: ExecuteArgs[2],
+  config: ExecuteArgs[3],
+  failurePath: ExecuteArgs[4],
+  loadErrors?: ExecuteArgs[6],
+  disabledNames?: ExecuteArgs[7],
+): ReturnType<typeof executeHooksImpl> {
+  return executeHooksImpl(
+    matched,
+    eventName,
+    normalized,
+    config,
+    failurePath,
+    dirname(dirname(failurePath)),
+    loadErrors,
+    disabledNames,
+  )
+}
+
 function makeTestConfig(
   hookOverrides: Record<
     string,
@@ -1381,6 +1409,7 @@ function makeTestConfig(
       onError: globalOnError,
       maxFailures: globalMaxFailures,
       maxFailuresMessage: DEFAULT_MAX_FAILURES_MESSAGE,
+      handoff: false,
     },
     hooks,
     events: {},

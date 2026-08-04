@@ -76,6 +76,7 @@ function makeMinimalConfig(hookNames: string[] = []): ClooksConfig {
       onError: 'block' as const,
       maxFailures: 3,
       maxFailuresMessage: 'Too many failures',
+      handoff: false,
     },
     hooks,
     events: {},

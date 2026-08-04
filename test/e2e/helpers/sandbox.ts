@@ -32,6 +32,16 @@ export interface Sandbox {
     args: string[],
     opts?: { stdin?: string; env?: Record<string, string>; timeout?: number; cwd?: string },
   ): RunResult
+  /**
+   * Asynchronous sibling of `run`, for tests that need several invocations
+   * in flight at once (lock contention, overlapping writers). Same binary,
+   * same environment, same defaults — the only difference is that it does not
+   * block, so callers can `Promise.all` a batch.
+   */
+  runAsync(
+    args: string[],
+    opts?: { stdin?: string; env?: Record<string, string>; timeout?: number; cwd?: string },
+  ): Promise<RunResult>
   runEntrypoint(opts?: { stdin?: string; env?: Record<string, string> }): RunResult
   writeFile(relativePath: string, content: string): void
   writeConfig(yamlContent: string): void
@@ -100,6 +110,23 @@ export function createSandbox(): Sandbox {
         stdout: proc.stdout.toString(),
         stderr: proc.stderr.toString(),
       }
+    },
+
+    async runAsync(args, opts) {
+      const proc = Bun.spawn([CLOOKS_BIN, ...args], {
+        cwd: opts?.cwd ?? dir,
+        stdin: opts?.stdin !== undefined ? Buffer.from(opts.stdin) : undefined,
+        stdout: 'pipe',
+        stderr: 'pipe',
+        env: { HOME: home, CLOOKS_HOME_ROOT: home, PATH: sandboxPath, ...opts?.env },
+        ...(opts?.timeout ? { timeout: opts.timeout } : {}),
+      })
+      const [stdout, stderr] = await Promise.all([
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+      ])
+      const exitCode = await proc.exited
+      return { exitCode: exitCode ?? 2, stdout, stderr }
     },
 
     runEntrypoint(opts) {

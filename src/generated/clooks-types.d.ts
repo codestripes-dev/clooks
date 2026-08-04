@@ -438,6 +438,50 @@ type OptionalKeys<T> = {
 export type Patch<T> = {
 	[K in keyof T]?: K extends OptionalKeys<T> ? T[K] | null : T[K];
 };
+/**
+ * What a hook decided on one prior run. Every result tag a hook can return,
+ * plus `'error'` for a run that threw, rejected, timed out, or was abandoned
+ * when a parallel batch short-circuited.
+ */
+export type TurnDecision = ResultTag | "error";
+/** One completed prior run of this hook during the current turn. */
+export interface TurnRecord {
+	/** The event that run fired on. */
+	event: EventName;
+	/** What the run decided. */
+	decision: TurnDecision;
+	/** When the run completed, ISO 8601. */
+	at: string;
+}
+/**
+ * This hook's own history for the current turn — one user prompt and
+ * everything the agent does in response to it. Always present on `ctx`;
+ * empty when the engine could not read stored state.
+ *
+ * A hook only ever sees its own runs. There is no cross-hook visibility.
+ *
+ * @example
+ * // Remind exactly once per turn instead of looping.
+ * export default {
+ *   meta,
+ *   Stop(ctx) {
+ *     if (ctx.turn.priorInterventions > 0) return ctx.skip()
+ *     return ctx.block({ reason: 'Remember to lint the files you changed.' })
+ *   },
+ * } satisfies ClooksHook
+ */
+export interface TurnContext {
+	/** Every prior run of this hook this turn, across all events, oldest first. */
+	prior: TurnRecord[];
+	/** Prior runs of this hook on the *current* event only. */
+	priorRuns: number;
+	/**
+	 * Prior runs on the current event that actually intervened: a `block` on any
+	 * event, a `continue` on `TeammateIdle` / `TaskCreated` / `TaskCompleted`, or
+	 * a `retry` on `PermissionDenied`.
+	 */
+	priorInterventions: number;
+}
 type UserPromptSubmitDecisionMethods = Allow<InjectContext & SessionTitle, UserPromptSubmitResult> & Block<EventBlockOptsMap["UserPromptSubmit"], UserPromptSubmitResult> & Skip<EventSkipOptsMap["UserPromptSubmit"], UserPromptSubmitResult>;
 type StopDecisionMethods = Allow<DebugMessage, StopEventResult> & Block<EventBlockOptsMap["Stop"], StopEventResult> & Skip<EventSkipOptsMap["Stop"], StopEventResult>;
 type SubagentStopDecisionMethods = Allow<DebugMessage, SubagentStopResult> & Block<EventBlockOptsMap["SubagentStop"], SubagentStopResult> & Skip<EventSkipOptsMap["SubagentStop"], SubagentStopResult>;
@@ -474,6 +518,11 @@ export interface BaseContext {
 	parallel: boolean;
 	/** Aborted when a parallel batch short-circuits. Pass to long-running async work. */
 	signal: AbortSignal;
+	/**
+	 * This hook's own prior runs during the current turn. Always present; empty
+	 * when the engine could not read stored turn state.
+	 */
+	turn: TurnContext;
 }
 /** Input for the `Bash` tool. */
 export interface BashToolInput {

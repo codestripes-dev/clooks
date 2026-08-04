@@ -8,6 +8,7 @@ import {
   type HookEntry,
   type EventEntry,
   type HookOrigin,
+  type HandoffSetting,
 } from './schema.js'
 import type { EventName, HookName, Milliseconds } from '../types/branded.js'
 import { resolveHookPath } from './resolve.js'
@@ -17,6 +18,7 @@ import {
   DEFAULT_ON_ERROR,
   DEFAULT_MAX_FAILURES,
   DEFAULT_MAX_FAILURES_MESSAGE,
+  DEFAULT_HANDOFF,
 } from './constants.js'
 
 export function validateConfig(raw: Record<string, unknown>): ClooksConfig {
@@ -40,6 +42,7 @@ function transformToConfig(validated: z.output<typeof ClooksConfigSchema>): Cloo
     onError: (rawGlobal?.onError ?? DEFAULT_ON_ERROR) as ErrorMode,
     maxFailures: rawGlobal?.maxFailures ?? DEFAULT_MAX_FAILURES,
     maxFailuresMessage: rawGlobal?.maxFailuresMessage ?? DEFAULT_MAX_FAILURES_MESSAGE,
+    handoff: rawGlobal?.handoff ?? DEFAULT_HANDOFF,
   }
 
   // Separate hooks and events
@@ -67,10 +70,18 @@ function transformToConfig(validated: z.output<typeof ClooksConfigSchema>): Cloo
     if (raw.maxFailures !== undefined) entry.maxFailures = raw.maxFailures
     if (raw.maxFailuresMessage !== undefined) entry.maxFailuresMessage = raw.maxFailuresMessage
     if (raw.enabled !== undefined) entry.enabled = raw.enabled
+    if (raw.handoff !== undefined) entry.handoff = raw.handoff as HandoffSetting
     if (raw.events) {
-      const eventsMap: Partial<Record<EventName, { onError?: ErrorMode; enabled?: boolean }>> = {}
+      const eventsMap: Partial<
+        Record<EventName, { onError?: ErrorMode; enabled?: boolean; handoff?: HandoffSetting }>
+      > = {}
       for (const [ek, ev] of Object.entries(raw.events)) {
-        if (ev) eventsMap[ek as EventName] = ev as { onError?: ErrorMode; enabled?: boolean }
+        if (ev)
+          eventsMap[ek as EventName] = ev as {
+            onError?: ErrorMode
+            enabled?: boolean
+            handoff?: HandoffSetting
+          }
       }
       if (Object.keys(eventsMap).length > 0) entry.events = eventsMap
     }
@@ -141,7 +152,7 @@ function formatGlobalConfigError(issue: z.ZodIssue, raw: Record<string, unknown>
 
   if (issue.code === 'unrecognized_keys') {
     const keys = (issue as any).keys as string[]
-    return `clooks: global config has unknown key "${keys[0]}". Known keys: maxFailures, maxFailuresMessage, onError, timeout`
+    return `clooks: global config has unknown key "${keys[0]}". Known keys: handoff, maxFailures, maxFailuresMessage, onError, timeout`
   }
 
   // Non-object config
@@ -164,6 +175,9 @@ function formatGlobalConfigError(issue: z.ZodIssue, raw: Record<string, unknown>
   }
   if (field === 'maxFailuresMessage') {
     return `clooks: global config "maxFailuresMessage" must be a string`
+  }
+  if (field === 'handoff') {
+    return `clooks: global config "handoff" must be true, false, or a positive integer character threshold`
   }
 
   return `clooks: global config error: ${issue.message}`
@@ -203,13 +217,13 @@ function formatHookError(
 
     // Root of hook entry
     if (depth <= 1) {
-      return `clooks: hook "${hookName}" has unknown key "${keys[0]}". Known keys: config, enabled, events, maxFailures, maxFailuresMessage, onError, parallel, timeout, uses`
+      return `clooks: hook "${hookName}" has unknown key "${keys[0]}". Known keys: config, enabled, events, handoff, maxFailures, maxFailuresMessage, onError, parallel, timeout, uses`
     }
 
     // Inside hook.events.EventName
     if (issue.path[1] === 'events' && issue.path.length >= 3) {
       const eventKey = String(issue.path[2])
-      return `clooks: hook "${hookName}" events.${eventKey} has unknown key "${keys[0]}". Known keys: enabled, onError`
+      return `clooks: hook "${hookName}" events.${eventKey} has unknown key "${keys[0]}". Known keys: enabled, handoff, onError`
     }
   }
 
@@ -241,6 +255,9 @@ function formatHookError(
   if (field === 'enabled') {
     return `clooks: hook "${hookName}" has invalid "enabled": must be a boolean`
   }
+  if (field === 'handoff') {
+    return `clooks: hook "${hookName}" has invalid "handoff": must be true, false, or a positive integer character threshold`
+  }
   if (field === 'config') {
     return `clooks: hook "${hookName}" has invalid "config": must be an object`
   }
@@ -259,6 +276,9 @@ function formatHookError(
       }
       if (subField === 'enabled') {
         return `clooks: hook "${hookName}" events.${eventKey} "enabled" must be a boolean`
+      }
+      if (subField === 'handoff') {
+        return `clooks: hook "${hookName}" events.${eventKey} "handoff" must be true, false, or a positive integer character threshold`
       }
       return `clooks: hook "${hookName}" events.${eventKey} error: ${issue.message}`
     }

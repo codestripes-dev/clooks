@@ -1,8 +1,8 @@
 import { describe, test, expect, afterEach } from 'bun:test'
 import { mkdtempSync, rmSync, mkdirSync } from 'fs'
-import { join } from 'path'
+import { dirname, join } from 'path'
 import { tmpdir } from 'os'
-import { executeHooks } from './index.js'
+import { executeHooks as executeHooksImpl } from './index.js'
 import type { LoadedHook } from '../loader.js'
 import type { ClooksHook } from '../types/hook.js'
 import type { ClooksConfig, HookEntry } from '../config/schema.js'
@@ -60,6 +60,7 @@ function makeTestConfig(hookOverrides: Record<string, { parallel?: boolean }> = 
       onError: 'block',
       maxFailures: 3,
       maxFailuresMessage: DEFAULT_MAX_FAILURES_MESSAGE,
+      handoff: false,
     },
     hooks,
     events: {},
@@ -82,6 +83,30 @@ function makeTempDir(): string {
 
 function fp(dir: string): string {
   return join(dir, '.clooks/.failures')
+}
+
+type ExecuteArgs = Parameters<typeof executeHooksImpl>
+
+/** Test wrapper: supplies `handoffRoot`, derived from the temp-dir failure path. */
+function executeHooks(
+  matched: ExecuteArgs[0],
+  eventName: ExecuteArgs[1],
+  normalized: ExecuteArgs[2],
+  config: ExecuteArgs[3],
+  failurePath: ExecuteArgs[4],
+  loadErrors?: ExecuteArgs[6],
+  disabledNames?: ExecuteArgs[7],
+): ReturnType<typeof executeHooksImpl> {
+  return executeHooksImpl(
+    matched,
+    eventName,
+    normalized,
+    config,
+    failurePath,
+    dirname(dirname(failurePath)),
+    loadErrors,
+    disabledNames,
+  )
 }
 
 describe('decision-method smoke fixture', () => {

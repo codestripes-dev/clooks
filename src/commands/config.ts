@@ -622,6 +622,7 @@ export function createConfigCommand(
               timeout: config.global.timeout,
               onError: config.global.onError,
               maxFailures: config.global.maxFailures,
+              handoff: config.global.handoff,
             }) + '\n',
           )
           return
@@ -633,6 +634,7 @@ export function createConfigCommand(
         printInfo(ctx, `Timeout: ${config.global.timeout}ms`)
         printInfo(ctx, `onError: ${config.global.onError}`)
         printInfo(ctx, `maxFailures: ${config.global.maxFailures}`)
+        printInfo(ctx, `handoff: ${config.global.handoff}`)
         printOutro(ctx, 'Done')
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e)

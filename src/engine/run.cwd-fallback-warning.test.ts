@@ -42,6 +42,7 @@ function makeMinimalResult(hasProjectConfig: boolean): LoadConfigResult {
         onError: 'block',
         maxFailures: 3,
         maxFailuresMessage: 'Too many failures',
+        handoff: false,
       },
       hooks: {},
       events: {},

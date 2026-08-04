@@ -83,6 +83,12 @@ if [ "$(echo "$INPUT" | jq -r '.stop_hook_active')" = "true" ]; then
 fi
 ```
 
+**Clooks implication:** `stop_hook_active` is **global across all stop hooks** — it says "some stop hook already blocked this stop", not "*you* already blocked". Clooks' `ctx.turn` is per-hook: it reports only the asking hook's own prior runs, so one hook's reminder never silences another's. Use `ctx.turn.priorInterventions > 0` for once-per-turn behavior and leave `stop_hook_active` to hooks that genuinely care about the global state.
+
+### Which Events Delimit a Turn
+
+For Clooks' turn state, `UserPromptSubmit` is the only event that ends a turn in normal operation. `SessionStart` is source-aware: `startup` and `clear` reset, while `resume`, `compact`, and any unrecognized source preserve. Nothing else is a boundary — notifications, tool events, subagent completions, and background events all land in whatever turn is current. Subagents never receive `UserPromptSubmit`, so a session has exactly one boundary emitter: the main agent's prompt. See [Turn State](../turn-state.md).
+
 ### PermissionRequest in Non-Interactive Mode
 
 PermissionRequest hooks do **not** fire in headless mode (`-p`). A hook registered for PermissionRequest has **zero invocations** across an entire `claude -p` session. Use PreToolUse for automated permission decisions.

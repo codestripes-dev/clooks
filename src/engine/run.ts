@@ -20,6 +20,16 @@ import type { RunEngineDeps } from './types.js'
 import { EXIT_OK, EXIT_STDERR } from './types.js'
 import { matchHooksForEvent, buildShadowWarnings } from './match.js'
 import { executeHooks } from './execute.js'
+import { pruneHandoffFiles } from './handoff.js'
+import {
+  applyTurnBoundary,
+  createTurnTracker,
+  pruneTurnState,
+  readTurnState,
+  turnScopeKey,
+  turnStatePath,
+} from './turn-state.js'
+import type { TurnState, TurnTracker } from './turn-state.js'
 import {
   AgentSelectionError,
   UnsupportedAgentAdapterError,
@@ -242,6 +252,49 @@ export async function runEngineCore(
     process.exit(EXIT_STDERR)
   }
 
+  // Normalized here, before the early exits, so the turn boundary below can
+  // read a session identity the adapter owns rather than a raw wire key.
+  // `normalizeContext` is a pure transform, and this same object is reused at
+  // the executeHooks call site — the payload is never normalized twice.
+  const normalized = adapter.normalizeContext(payload, eventName)
+
+  // Runs before the hooks-empty/no-match early exits so a project with no
+  // SessionStart hooks still prunes. A prune failure never affects the run.
+  if (eventName === 'SessionStart') {
+    await pruneHandoffFiles(projectRoot).catch(() => {})
+  }
+
+  // Turn state is meaningless without a session identity, and inventing a
+  // fallback would silently merge unrelated sessions into one history. No
+  // identity means no boundary, no snapshot, no recording, and an empty
+  // ctx.turn for every hook in this invocation.
+  const sessionId =
+    typeof normalized.sessionId === 'string' && normalized.sessionId.length > 0
+      ? normalized.sessionId
+      : null
+  const turnPath = sessionId === null ? null : turnStatePath(homeRoot, sessionId)
+
+  // Post-boundary state, kept so the snapshot step below does not read the
+  // file a second time.
+  let boundaryState: TurnState | null = null
+
+  // Placed before both early exits for the same reason the handoff prune is: a
+  // project with no UserPromptSubmit hooks must still get its turn boundary, or
+  // every dedup hook goes permanently silent after its first intervention.
+  if (turnPath !== null) {
+    if (eventName === 'SessionStart') {
+      await pruneTurnState(homeRoot).catch(() => {})
+      // Unrecognized sources take the non-destructive branch, so a future
+      // upstream source value cannot start clearing turns by accident.
+      const source = normalized.source
+      if (source === 'startup' || source === 'clear') {
+        boundaryState = await applyTurnBoundary(turnPath, homeRoot, 'reset').catch(() => null)
+      }
+    } else if (eventName === 'UserPromptSubmit') {
+      boundaryState = await applyTurnBoundary(turnPath, homeRoot, 'advance').catch(() => null)
+    }
+  }
+
   // Gate the cwd-fallback warning to SessionStart so it appears once per session,
   // not once per tool call.
   if (
@@ -352,8 +405,6 @@ export async function runEngineCore(
     process.exit(EXIT_OK)
   }
 
-  const normalized = adapter.normalizeContext(payload, eventName)
-
   for (const loaded of hooks) {
     const hookEntry = config.hooks[loaded.name]
     if (hookEntry?.onError === 'trace' && !INJECTABLE_EVENTS.has(eventName)) {
@@ -370,6 +421,25 @@ export async function runEngineCore(
 
   const disabledNames = new Set<HookName>()
   for (const s of disabledSkips) disabledNames.add(s.hook)
+
+  // Built after the no-match exit, so no snapshot is read when nothing will
+  // run. A boundary above already produced the post-boundary state; reuse it
+  // rather than reading the file again.
+  let turnTracker: TurnTracker | undefined
+  if (turnPath !== null) {
+    try {
+      turnTracker = createTurnTracker({
+        path: turnPath,
+        homeRoot,
+        state: boundaryState ?? (await readTurnState(turnPath)),
+        scopeKey: turnScopeKey(eventName, normalized),
+      })
+    } catch {
+      // Turn state degrades to empty rather than affecting the run.
+      turnTracker = undefined
+    }
+  }
+
   const {
     lastResult: initialResult,
     degradedMessages,
@@ -382,8 +452,10 @@ export async function runEngineCore(
     normalized,
     config,
     failurePath,
+    projectRoot,
     loadErrors,
     disabledNames,
+    turnTracker,
   )
   let lastResult = initialResult
 

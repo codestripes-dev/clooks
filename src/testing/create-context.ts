@@ -33,6 +33,7 @@ import type {
   TaskCompletedContext,
 } from '../types/contexts.js'
 import { attachDecisionMethods } from '../engine/context-methods.js'
+import { emptyTurn } from '../engine/turn-state.js'
 
 /**
  * Per-event context-map used by `createContext`. Mirrors `EventContextMap` from
@@ -67,7 +68,14 @@ export interface CreateContextEventMap {
 /**
  * Fields the helper supplies defaults for. Callers may override any of them.
  */
-type BaseDefaultedKeys = 'sessionId' | 'cwd' | 'transcriptPath' | 'parallel' | 'signal' | 'event'
+type BaseDefaultedKeys =
+  | 'sessionId'
+  | 'cwd'
+  | 'transcriptPath'
+  | 'parallel'
+  | 'signal'
+  | 'event'
+  | 'turn'
 
 /**
  * Decision-method keys the helper attaches at runtime via
@@ -143,6 +151,9 @@ export function createContext<E extends EventName>(
     transcriptPath: '/tmp/transcript.json',
     parallel: false,
     signal: new AbortController().signal,
+    // Fresh object per call — never a shared singleton, so a hook pushing onto
+    // `prior` cannot alter what another context sees.
+    turn: emptyTurn(),
   }
   // Caller's payload wins over defaults; `event` is then re-pinned to the
   // requested literal.

@@ -68,6 +68,7 @@ describe('selectAgentAdapter', () => {
             onError: 'block',
             maxFailures: 3,
             maxFailuresMessage: 'Too many failures',
+            handoff: false,
           },
           hooks: {},
           events: {},

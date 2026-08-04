@@ -66,6 +66,7 @@ PreToolUse:
       onError: 'block',
       maxFailures: DEFAULT_MAX_FAILURES,
       maxFailuresMessage: DEFAULT_MAX_FAILURES_MESSAGE,
+      handoff: false,
     })
     expect(Object.keys(config.hooks)).toEqual(['log-bash-commands', 'no-production-writes'])
     expect(config.hooks[hn('log-bash-commands')]!.resolvedPath).toBe(
@@ -320,6 +321,33 @@ my-hook-b: {}
     expect(result!.config.hooks[hn('my-hook-b')]!.origin).toBe('home')
 
     rmSync(fakeHome, { recursive: true, force: true })
+  })
+
+  test('loadConfig: handoff survives the full three-layer pipeline', async () => {
+    const homeRoot = makeFakeHome()
+    writeConfig(homeRoot, 'clooks.yml', `version: "1.0.0"\nconfig:\n  handoff: true\n`)
+    writeConfig(
+      tempDir,
+      'clooks.yml',
+      `
+version: "1.0.0"
+config:
+  handoff: 2000
+scanner:
+  handoff: true
+  events:
+    PreToolUse:
+      handoff: false
+`,
+    )
+    writeConfig(tempDir, 'clooks.local.yml', `config:\n  handoff: 50\n`)
+
+    const result = await loadConfig(tempDir, { homeRoot })
+    expect(result).not.toBeNull()
+    const config = result!.config
+    expect(config.global.handoff).toBe(50)
+    expect(config.hooks[hn('scanner')]!.handoff).toBe(true)
+    expect(config.hooks[hn('scanner')]!.events!['PreToolUse']).toEqual({ handoff: false })
   })
 
   test('loadConfig: shadow with byte-identical project and home source is suppressed', async () => {

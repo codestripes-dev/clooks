@@ -75,7 +75,8 @@ PreToolUse:
 | `maxFailures` | number | — | Per-hook override for consecutive failure threshold |
 | `maxFailuresMessage` | string | — | Per-hook override for the reminder message template |
 | `enabled` | boolean | `true` | If `false`, hook is fully disabled — loads but never runs for any event. |
-| `events` | `Partial<Record<EventName, { onError?: ErrorMode; enabled?: boolean }>>` | — | Per-hook, per-event overrides. Keys are event names, values are objects with `onError` and/or `enabled`. |
+| `handoff` | `boolean \| positive integer` | — | Per-hook override for long-message delivery. See `docs/domain/config/handoff.md`. |
+| `events` | `Partial<Record<EventName, { onError?: ErrorMode; enabled?: boolean; handoff?: boolean \| positive integer }>>` | — | Per-hook, per-event overrides. Keys are event names, values are objects with `onError`, `enabled`, and/or `handoff`. |
 
 ### Event Entry Fields
 
@@ -93,6 +94,7 @@ Event-level `timeout` and `onError` have been removed. Use per-hook `timeout` an
 | `onError` | `"block"` \| `"continue"` | `"block"` | Default error handling. `"trace"` is not allowed at the global level. |
 | `maxFailures` | number | `3` | Consecutive failures before a hook+event pair is degraded. `0` = disabled (classic fail-closed). |
 | `maxFailuresMessage` | string | *(see below)* | Template for the reminder message when a degraded hook is skipped. Supports `{hook}`, `{event}`, `{count}`, `{error}` interpolation. |
+| `handoff` | `boolean \| positive integer` | `false` | Default long-message delivery policy. See `docs/domain/config/handoff.md`. |
 
 ## Hook Path Resolution
 
@@ -190,6 +192,8 @@ Each `HookEntry` carries an `origin: HookOrigin` field (`"home" | "project"`) an
 
 **maxFailures** and **maxFailuresMessage** cascade: hook → global → default. `maxFailures: 0` disables the circuit breaker. `maxFailures` does NOT increment for execution errors on hooks configured with `onError: "continue"` or `"trace"`. Import/load failures always count regardless of onError config.
 
+**handoff** cascades: hook+event → hook → global → `false` default, as a wholesale override (`!== undefined` per layer, so an explicit `false` beats a `true` above it). See `docs/domain/config/handoff.md` for value shape, eligibility, and file behavior.
+
 ## Disabling Hooks
 
 The `enabled` field controls whether a hook runs. It can be set at two levels:
@@ -229,6 +233,7 @@ Config parsing takes ~15ms per invocation using Bun's native YAML parser (`Bun.Y
 
 - `docs/domain/config/discovery.md` — How project root is resolved via walk-up.
 - `docs/domain/config/execution.md` — Execution groups, ordering, and circuit breaker.
+- `docs/domain/config/handoff.md` — Long-message delivery: value shape, eligibility, file protocol, cleanup.
 - `docs/domain/hook-type-system.md` — Hook contract and type system
 - `docs/research/config-file-parsing.md` — YAML parser research and benchmarks
 - `docs/research/yaml-parser-comparison.md` — Bun.YAML vs js-yaml comparison and benchmarks

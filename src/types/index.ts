@@ -123,6 +123,8 @@ export type {
 
 export type { Patch } from './patch.js'
 
+export type { TurnDecision, TurnRecord, TurnContext } from './turn.js'
+
 export type { StopFailureDecisionMethods } from './decision-methods.js'
 
 export type { MaybeAsync, HookMeta, ClooksHook } from './hook.js'

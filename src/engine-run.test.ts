@@ -123,6 +123,7 @@ function makeConfig(
       onError: 'block' as const,
       maxFailures: 3,
       maxFailuresMessage: DEFAULT_MAX_FAILURES_MESSAGE,
+      handoff: false,
     },
     hooks: hooksEntries,
     events: {} as Record<string, any>,

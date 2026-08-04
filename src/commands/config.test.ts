@@ -29,6 +29,7 @@ function makeConfig(overrides?: Partial<ClooksConfig>): ClooksConfig {
       onError: 'block',
       maxFailures: 3,
       maxFailuresMessage: 'Too many failures',
+      handoff: false,
     },
     hooks: {
       ['my-hook' as HookName]: {
@@ -109,6 +110,7 @@ describe('config command', () => {
     expect(log.info).toHaveBeenCalledWith('Timeout: 30000ms')
     expect(log.info).toHaveBeenCalledWith('onError: block')
     expect(log.info).toHaveBeenCalledWith('maxFailures: 3')
+    expect(log.info).toHaveBeenCalledWith('handoff: false')
     expect(outro).toHaveBeenCalledWith('Done')
   })
 
@@ -129,6 +131,7 @@ describe('config command', () => {
     expect(parsed.data.timeout).toBe(30000)
     expect(parsed.data.onError).toBe('block')
     expect(parsed.data.maxFailures).toBe(3)
+    expect(parsed.data.handoff).toBe(false)
   })
 
   test('null result shows init suggestion', async () => {

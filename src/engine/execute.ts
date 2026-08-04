@@ -15,6 +15,10 @@ import type { ExecutionGroup } from '../ordering.js'
 import { runHookLifecycle, LifecycleMetaCache } from '../lifecycle.js'
 import type { LifecycleResult } from '../lifecycle.js'
 import type { EngineResult } from './types.js'
+import { applyHandoff } from './handoff.js'
+import { decisionForResult, emptyTurn, warnTurnStateOnce } from './turn-state.js'
+import type { TurnTracker } from './turn-state.js'
+import type { TurnContext, TurnDecision } from '../types/turn.js'
 import { omitBy, isNull } from 'lodash-es'
 
 // --- PreToolUse vote collector types and helpers ---
@@ -191,6 +195,55 @@ export function reducePreToolUseVotes(
   return { result: winner.engineResult, warnings }
 }
 
+// --- Turn-state bookkeeping, isolated from control flow ---
+//
+// Turn state must never change what a hook decided or whether the next hook
+// runs. The production tracker already swallows its own failures, but this is
+// the engine's hook-execution choke point and the guarantee belongs here too:
+// relying on a callee's internal discipline makes it depend on a property of
+// another function that a future edit could remove with no signal at this end.
+
+function turnTrackerFailed(e: unknown): void {
+  warnTurnStateOnce(`turn state bookkeeping failed (${e instanceof Error ? e.message : String(e)})`)
+}
+
+function safeMaterializeTurn(
+  tracker: TurnTracker | undefined,
+  hookName: HookName,
+  eventName: EventName,
+): TurnContext {
+  if (!tracker) return emptyTurn()
+  try {
+    return tracker.materialize(hookName, eventName)
+  } catch (e) {
+    turnTrackerFailed(e)
+    return emptyTurn()
+  }
+}
+
+function safeRecordTurn(
+  tracker: TurnTracker | undefined,
+  hookName: HookName,
+  eventName: EventName,
+  decision: TurnDecision,
+): void {
+  if (!tracker) return
+  try {
+    tracker.record(hookName, eventName, decision)
+  } catch (e) {
+    turnTrackerFailed(e)
+  }
+}
+
+async function safeCommitTurn(tracker: TurnTracker | undefined): Promise<void> {
+  if (!tracker) return
+  try {
+    await tracker.commit()
+  } catch (e) {
+    turnTrackerFailed(e)
+  }
+}
+
 function resolveMaxFailures(
   hookName: HookName,
   config: ClooksConfig,
@@ -283,8 +336,10 @@ export async function executeHooks(
   normalized: Record<string, unknown>,
   config: ClooksConfig,
   failurePath: string,
+  handoffRoot: string,
   loadErrors: HookLoadError[] = [],
   disabledNames?: Set<HookName>,
+  turnTracker?: TurnTracker,
 ): Promise<{
   lastResult?: EngineResult
   degradedMessages: string[]
@@ -393,6 +448,9 @@ export async function executeHooks(
       }
       context.parallel = false
       context.signal = sharedController.signal
+      // Freshly allocated per hook: a shared object would let one hook's push
+      // onto `prior` rewrite what a later hook sees.
+      context.turn = safeMaterializeTurn(turnTracker, loaded.name, eventName)
 
       const timeout = resolveTimeout(loaded.name, config)
 
@@ -406,6 +464,9 @@ export async function executeHooks(
           lifecycleMetaCache,
         )
       } catch (e) {
+        // Recorded before any mode resolution: the record describes what the
+        // hook did, not what the engine decided to do about it.
+        safeRecordTurn(turnTracker, loaded.name, eventName, 'error')
         const errorMessage = e instanceof Error ? e.message : String(e)
         const onErrorMode = resolveOnError(loaded.name, eventName, config)
 
@@ -534,6 +595,7 @@ export async function executeHooks(
 
       const result = lifecycleResult.result
       if (result === undefined || result === null) {
+        safeRecordTurn(turnTracker, loaded.name, eventName, 'skip')
         if (debug) {
           debugMessages.push(`hook="${loaded.name}" event="${eventName}" returned: null/undefined`)
         }
@@ -543,77 +605,87 @@ export async function executeHooks(
       // Single cast at the boundary where dynamically-imported hook code returns.
       const resultObj = result as EngineResult
 
+      // From the raw result, before handoff. Handoff replaces payload text and
+      // never the tag, so either side records the same value today — reading
+      // the raw object keeps the record independent of a transform that could
+      // grow new behavior later.
+      safeRecordTurn(turnTracker, loaded.name, eventName, decisionForResult(resultObj))
+
+      // Handoff runs before the debug serialization below so debug output shows
+      // the pointer, not the payload handoff was meant to keep out of the transcript.
+      const hookResult = await applyHandoff(resultObj, loaded.name, eventName, config, handoffRoot)
+
       if (debug) {
         debugMessages.push(
-          `hook="${loaded.name}" event="${eventName}" returned: ${JSON.stringify(resultObj)}`,
+          `hook="${loaded.name}" event="${eventName}" returned: ${JSON.stringify(hookResult)}`,
         )
       }
 
       // Collect debug messages from every hook result
-      if (debug && resultObj.debugMessage) {
-        debugMessages.push(resultObj.debugMessage)
+      if (debug && hookResult.debugMessage) {
+        debugMessages.push(hookResult.debugMessage)
       }
 
       // Block bails out immediately — stop the group and signal pipeline.
       // For PreToolUse: outer accumulatedInjectContext.push stays unconditional (authoritative
       // on crash path per Decision D-2026-04-19-10); blockResult/pipelineBlocked/return are
       // gated to non-PreToolUse so the collect-all pipeline continues.
-      if (resultObj.result === 'block') {
-        if (resultObj.injectContext) {
-          accumulatedInjectContext.push(resultObj.injectContext)
+      if (hookResult.result === 'block') {
+        if (hookResult.injectContext) {
+          accumulatedInjectContext.push(hookResult.injectContext)
         }
         if (eventName === 'PreToolUse') {
-          preToolUseVotes.push({ engineResult: resultObj, rank: rankPreToolUseResult(resultObj) })
+          preToolUseVotes.push({ engineResult: hookResult, rank: rankPreToolUseResult(hookResult) })
           continue
         }
-        blockResult = resultObj
+        blockResult = hookResult
         pipelineBlocked = true
         return
       }
 
       // Skip — still collect injectContext and promote if it carries passthrough fields
-      if (resultObj.result === 'skip') {
-        if (resultObj.injectContext) {
-          accumulatedInjectContext.push(resultObj.injectContext)
+      if (hookResult.result === 'skip') {
+        if (hookResult.injectContext) {
+          accumulatedInjectContext.push(hookResult.injectContext)
         }
-        if (resultObj.updatedMCPToolOutput !== undefined) {
-          lastNonSkipResult = resultObj
+        if (hookResult.updatedMCPToolOutput !== undefined) {
+          lastNonSkipResult = hookResult
         }
         if (eventName === 'PreToolUse') {
-          preToolUseVotes.push({ engineResult: resultObj, rank: rankPreToolUseResult(resultObj) })
+          preToolUseVotes.push({ engineResult: hookResult, rank: rankPreToolUseResult(hookResult) })
         }
         continue
       }
 
       // Ask — PreToolUse: push vote and continue; non-PreToolUse: fall through to allow path.
-      if (resultObj.result === 'ask') {
+      if (hookResult.result === 'ask') {
         if (eventName === 'PreToolUse') {
           // Ask hooks can carry updatedInput. Merge it into pipeline state
           // so subsequent sequential hooks and the reducer see the accumulated input.
-          if (resultObj.updatedInput) {
+          if (hookResult.updatedInput) {
             const base = (currentToolInput ?? {}) as Record<string, unknown>
-            currentToolInput = omitBy({ ...base, ...resultObj.updatedInput }, isNull) as Record<
+            currentToolInput = omitBy({ ...base, ...hookResult.updatedInput }, isNull) as Record<
               string,
               unknown
             >
           }
-          preToolUseVotes.push({ engineResult: resultObj, rank: rankPreToolUseResult(resultObj) })
+          preToolUseVotes.push({ engineResult: hookResult, rank: rankPreToolUseResult(hookResult) })
           continue
         }
         // Non-PreToolUse: treat as non-skip (updates lastNonSkipResult below)
-        lastNonSkipResult = resultObj
+        lastNonSkipResult = hookResult
         continue
       }
 
       // Defer — PreToolUse: push vote and continue; non-PreToolUse: fall through to allow path.
       // No updatedInput merge: DeferResult forbids the field at the type level.
-      if (resultObj.result === 'defer') {
+      if (hookResult.result === 'defer') {
         if (eventName === 'PreToolUse') {
-          preToolUseVotes.push({ engineResult: resultObj, rank: rankPreToolUseResult(resultObj) })
+          preToolUseVotes.push({ engineResult: hookResult, rank: rankPreToolUseResult(hookResult) })
           continue
         }
         // Non-PreToolUse: treat as non-skip (updates lastNonSkipResult below)
-        lastNonSkipResult = resultObj
+        lastNonSkipResult = hookResult
         continue
       }
 
@@ -624,19 +696,19 @@ export async function executeHooks(
       // Patch-merge: hooks return a partial patch. Spread it onto the running tool
       // input and strip `null` values (explicit-unset sentinel). `undefined` is
       // already absent after spread, which is the "no patch on this key" case.
-      if (resultObj.updatedInput) {
+      if (hookResult.updatedInput) {
         const base = (currentToolInput ?? {}) as Record<string, unknown>
-        currentToolInput = omitBy({ ...base, ...resultObj.updatedInput }, isNull) as Record<
+        currentToolInput = omitBy({ ...base, ...hookResult.updatedInput }, isNull) as Record<
           string,
           unknown
         >
       }
-      if (resultObj.injectContext) {
-        accumulatedInjectContext.push(resultObj.injectContext)
+      if (hookResult.injectContext) {
+        accumulatedInjectContext.push(hookResult.injectContext)
       }
-      lastNonSkipResult = resultObj
+      lastNonSkipResult = hookResult
       if (eventName === 'PreToolUse') {
-        preToolUseVotes.push({ engineResult: resultObj, rank: rankPreToolUseResult(resultObj) })
+        preToolUseVotes.push({ engineResult: hookResult, rank: rankPreToolUseResult(hookResult) })
       }
     }
   }
@@ -703,6 +775,7 @@ export async function executeHooks(
       }
       context.parallel = true
       context.signal = controller.signal
+      context.turn = safeMaterializeTurn(turnTracker, loaded.name, eventName)
 
       const timeout = resolveTimeout(loaded.name, config)
       const promise = runHookLifecycle(loaded, eventName, context, timeout, lifecycleMetaCache)
@@ -768,7 +841,13 @@ export async function executeHooks(
 
     for (let i = 0; i < results.length; i++) {
       const settled = results[i]
-      if (!settled) continue // unsettled (short-circuited before this hook finished)
+      if (!settled) {
+        // Abandoned by a short circuit. The lifecycle started, so it is
+        // recorded; its outcome is simply unknown.
+        const abandoned = hookTasks[i]
+        if (abandoned) safeRecordTurn(turnTracker, abandoned.hookName, eventName, 'error')
+        continue
+      }
 
       if (settled.status === 'fulfilled') {
         const lr = settled.value as LifecycleResult
@@ -788,23 +867,36 @@ export async function executeHooks(
           debugMessages.push(`hook="${settled.hookName}" afterHook: ${lr.afterDebug} (parallel)`)
         }
 
-        if (!val) continue
-        if (val.result === 'skip') {
-          if (val.injectContext) {
-            batchInjectContext.push(val.injectContext)
+        if (!val) {
+          safeRecordTurn(turnTracker, settled.hookName, eventName, 'skip')
+          continue
+        }
+
+        safeRecordTurn(turnTracker, settled.hookName, eventName, decisionForResult(val))
+
+        // Handoff applies per hook, before reduction merges text and discards
+        // hook identity. The loop is sequential, so writes do not race.
+        const hookResult = await applyHandoff(val, settled.hookName, eventName, config, handoffRoot)
+
+        if (hookResult.result === 'skip') {
+          if (hookResult.injectContext) {
+            batchInjectContext.push(hookResult.injectContext)
           }
-          if (val.updatedMCPToolOutput !== undefined) {
-            lastNonSkipResult = val
+          if (hookResult.updatedMCPToolOutput !== undefined) {
+            lastNonSkipResult = hookResult
           }
           if (eventName === 'PreToolUse') {
-            preToolUseVotes.push({ engineResult: val, rank: rankPreToolUseResult(val) })
+            preToolUseVotes.push({
+              engineResult: hookResult,
+              rank: rankPreToolUseResult(hookResult),
+            })
           }
           continue
         }
 
         // Contract violation: updatedInput in parallel mode — unchanged for ALL events including PreToolUse
         // (Decision D-2026-04-19-04: contract violation, not a structured opinion)
-        if (val.updatedInput) {
+        if (hookResult.updatedInput) {
           const violationMsg = `clooks: hook "${settled.hookName}" returned updatedInput in parallel mode — this is a contract violation. Parallel hooks cannot modify tool input.`
           systemMessages.push(violationMsg)
           blockResult = { result: 'block', reason: violationMsg }
@@ -831,57 +923,67 @@ export async function executeHooks(
         // Block branch: outer accumulatedInjectContext.push stays unconditional (authoritative
         // on crash path per Decision D-2026-04-19-10); blockResult/pipelineBlocked are gated
         // to non-PreToolUse so the collect-all pipeline continues for PreToolUse.
-        if (val.result === 'block') {
-          if (val.injectContext) {
-            accumulatedInjectContext.push(val.injectContext)
+        if (hookResult.result === 'block') {
+          if (hookResult.injectContext) {
+            accumulatedInjectContext.push(hookResult.injectContext)
           }
           if (eventName === 'PreToolUse') {
-            preToolUseVotes.push({ engineResult: val, rank: rankPreToolUseResult(val) })
+            preToolUseVotes.push({
+              engineResult: hookResult,
+              rank: rankPreToolUseResult(hookResult),
+            })
             continue
           }
-          blockResult = val
+          blockResult = hookResult
           pipelineBlocked = true
           continue
         }
 
         // Ask — PreToolUse: push vote and continue; non-PreToolUse: fall through to allow path.
-        if (val.result === 'ask') {
+        if (hookResult.result === 'ask') {
           if (eventName === 'PreToolUse') {
-            preToolUseVotes.push({ engineResult: val, rank: rankPreToolUseResult(val) })
+            preToolUseVotes.push({
+              engineResult: hookResult,
+              rank: rankPreToolUseResult(hookResult),
+            })
             continue
           }
           // Non-PreToolUse: treat as non-skip (updates lastNonSkipResult below)
-          lastNonSkipResult = val
+          lastNonSkipResult = hookResult
           continue
         }
 
         // Defer — PreToolUse: push vote and continue; non-PreToolUse: fall through to allow path.
-        if (val.result === 'defer') {
+        if (hookResult.result === 'defer') {
           if (eventName === 'PreToolUse') {
-            preToolUseVotes.push({ engineResult: val, rank: rankPreToolUseResult(val) })
+            preToolUseVotes.push({
+              engineResult: hookResult,
+              rank: rankPreToolUseResult(hookResult),
+            })
             continue
           }
           // Non-PreToolUse: treat as non-skip (updates lastNonSkipResult below)
-          lastNonSkipResult = val
+          lastNonSkipResult = hookResult
           continue
         }
 
         // Allow or other non-skip result
-        if (val.injectContext) {
-          batchInjectContext.push(val.injectContext)
+        if (hookResult.injectContext) {
+          batchInjectContext.push(hookResult.injectContext)
         }
 
-        if (debug && val.debugMessage) {
-          debugMessages.push(val.debugMessage)
+        if (debug && hookResult.debugMessage) {
+          debugMessages.push(hookResult.debugMessage)
         }
 
-        lastNonSkipResult = val
+        lastNonSkipResult = hookResult
         if (eventName === 'PreToolUse') {
-          preToolUseVotes.push({ engineResult: val, rank: rankPreToolUseResult(val) })
+          preToolUseVotes.push({ engineResult: hookResult, rank: rankPreToolUseResult(hookResult) })
         }
       }
 
       if (settled.status === 'rejected') {
+        safeRecordTurn(turnTracker, settled.hookName, eventName, 'error')
         const onErrorMode = resolveOnError(settled.hookName, eventName, config)
 
         // Runtime fallback: hook-level "trace" on a non-injectable event → "continue"
@@ -1084,6 +1186,11 @@ export async function executeHooks(
   if (failuresDirty) {
     await writeFailures(failurePath, failureState)
   }
+
+  // Every return path that follows a started lifecycle passes through here.
+  // The only exception is the load-error early return above, which fires
+  // before any runner is entered.
+  await safeCommitTurn(turnTracker)
 
   return { lastResult, degradedMessages, debugMessages, traceMessages, systemMessages }
 }

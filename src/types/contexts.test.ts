@@ -1,5 +1,8 @@
 import { expect, test } from 'bun:test'
 import type { PreToolUseContext, UnknownPreToolUseContext } from './contexts.js'
+import type { TurnRecord } from './turn.js'
+import type { ClooksHook } from './hook.js'
+import { createContext } from '../testing/create-context.js'
 
 test('ctx.toolName === "Bash" narrows toolInput to BashToolInput', () => {
   const ctx = {
@@ -226,4 +229,44 @@ test('Bash branch forbids reading Write-only field filePath', () => {
     const fp = ctx.toolInput.filePath
     void fp
   }
+})
+
+test('a handler receives ctx.turn with the once-per-turn fields', () => {
+  const hook = {
+    meta: { name: 'turn-reader' },
+    Stop(ctx) {
+      const priorRuns: number = ctx.turn.priorRuns
+      const priorInterventions: number = ctx.turn.priorInterventions
+      const first: TurnRecord | undefined = ctx.turn.prior[0]
+      void priorRuns
+      void priorInterventions
+      void first
+      if (ctx.turn.priorInterventions > 0) return ctx.skip()
+      return ctx.block({ reason: 'once' })
+    },
+  } satisfies ClooksHook
+
+  const ctx = createContext('Stop', { stopHookActive: false, lastAssistantMessage: '' })
+  expect(ctx.turn).toEqual({ prior: [], priorRuns: 0, priorInterventions: 0 })
+  expect(hook.Stop(ctx)).toEqual({ result: 'block', reason: 'once' })
+})
+
+test('createContext allocates a fresh turn object per call', () => {
+  const a = createContext('Stop', { stopHookActive: false, lastAssistantMessage: '' })
+  const b = createContext('Stop', { stopHookActive: false, lastAssistantMessage: '' })
+  expect(a.turn).not.toBe(b.turn)
+  expect(a.turn.prior).not.toBe(b.turn.prior)
+})
+
+test('createContext accepts a caller-supplied turn override', () => {
+  const ctx = createContext('Stop', {
+    stopHookActive: false,
+    lastAssistantMessage: '',
+    turn: {
+      prior: [{ event: 'Stop', decision: 'block', at: '2026-08-04T10:00:00.000Z' }],
+      priorRuns: 1,
+      priorInterventions: 1,
+    },
+  })
+  expect(ctx.turn.priorInterventions).toBe(1)
 })
