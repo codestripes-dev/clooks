@@ -2,7 +2,7 @@ import { describe, test, expect, afterEach } from 'bun:test'
 import { readFileSync, existsSync } from 'fs'
 import { join } from 'path'
 import { createHash } from 'crypto'
-import { createSandbox, type Sandbox } from './helpers/sandbox'
+import { createSandbox, formatDiagnostics, type Sandbox } from './helpers/sandbox'
 
 const FIXTURES = join(import.meta.dir, '../fixtures')
 const loadHook = (name: string) => readFileSync(join(FIXTURES, 'hooks', name), 'utf8')
@@ -118,14 +118,17 @@ crash-on-run:
     expect(o2.hookSpecificOutput?.additionalContext ?? '').toContain('will be skipped')
 
     // Replace with working hook
-    sandbox.writeHook('crash-on-run.ts', `
+    sandbox.writeHook(
+      'crash-on-run.ts',
+      `
 export const hook = {
   meta: { name: "crash-on-run" },
   PreToolUse() {
     return { result: "allow" as const, injectContext: "recovered" }
   },
 }
-`)
+`,
+    )
 
     // Invocation 3: hook works → counter clears
     const r3 = sandbox.run([], { stdin })
@@ -185,14 +188,17 @@ missing-hook:
     sandbox = createSandbox()
 
     // Create a hook that loads successfully but crashes at runtime
-    sandbox.writeHook('runtime-crash.ts', `
+    sandbox.writeHook(
+      'runtime-crash.ts',
+      `
 export const hook = {
   meta: { name: "runtime-crash" },
   PreToolUse() {
     throw new Error("runtime boom")
   },
 }
-`)
+`,
+    )
     sandbox.writeConfig(`
 version: "1.0.0"
 runtime-crash:
@@ -232,14 +238,17 @@ runtime-crash:
   test('7. parallel hook driven to degradation through repeated invocations', () => {
     sandbox = createSandbox()
 
-    sandbox.writeHook('parallel-crash.ts', `
+    sandbox.writeHook(
+      'parallel-crash.ts',
+      `
 export const hook = {
   meta: { name: "parallel-crash" },
   PreToolUse() {
     throw new Error("parallel crash")
   },
 }
-`)
+`,
+    )
     sandbox.writeHook('allow-all.ts', loadHook('allow-all.ts'))
     sandbox.writeConfig(`
 version: "1.0.0"
@@ -254,13 +263,13 @@ allow-all:
 
     // Invocation 1: parallel-crash throws → block (count 1 < 2)
     const r1 = sandbox.run([], { stdin })
-    expect(r1.exitCode).toBe(0)
+    expect(r1.exitCode, formatDiagnostics(r1)).toBe(0)
     const o1 = JSON.parse(r1.stdout)
     expect(o1.hookSpecificOutput.permissionDecision).toBe('deny')
 
     // Invocation 2: parallel-crash throws again → degraded (count 2 == 2)
     const r2 = sandbox.run([], { stdin })
-    expect(r2.exitCode).toBe(0)
+    expect(r2.exitCode, formatDiagnostics(r2)).toBe(0)
     const o2 = JSON.parse(r2.stdout)
     // Should see degraded message and allow-all should still run
     expect(o2.hookSpecificOutput.permissionDecision).toBe('allow')
@@ -271,14 +280,17 @@ allow-all:
     sandbox = createSandbox()
 
     // Start with home-only config
-    sandbox.writeHomeHook('crash-hook.ts', `
+    sandbox.writeHomeHook(
+      'crash-hook.ts',
+      `
 export const hook = {
   meta: { name: "crash-hook" },
   PreToolUse() {
     throw new Error("home crash")
   },
 }
-`)
+`,
+    )
     sandbox.writeHomeConfig(`
 version: "1.0.0"
 crash-hook:
@@ -298,14 +310,17 @@ crash-hook:
     expect(existsSync(hashPath)).toBe(true)
 
     // Now add a project config — this shadows the home hook
-    sandbox.writeHook('crash-hook.ts', `
+    sandbox.writeHook(
+      'crash-hook.ts',
+      `
 export const hook = {
   meta: { name: "crash-hook" },
   PreToolUse() {
     throw new Error("project crash")
   },
 }
-`)
+`,
+    )
     sandbox.writeConfig(`
 version: "1.0.0"
 crash-hook:

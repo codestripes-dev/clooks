@@ -18,6 +18,7 @@ export function createRegistrationSandbox(): Sandbox {
       env: { ...registrationEnv(sandbox), ...opts?.env },
     })
   sandbox.runEntrypoint = (opts) => {
+    const started = performance.now()
     const result = Bun.spawnSync(['/bin/bash', join(sandbox.dir, '.clooks/bin/entrypoint.sh')], {
       cwd: sandbox.dir,
       stdin: Buffer.from(opts?.stdin ?? ''),
@@ -26,6 +27,9 @@ export function createRegistrationSandbox(): Sandbox {
     })
     return {
       exitCode: result.exitCode ?? 2,
+      rawExitCode: result.exitCode,
+      signalCode: result.signalCode ?? null,
+      elapsedMs: performance.now() - started,
       stdout: result.stdout.toString(),
       stderr: result.stderr.toString(),
     }

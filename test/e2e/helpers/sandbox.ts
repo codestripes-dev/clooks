@@ -19,8 +19,15 @@ const CLOOKS_BIN = join(import.meta.dir, '../../../dist/clooks')
 export interface RunResult {
   /** Exit code. Null (signal-killed process) is coerced to 2 (fail-closed). */
   exitCode: number
+  rawExitCode: number | null
+  signalCode: string | null
+  elapsedMs: number
   stdout: string
   stderr: string
+}
+
+export function formatDiagnostics(result: RunResult): string {
+  return `Subprocess: exitCode=${result.exitCode}, rawExitCode=${result.rawExitCode}, signalCode=${result.signalCode}, elapsedMs=${result.elapsedMs.toFixed(1)}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`
 }
 
 export interface Sandbox {
@@ -99,6 +106,7 @@ export function createSandbox(): Sandbox {
     home,
 
     run(args, opts) {
+      const started = performance.now()
       const proc = Bun.spawnSync([CLOOKS_BIN, ...args], {
         cwd: opts?.cwd ?? dir,
         stdin: opts?.stdin !== undefined ? Buffer.from(opts.stdin) : undefined,
@@ -107,12 +115,16 @@ export function createSandbox(): Sandbox {
       })
       return {
         exitCode: proc.exitCode ?? 2,
+        rawExitCode: proc.exitCode,
+        signalCode: proc.signalCode ?? null,
+        elapsedMs: performance.now() - started,
         stdout: proc.stdout.toString(),
         stderr: proc.stderr.toString(),
       }
     },
 
     async runAsync(args, opts) {
+      const started = performance.now()
       const proc = Bun.spawn([CLOOKS_BIN, ...args], {
         cwd: opts?.cwd ?? dir,
         stdin: opts?.stdin !== undefined ? Buffer.from(opts.stdin) : undefined,
@@ -126,10 +138,18 @@ export function createSandbox(): Sandbox {
         new Response(proc.stderr).text(),
       ])
       const exitCode = await proc.exited
-      return { exitCode: exitCode ?? 2, stdout, stderr }
+      return {
+        exitCode: exitCode ?? 2,
+        rawExitCode: exitCode,
+        signalCode: proc.signalCode ?? null,
+        elapsedMs: performance.now() - started,
+        stdout,
+        stderr,
+      }
     },
 
     runEntrypoint(opts) {
+      const started = performance.now()
       const entrypointPath = join(dir, '.clooks', 'bin', 'entrypoint.sh')
       const proc = Bun.spawnSync(['bash', entrypointPath], {
         cwd: dir,
@@ -143,6 +163,9 @@ export function createSandbox(): Sandbox {
       })
       return {
         exitCode: proc.exitCode ?? 2,
+        rawExitCode: proc.exitCode,
+        signalCode: proc.signalCode ?? null,
+        elapsedMs: performance.now() - started,
         stdout: proc.stdout.toString(),
         stderr: proc.stderr.toString(),
       }

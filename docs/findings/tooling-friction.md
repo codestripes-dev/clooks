@@ -2,34 +2,6 @@
 
 Build issues, slow commands, flaky CI, broken toolchain steps, or other tooling problems that blocked or slowed progress.
 
-### E2E subprocess failures lose diagnostic information
-
-**Severity:** friction
-**Date:** 2026-09-08
-**Context:** `test/e2e/helpers/sandbox.ts` exposes only normalized exit code, stdout and stderr.
-
-The helper coerces a null exit code to 2 without retaining the raw exit code or termination signal, and does not measure elapsed time. Stderr is returned but is not automatically included when an exit-code assertion fails. This makes a child-selected failure hard to distinguish from signal termination or a timeout.
-
-**Acceptance:** Preserve raw exit code, signal, stderr and elapsed time in failure diagnostics while keeping the existing normalized exit-code contract for callers. A deliberately failing subprocess test should show those diagnostics without requiring a rerun. This is a harness improvement, not a diagnosed runtime bug; historical failed and successful attempts remain in milestone evidence.
-
-### Editing an active validation wrapper interrupted static checks
-
-**Severity:** friction
-**Date:** 2026-09-08
-**Context:** Docker static validation of the frozen Codex runtime integration.
-
-The runner edited an active Bash validation wrapper. The attempt then failed with `--kill-after=10s: command not found`, exit 127, before static checks ran. Diagnosis found no `timeout` shell function and verified GNU `/usr/bin/timeout`; this was not evidence that GNU timeout was unavailable.
-
-**Resolution:** The retry uses the verified absolute `/usr/bin/timeout` path. Static retry `081005Z` completed all checks with exit 0, including lint with 112 warnings and 0 errors. The actual prevention is to freeze validation scripts for the entire run: never edit an active wrapper; prepare a separate wrapper for a later attempt. An absolute executable path alone does not prevent active-script mutation. This resolved tooling failure is separate from the unexplained GitHub add-pack smoke failure and does not establish full milestone acceptance.
-
-### Policy tests need branded hook names
-
-**Severity:** friction
-**Date:** 2026-09-07
-**Context:** First focused Docker validation of the invocation result-policy boundary.
-
-The initial attempt stopped at three branded hook-name type errors. The test values were corrected with the existing `hn` helper. The subsequent Docker run passed typecheck/compile and 467 tests with zero failures; its source remained unchanged during execution and the container was removed. Evidence: `tmp/codex-runtime-m1/20260908T063150Z-focused-lWO01D/output.log`. Use branded test helpers when constructing typed policy inputs; this resolved typechecking friction does not close the pending full-suite and review gates.
-
 ### bun build --compile skips type checking
 
 **Severity:** friction
@@ -70,15 +42,15 @@ PLAN-0010 set up Lefthook with pre-commit lint on staged files, yet these errors
 
 The asdf shim failed because the temp project had no configured node/codex version. The workaround was to resolve the real `codex` and `node` binaries with `asdf which` and put the node bin dir on `PATH` in the spike script. A later live spike was blocked first by sandbox networking, then by `401 Unauthorized` with disposable `CODEX_HOME`, so live hook firing could not be verified without carrying usable auth state into the disposable environment.
 
-### Docker coverage validation omits config and exposes fixture thresholds
+### Unit coverage does not meet the configured threshold
 
 **Severity:** friction
-**Date:** 2026-09-07
-**Context:** Commit validation for completed C1M1M2 at the user's request, with all uninstall tests restricted to Docker and no new production changes.
+**Date:** 2026-09-08
+**Context:** Docker coverage validation using the authoritative `bunfig.toml`.
 
-`bun run test:e2e --coverage src/` initially reported 1,830 passing tests, 0 failures, 6,309 assertions, and exit 0, but the default Docker setup omitted `bunfig.toml`. Repeating `docker run` with the same read-only `src`, `test`, schema, and tsconfig mounts plus read-only `bunfig.toml` reported 1,830 passing tests and 0 failures but exited 1. Three unchanged hook fixtures each had 33.33% function coverage, below the configured 50% threshold: `test/fixtures/hooks/allow-all.ts` (77.78% lines), `test/fixtures/hooks/harness-lifecycle-block.ts` (61.54% lines), and `test/fixtures/hooks/harness-lifecycle-skip.ts` (72.73% lines). The files are unchanged; a baseline coverage failure was not independently proven. The previous full E2E gate reported 510 passing tests.
+The current 95% line/function coverage policy produces per-file shortfalls across source modules as well as imported hook fixtures. Passing unit assertions do not establish a passing coverage gate. This is broader than the earlier fixture-only report, which described an older threshold.
 
-**Workaround:** The parent plans to use `LEFTHOOK_EXCLUDE=coverage git commit` to honor Docker-only test execution while reporting the threshold failure; remaining hooks will run. Fixture coverage-threshold treatment remains unresolved. No fixture or threshold fixes were made.
+**Remaining work:** Add meaningful coverage for the reported gaps in a separately scoped change. Do not lower thresholds or exclude files to conceal failures. Docker now mounts the configuration and the coverage script preserves failure status; historical commands and outcomes belong in validation evidence, not this finding.
 
 ### Exact-release source acquisition required the remaining git route
 

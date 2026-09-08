@@ -45,6 +45,8 @@ Every E2E test uses `createSandbox()` to get an isolated environment:
 
 This ensures every test starts from a clean state with no cross-test contamination.
 
+All three invocation methods return `rawExitCode`, `signalCode` and monotonic `elapsedMs` alongside stdout/stderr. The existing numeric `exitCode` still maps a null raw status to 2; inspect the raw fields to distinguish child-selected failure from signal termination. Include `formatDiagnostics(result)` as the second argument to `expect` for subprocess assertions that need failure evidence, for example `expect(result.exitCode, formatDiagnostics(result)).toBe(0)`. This prints both streams and termination metadata only when that assertion fails. Existing assertions without the message do not automatically gain diagnostics. `harness-diagnostics.e2e.test.ts` checks the actual failing-assertion message and real compiled/entrypoint subprocesses.
+
 ### Docker environment gate
 E2E tests are gated behind the `CLOOKS_E2E_DOCKER=true` environment variable, which is set in the Dockerfile. The `createSandbox()` helper checks for this variable and refuses to run if it is not set.
 
@@ -127,6 +129,8 @@ Provider-aware storage helper validation is separate from Codex runtime acceptan
 
 Freeze each validation wrapper before starting it and leave its bytes unchanged until the process exits. Prepare a separate wrapper for a later attempt instead of editing an active Bash script. Use the verified executable path for external timeout commands (GNU `/usr/bin/timeout` in the current runner); that removes command-resolution ambiguity but does not protect a script being edited during execution.
 
+Assign one owner to validation execution and keep mounted source unchanged for the attempt. Persist the exact command, unfiltered output and exit status in an attempt-specific directory under `tmp/`; return the original nonzero status after displaying a log summary. Confirm the expected files and a nonzero test count actually ran. A compile failure means zero executed tests; an all-passing test count with nonzero coverage status is not a passing coverage gate. Do not infer completed checks from a wrapper's name.
+
 ### Codex PreToolUse integration validation
 
 The completed initial runtime gate covered PreToolUse only; the current ten-event expansion has separate passing validation below. `src/agents/codex/runtime.test.ts`, `src/agents/codex/tool-codecs.test.ts` and `test/e2e/codex-runtime.e2e.test.ts` cover normalization before imports, capability refusal, command/MCP rewrites, human allow annotations, filtered discovery, provider state and inline handoff. These source assertions do not themselves establish passing execution.
@@ -194,6 +198,8 @@ Mocking discovery, loading, and stdin does not prevent `runEngineCore` from acce
 
 ### How to run
 
+With bunfig's unit root active, the Docker entrypoint uses the explicit default `./test/e2e/` and forwards supplied arguments verbatim. Use explicit paths for focused E2E runs, for example `bun run test:e2e ./test/e2e/smoke.e2e.test.ts`. Bare `test/e2e/...` arguments are Bun name filters beneath `src/`, not explicit file selections, and can run zero tests. The wrapper deliberately does not parse Bun flags or rewrite arguments.
+
 ```bash
 # Full E2E suite (builds base image + runs all tests)
 bun run test:e2e
@@ -202,7 +208,7 @@ bun run test:e2e
 bun test src/
 ```
 
-The Docker image contains only the base environment (Bun, git, expect, testuser, `node_modules`). Source code and tests are bind-mounted at runtime via `-v` flags, so `bun run test:e2e` picks up current changes. The `test/docker-entrypoint.sh` script typechecks and compiles the binary from the mounted source before running tests. Coordinate one Docker run at a time when multiple workers share the checkout.
+The Docker image contains the base environment (Bun, git, expect, testuser, `node_modules`) and package metadata. Source code, tests and `bunfig.toml` are bind-mounted read-only at runtime, so `bun run test:e2e` picks up current changes. The entrypoint rejects a missing test configuration before typechecking and compiling the binary. Explicit `./test/e2e/` selection remains the default even though bunfig's unit discovery root is `src/`. Coordinate one Docker run at a time when multiple workers share the checkout. For Docker-only unit or coverage validation, use `bun run test:e2e src/` or `bun run test:e2e --coverage src/`; neither command deploys a host binary.
 
 ## Anti-patterns
 
@@ -266,8 +272,8 @@ coverageSkipTestFiles = true
 coveragePathIgnorePatterns = ["**/tmp/**"]
 
 [test.coverageThreshold]
-lines = 0.5
-functions = 0.5
+lines = 0.95
+functions = 0.95
 ```
 
 Coverage is **not** enabled by default. Running `bun test src/` is the fast path — no instrumentation, no threshold checking. Coverage is only enabled explicitly:
@@ -284,7 +290,7 @@ lcov output is written to `coverage/unit/lcov.info`. The entire `coverage/` dire
 
 ### Ratchet enforcement
 
-A Lefthook pre-commit hook runs `bun test --coverage src/` on every commit. Bun enforces the `coverageThreshold` values **per file**, not just in aggregate — if any individual source file drops below 50% line or 50% function coverage, Bun exits non-zero and the commit is blocked.
+A Lefthook pre-commit hook invokes `bun run test:coverage`. That script directly runs `CLAUDECODE=1 bun test --coverage src/`, retaining Bun's output and exit status without a pseudo-terminal or filtering pipeline. The configured thresholds are 95% lines and functions; a threshold failure is a failed gate even if all test assertions pass. `validation-config.e2e.test.ts` checks the read-only Docker configuration wiring and the script's success/failure status propagation using an isolated stub. It does not establish that the actual suite meets the thresholds.
 
 The thresholds in `bunfig.toml` are the ratchet. To raise the bar, increment the values in a separate PR. Thresholds can only move up.
 

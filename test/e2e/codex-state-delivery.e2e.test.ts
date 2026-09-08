@@ -342,6 +342,7 @@ export const hook = { meta: { name: '${name}' }, ${event}(ctx) {
 
 function launcher(command: string, event: Event) {
   clearArtifacts()
+  const started = performance.now()
   const result = Bun.spawnSync(['bash', '-c', command], {
     cwd: sandbox.dir,
     env: registrationEnv(sandbox),
@@ -350,6 +351,9 @@ function launcher(command: string, event: Event) {
   })
   return {
     exitCode: result.exitCode ?? 2,
+    rawExitCode: result.exitCode,
+    signalCode: result.signalCode ?? null,
+    elapsedMs: performance.now() - started,
     stdout: result.stdout.toString(),
     stderr: result.stderr.toString(),
   }

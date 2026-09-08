@@ -299,8 +299,13 @@ agent-policy-after: {}
         'handler',
         'after',
       ])
-      if (defaultResult === undefined) defaultResult = result
-      else expect(result).toEqual(defaultResult)
+      const semanticResult = {
+        exitCode: result.exitCode,
+        stdout: result.stdout,
+        stderr: result.stderr,
+      }
+      if (defaultResult === undefined) defaultResult = semanticResult
+      else expect(semanticResult).toEqual(defaultResult)
     }
   })
 
