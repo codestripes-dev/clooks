@@ -2,6 +2,7 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
+import { symlinkSync, readlinkSync, statSync } from 'fs'
 import {
   CODEX_REGISTRATION_EVENTS,
   isCodexClooksHook,
@@ -14,6 +15,162 @@ import {
 } from './settings.js'
 
 let tempDir: string
+
+describe('registration preservation', () => {
+  test('no-op registration preserves noncanonical JSON bytes and inode', () => {
+    const command = makeCodexProjectEntrypointCommand(tempDir)
+    registerCodexClooks(codexDir(), command)
+    const bytes = '\t' + JSON.stringify(readHooksFile()) + '  \n\n'
+    writeFileSync(hooksPath(), bytes)
+    const inode = statSync(hooksPath()).ino
+    const result = registerCodexClooks(codexDir(), command)
+    expect(result.added).toEqual([])
+    expect(result.updated).toEqual([])
+    expect(readFileSync(hooksPath(), 'utf8')).toBe(bytes)
+    expect(statSync(hooksPath()).ino).toBe(inode)
+  })
+
+  test('no-op unregistration preserves noncanonical JSON bytes and inode', () => {
+    mkdirSync(codexDir(), { recursive: true })
+    const bytes =
+      '\t{ "hooks" : { "Stop": [ { "hooks": [] } ], "SessionStart": [] }, "keep": true }  \n'
+    writeFileSync(hooksPath(), bytes)
+    const inode = statSync(hooksPath()).ino
+    expect(unregisterCodexClooks(codexDir()).removed).toEqual([])
+    expect(readFileSync(hooksPath(), 'utf8')).toBe(bytes)
+    expect(statSync(hooksPath()).ino).toBe(inode)
+  })
+
+  test('inspection validates later unknown events before returning an early owned match', () => {
+    const owned = {
+      hooks: [{ type: 'command', command: makeCodexProjectEntrypointCommand(tempDir) }],
+    }
+    writeHooksFile({ hooks: { SessionStart: [owned], FutureEvent: [] } })
+    expect(isCodexClooksRegistered(codexDir())).toBe(true)
+    writeHooksFile({ hooks: { SessionStart: [owned], FutureEvent: [{ hooks: null }] } })
+    const bytes = readFileSync(hooksPath(), 'utf8')
+    expect(() => isCodexClooksRegistered(codexDir())).toThrow('hooks.FutureEvent[0].hooks')
+    expect(readFileSync(hooksPath(), 'utf8')).toBe(bytes)
+  })
+
+  const invalid = [
+    'null',
+    '[]',
+    '1',
+    'true',
+    '"value"',
+    '{ invalid',
+    '{"hooks":null}',
+    '{"hooks":[]}',
+    '{"hooks":42}',
+    '{"hooks":{"Stop":null}}',
+    '{"hooks":{"Stop":{}}}',
+    '{"hooks":{"Stop":[null]}}',
+    '{"hooks":{"Stop":[[]]}}',
+    '{"hooks":{"Stop":[{}]}}',
+    '{"hooks":{"Stop":[{"hooks":null}]}}',
+    '{"hooks":{"Stop":[{"hooks":{}}]}}',
+    '{"hooks":{"Stop":[{"hooks":[null]}]}}',
+    '{"hooks":{"Stop":[{"hooks":[[]]}]}}',
+    '{"hooks":{"Stop":[{"hooks":[1]}]}}',
+  ]
+  for (const contents of invalid) {
+    test(`rejects malformed containers without writes: ${contents}`, () => {
+      mkdirSync(codexDir(), { recursive: true })
+      const bytes = ' \n' + contents + '\n '
+      writeFileSync(hooksPath(), bytes)
+      for (const operation of [
+        () => registerCodexClooks(codexDir(), makeCodexProjectEntrypointCommand(tempDir)),
+        () => unregisterCodexClooks(codexDir()),
+        () => isCodexClooksRegistered(codexDir()),
+      ]) {
+        expect(operation).toThrow(hooksPath())
+        expect(readFileSync(hooksPath(), 'utf8')).toBe(bytes)
+      }
+    })
+  }
+
+  test('preserves unknown values, empty groups and mixed metadata through init and unhook', () => {
+    const unrelated = { type: 'prompt', prompt: 'retain', extension: { enabled: true } }
+    const empty = { hooks: [], extension: [1, null] }
+    const metadata = { matcher: 'Bash', custom: { keep: ['all'] } }
+    writeHooksFile({
+      extension: { nested: [null, false] },
+      hooks: {
+        FutureEvent: { opaque: ['not traversed'] },
+        PreToolUse: [
+          empty,
+          {
+            ...metadata,
+            hooks: [
+              { type: 'command', command: makeCodexProjectEntrypointCommand(tempDir) },
+              unrelated,
+            ],
+          },
+        ],
+        Stop: [],
+      },
+    })
+    registerCodexClooks(codexDir(), makeCodexProjectEntrypointCommand(tempDir))
+    const registered = readFileSync(hooksPath(), 'utf8')
+    registerCodexClooks(codexDir(), makeCodexProjectEntrypointCommand(tempDir))
+    expect(readFileSync(hooksPath(), 'utf8')).toBe(registered)
+    unregisterCodexClooks(codexDir())
+    const settings = readHooksFile()
+    expect(settings.extension).toEqual({ nested: [null, false] })
+    const hooks = settings.hooks as Record<string, unknown>
+    expect(hooks.FutureEvent).toEqual({ opaque: ['not traversed'] })
+    expect(hooks.PreToolUse).toEqual([empty, { ...metadata, hooks: [unrelated] }])
+    const after = readFileSync(hooksPath(), 'utf8')
+    unregisterCodexClooks(codexDir())
+    expect(readFileSync(hooksPath(), 'utf8')).toBe(after)
+    expect(() => isCodexClooksRegistered(codexDir())).toThrow('hooks.FutureEvent')
+  })
+
+  test('detects owned unknown-event references but does not unregister them', () => {
+    writeHooksFile({
+      hooks: {
+        FutureEvent: [
+          { hooks: [{ type: 'command', command: makeCodexProjectEntrypointCommand(tempDir) }] },
+        ],
+      },
+    })
+    expect(isCodexClooksRegistered(codexDir())).toBe(true)
+    const bytes = readFileSync(hooksPath(), 'utf8')
+    expect(unregisterCodexClooks(codexDir()).removed).toEqual([])
+    expect(readFileSync(hooksPath(), 'utf8')).toBe(bytes)
+  })
+
+  test('whitespace file remains compatible with detection, unhook and init', () => {
+    mkdirSync(codexDir(), { recursive: true })
+    writeFileSync(hooksPath(), ' \n\t')
+    expect(isCodexClooksRegistered(codexDir())).toBe(false)
+    expect(unregisterCodexClooks(codexDir()).removed).toEqual([])
+    expect(readFileSync(hooksPath(), 'utf8')).toBe(' \n\t')
+    expect(
+      registerCodexClooks(codexDir(), makeCodexProjectEntrypointCommand(tempDir)).created,
+    ).toBe(false)
+  })
+
+  for (const dangling of [false, true]) {
+    test(`rejects ${dangling ? 'dangling' : 'regular-target'} symlinks in every operation`, () => {
+      mkdirSync(codexDir(), { recursive: true })
+      const target = join(tempDir, 'target.json')
+      if (!dangling) writeFileSync(target, '{ "keep": true }')
+      symlinkSync(target, hooksPath())
+      for (const operation of [
+        () => registerCodexClooks(codexDir(), makeCodexProjectEntrypointCommand(tempDir)),
+        () => unregisterCodexClooks(codexDir()),
+        () => isCodexClooksRegistered(codexDir()),
+      ]) {
+        expect(operation).toThrow(hooksPath())
+        expect(readlinkSync(hooksPath())).toBe(target)
+        expect(existsSync(target)).toBe(!dangling)
+        if (!dangling) expect(readFileSync(target, 'utf8')).toBe('{ "keep": true }')
+      }
+    })
+  }
+})
 
 beforeEach(() => {
   tempDir = mkdtempSync(join(tmpdir(), 'clooks-codex-settings-test-'))
@@ -63,7 +220,7 @@ function clooksMatcherGroupsFor(event: string): Record<string, unknown>[] {
 }
 
 describe('Codex registration events', () => {
-  test('exports exactly the ten Plan A registration events in stable order', () => {
+  test('exports exactly the ten registration events in stable order', () => {
     expect(CODEX_REGISTRATION_EVENTS).toEqual([
       'SessionStart',
       'SubagentStart',
@@ -110,6 +267,40 @@ describe('Codex command builders', () => {
 })
 
 describe('Codex hooks.json registration', () => {
+  test('direct unregistration preserves mixed metadata and untouched empty containers', () => {
+    const command = makeCodexProjectEntrypointCommand(tempDir)
+    const unrelated = { type: 'command', command: 'keep.sh', custom: { enabled: true } }
+    const empty = { matcher: 'Bash', hooks: [], custom: ['retain'] }
+    const metadata = { matcher: '*', custom: { nested: [null, 42] } }
+    writeHooksFile({
+      extension: { untouched: true },
+      hooks: {
+        SessionStart: [],
+        PreToolUse: [
+          empty,
+          {
+            ...metadata,
+            hooks: [
+              { type: 'command', command },
+              unrelated,
+              { type: 'command', command: makeCodexGlobalEntrypointCommand('/old/root') },
+            ],
+          },
+          { hooks: [{ type: 'command', command }] },
+        ],
+        FutureEvent: { opaque: true },
+      },
+    })
+    expect(unregisterCodexClooks(codexDir()).removed).toEqual(['PreToolUse'])
+    expect(readHooksFile()).toEqual({
+      extension: { untouched: true },
+      hooks: {
+        SessionStart: [],
+        PreToolUse: [empty, { ...metadata, hooks: [unrelated] }],
+        FutureEvent: { opaque: true },
+      },
+    })
+  })
   test('fresh registration creates hooks.json with ten Clooks events', () => {
     const command = makeCodexProjectEntrypointCommand(tempDir)
 
@@ -250,7 +441,9 @@ describe('Codex hooks.json registration', () => {
     ])
     expect(clooksMatcherGroupsFor('PreToolUse')).toHaveLength(1)
     expect(
-      hookCommandsFor('PreToolUse').filter((command) => isCodexClooksHook({ command })),
+      hookCommandsFor('PreToolUse').filter((command) =>
+        isCodexClooksHook({ type: 'command', command }),
+      ),
     ).toEqual([newCommand])
   })
 
@@ -296,32 +489,28 @@ describe('Codex hooks.json registration', () => {
     expect(result.created).toBe(false)
   })
 
-  test('valid JSON with root null or array is treated as empty and overwritten on write', () => {
+  test('invalid roots are rejected without changing bytes', () => {
     mkdirSync(codexDir(), { recursive: true })
-    writeFileSync(hooksPath(), 'null\n')
-    let result = registerCodexClooks(codexDir(), makeCodexProjectEntrypointCommand(tempDir))
-    expect(result.added).toHaveLength(10)
-    expect(readHooksFile().hooks).toBeDefined()
-
-    writeFileSync(hooksPath(), '[]\n')
-    result = registerCodexClooks(codexDir(), makeCodexProjectEntrypointCommand(tempDir))
-    expect(result.added).toHaveLength(10)
-    expect(readHooksFile().hooks).toBeDefined()
+    for (const text of ['null\n', '[]\n', '42', 'true', '"text"']) {
+      writeFileSync(hooksPath(), text)
+      expect(() =>
+        registerCodexClooks(codexDir(), makeCodexProjectEntrypointCommand(tempDir)),
+      ).toThrow('invalid root')
+      expect(readFileSync(hooksPath(), 'utf8')).toBe(text)
+    }
   })
 
-  test('valid JSON with invalid hooks shape preserves top-level fields and replaces hooks', () => {
+  test('invalid hooks shape is rejected', () => {
     writeHooksFile({
       keep: true,
       hooks: [{ matcher: '*', hooks: [{ type: 'command', command: 'array-hook.sh' }] }],
     })
 
-    const result = registerCodexClooks(codexDir(), makeCodexProjectEntrypointCommand(tempDir))
-
-    expect(result.added).toHaveLength(10)
-    const hooksFile = readHooksFile()
-    expect(hooksFile.keep).toBe(true)
-    expect(Array.isArray(hooksFile.hooks)).toBe(false)
-    expect((hooksFile.hooks as Record<string, unknown>).PreToolUse).toBeDefined()
+    const before = readFileSync(hooksPath(), 'utf8')
+    expect(() =>
+      registerCodexClooks(codexDir(), makeCodexProjectEntrypointCommand(tempDir)),
+    ).toThrow('invalid hooks')
+    expect(readFileSync(hooksPath(), 'utf8')).toBe(before)
   })
 
   test('malformed hooks.json throws a descriptive error', () => {
@@ -330,9 +519,7 @@ describe('Codex hooks.json registration', () => {
 
     expect(() =>
       registerCodexClooks(codexDir(), makeCodexProjectEntrypointCommand(tempDir)),
-    ).toThrow(
-      `\`${hooksPath()}\` contains invalid JSON. Fix or delete the file, then re-run \`clooks init --agent codex\`.`,
-    )
+    ).toThrow(`\`${hooksPath()}\` contains invalid JSON. Repair the file, then retry.`)
   })
 
   test('unregister removes Clooks hooks and preserves unrelated hooks', () => {
@@ -416,28 +603,84 @@ describe('Codex hooks.json registration', () => {
 })
 
 describe('Codex Clooks hook detection', () => {
-  test('uses required substrings instead of Claude endsWith detection', () => {
+  test('recognizes literal punctuation and apostrophes only inside generated quoting', () => {
+    for (const root of [
+      "/tmp/joe's repo",
+      '/tmp/$(touch nope); | `literal`',
+      '/tmp/space & brackets[]',
+      '/tmp/日本語',
+    ]) {
+      for (const command of [
+        makeCodexProjectEntrypointCommand(root),
+        makeCodexGlobalEntrypointCommand(root),
+      ]) {
+        expect(isCodexClooksHook({ type: 'command', command })).toBe(true)
+        expect(isCodexClooksHook({ type: 'prompt', command })).toBe(false)
+      }
+    }
+  })
+
+  test('preserves whole-command false positives through init and unhook', () => {
+    const valid = makeCodexProjectEntrypointCommand(tempDir)
+    const commands = [
+      `echo ${valid}`,
+      `printf '%s' ${valid}`,
+      `# ${valid}`,
+      `${valid} # comment`,
+      `${valid}\n`,
+      `${valid}; echo next`,
+      `${valid} > /tmp/out`,
+      `${valid} | cat`,
+      `${valid} --extra`,
+      `env ${valid}`,
+      valid.replace('=codex', '=other'),
+      "CLOOKS_AGENT=codex CLOOKS_PROJECT_ROOT='/different' '/tmp/repo/.clooks/bin/entrypoint.sh'",
+      "CLOOKS_AGENT=codex '.clooks/bin/entrypoint.sh'",
+      'CLOOKS_AGENT=codex "/tmp/repo/.clooks/bin/entrypoint.sh"',
+    ]
+    const unrelated = commands.map((command) => ({ type: 'command', command }))
+    unrelated.push({ type: 'prompt', command: valid })
+    for (const hook of unrelated) expect(isCodexClooksHook(hook)).toBe(false)
+    writeHooksFile({ hooks: { Stop: [{ hooks: unrelated, custom: 42 }] } })
+    registerCodexClooks(codexDir(), valid)
+    unregisterCodexClooks(codexDir())
+    expect((readHooksFile().hooks as Record<string, unknown>).Stop).toEqual([
+      { hooks: unrelated, custom: 42 },
+    ])
+  })
+  test('accepts the legacy generated command but rejects extra syntax', () => {
     expect(
       isCodexClooksHook({
+        type: 'command',
         command: "CLOOKS_AGENT=codex '/tmp/project/.clooks/bin/entrypoint.sh'",
       }),
     ).toBe(true)
     expect(
       isCodexClooksHook({
+        type: 'command',
         command:
           "CLOOKS_PROJECT_ROOT='/tmp/project' CLOOKS_AGENT=codex '/tmp/project/.clooks/bin/entrypoint.sh' --extra",
       }),
-    ).toBe(true)
+    ).toBe(false)
   })
 
-  test('rejects edge cases missing either ownership substring', () => {
+  test('rejects missing or invalid command hook types', () => {
     expect(isCodexClooksHook(null)).toBe(false)
     expect(isCodexClooksHook({})).toBe(false)
-    expect(isCodexClooksHook({ command: 42 })).toBe(false)
-    expect(isCodexClooksHook({ command: '/tmp/project/.clooks/bin/entrypoint.sh' })).toBe(false)
-    expect(isCodexClooksHook({ command: "CLOOKS_AGENT=codex '/tmp/other.sh'" })).toBe(false)
+    expect(isCodexClooksHook({ command: makeCodexProjectEntrypointCommand(tempDir) })).toBe(false)
+    expect(isCodexClooksHook({ type: 'command', command: 42 })).toBe(false)
+  })
+
+  test('rejects command hooks missing the Codex assignment or entrypoint suffix', () => {
+    expect(
+      isCodexClooksHook({ type: 'command', command: '/tmp/project/.clooks/bin/entrypoint.sh' }),
+    ).toBe(false)
+    expect(
+      isCodexClooksHook({ type: 'command', command: "CLOOKS_AGENT=codex '/tmp/other.sh'" }),
+    ).toBe(false)
     expect(
       isCodexClooksHook({
+        type: 'command',
         command: "CLOOKS_AGENT=claude-code '/tmp/project/.clooks/bin/entrypoint.sh'",
       }),
     ).toBe(false)

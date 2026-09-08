@@ -9,7 +9,7 @@ Five major AI coding agents have hook systems with similar enough patterns to su
 | Agent | Hook System | Maturity | Viable for Clooks? |
 |-------|------------|----------|-------------------|
 | **Claude Code** | 22 events, 4 hook types | Mature | Yes (primary target) |
-| **Codex** | 10 documented release events | Active | Yes, registration implemented; runtime placeholder today |
+| **Codex** | 12 documented events at September review; 10 targeted by Clooks | Active | Registration implemented; runtime placeholder today |
 | **Cursor** | ~6 events | Beta (since 1.7, improved 2026) | Yes |
 | **Windsurf** | ~8 events | Active | Yes |
 | **VS Code Copilot** | ~8 events | Preview | Yes |
@@ -44,9 +44,9 @@ The most mature hook system. See [claude-code-hooks/overview.md](./claude-code-h
 
 ### Codex
 
-Codex hooks are close enough to Claude Code hooks that Clooks can support the shared subset with an agent adapter rather than a new authoring model.
+The adapter architecture is intended to preserve Clooks hook authoring for the shared semantic subset. Matching event names do not establish compatible tool input, output, permission, or turn semantics.
 
-Current release behavior checked against the official Codex hooks docs on 2026-05-23 UTC:
+**Review status, 2026-09-07:** [Official hooks documentation](https://learn.chatgpt.com/docs/hooks) now also lists `SessionEnd` and `Interrupt`. Clooks still registers the ten-event target below and has no Codex runtime implementation. The installed package reports `0.153.4`; neither package metadata nor synthetic fixtures verify behavior. The following detailed capability notes are the **2026-05-23 documentation snapshot** and require a version-specific refresh before implementation, especially tool coverage and output handling.
 
 - **Documented events:** `SessionStart`, `SubagentStart`, `PreToolUse`, `PermissionRequest`, `PostToolUse`, `PreCompact`, `PostCompact`, `UserPromptSubmit`, `SubagentStop`, `Stop`
 - **Initial Clooks adapter MVP:** include all ten release-documented Codex events because Clooks already exposes matching Claude-side events, including `SubagentStart` and `SubagentStop`
@@ -58,7 +58,7 @@ Current release behavior checked against the official Codex hooks docs on 2026-0
 - **Timeout:** seconds, defaulting to 600
 - **Coverage caveat:** `PostToolUse` covers Bash, `apply_patch`, and MCP tool calls, but shell interception is incomplete and WebSearch/non-shell/non-MCP tools are not intercepted yet
 - **Verification status:** docs-backed but runtime-unverified. A disposable live spike reached the OpenAI API only after sandbox escalation and then failed with `401 Unauthorized`, so no hook payloads were captured.
-- **Implementation status:** Clooks now has Codex registration support plus an internal agent adapter boundary selected by `CLOOKS_AGENT`. `clooks init --agent codex` writes `.codex/hooks.json`, and `clooks init --global --agent codex` writes `~/.codex/hooks.json`. The unset/default path and `CLOOKS_AGENT=claude-code` both select the Claude Code adapter. `CLOOKS_AGENT=codex` selects a named runtime placeholder that fails closed with a not-implemented diagnostic; it does not normalize Codex payloads, run hooks for Codex, or emit Codex decision JSON yet.
+- **Implementation status:** Clooks has Codex registration support plus an internal agent adapter boundary selected by `CLOOKS_AGENT`. `clooks init --agent codex` writes `.codex/hooks.json`, and `clooks init --global --agent codex` writes `~/.codex/hooks.json`. The unset/default path and `CLOOKS_AGENT=claude-code` both select the Claude Code adapter. `CLOOKS_AGENT=codex` refuses runtime execution with a not-implemented stderr diagnostic and exit 2; it does not normalize Codex payloads, run hooks for Codex, or emit Codex decision JSON yet. This refusal is not live evidence that Codex blocks every affected operation.
 
 Mapping fit:
 
@@ -79,7 +79,17 @@ Recommended integration shape: use the agent adapter boundary around the existin
 
 The Claude Code adapter is the only implemented runtime adapter today. It preserves the existing Claude behavior, including snake_case-to-camelCase normalization, Claude output translation, notify-only stderr routing, `ConfigChange` `policy_settings` downgrade behavior, and Claude plugin/settings advisories. The Codex adapter is reserved for future runtime support. Codex registration already registers one Clooks entrypoint per supported Codex event so Clooks can preserve its own internal ordering even though Codex launches matching command hooks concurrently. The capability classification for Codex mappings uses these statuses: supported, docs-backed, unsupported/fail-open, unsupported/fail-closed, needs careful translation, or unverified.
 
+The current boundary covers normalization and final output, not every policy decision in the engine. Per-hook results can affect input chaining and handoff before reduction; unsupported capabilities must be checked before those effects. Turn-state maintenance also runs before no-hook/no-match exits and currently uses shared event-based boundary rules. Future runtime work must account for provider identity, delivery audience, and turn semantics without leaking private wire metadata into hook contexts.
+
+Clooks assumes the repository is trusted. Global invocations intentionally load the merged home/project/local configuration and repository hook code; no separate repository authorization layer is required. Tighter permission models are deferred. Native agent hook activation still applies. Separate registration correctness limits remain: installation flags can suppress project execution without a working global replacement, and global registration currently hardcodes `~/.codex`.
+
 Codex behavior notes are summarized here because planning and research artifacts are not part of the committed domain documentation.
+
+Registration data is validated before transformation. Invalid managed containers or JSON produce actionable errors without rewriting the original registration file; detection inspects all events and refuses ambiguous structures. Unknown metadata and untraversed event values are retained. Both agents use atomic file replacement with mode preservation and reject registration-file symlinks, including dangling links. This is per-file recoverability, not a multi-agent transaction.
+
+Codex ownership recognizes whole generated commands with the explicit agent assignment, the emitted POSIX quoting, and a matching root/executable pair where a project root is present. The older global-shaped absolute command remains recognized for migration. Echo mentions, extra arguments, and additional shell operations stay user-owned. Init converges owned duplicates to one canonical command per registered event; surviving mixed groups retain unrelated hooks and metadata, while options on removed owned entries are not promised preservation. Claude likewise preserves unrelated hooks during unhook and recognizes its established generated and legacy forms, including exact scope-derived unquoted global commands.
+
+Absolute Codex project registrations require re-init after clone, move, or worktree creation before hook activation. An old checkout may still receive the copied command until repair. Shell probes cover relocation, nested roots, and inherited environment without changing discovery. Global commands still forward deliberate `CLOOKS_PROJECT_ROOT` and inherited `CLAUDE_PROJECT_DIR`; provider-specific discovery remains future runtime work. Registration and probe success do not enable the Codex runtime placeholder or establish native hook review/activation.
 
 ### Cursor
 

@@ -1,5 +1,6 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { mkdirSync } from 'fs'
 import { join, resolve } from 'path'
+import { readRegistrationFile, writeRegistrationFileAtomic } from '../../registration-file.js'
 
 export const CODEX_REGISTRATION_EVENTS = [
   'SessionStart',
@@ -50,13 +51,29 @@ export function isCodexClooksHook(hook: unknown): boolean {
   if (
     typeof hook !== 'object' ||
     hook === null ||
+    Array.isArray(hook) ||
+    (hook as Record<string, unknown>).type !== 'command' ||
     typeof (hook as Record<string, unknown>).command !== 'string'
   ) {
     return false
   }
 
   const command = (hook as { command: string }).command
-  return command.includes('CLOOKS_AGENT=codex') && command.includes('.clooks/bin/entrypoint.sh')
+  // Only decode the single-argument quoting emitted by our builders, never shell syntax.
+  const quoted = "'((?:[^']|'\\\\'')*)'"
+  const match = new RegExp(
+    `^CLOOKS_AGENT=codex (?:CLOOKS_PROJECT_ROOT=${quoted} )?${quoted}$`,
+  ).exec(command)
+  if (!match || match[0] !== command) return false
+  const decode = (value: string) => value.replaceAll("'\\''", "'")
+  const executable = decode(match[2]!)
+  if (!executable.startsWith('/') || !executable.endsWith('/.clooks/bin/entrypoint.sh'))
+    return false
+  return (
+    match[1] === undefined ||
+    (executable === join(decode(match[1]), '.clooks/bin/entrypoint.sh') &&
+      decode(match[1]).startsWith('/'))
+  )
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -74,23 +91,8 @@ function readHooksFile(hooksPath: string): {
   hooksFile: Record<string, unknown>
   fileExisted: boolean
 } {
-  if (!existsSync(hooksPath)) {
-    return { hooksFile: {}, fileExisted: false }
-  }
-
-  const text = readFileSync(hooksPath, 'utf-8')
-  if (text.trim() === '') {
-    return { hooksFile: {}, fileExisted: true }
-  }
-
-  try {
-    const parsed = JSON.parse(text)
-    return { hooksFile: isRecord(parsed) ? parsed : {}, fileExisted: true }
-  } catch {
-    throw new Error(
-      `\`${hooksPath}\` contains invalid JSON. Fix or delete the file, then re-run \`clooks init --agent codex\`.`,
-    )
-  }
+  const { settings, fileExisted } = readRegistrationFile(hooksPath, CODEX_REGISTRATION_EVENTS)
+  return { hooksFile: settings, fileExisted }
 }
 
 function makeCodexClooksMatcherGroup(entrypointCommand: string): Record<string, unknown> {
@@ -165,7 +167,9 @@ export function registerCodexClooks(
       }
 
       const unrelatedHooks = matcherGroup.hooks.filter((hook) => !isCodexClooksHook(hook))
-      if (unrelatedHooks.length > 0) {
+      if (unrelatedHooks.length === matcherGroup.hooks.length) {
+        nextMatcherGroups.push(matcherGroup)
+      } else if (unrelatedHooks.length > 0) {
         nextMatcherGroups.push({ ...matcherGroup, hooks: unrelatedHooks })
       }
     }
@@ -182,7 +186,7 @@ export function registerCodexClooks(
 
   if (added.length > 0 || updated.length > 0) {
     mkdirSync(codexDir, { recursive: true })
-    writeFileSync(hooksPath, JSON.stringify(hooksFile, null, 2) + '\n')
+    writeRegistrationFileAtomic(hooksPath, JSON.stringify(hooksFile, null, 2) + '\n')
   }
 
   return { added, skipped, updated, created: !fileExisted }
@@ -190,10 +194,6 @@ export function registerCodexClooks(
 
 export function unregisterCodexClooks(codexDir: string): CodexUnregisterResult {
   const hooksPath = join(codexDir, 'hooks.json')
-  if (!existsSync(hooksPath)) {
-    return { removed: [] }
-  }
-
   const { hooksFile } = readHooksFile(hooksPath)
   if (!isRecord(hooksFile.hooks)) {
     return { removed: [] }
@@ -220,7 +220,9 @@ export function unregisterCodexClooks(codexDir: string): CodexUnregisterResult {
         eventRemoved = true
       }
 
-      if (nextHooks.length > 0) {
+      if (nextHooks.length === matcherGroup.hooks.length) {
+        nextMatcherGroups.push(matcherGroup)
+      } else if (nextHooks.length > 0) {
         nextMatcherGroups.push({ ...matcherGroup, hooks: nextHooks })
       }
     }
@@ -229,6 +231,7 @@ export function unregisterCodexClooks(codexDir: string): CodexUnregisterResult {
       removed.push(event)
     }
 
+    if (!eventRemoved) continue
     if (nextMatcherGroups.length === 0) {
       delete hooks[event]
     } else {
@@ -240,7 +243,7 @@ export function unregisterCodexClooks(codexDir: string): CodexUnregisterResult {
     if (Object.keys(hooks).length === 0) {
       delete hooksFile.hooks
     }
-    writeFileSync(hooksPath, JSON.stringify(hooksFile, null, 2) + '\n')
+    writeRegistrationFileAtomic(hooksPath, JSON.stringify(hooksFile, null, 2) + '\n')
   }
 
   return { removed }
@@ -248,9 +251,7 @@ export function unregisterCodexClooks(codexDir: string): CodexUnregisterResult {
 
 export function isCodexClooksRegistered(codexDir: string): boolean {
   const hooksPath = join(codexDir, 'hooks.json')
-  if (!existsSync(hooksPath)) return false
-
-  const { hooksFile } = readHooksFile(hooksPath)
+  const { settings: hooksFile } = readRegistrationFile(hooksPath)
   if (!isRecord(hooksFile.hooks)) return false
 
   for (const matcherGroups of Object.values(hooksFile.hooks)) {

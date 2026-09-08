@@ -1,6 +1,8 @@
 # Codex Hook Capability Matrix
 
-This matrix is the Plan A contract artifact for EPIC-0044. It records what Clooks should assume about Codex hooks before implementing a Codex adapter. The current recommendation is an MVP adapter for all ten release-documented Codex lifecycle events because Clooks already exposes matching Claude-side event names: `SessionStart`, `SubagentStart`, `PreToolUse`, `PermissionRequest`, `PostToolUse`, `PreCompact`, `PostCompact`, `UserPromptSubmit`, `SubagentStop`, and `Stop`.
+**2026-09-07 reassessment:** The tables below preserve the May evidence snapshot, not a current version-pinned implementation contract. Read [continuation-review.md](continuation-review.md) before consuming them. Current upstream documentation has changed; runtime behavior remains unverified. The next contract pass must revalidate tool coverage, input codecs, output handling, trust, and identity against a selected release. Synthetic fixtures are examples, not independent confirmation.
+
+This matrix is the historical Plan A contract artifact for EPIC-0044. The agreed MVP targets these ten Codex lifecycle events: `SessionStart`, `SubagentStart`, `PreToolUse`, `PermissionRequest`, `PostToolUse`, `PreCompact`, `PostCompact`, `UserPromptSubmit`, `SubagentStop`, and `Stop`. This is the product target, not an assertion that the current upstream catalog contains only ten events or that their semantics are identical to Claude's.
 
 ## Evidence Metadata
 

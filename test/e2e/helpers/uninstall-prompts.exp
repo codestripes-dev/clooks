@@ -1,0 +1,53 @@
+#!/usr/bin/expect -f
+
+# Arguments are a binary, scope, agent, then exact prompt/response pairs.
+set timeout 8
+if {$argc < 5 || ($argc - 3) % 2 != 0} {
+    puts stderr "Expected binary scope agent and prompt/response pairs"
+    exit 64
+}
+if {![info exists env(CLOOKS_E2E_DOCKER)] || $env(CLOOKS_E2E_DOCKER) ne "true"} {
+    puts stderr "Uninstall PTY tests require the Docker test container"
+    exit 64
+}
+
+proc abort_child {message} {
+    global spawn_id
+    puts stderr $message
+    catch {exec /bin/kill -KILL [exp_pid -i $spawn_id]}
+    catch {close -i $spawn_id}
+    catch {wait -i $spawn_id}
+    exit 70
+}
+
+set stty_init "rows 40 columns 240"
+spawn -noecho [lindex $argv 0] uninstall --[lindex $argv 1] --agent [lindex $argv 2]
+trap {abort_child "PTY driver interrupted"} {SIGTERM SIGINT}
+match_max 65536
+foreach {prompt response} [lrange $argv 3 end] {
+    expect {
+        -exact $prompt {}
+        timeout {abort_child "Timed out waiting for prompt: $prompt"}
+        eof {abort_child "CLI exited before prompt: $prompt"}
+    }
+    switch -- $response {
+        yes {send -- "y"}
+        no {send -- "n"}
+        cancel {send -- "\003"}
+        default {abort_child "Unknown response: $response"}
+    }
+}
+expect {
+    eof {}
+    timeout {abort_child "CLI did not exit after final answer"}
+}
+set result [wait -i $spawn_id]
+if {[lindex $result 2] != 0 || [llength $result] != 4} {
+    puts stderr "Abnormal CLI termination: $result"
+    exit 70
+}
+if {[lindex $result 3] != 0} {
+    puts stderr "CLI exit status: [lindex $result 3]"
+    exit 70
+}
+puts "PTY journey completed with CLI exit 0"

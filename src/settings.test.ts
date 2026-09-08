@@ -2,6 +2,7 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, mkdirSync, existsSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
+import { symlinkSync, readlinkSync, statSync } from 'fs'
 import {
   registerClooks,
   unregisterClooks,
@@ -11,6 +12,148 @@ import {
 } from './settings.js'
 
 let tempDir: string
+
+describe('registration preservation', () => {
+  test('no-op registration preserves noncanonical JSON bytes and inode', () => {
+    const command = CLOOKS_ENTRYPOINT_PATH
+    registerClooks(claudeDir(), command)
+    const bytes = '\t' + JSON.stringify(readSettings()) + '  \n\n'
+    writeFileSync(settingsPath(), bytes)
+    const inode = statSync(settingsPath()).ino
+    const result = registerClooks(claudeDir(), command)
+    expect(result.added).toEqual([])
+    expect(result.updated).toEqual([])
+    expect(readFileSync(settingsPath(), 'utf8')).toBe(bytes)
+    expect(statSync(settingsPath()).ino).toBe(inode)
+  })
+
+  test('no-op unregistration preserves noncanonical JSON bytes and inode', () => {
+    mkdirSync(claudeDir(), { recursive: true })
+    const bytes =
+      '\t{ "hooks" : { "Stop": [ { "hooks": [] } ], "SessionStart": [] }, "keep": true }  \n'
+    writeFileSync(settingsPath(), bytes)
+    const inode = statSync(settingsPath()).ino
+    expect(unregisterClooks(claudeDir()).removed).toEqual([])
+    expect(readFileSync(settingsPath(), 'utf8')).toBe(bytes)
+    expect(statSync(settingsPath()).ino).toBe(inode)
+  })
+
+  test('inspection validates later unknown events before returning an early owned match', () => {
+    const owned = { hooks: [{ type: 'command', command: CLOOKS_ENTRYPOINT_PATH }] }
+    writeSettings({ hooks: { SessionStart: [owned], FutureEvent: [] } })
+    expect(isClooksRegistered(claudeDir())).toBe(true)
+    writeSettings({ hooks: { SessionStart: [owned], FutureEvent: [{ hooks: null }] } })
+    const bytes = readFileSync(settingsPath(), 'utf8')
+    expect(() => isClooksRegistered(claudeDir())).toThrow('hooks.FutureEvent[0].hooks')
+    expect(readFileSync(settingsPath(), 'utf8')).toBe(bytes)
+  })
+
+  const invalid = [
+    'null',
+    '[]',
+    '1',
+    'true',
+    '"value"',
+    '{ invalid',
+    '{"hooks":null}',
+    '{"hooks":[]}',
+    '{"hooks":42}',
+    '{"hooks":{"Stop":null}}',
+    '{"hooks":{"Stop":{}}}',
+    '{"hooks":{"Stop":[null]}}',
+    '{"hooks":{"Stop":[[]]}}',
+    '{"hooks":{"Stop":[{}]}}',
+    '{"hooks":{"Stop":[{"hooks":null}]}}',
+    '{"hooks":{"Stop":[{"hooks":{}}]}}',
+    '{"hooks":{"Stop":[{"hooks":[null]}]}}',
+    '{"hooks":{"Stop":[{"hooks":[[]]}]}}',
+    '{"hooks":{"Stop":[{"hooks":[1]}]}}',
+  ]
+  for (const contents of invalid) {
+    test(`rejects malformed containers without writes: ${contents}`, () => {
+      mkdirSync(claudeDir(), { recursive: true })
+      const bytes = ' \n' + contents + '\n '
+      writeFileSync(settingsPath(), bytes)
+      for (const operation of [
+        () => registerClooks(claudeDir(), CLOOKS_ENTRYPOINT_PATH),
+        () => unregisterClooks(claudeDir()),
+        () => isClooksRegistered(claudeDir()),
+      ]) {
+        expect(operation).toThrow(settingsPath())
+        expect(readFileSync(settingsPath(), 'utf8')).toBe(bytes)
+      }
+    })
+  }
+
+  test('preserves unknown values, empty groups and mixed metadata through init and unhook', () => {
+    const unrelated = { type: 'prompt', prompt: 'retain', extension: { enabled: true } }
+    const empty = { hooks: [], extension: [1, null] }
+    const metadata = { matcher: 'Bash', custom: { keep: ['all'] } }
+    writeSettings({
+      extension: { nested: [null, false] },
+      hooks: {
+        FutureEvent: { opaque: ['not traversed'] },
+        PreToolUse: [
+          empty,
+          { ...metadata, hooks: [{ type: 'command', command: CLOOKS_ENTRYPOINT_PATH }, unrelated] },
+        ],
+        Stop: [],
+      },
+    })
+    registerClooks(claudeDir(), CLOOKS_ENTRYPOINT_PATH)
+    const registered = readFileSync(settingsPath(), 'utf8')
+    registerClooks(claudeDir(), CLOOKS_ENTRYPOINT_PATH)
+    expect(readFileSync(settingsPath(), 'utf8')).toBe(registered)
+    unregisterClooks(claudeDir())
+    const settings = readSettings()
+    expect(settings.extension).toEqual({ nested: [null, false] })
+    const hooks = settings.hooks as Record<string, unknown>
+    expect(hooks.FutureEvent).toEqual({ opaque: ['not traversed'] })
+    expect(hooks.PreToolUse).toEqual([empty, { ...metadata, hooks: [unrelated] }])
+    const after = readFileSync(settingsPath(), 'utf8')
+    unregisterClooks(claudeDir())
+    expect(readFileSync(settingsPath(), 'utf8')).toBe(after)
+    expect(() => isClooksRegistered(claudeDir())).toThrow('hooks.FutureEvent')
+  })
+
+  test('detects owned unknown-event references but does not unregister them', () => {
+    writeSettings({
+      hooks: { FutureEvent: [{ hooks: [{ type: 'command', command: CLOOKS_ENTRYPOINT_PATH }] }] },
+    })
+    expect(isClooksRegistered(claudeDir())).toBe(true)
+    const bytes = readFileSync(settingsPath(), 'utf8')
+    expect(unregisterClooks(claudeDir()).removed).toEqual([])
+    expect(readFileSync(settingsPath(), 'utf8')).toBe(bytes)
+  })
+
+  test('whitespace file remains compatible with detection, unhook and init', () => {
+    mkdirSync(claudeDir(), { recursive: true })
+    writeFileSync(settingsPath(), ' \n\t')
+    expect(isClooksRegistered(claudeDir())).toBe(false)
+    expect(unregisterClooks(claudeDir()).removed).toEqual([])
+    expect(readFileSync(settingsPath(), 'utf8')).toBe(' \n\t')
+    expect(registerClooks(claudeDir(), CLOOKS_ENTRYPOINT_PATH).created).toBe(false)
+  })
+
+  for (const dangling of [false, true]) {
+    test(`rejects ${dangling ? 'dangling' : 'regular-target'} symlinks in every operation`, () => {
+      mkdirSync(claudeDir(), { recursive: true })
+      const target = join(tempDir, 'target.json')
+      if (!dangling) writeFileSync(target, '{ "keep": true }')
+      symlinkSync(target, settingsPath())
+      for (const operation of [
+        () => registerClooks(claudeDir(), CLOOKS_ENTRYPOINT_PATH),
+        () => unregisterClooks(claudeDir()),
+        () => isClooksRegistered(claudeDir()),
+      ]) {
+        expect(operation).toThrow(settingsPath())
+        expect(readlinkSync(settingsPath())).toBe(target)
+        expect(existsSync(target)).toBe(!dangling)
+        if (!dangling) expect(readFileSync(target, 'utf8')).toBe('{ "keep": true }')
+      }
+    })
+  }
+})
 
 beforeEach(() => {
   tempDir = mkdtempSync(join(tmpdir(), 'clooks-settings-test-'))
@@ -206,7 +349,7 @@ describe('settings', () => {
     writeFileSync(settingsPath(), '{ not valid json !!!')
 
     expect(() => registerClooks(claudeDir(), CLOOKS_ENTRYPOINT_PATH)).toThrow(
-      `\`${settingsPath()}\` contains invalid JSON. Fix or delete the file, then re-run \`clooks init\`.`,
+      `\`${settingsPath()}\` contains invalid JSON. Repair the file, then retry.`,
     )
   })
 
@@ -221,28 +364,70 @@ describe('settings', () => {
   })
 
   test('isClooksHook detects relative project entrypoint path', () => {
-    expect(isClooksHook({ command: '.clooks/bin/entrypoint.sh' })).toBe(true)
+    expect(isClooksHook({ type: 'command', command: '.clooks/bin/entrypoint.sh' })).toBe(true)
   })
 
   test('isClooksHook detects absolute global entrypoint path', () => {
-    expect(isClooksHook({ command: '/home/joe/.clooks/bin/entrypoint.sh' })).toBe(true)
+    expect(isClooksHook({ type: 'command', command: '/home/joe/.clooks/bin/entrypoint.sh' })).toBe(
+      true,
+    )
   })
 
   test('isClooksHook rejects legacy paths that do not match the canonical pattern', () => {
     // Legacy paths that the old loose check would have matched
-    expect(isClooksHook({ command: '.clooks/bin/clooks-entrypoint.sh' })).toBe(false)
-    expect(isClooksHook({ command: '.clooks/clooks-entrypoint.sh' })).toBe(false)
+    expect(isClooksHook({ type: 'command', command: '.clooks/bin/clooks-entrypoint.sh' })).toBe(
+      false,
+    )
+    expect(isClooksHook({ type: 'command', command: '.clooks/clooks-entrypoint.sh' })).toBe(false)
+    expect(isClooksHook({ type: 'command', command: 'some-other-hook.sh' })).toBe(false)
   })
 
   test('isClooksHook rejects non-hook objects', () => {
     expect(isClooksHook(null)).toBe(false)
     expect(isClooksHook({})).toBe(false)
-    expect(isClooksHook({ command: 42 })).toBe(false)
-    expect(isClooksHook({ command: 'some-other-hook.sh' })).toBe(false)
+    expect(isClooksHook({ type: 'command', command: 42 })).toBe(false)
+    expect(isClooksHook({ command: CLOOKS_ENTRYPOINT_PATH })).toBe(false)
   })
 })
 
 describe('global settings', () => {
+  test('current generated global paths with spaces and Unicode remain idempotent and removable', () => {
+    const home = join(tempDir, 'home with 日本語')
+    const directory = join(home, '.claude')
+    const command = join(home, '.clooks/bin/entrypoint.sh')
+    registerClooks(directory, command)
+    const bytes = readFileSync(join(directory, 'settings.json'), 'utf8')
+    expect(registerClooks(directory, command).skipped).toHaveLength(22)
+    expect(readFileSync(join(directory, 'settings.json'), 'utf8')).toBe(bytes)
+    expect(isClooksRegistered(directory)).toBe(true)
+    expect(unregisterClooks(directory).removed).toHaveLength(22)
+    expect(isClooksRegistered(directory)).toBe(false)
+    expect(
+      isClooksHook({ type: 'command', command: '/home/日本語/.clooks/bin/entrypoint.sh' }),
+    ).toBe(true)
+  })
+
+  test('shell mentions and non-command hooks survive init and unhook', () => {
+    const commands = [
+      'echo .clooks/bin/entrypoint.sh',
+      '/usr/bin/echo .clooks/bin/entrypoint.sh',
+      '# .clooks/bin/entrypoint.sh',
+      `${CLOOKS_ENTRYPOINT_PATH}; echo done`,
+      `${CLOOKS_ENTRYPOINT_PATH} | cat`,
+      `${CLOOKS_ENTRYPOINT_PATH} > out`,
+      '/tmp/$(echo wrong)/.clooks/bin/entrypoint.sh',
+      `${CLOOKS_ENTRYPOINT_PATH} --extra`,
+    ]
+    const unrelated = commands.map((command) => ({ type: 'command', command }))
+    unrelated.push({ type: 'prompt', command: CLOOKS_ENTRYPOINT_PATH })
+    for (const hook of unrelated) expect(isClooksHook(hook)).toBe(false)
+    writeSettings({ hooks: { Stop: [{ hooks: unrelated, custom: true }] } })
+    registerClooks(claudeDir(), CLOOKS_ENTRYPOINT_PATH)
+    unregisterClooks(claudeDir())
+    expect((readSettings().hooks as Record<string, unknown>).Stop).toEqual([
+      { hooks: unrelated, custom: true },
+    ])
+  })
   test('registerClooks with global settings path creates correct entries with absolute entrypoint', () => {
     const globalSettingsDir = join(tempDir, '.claude')
     const globalEntrypoint = join(tempDir, '.clooks/bin/entrypoint.sh')

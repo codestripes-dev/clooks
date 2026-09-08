@@ -24,6 +24,9 @@ The key user benefit is risk reduction. Users eventually want their existing Clo
 
 ## Progress
 
+- [x] (2026-09-07, Joe-Degler) Recorded user clarification: Clooks assumes repository trust. Preserve global/home/project/local merging; remove separate repository authorization and permission-model redesign from continuation scope. Retain registration correctness and regression/E2E/smoke coverage.
+- [x] (2026-09-07, Joe-Degler) Completed bounded continuation reassessment: reviewed current source and intervening handoff/turn-state changes, refreshed official Codex documentation, obtained independent architecture and registration reviews, and recorded findings and proposed milestone order in `continuation-review.md` and the coordinating epic. Marked the matrix as historical and corrected domain evidence/normalization/dedup descriptions. No production implementation or live runtime verification occurred.
+- [x] (2026-09-07, Joe-Degler) Validation: typecheck passed; focused existing tests had 186 passes and one turn-state test-isolation failure. The failing test passed alone with a disposable state root. Logged the isolation defect and registration/runtime readiness findings; no test or production fix was made in this research pass.
 - [x] (2026-05-17, Joe Degler) Created EPIC-0044 with Codex as the first cross-agent target and identified Plan A as runtime contract verification.
 - [x] (2026-05-17, Joe Degler) Read `docs/plans/PLANS.md`, `docs/epics/EPIC-0044-cross-agent-hook-portability.md`, `docs/planned/FEAT-0044-cross-agent-hooks.md`, `docs/domain/cross-agent-hooks.md`, and related findings before drafting this plan.
 - [x] (2026-05-17, Joe Degler) Re-checked the official Codex hooks documentation. Current docs state that the release reference is the hooks page, and generated `main` schemas may include fields not in the current release.
@@ -46,6 +49,9 @@ The key user benefit is risk reduction. Users eventually want their existing Clo
 
 ## Surprises & Discoveries
 
+- Observation: The September reassessment found that current upstream documentation and the shared engine have both moved beyond the May snapshot. Registration activity/trust, per-hook capability validation, and handoff/turn identity now require explicit work before runtime activation.
+  Evidence: `continuation-review.md` records source references, fetched official documentation, independent reviews, and the focused-test transcript at HEAD `74eda9b`.
+
 - Observation: `gh api user --jq '.login'` failed in the sandbox with `error connecting to api.github.com`, so this plan uses local git identity `Joe Degler` for author/date annotations.
   Evidence: command failed before this plan was written; `git config user.name` returned `Joe Degler`.
 
@@ -65,6 +71,14 @@ The key user benefit is risk reduction. Users eventually want their existing Clo
   Evidence: local command output checked 2026-05-23 UTC.
 
 ## Decision Log
+
+- Decision: Using Clooks assumes the repository is trusted. Global execution continues to load the merged home/project/local pipeline without a new repository authorization layer. Tighter permission models are deferred and are not a release gate for this epic.
+  Rationale: Explicit user direction supersedes the reassessment's proposed global trust-policy gate. Native agent hook activation remains an integration requirement; it does not justify redesigning Clooks permissions.
+  Date/Author: 2026-09-07 / Joe-Degler.
+
+- Decision: Preserve the historical Plan A result, retain the agreed ten-event product scope, and propose corrective registration work before enabling the Codex adapter. The version-specific matrix refresh remains a gate; the originally proposed global trust-policy gate was withdrawn after explicit user clarification that Clooks assumes repository trust.
+  Rationale: A broad current website reference and synthetic fixtures are not runtime proof. Source review identified lifecycle defects in completed registration work and policy needs introduced after the adapter boundary. The continuation review records proposals separately from approved behavior changes.
+  Date/Author: 2026-09-07 / Joe-Degler.
 
 - Decision: Treat the official Codex hooks page as the release contract and generated `main` branch schemas as advisory until runtime verified.
   Rationale: The Codex docs explicitly state that linked `main` schemas may include fields that are not in the current release. Building against undocumented schema-visible fields would create adapter churn and user-visible false promises.
@@ -107,6 +121,8 @@ The key user benefit is risk reduction. Users eventually want their existing Clo
   Date/Author: 2026-05-25 / Joe Degler.
 
 ## Outcomes & Retrospective
+
+2026-09-07: The bounded reassessment is complete, with the continuation review and epic recording a runtime contract refresh, corrective registration plan, expanded runtime policy work, upstream conformance, and final distribution docs. User clarification subsequently withdrew the proposed separate repository authorization gate: preserve the trusted-repository and merged-global model. The old matrix remains a historical snapshot pending targeted version-specific refresh. Typecheck passed; the focused suite exposed one test that fails because turn-state I/O is not isolated from home storage. The same test passes alone under a disposable root. Concrete code/test findings remain unresolved because this pass makes no production or test changes. No live Codex run was attempted and the runtime-unverified classification is unchanged. Existing Plan A/B/C artifacts remain in the active feature folder while downstream work uses them.
 
 2026-05-24 UTC: Plan A completed as `docs-backed but runtime-unverified` and therefore partially blocking for behavior that depends on Codex honoring safety-critical hook outputs. The capability matrix now records ten current release-documented Codex events and, after user direction on 2026-05-25 plus a README check, recommends the first adapter MVP cover all ten. Durable fixtures exist for all ten documented events and are covered by a parser test. The live Codex spike used disposable home/config/project directories and did not mutate real Codex state, but it could not capture hook payloads because the disposable run failed with `401 Unauthorized` after network access was allowed. Downstream Plans B and C may proceed on adapter boundaries, registration shape, and fixture-backed tests; Plans D/E must still treat safety-critical runtime decisions as blocked on live verification or an explicit release-confidence decision before user-facing support is claimed.
 
@@ -413,6 +429,14 @@ Do not add production `src/agents/codex/*` modules in this plan unless they are 
 
 ## Instruction Prompts
 
+- **2026-09-07** (Joe-Degler):
+
+  > When using clooks, you should assume you can trust the repo. We can tighten permission models down the line. This is not a discussion for now.
+
+- **2026-09-07** (Joe-Degler):
+
+  > Alright. Get yourself a lay of the land. You're a much smarter model now, so you should scrutinize the design decisions we've done so far and we should make a plan to continue the line of work.
+
 - **2026-05-17** (Joe Degler):
 
   > "Start writing the plan for the first PLAN of this EPIC.
@@ -472,6 +496,8 @@ Do not add production `src/agents/codex/*` modules in this plan unless they are 
 
 ## Revision Notes
 
+- 2026-09-07: User resolved the repository trust assumption. Removed the proposed permission-model gate from continuation scope; existing merge semantics and required regression/E2E/smoke coverage remain.
+- 2026-09-07: Added a bounded research and continuation-planning pass after the long pause. Historical execution results remain dated evidence, not claims about the current Codex release. No production implementation is authorized by this revision.
 - 2026-05-17: Initial Plan A draft created from EPIC-0044, FEAT-0044, Codex research, verifier report, current official Codex docs, local CLI help, relevant domain docs, and findings.
 - 2026-05-24: Executed Plan A. Updated the release event model from six to ten Codex events, added a docs-backed capability matrix, durable fixtures, fixture validation, a disposable live spike harness, domain-doc updates, and EPIC-0044 downstream gates.
 - 2026-05-25: Revised the downstream MVP scope to include Codex `PreCompact` and `PostCompact` because they mirror existing Clooks events. This was later expanded the same day to include subagent events too.

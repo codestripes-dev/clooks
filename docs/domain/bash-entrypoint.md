@@ -63,12 +63,12 @@ The entrypoint and the binary react to a small set of environment variables:
 | `CLOOKS_DEBUG=true` | Enable debug logging — stderr output + JSON request dumps to `CLOOKS_LOGDIR`. |
 | `CLOOKS_LOGDIR=/path` | Directory for `CLOOKS_DEBUG` JSON dumps (default `/tmp/clooks-debug`). |
 | `CLOOKS_AGENT=claude-code` | Optional explicit selector for the current Claude Code adapter. Unset or empty means the same thing for backward compatibility. |
-| `CLOOKS_AGENT=codex` | Explicit selector used by generated Codex registrations. In the current adapter boundary, this reaches a named runtime placeholder that fails closed with a not-implemented diagnostic; registration exists before runtime Codex support. |
+| `CLOOKS_AGENT=codex` | Explicit selector used by generated Codex registrations. This reaches a runtime placeholder that refuses execution with stderr and exit 2; upstream blocking remains event-specific and unverified. |
 | `CLOOKS_HOME_ROOT=/path` | Override the home directory used for config resolution (mostly for tests). |
 | `CLOOKS_PROJECT_ROOT=/path` | Skip discovery and treat `/path` as the project root unconditionally. Highest-priority override (wins over `$CLAUDE_PROJECT_DIR` and the cwd walk). Mirrors `prettier --config` / `tsc --project` / `GIT_DIR`. |
 | `$CLAUDE_PROJECT_DIR` | Set by Claude Code itself. Used by clooks as the **primary anchor** for config discovery — the walk-up starts here so an agent that runs `cd /tmp && <action>` cannot bypass project hooks. |
 
-Claude Code registration does not need to set `CLOOKS_AGENT`; the binary defaults to the Claude Code adapter. Codex registration always sets `CLOOKS_AGENT=codex`. Project Codex registration also sets `CLOOKS_PROJECT_ROOT` to the absolute project root so Codex cwd changes do not detach Clooks from the intended project. Global Codex registration intentionally omits `CLOOKS_PROJECT_ROOT`, letting normal discovery walk from Codex's cwd so global hooks can merge with the current project's `.clooks/clooks.yml`.
+Claude Code registration does not need to set `CLOOKS_AGENT`; the binary defaults to the Claude Code adapter. Codex registration always sets `CLOOKS_AGENT=codex`. Project Codex registration also sets `CLOOKS_PROJECT_ROOT` to the absolute project root so Codex cwd changes do not detach Clooks from the intended project. Global Codex registration intentionally omits `CLOOKS_PROJECT_ROOT`; it preserves an inherited explicit override, and it also currently forwards `CLAUDE_PROJECT_DIR`. Without those variables, normal discovery walks from cwd so global hooks can merge with the current project's `.clooks/clooks.yml`. Provider-specific handling of inherited Claude environment remains unresolved runtime work.
 
 ## Hook Registration
 
@@ -87,6 +87,10 @@ CLOOKS_AGENT=codex '/home/joe/.clooks/bin/entrypoint.sh'
 ```
 
 The first form is project registration. The second form is global registration and deliberately has no `CLOOKS_PROJECT_ROOT`.
+
+Codex project commands are machine-local absolute paths. After copying, moving, or creating a new worktree, rerun `clooks init --agent codex` in that checkout before activating its hooks. A copied registration still targets the old checkout if it remains present. Re-init recognizes both the current project form and the older quoted absolute form without a root assignment, replacing old paths without adding duplicates. Explicit project roots remain independent of git-root discovery and cwd, including nested Clooks roots and non-git projects. Generated single-argument quoting preserves literal spaces, apostrophes, and shell punctuation in Codex paths.
+
+Registered-command E2E probes execute the generated shell with an isolated PATH binary and capture agent, root, cwd, and stdin. Relocation tests establish the old-root invocation before repair and the new-root invocation afterward. These probes establish shell forwarding only; they do not demonstrate native Codex activation or runtime decision handling. Claude's historical global command remains an unquoted absolute path; registration recognizes its exact scope-derived form for idempotence and cleanup, but shell execution of paths requiring quoting remains a separate limitation.
 
 ## Global Entrypoint and Dedup
 
@@ -108,7 +112,7 @@ if [ -f "$HOME/.clooks/.global-entrypoint-active.codex" ]; then
 fi
 ```
 
-The flag files are simple empty files created by `clooks init --global`. Their presence signals that a global entrypoint is active for that agent and matching project entrypoints should defer to it.
+The flag files are simple empty files created by `clooks init --global`. The current script treats their presence as a reason to defer; they record installation intent, not verified runtime activity. Global init currently writes them before agent registration can fail. Stale flags, disabled/untrusted global commands, or a different active Codex home can therefore suppress project processing without a working replacement. Correcting these registration/dedup defects must preserve the existing merged-global pipeline. Clooks assumes repository trust; a new repository permission model is out of scope.
 
 ## Plugin Entrypoint (Bootstrap)
 

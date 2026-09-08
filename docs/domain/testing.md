@@ -56,11 +56,7 @@ E2E tests are gated behind the `CLOOKS_E2E_DOCKER=true` environment variable, wh
 
 This prevents accidental E2E test execution on a developer's host machine, where filesystem permissions, binary paths, and OS-level behavior may differ from the expected environment.
 
-**Debugging bypass:** To run E2E tests outside Docker during development:
-
-```bash
-CLOOKS_E2E_DOCKER=true bun test test/e2e/
-```
+Use `bun run test:e2e` for all E2E validation. Do not bypass the Docker guard, including during debugging.
 
 ### Non-root Docker user
 
@@ -101,7 +97,7 @@ E2E test files are organized by the domain they exercise, not by implementation 
 
 ### Codex event fixtures
 
-Codex wire fixtures live under `test/fixtures/codex/events/`. They use Codex's snake_case input field names exactly as the upstream command hook receives them, not Clooks' camelCase normalized names. The fixture set is validated by `src/codex-fixtures.test.ts`, which checks exact event coverage and basic per-event fields without treating the shapes as runtime-captured payloads.
+Codex wire fixtures live under `test/fixtures/codex/events/`. They use the snake_case input field names described by the documentation snapshot, not Clooks' camelCase normalized names. The fixture set is validated by `src/codex-fixtures.test.ts`, which checks coverage of the agreed ten-event target and basic per-event fields without treating the shapes as runtime-captured payloads. This hardcoded coverage check does not discover new upstream events or independently validate the wire contract. Revalidate each fixture against version-specific evidence before adapter consumption.
 
 Until the Codex adapter ships, these fixtures are not E2E inputs for Clooks. They are docs-shaped, runtime-unverified contract artifacts for later normalization, translation, and registration tests. Live Codex CLI hook spikes should stay opt-in and disposable: use temporary `HOME`, `CODEX_HOME`, and project directories, avoid real `~/.codex` or trust-state changes, and promote only summarized evidence back into docs.
 
@@ -118,7 +114,32 @@ The adapter boundary has unit and E2E coverage. Unit tests cover selector behavi
 
 Codex registration has unit and compiled-binary E2E coverage without invoking live Codex. Unit tests in `src/agents/codex/settings.test.ts` pin the `.codex/hooks.json` merge rules: exact ten-event registration coverage, one managed Clooks command group per event, idempotent convergence of stale/duplicate Clooks entries, preservation of unrelated hooks and top-level fields, shell quoting for project paths, and conservative unregistration.
 
-`test/e2e/codex-registration.e2e.test.ts` exercises the user-facing CLI through the compiled binary. It verifies `clooks init --agent codex`, idempotent reruns, `clooks init --agent all`, global Codex registration, agent-aware global dedup flags, and `clooks uninstall --agent codex --unhook` preserving unrelated Codex hooks. These tests inspect generated files and command strings only. Codex event fixtures under `test/fixtures/codex/events/` remain runtime-contract inputs for Plan D/E normalization and translation; they are not consumed by registration E2E until the Codex runtime adapter exists.
+`test/e2e/codex-registration.e2e.test.ts` exercises the user-facing CLI through the compiled binary. It verifies `clooks init --agent codex`, idempotent reruns, `clooks init --agent all`, global Codex registration, agent-aware global dedup flags, and selected-agent unhook. Together with `init-journey`, preservation cases cover malformed containers and JSON error envelopes, mixed groups and false ownership matches, symlinks, and non-root parent-directory permission failure followed by retry. That permission E2E proves temporary-file creation failure and retry only, not later write or rename failures. Permission fixtures restore modes in `finally`.
+
+Generated-command probes run real shell commands against an isolated PATH stub without replacing the compiled CLI used by `sandbox.run()`. They capture positive invocation evidence, agent/root/cwd/stdin forwarding, and relocation repair with the old checkout retained or moved away. Nested/non-git roots and worktree cases preserve explicit-root behavior. Concurrent-reader stress coverage checks complete JSON during large CLI changes but can miss publication windows; it is not deterministic proof of atomic publication. Deterministic write and rename fault coverage belongs to units. These tests do not prove upstream discovery, trust, exactly-once invocation, or decision enforcement. Codex event fixtures under `test/fixtures/codex/events/` remain synthetic inputs for future normalization and translation tests.
+
+`src/registration-file.test.ts` covers strict reader behavior, opaque unknown events during known-event mutation versus all-event inspection, nonregular destinations, file permissions, exclusive temp creation, partial write, chmod, close, and rename faults. Tests assert unchanged destination bytes, closure of opened descriptors, cleanup limited to owned temporary files, and successful retry. Both registrar suites pin byte preservation on rejection/no-op, bounded command recognition, unknown metadata, and mixed/empty groups. Codex canonicalization does not preserve custom options on removed owned entries; it does preserve unrelated entries and metadata on surviving mixed groups.
+
+### Uninstall decisions and recovery
+
+`test/e2e/uninstall-journey.e2e.test.ts` exercises the compiled CLI for both project/global scopes and both initial agent selectors. Full deletion checks cover all-agent cleanup and JSON count aliases, malformed other-agent data before mutation, unknown-event references and repair, second-registrar failure followed by retry, stale selected flags without registration files, and failed flag removal. Selected unhook remains independent of malformed unselected registration. Failure assertions inspect exact registration bytes and retained custom-hook contents; successful earlier file writes are not rolled back after a later failure.
+
+Interactive cases use test-only Docker `expect` through `test/e2e/helpers/uninstall-prompts.exp`, not piped answers or a production TTY bypass. A fixed-width PTY keeps confirmation text from wrapping. The driver matches each exact prompt before sending a reply, requires normal CLI exit, captures the transcript, and kills and waits for the child on timeout. The Bun caller has an outer deadline and awaits the driver before sandbox cleanup. Project fixtures decline selected unhook, accept deletion, then accept, refuse or cancel required all-agent cleanup. Global fixtures register only the other agent and prove the selected-agent unhook prompt is absent. Both scopes also cancel extra cleanup after accepting selected unhook and deletion. Refusal/cancellation preserves registration bytes, custom hooks and global flags. Opposite-scope sentinels prove the command does not modify the other scope.
+
+Every subprocess in these journeys receives temporary `HOME`, `CODEX_HOME`, and `CLOOKS_HOME_ROOT`; no host credentials or environment are copied. The non-root second-registrar failure makes the Codex registration directory unwritable after both registrations exist, then restores permissions in `finally`. It proves failure while creating the second registrar's temporary file, not an injected mid-write/rename failure. Precise writer-stage faults remain unit tests. Global-state tests here cover existing flag cleanup, not registration receipts or native runtime activity.
+
+Coordinate one Docker run at a time when workers share the checkout. The existing entrypoint supports forwarded test paths without a harness change:
+
+```bash
+bun run test:e2e
+bun run test:e2e src/commands/uninstall.test.ts src/settings.test.ts src/agents/codex/settings.test.ts
+```
+
+The second command runs the focused unit files inside the same Docker environment; it does not bypass the E2E entry command. Neither command deploys or replaces the host binary.
+
+### Engine tests must isolate turn-state storage
+
+Mocking discovery, loading, and stdin does not prevent `runEngineCore` from accessing turn-state storage when a fixture contains `session_id`. Give every such test its own temporary `CLOOKS_HOME_ROOT`, or inject the storage boundary where supported, and restore the caller's original environment after each test. A suite-level environment override is insufficient if cleanup deletes it between tests. Otherwise tests can read/write real user state or fail with lock-write warnings in a restricted environment. `src/engine/run.agent-adapter.test.ts` currently contains this isolation gap; correcting it must preserve its empty-stderr assertion rather than hide the storage warning.
 
 ### How to run
 
@@ -126,23 +147,11 @@ Codex registration has unit and compiled-binary E2E coverage without invoking li
 # Full E2E suite (builds base image + runs all tests)
 bun run test:e2e
 
-# Fast re-run without rebuild (bind-mounts source, picks up changes instantly)
-bun run test:e2e:run
-
-# Run a specific test file
-bun run test:e2e:run -- test/e2e/smoke.e2e.test.ts
-
-# Rebuild base image (only needed when dependencies change)
-bun run test:e2e:build
-
 # Unit tests only
 bun test src/
-
-# Single E2E test file (with env bypass for local debugging)
-CLOOKS_E2E_DOCKER=true bun test test/e2e/fail-closed.e2e.test.ts
 ```
 
-The Docker image contains only the base environment (Bun, git, testuser, `node_modules`). Source code and tests are bind-mounted at runtime via `-v` flags, so source changes are picked up on the next `test:e2e:run` without rebuilding the image. The `test/docker-entrypoint.sh` script compiles the binary from the mounted source before running tests.
+The Docker image contains only the base environment (Bun, git, expect, testuser, `node_modules`). Source code and tests are bind-mounted at runtime via `-v` flags, so `bun run test:e2e` picks up current changes. The `test/docker-entrypoint.sh` script typechecks and compiles the binary from the mounted source before running tests. Coordinate one Docker run at a time when multiple workers share the checkout.
 
 ## Anti-patterns
 

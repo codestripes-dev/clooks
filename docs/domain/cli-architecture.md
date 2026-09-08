@@ -26,12 +26,14 @@ The dispatch reads `process.argv.slice(2)` and applies these rules in order:
 
 - unset or empty `CLOOKS_AGENT` -> `claude-code`
 - `CLOOKS_AGENT=claude-code` -> explicit Claude Code adapter
-- `CLOOKS_AGENT=codex` -> reserved Codex placeholder that fails closed until Codex normalization and output translation are implemented
-- any other value -> fail-closed exit code 2 with a diagnostic
+- `CLOOKS_AGENT=codex` -> reserved Codex placeholder that refuses runtime execution with stderr and exit code 2
+- any other value -> exit code 2 with a diagnostic before runtime execution
+
+These exits establish Clooks refusal, not universal upstream blocking. Codex's handling is event-specific and has not been verified live.
 
 The selector does not inspect stdin. Registration owns agent identity because Claude and Codex share event names such as `SessionStart`, `PreToolUse`, `PostToolUse`, and `Stop`.
 
-After selection, `runEngine()` delegates to `runEngineCore(adapter, deps)`. The core remains responsible for project discovery, config loading, hook loading, matching, execution, lifecycle handling, circuit-breaker behavior, and result reduction. The adapter owns the wire-specific operations: event-name parsing and validation from the raw payload, late context normalization, Claude-only plugin/settings advisories, notify-only/system-message routing, and final wire output.
+After selection, `runEngine()` delegates to `runEngineCore(adapter, deps)`. The core remains responsible for project discovery, config loading, hook loading, matching, execution, lifecycle handling, circuit-breaker behavior, and result reduction. The adapter owns the wire-specific operations: event-name parsing and validation from the raw payload, context normalization, Claude-only plugin/settings advisories, notify-only/system-message routing, and final wire output. Normalization now runs once before the no-hook/no-match exits because turn-state maintenance needs session identity even when no user hook handles the boundary event. See [Turn State](turn-state.md).
 
 ### KNOWN_COMMANDS
 
@@ -43,7 +45,7 @@ The set must stay in sync with the commands registered in `router.ts`. This is e
 
 `cli.ts` installs global handlers for `SIGINT`, `SIGTERM`, `uncaughtException`, and `unhandledRejection` before any dispatch logic runs. The signal handlers branch on `currentMode`:
 
-- **Engine mode** (`currentMode === 'engine'`) — Write a diagnostic to stderr and exit with code 2 (`EXIT_STDERR`). This is fail-closed: a killed hook process blocks the action rather than silently passing.
+- **Engine mode** (`currentMode === 'engine'`) — Write a diagnostic to stderr and exit with code 2 (`EXIT_STDERR`). This is the existing process-failure channel; whether the upstream agent can block the operation depends on the event. It is not a verified universal Codex enforcement guarantee.
 - **CLI mode** (`currentMode === 'cli'`) — Exit with code 0. Interactive commands should exit cleanly on Ctrl-C.
 
 `uncaughtException` and `unhandledRejection` always exit with code 2 regardless of mode.
@@ -158,6 +160,12 @@ Agent routing is explicit through `--agent claude-code`, `--agent codex`, or `--
 
 With `--global`, operates on `~/.clooks/` instead: creates the home directory structure, writes a global `clooks.yml`, generates a global entrypoint, registers the selected global agent files, and creates agent-specific global entrypoint flag files for dedup. Claude Code uses the legacy `~/.clooks/.global-entrypoint-active` flag; Codex uses `~/.clooks/.global-entrypoint-active.codex`.
 
+Both registrars reject invalid nonempty JSON roots, hook maps, managed-event arrays, and traversed group/hook containers with a path/field-specific error and repair-and-retry guidance. Rejection leaves registration bytes unchanged. Missing containers and empty or whitespace files remain valid initialization inputs. Unknown fields and untraversed event values are preserved as JSON values. Detection and uninstall counters use the shared strict reader across all events, so ambiguous unknown-event containers produce errors rather than an absence result. Normal unhook only removes owned hooks from the existing supported event catalog.
+
+Registration writes use `src/registration-file.ts`: an exclusive temporary file in the destination directory is created with initial access permissions no broader than the existing destination, before any bytes are written. After writing, existing permission bits are restored and the closed file is renamed over the destination. New destinations use ordinary `0666` permissions filtered by the process umask. Failed writes preserve the previous destination and clean up only the attempt's own temporary file, best effort. Reads and writes reject symlink destinations, including dangling links, and other nonregular files. No-op registration and unhook preserve exact file bytes. Successful changes may reformat JSON. This guarantees atomic visibility per file, not power-loss durability, concurrent-writer merging, or a transaction across both agents.
+
+Ownership requires a command hook and a bounded generated command form. Codex init converges owned duplicates into one canonical command per event, preserving unrelated hooks, empty unrelated groups, and metadata on surviving mixed groups. Options on removed owned hooks or owned-only groups are not retained by that canonicalization. Claude retains its existing registration migration behavior and removes individual owned hooks during unhook. Its detector accepts the project variable form, legacy relative form, shell-safe absolute paths, and an exact context-supplied command for historical unquoted global paths containing spaces or punctuation. Generic shell mentions and extra arguments are not ownership evidence. CLI selectors, result arrays, and legacy Claude JSON count aliases are unchanged.
+
 ### `clooks config` / `clooks config --resolved`
 
 Shows the resolved clooks configuration. In default mode, displays hook count, timeout, onError, and maxFailures.
@@ -242,7 +250,13 @@ Removes Clooks from a project or global scope. Agent routing mirrors init: `--ag
 
 With `--project --unhook`, the command removes Clooks-owned registrations for the selected agent from `.claude/settings.json`, `.codex/hooks.json`, or both, while preserving unrelated hooks. With `--global --unhook`, it does the same for `~/.claude/settings.json` and `~/.codex/hooks.json`, and removes the selected global dedup flag files.
 
-With `--full`, the command first unhooks all known Clooks agent registrations in the selected project/global scope, regardless of the requested `--agent`, then deletes the shared `.clooks/` or `~/.clooks/` directory. This avoids leaving another agent registration pointing at a deleted shared entrypoint. Without a scope flag, uninstall presents an interactive scope picker (project, global, or both). `--force` skips all confirmation prompts and requires explicit scope (`--project`/`--global`) and action (`--unhook`/`--full`) flags. `--json` outputs a structured result envelope with legacy Claude fields plus separate Claude/Codex counts. Never loads or validates `clooks.yml` — works even when config is broken.
+Cleanup scope follows the final deletion decision, whether supplied by `--full --force` or an interactive answer. Before deleting the shared `.clooks/` directory, the command inspects both agents and requires cleanup of all owned references. Interactive deletion asks for additional all-agent consent when another agent was not selected or an earlier unhook was declined. Declining or cancelling that required confirmation leaves all registrations and runtime files in that scope unchanged, including any earlier approved unhook. `--full --force` already authorizes both agents within the explicit project/global scope.
+
+All registration files needed for an action are preflighted before writes. Invalid other-agent data blocks full deletion, but does not block independent selected-agent unhook. Owned commands on unsupported events block deletion with their file path and event names; uninstall does not expand the supported event catalog to remove them. A second all-event inspection immediately before directory deletion rejects remaining references, including ones introduced during cleanup. These checks do not provide a transaction against concurrent external writers.
+
+Cleanup commits one registration file at a time. Each successful global unregister is followed by removal of its corresponding dedup flag, including stale selected flags whose registration file is absent. A later unregister or flag-removal failure returns an error and retains the shared runtime and custom hooks; earlier successful cleanup remains committed and retry is safe. Preserved-group counts are computed for every action agent, even when it had only unrelated hooks or stale flags. Unselected-agent counts remain zero.
+
+Without a scope flag, uninstall presents an interactive scope picker (project, global, or both). Choosing both executes project scope first, then global scope. Decisions and cancellation are scoped to the current operation: completed project cleanup is not rolled back when global cleanup is declined or cancelled. No-change messages identify the scope or root to avoid implying cross-scope rollback. `--force` skips all confirmation prompts and requires explicit scope (`--project`/`--global`) and action (`--unhook`/`--full`) flags. `--json` outputs a structured result envelope with legacy Claude fields plus separate Claude/Codex counts. Its requested `agent` and `agents` fields remain the user's selector even when deletion requires both agents; per-agent counts report the actual action. Never loads or validates `clooks.yml` — works even when config is broken.
 
 For JSON compatibility, `eventsRemoved` and `nonClooksPreserved` remain Claude Code aliases. Agent-aware callers should read `claudeEventsRemoved`, `codexEventsRemoved`, `claudeNonClooksPreserved`, and `codexNonClooksPreserved`. For example, `clooks uninstall --agent codex --json` reports Codex removals in `codexEventsRemoved`; `eventsRemoved` stays empty unless Claude registrations were also removed.
 
@@ -254,6 +268,8 @@ For JSON compatibility, `eventsRemoved` and `nonClooksPreserved` remain Claude C
 - `src/commands/config.ts` — `createConfigCommand()` — config display and `--resolved` provenance.
 - `src/commands/init.ts` — `createInitCommand()` — project and global setup (`clooks init`, `clooks init --global`).
 - `src/settings.ts` — Settings.json management utility (register/unregister Clooks in `.claude/settings.json`).
+- `src/agents/codex/settings.ts` — Codex command builders and hooks.json registrar.
+- `src/registration-file.ts` — Shared validated registration reads and atomic file replacement.
 - `src/commands/types.ts` — `createTypesCommand()` — extracts embedded .d.ts type declarations (`clooks types`, `clooks types --global`).
 - `src/commands/new-hook.ts` — `createNewHookCommand()` — interactive hook scaffolding (`clooks new-hook`).
 - `src/commands/add.ts` — `createAddCommand()` — GitHub URL download and registration (`clooks add`), both blob URL and repo URL flows.

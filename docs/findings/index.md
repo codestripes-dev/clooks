@@ -114,3 +114,4 @@ Findings that span multiple categories or represent compound bugs with broad imp
 | File | Severity | Summary |
 |------|----------|---------|
 | `config-validation-deadlock.md` | blocker | Config validation errors cause unrecoverable agent deadlock — two bugs combine to brick the session with no in-session recovery |
+| `codex-portability-readiness.md` | friction | M3 dedup/Codex home, adapter-policy, and Claude global launcher quoting gaps remain after M1 registrar and M2 deletion closure; repository trust is settled and live Codex runtime readiness remains unverified |

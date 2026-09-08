@@ -2,9 +2,9 @@
 # Update this version intentionally when upgrading Bun.
 FROM oven/bun:1.3
 
-# git is needed by unit tests (git.test.ts expects a git repo).
+# git supports repository fixtures; expect drives interactive uninstall PTY tests.
 # Install early so this layer is cached across source changes.
-RUN apt-get update -qq && apt-get install -y -qq git > /dev/null && rm -rf /var/lib/apt/lists/*
+RUN apt-get update -qq && apt-get install -y -qq git expect > /dev/null && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user and /app owned by them from the start.
 # E2E tests need a non-root user because root ignores chmod restrictions.

@@ -1,7 +1,8 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
-import { join } from 'path'
+import { mkdirSync } from 'fs'
+import { dirname, join } from 'path'
 import { CLAUDE_CODE_EVENTS } from './config/constants.js'
 import type { EventName } from './types/branded.js'
+import { readRegistrationFile, writeRegistrationFileAtomic } from './registration-file.js'
 
 /** Canonical path to the Clooks bash entrypoint. Uses $CLAUDE_PROJECT_DIR so it resolves correctly regardless of cwd. */
 export const CLOOKS_ENTRYPOINT_PATH = '"$CLAUDE_PROJECT_DIR"/.clooks/bin/entrypoint.sh'
@@ -18,49 +19,45 @@ export interface UnregisterResult {
 }
 
 /**
- * Checks if a hook entry's command field ends with `.clooks/bin/entrypoint.sh`.
+ * Recognizes generated commands and the original single-word legacy paths.
  * This handles project paths (`"$CLAUDE_PROJECT_DIR"/.clooks/bin/entrypoint.sh`),
  * legacy relative paths (`.clooks/bin/entrypoint.sh`), and
  * absolute global paths (`/home/joe/.clooks/bin/entrypoint.sh`).
  */
-export function isClooksHook(hook: unknown): boolean {
+export function isClooksHook(hook: unknown, expectedCommand?: string): boolean {
   if (
     typeof hook !== 'object' ||
     hook === null ||
+    Array.isArray(hook) ||
+    (hook as Record<string, unknown>).type !== 'command' ||
     typeof (hook as Record<string, unknown>).command !== 'string'
   ) {
     return false
   }
   const cmd = (hook as Record<string, string>).command!
-  return cmd.endsWith('.clooks/bin/entrypoint.sh')
+  return (
+    cmd === expectedCommand ||
+    cmd === CLOOKS_ENTRYPOINT_PATH ||
+    cmd === '.clooks/bin/entrypoint.sh' ||
+    (cmd.startsWith('/') &&
+      cmd.endsWith('/.clooks/bin/entrypoint.sh') &&
+      !/[\s'"\\`$;&|<>()*?[\]{}!#~]/u.test(cmd))
+  )
 }
 
 /** Checks if a matcher group contains any Clooks hook. */
-function isClooksMatcherGroup(mg: unknown): boolean {
+function isClooksMatcherGroup(mg: unknown, expectedCommand?: string): boolean {
   if (typeof mg !== 'object' || mg === null) return false
   const hooks = (mg as Record<string, unknown>).hooks
   if (!Array.isArray(hooks)) return false
-  return hooks.some(isClooksHook)
+  return hooks.some((hook) => isClooksHook(hook, expectedCommand))
 }
 
 function readSettings(settingsPath: string): {
   settings: Record<string, unknown>
   fileExisted: boolean
 } {
-  if (!existsSync(settingsPath)) {
-    return { settings: {}, fileExisted: false }
-  }
-  const text = readFileSync(settingsPath, 'utf-8')
-  if (text.trim() === '') {
-    return { settings: {}, fileExisted: true }
-  }
-  try {
-    return { settings: JSON.parse(text), fileExisted: true }
-  } catch {
-    throw new Error(
-      `\`${settingsPath}\` contains invalid JSON. Fix or delete the file, then re-run \`clooks init\`.`,
-    )
-  }
+  return readRegistrationFile(settingsPath, [...CLAUDE_CODE_EVENTS])
 }
 
 function makeClooksMatcherGroup(entrypointCommand: string): Record<string, unknown> {
@@ -70,7 +67,7 @@ function makeClooksMatcherGroup(entrypointCommand: string): Record<string, unkno
 }
 
 /**
- * Register Clooks in settings.json for all 20 Claude Code events.
+ * Register Clooks in settings.json for supported Claude Code events.
  * Creates the settings directory and file if missing.
  *
  * @param settingsDir - Directory containing settings.json (e.g., `join(projectRoot, ".claude")` or `join(homeRoot, ".claude")`)
@@ -94,7 +91,7 @@ export function registerClooks(settingsDir: string, entrypointCommand: string): 
     }
 
     const arr = hooks[event] as unknown[]
-    const existingIdx = arr.findIndex(isClooksMatcherGroup)
+    const existingIdx = arr.findIndex((group) => isClooksMatcherGroup(group, entrypointCommand))
 
     if (existingIdx === -1) {
       // No Clooks matcher group — append one
@@ -104,7 +101,9 @@ export function registerClooks(settingsDir: string, entrypointCommand: string): 
       // Clooks matcher group exists — check if command needs migration
       const mg = arr[existingIdx] as Record<string, unknown>
       const mgHooks = mg.hooks as Record<string, unknown>[]
-      const clooksHook = mgHooks.find(isClooksHook) as Record<string, string> | undefined
+      const clooksHook = mgHooks.find((hook) => isClooksHook(hook, entrypointCommand)) as
+        | Record<string, string>
+        | undefined
 
       if (clooksHook && clooksHook.command !== entrypointCommand) {
         clooksHook.command = entrypointCommand
@@ -118,7 +117,7 @@ export function registerClooks(settingsDir: string, entrypointCommand: string): 
   // Only write if something changed
   if (added.length > 0 || updated.length > 0) {
     mkdirSync(settingsDir, { recursive: true })
-    writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n')
+    writeRegistrationFileAtomic(settingsPath, JSON.stringify(settings, null, 2) + '\n')
   }
 
   return {
@@ -131,16 +130,12 @@ export function registerClooks(settingsDir: string, entrypointCommand: string): 
 
 /**
  * Unregister Clooks from settings.json by removing all Clooks
- * matcher groups. Preserves non-Clooks hooks and other settings.
+ * hooks. Preserves non-Clooks hooks, mixed-group metadata and other settings.
  *
  * @param settingsDir - Directory containing settings.json
  */
 export function unregisterClooks(settingsDir: string): UnregisterResult {
   const settingsPath = join(settingsDir, 'settings.json')
-
-  if (!existsSync(settingsPath)) {
-    return { removed: [] }
-  }
 
   const { settings } = readSettings(settingsPath)
   const hooks = settings.hooks as Record<string, unknown[]> | undefined
@@ -154,10 +149,19 @@ export function unregisterClooks(settingsDir: string): UnregisterResult {
     const matchers = hooks[event]
     if (!Array.isArray(matchers)) continue
 
-    const filtered = matchers.filter((mg) => !isClooksMatcherGroup(mg))
-    if (filtered.length < matchers.length) {
-      removed.push(event)
-    }
+    let changed = false
+    const filtered = matchers.flatMap((value) => {
+      const group = value as Record<string, unknown>
+      const entries = group.hooks as unknown[]
+      const remaining = entries.filter(
+        (hook) => !isClooksHook(hook, join(dirname(settingsDir), '.clooks/bin/entrypoint.sh')),
+      )
+      if (remaining.length === entries.length) return [group]
+      changed = true
+      return remaining.length ? [{ ...group, hooks: remaining }] : []
+    })
+    if (!changed) continue
+    removed.push(event)
     if (filtered.length === 0) {
       delete hooks[event]
     } else {
@@ -171,7 +175,7 @@ export function unregisterClooks(settingsDir: string): UnregisterResult {
     if (Object.keys(hooks).length === 0) {
       delete settings.hooks
     }
-    writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n')
+    writeRegistrationFileAtomic(settingsPath, JSON.stringify(settings, null, 2) + '\n')
   }
 
   return { removed }
@@ -185,15 +189,18 @@ export function unregisterClooks(settingsDir: string): UnregisterResult {
 export function isClooksRegistered(settingsDir: string): boolean {
   const settingsPath = join(settingsDir, 'settings.json')
 
-  if (!existsSync(settingsPath)) return false
-
-  const { settings } = readSettings(settingsPath)
+  const { settings } = readRegistrationFile(settingsPath)
   const hooks = settings.hooks as Record<string, unknown[]> | undefined
   if (!hooks) return false
 
   for (const matchers of Object.values(hooks)) {
     if (!Array.isArray(matchers)) continue
-    if (matchers.some(isClooksMatcherGroup)) return true
+    if (
+      matchers.some((group) =>
+        isClooksMatcherGroup(group, join(dirname(settingsDir), '.clooks/bin/entrypoint.sh')),
+      )
+    )
+      return true
   }
 
   return false
