@@ -18,11 +18,12 @@ import { createHash, randomBytes } from 'node:crypto'
 import { constants } from 'node:fs'
 import type { Dirent } from 'node:fs'
 import { lstat, mkdir, open, readdir, realpath, rename, unlink, writeFile } from 'node:fs/promises'
-import { basename, join, sep } from 'node:path'
+import { basename, dirname, join, resolve, sep } from 'node:path'
 import { isPlainObject } from 'lodash-es'
 import { CLAUDE_CODE_EVENTS } from '../config/constants.js'
 import type { EventName, HookName } from '../types/branded.js'
 import type { TurnContext, TurnDecision, TurnRecord } from '../types/turn.js'
+import type { AgentId } from '../agents/types.js'
 
 /** Bumped when the on-disk format changes. An unrecognized version is treated as corrupt. */
 export const TURN_STATE_VERSION = 1
@@ -466,9 +467,18 @@ function sleep(msec: number): Promise<void> {
  * interpolated: it is an externally supplied string, and hashing keeps it out
  * of every path, filename, and warning this module can emit.
  */
-export function turnStatePath(homeRoot: string, sessionId: string): string {
+export function turnStatePath(
+  homeRoot: string,
+  sessionId: string,
+  provider: AgentId = 'claude-code',
+): string {
   const hash = createHash('sha256').update(sessionId).digest('hex').slice(0, 16)
-  return join(homeRoot, '.clooks', 'turn-state', `${hash}.json`)
+  return join(turnStateDirectory(homeRoot, provider), `${hash}.json`)
+}
+
+function turnStateDirectory(homeRoot: string, provider: AgentId): string {
+  const base = join(homeRoot, '.clooks', 'turn-state')
+  return provider === 'codex' ? join(base, provider) : base
 }
 
 function lockPathFor(statePath: string): string {
@@ -490,7 +500,7 @@ async function readBounded(
 > {
   let handle
   try {
-    handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW)
+    handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
   } catch (e) {
     // ELOOP means a symlink was planted at the path; ENOENT means fresh.
     return { ok: false, reason: errorCode(e) === 'ENOENT' ? 'absent' : 'unusable' }
@@ -513,7 +523,34 @@ async function readBounded(
  * unrecognized version — degrades to empty state, because turn history is an
  * optimization signal and must never be able to wedge an invocation.
  */
-export async function readTurnState(path: string): Promise<TurnState> {
+export async function readTurnState(
+  path: string,
+  access?: { homeRoot: string; provider: AgentId },
+): Promise<TurnState> {
+  if (access?.provider === 'codex') {
+    try {
+      const dir = turnStateDirectory(access.homeRoot, access.provider)
+      if (resolve(dirname(path)) !== resolve(dir)) {
+        throw new Error('turn snapshot path is outside its provider directory')
+      }
+      await assertRealDirectory(join(access.homeRoot, '.clooks'))
+      await assertRealDirectory(join(access.homeRoot, '.clooks', 'turn-state'))
+      await assertRealDirectory(dir)
+      const resolvedHome = await realpath(access.homeRoot)
+      const resolvedDir = await realpath(dir)
+      if (!isStrictlyInside(resolvedHome, resolvedDir)) {
+        throw new Error('turn snapshot directory resolves outside the home root')
+      }
+      path = join(resolvedDir, basename(path))
+    } catch (error) {
+      if (errorCode(error) !== 'ENOENT') {
+        warnOnce(
+          `turn snapshot skipped (${error instanceof Error ? error.message : String(error)})`,
+        )
+      }
+      return emptyTurnState()
+    }
+  }
   return (await loadTurnState(path)) ?? emptyTurnState()
 }
 
@@ -770,11 +807,13 @@ async function ensureRealDirectory(path: string, mode: number, enforceMode = fal
   }
 }
 
-async function ensureTurnStateDirectory(homeRoot: string): Promise<string> {
+async function ensureTurnStateDirectory(homeRoot: string, provider: AgentId): Promise<string> {
   await ensureRealDirectory(join(homeRoot, '.clooks'), 0o700)
 
-  const dir = join(homeRoot, '.clooks', 'turn-state')
-  await ensureRealDirectory(dir, 0o700, true)
+  const base = join(homeRoot, '.clooks', 'turn-state')
+  await ensureRealDirectory(base, 0o700, true)
+  const dir = turnStateDirectory(homeRoot, provider)
+  if (dir !== base) await ensureRealDirectory(dir, 0o700, true)
 
   // Backstop: per-component checks cannot see a symlink higher up the chain
   // (a symlinked home root, say), and realpath collapses the whole chain.
@@ -896,12 +935,13 @@ export async function commitTurnRecords(
   homeRoot: string,
   captured: TurnStamp,
   pending: PendingTurnRecord[],
+  provider: AgentId = 'claude-code',
 ): Promise<void> {
   if (pending.length === 0) return
 
   let dir: string
   try {
-    dir = await ensureTurnStateDirectory(homeRoot)
+    dir = await ensureTurnStateDirectory(homeRoot, provider)
   } catch (e) {
     warnOnce(`turn state write skipped (${e instanceof Error ? e.message : String(e)})`)
     return
@@ -969,6 +1009,7 @@ export async function applyTurnBoundary(
   path: string,
   homeRoot: string,
   kind: 'advance' | 'reset',
+  provider: AgentId = 'claude-code',
 ): Promise<TurnState> {
   // `kind` is intentionally not branched on yet — both boundaries behave
   // identically today; the parameter records the caller's intent.
@@ -976,7 +1017,7 @@ export async function applyTurnBoundary(
 
   let dir: string
   try {
-    dir = await ensureTurnStateDirectory(homeRoot)
+    dir = await ensureTurnStateDirectory(homeRoot, provider)
   } catch (e) {
     warnOnce(`turn boundary skipped (${e instanceof Error ? e.message : String(e)})`)
     return emptyTurnState()
@@ -1042,6 +1083,7 @@ export function createTurnTracker(input: {
   homeRoot: string
   state: TurnState
   scopeKey: string
+  provider?: AgentId
 }): TurnTracker {
   const captured = turnStampOf(input.state)
   const scopeRecords = ownValue(input.state.scopes, input.scopeKey)
@@ -1079,7 +1121,7 @@ export function createTurnTracker(input: {
       if (pending.length === 0) return
       const batch = pending.splice(0)
       try {
-        await commitTurnRecords(input.path, input.homeRoot, captured, batch)
+        await commitTurnRecords(input.path, input.homeRoot, captured, batch, input.provider)
       } catch {
         // commitTurnRecords already swallows its own failures; this is the
         // belt to its braces, because the caller is on the engine's return path.
@@ -1103,8 +1145,11 @@ function classifyTurnStateFile(name: string): PruneKind | null {
  * ever touched — never a directory, never a symlink. A missing directory is a
  * silent no-op.
  */
-export async function pruneTurnState(homeRoot: string): Promise<void> {
-  const dir = join(homeRoot, '.clooks', 'turn-state')
+export async function pruneTurnState(
+  homeRoot: string,
+  provider: AgentId = 'claude-code',
+): Promise<void> {
+  const dir = turnStateDirectory(homeRoot, provider)
 
   // Per-component refusal FIRST, containment second. Containment alone is not
   // enough: `realpath` resolves a symlinked `turn-state` before the check runs,
@@ -1115,6 +1160,9 @@ export async function pruneTurnState(homeRoot: string): Promise<void> {
   let resolvedDir: string
   try {
     await assertRealDirectory(join(homeRoot, '.clooks'))
+    if (provider !== 'claude-code') {
+      await assertRealDirectory(join(homeRoot, '.clooks', 'turn-state'))
+    }
     await assertRealDirectory(dir)
 
     resolvedDir = await realpath(dir)

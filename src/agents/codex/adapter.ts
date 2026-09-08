@@ -1,20 +1,14 @@
 import type { AgentAdapter } from '../types.js'
-import { UnsupportedAgentAdapterError } from '../types.js'
-
-function unsupported(): never {
-  throw new UnsupportedAgentAdapterError('codex')
-}
+import { normalizeInvocation, readEventName } from './normalize.js'
+import { createResultPolicy } from './policy.js'
+import { translateFailure, translateFinalOutput } from './translate.js'
 
 export const codexAdapter: AgentAdapter = {
   id: 'codex',
-  supportsRuntime: false,
+  supportsRuntime: true,
   supportsClaudePluginAdvisories: false,
-
-  // Selection can identify Codex, but runtime handling stays fail-closed until
-  // Codex normalization and output translation are implemented.
-  readEventName() {
-    return null
-  },
+  inputStage: 'before-hooks',
+  readEventName,
 
   async prepareConfigAfterLoad(input) {
     return {
@@ -28,19 +22,59 @@ export const codexAdapter: AgentAdapter = {
     return []
   },
 
-  normalizeContext() {
-    return unsupported()
+  normalizeInvocation,
+
+  discoveryEnvironment(env) {
+    const copy = { ...env }
+    delete copy.CLAUDE_PROJECT_DIR
+    return copy
   },
 
-  adjustResultBeforeFinalOutput() {
-    return unsupported()
+  createResultPolicy,
+  resolveTurnPolicy(invocation) {
+    const { sessionId, nativeTurnId, referencedAgentId } = invocation.private
+    const sessionStart = invocation.eventName === 'SessionStart'
+    if (!sessionId || (!sessionStart && !nativeTurnId)) return null
+    const rootPrompt = invocation.eventName === 'UserPromptSubmit' && !referencedAgentId
+    const reset =
+      sessionStart &&
+      (invocation.context.source === 'startup' || invocation.context.source === 'clear')
+    return {
+      sessionId,
+      scopeKey: referencedAgentId ? `agent:${referencedAgentId}` : 'main',
+      boundary: reset ? 'reset' : rootPrompt ? 'advance' : null,
+      prune: sessionStart,
+    }
   },
-
-  translateFinalOutput() {
-    return unsupported()
+  composeDiagnostics(input) {
+    let result = input.result
+    const contextChannel = [
+      'SessionStart',
+      'SubagentStart',
+      'PreToolUse',
+      'PostToolUse',
+      'UserPromptSubmit',
+    ].includes(input.eventName)
+    if (contextChannel && input.traceMessages.length > 0) {
+      result = {
+        ...(result ?? { result: 'skip' }),
+        injectContext: [result?.injectContext, ...input.traceMessages]
+          .filter((text) => text !== undefined)
+          .join('\n'),
+      }
+    }
+    return {
+      result,
+      stderr: input.debugMessages.map((line) => `[clooks:debug] ${line}`),
+      systemMessages: [...input.degradedMessages, ...(contextChannel ? [] : input.traceMessages)],
+    }
   },
-
+  translateFailure,
+  adjustResultBeforeFinalOutput(input) {
+    return { result: input.result, systemMessages: [] }
+  },
+  translateFinalOutput,
   routeSystemMessage() {
-    return unsupported()
+    return 'stdout-json'
   },
 }

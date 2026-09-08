@@ -17,9 +17,12 @@ Global hooks live in `~/.clooks/` and are loaded by the engine alongside project
     plugin/           # plugin-delivered hooks (auto-vendored from plugin cache)
   bin/
     clooks            # compiled binary (shared across all projects)
+    entrypoint.sh     # shared global launcher
   failures/           # failure state for home-only projects
     <hash>.json       # SHA-256(projectRoot)[0:12] → failure state
-  .global-entrypoint-active   # flag file for entrypoint dedup
+  .global-entrypoint-active         # legacy Claude dedup flag
+  .global-entrypoint-active.codex   # versioned Codex registration receipt
+  .codex-registration-home         # Codex cleanup identity; never suppresses projects
 ```
 
 Global hooks installed via `clooks add --global` use the same short address `uses:` format as project hooks (e.g., `uses: someuser/security-hooks:secret-scanner`). They resolve relative to `~/.clooks/` via origin-aware path construction in `resolveHookPath()`.
@@ -58,9 +61,51 @@ See `src/config/types.ts` for the `HookOrigin` type and `src/config/index.ts` fo
 
 ## Entrypoint Dedup
 
-When both a global entrypoint (`~/.clooks/bin/entrypoint.sh` registered in `~/.claude/settings.json`) and a project entrypoint (`"$CLAUDE_PROJECT_DIR"/.clooks/bin/entrypoint.sh` registered in `.claude/settings.json`) exist, the global entrypoint handles everything. The project entrypoint checks for the flag file `~/.clooks/.global-entrypoint-active` and exits early if present.
+Global invocations intentionally execute the merged home/project/local pipeline, including trusted repository hooks. Existing ordering, shadowing and local overrides apply. Dedup lets a project entrypoint yield to the same agent's global registration; it does not add repository authorization or coordinate invocation identities.
+
+Claude retains its empty `~/.clooks/.global-entrypoint-active` flag and existence-based project check. Global init publishes that flag after the Claude registrar succeeds and the launcher is executable. Codex uses a separate versioned receipt at `~/.clooks/.global-entrypoint-active.codex`. New project launchers require matching physical installation and Codex homes, an executable global launcher, readable regular `hooks.json`, and a matching POSIX `cksum` before yielding. Changes to any registration bytes, including unrelated hooks, invalidate freshness until re-init. Missing, malformed, legacy, stale or mismatched state and checksum failures fall through to project execution.
+
+`CLOOKS_HOME_ROOT` remains the runtime config/state override, not the installation root. For Codex receipt eligibility, an unset override is allowed; a set override must be a nonempty absolute existing directory with the same physical identity as installation HOME. Empty, relative or different values disable suppression without changing the engine's interpretation of the override.
+
+Neither receipt nor flag proves the native agent will invoke its global hook. Disabled or unreviewed hooks can remain inactive with valid persisted state. Recovery is external native hook enablement/review or matching global unhook to restore project eligibility. Existing project scripts only inspect flag existence; rerun project init as well as global init to obtain the new Codex checks. Other checkouts are not migrated automatically.
 
 See `docs/domain/bash-entrypoint.md` for details.
+
+## Codex Home and Registration State
+
+Global Codex registration uses nonempty `CODEX_HOME`, otherwise `<installation-home>/.codex`. Overrides must be absolute and contain no CR/LF or NUL. `resolveCodexHome()` resolves existing directories physically through symlinks; for missing directories it resolves the nearest existing ancestor and appends missing components, without writes. It rejects files and dangling symlinks. Project registration stays at `<project>/.codex/hooks.json`. The shared launcher and Clooks configuration stay under the installation home, regardless of the selected Codex home.
+
+Existing path components are resolved with filesystem `realpath` before processing a following `..`. This preserves physical parent semantics when a directory symlink points elsewhere; normalizing the whole path first can choose a different home. The default-home suffix is appended without first normalizing the installation path, so default and override resolution agree. Symlink interpretation remains delegated to the filesystem, without a separate symlink-target parser.
+
+Cancelling a missing component with `..` resumes filesystem resolution: `missing/../alias` can resolve to an existing physical destination without creating `missing`. CLI registration accepts that canonical destination. Agreement with shell `cd -P` requires the original environment spelling to be traversable; the shell may reject this spelling while `missing` is absent and conservatively run the project entrypoint. That fallback is intentional, rather than a reason to reject the CLI path.
+
+`src/registration-state.ts` owns synchronous parsing, atomic publication and matching cleanup. The recovery record contains exactly two LF-terminated lines:
+
+```text
+clooks-codex-home-v1
+<canonical absolute Codex home>
+```
+
+The suppression receipt contains exactly four LF-terminated lines:
+
+```text
+clooks-codex-registration-v1
+<canonical absolute installation home>
+<canonical absolute Codex home>
+<crc>:<byteCount>
+```
+
+Checksum fields use canonical unsigned decimal text. Publication runs POSIX `cksum` through `Bun.spawnSync` with the complete committed `hooks.json` bytes on stdin, without a shell or filename in its output. This detects incidental staleness; it is not a cryptographic check or native activation proof. State files use the shared atomic writer with existing mode preservation. Read errors propagate; malformed records and nonregular state files require repair rather than automatic deletion. Only an exactly empty receipt is legacy; empty recovery records are invalid.
+
+The CLI checksum subprocess has a ten-second deadline and uses `SIGKILL` on timeout. Timeout, spawn errors, termination and nonzero status prevent publication and retain the recovery identity for retry. This bound does not alter hook execution timeouts or the project launcher's checksum checks.
+
+Selected-Codex/all global init validates both records and the selected home before writes. It then persists recovery identity before retiring any old matching Codex receipt, and does both before repairing the shared launcher. This prevents failed selected-Codex/all re-init from reviving an old receipt merely by making its launcher executable. Recovery-write failure leaves the receipt untouched; receipt-removal failure retains cleanup identity and aborts setup. Registration and executable launcher success precede new receipt publication. Failed checksum/publication leaves the committed registration recoverable.
+
+Claude-only init stays independent of Codex state. It can repair the shared launcher and thereby restore eligibility of an existing matching Codex receipt, even if the later Claude registrar fails. This is an explicit bounded exception to the selected-Codex/all failed-init guarantee; it does not expand receipt retirement to Claude-only setup or change repository permissions.
+
+One recorded Codex home is supported per installation home. A different recorded home blocks init until explicitly unhooked; conflicting or malformed records block mutation. An empty legacy receipt identifies the default home and can upgrade only there. Same-home retries are allowed. Unhook in B does not mutate A or erase A's identity. Full global deletion preflights and deduplicates the selected and recorded homes, including a legacy default, before cleanup. No arbitrary directories are scanned; older unrecorded homes need explicit cleanup with their `CODEX_HOME`.
+
+Matching state clears only after inspection of every event proves no owned references remain. Unknown-event references or malformed containers block cleanup with file/field evidence, even after known events were successfully unregistered. A missing hooks file permits matching cleanup. The receipt is removed before the recovery record, so a failed removal still leaves an identity for retry. Invalid state is never silently erased. These are individually atomic file operations with recoverable partial failure, not a transaction across registration files.
 
 ## Failure State Strategy
 
@@ -70,6 +115,8 @@ Failure state (circuit breaker data) is stored differently depending on project 
 - **Home-only project** — Stored centrally at `~/.clooks/failures/<hash>.json`, where `<hash>` is the first 12 hex characters of `SHA-256(projectRoot)`.
 
 The `getFailurePath()` function in `src/failures.ts` computes the path. `writeFailures()` ensures the parent directory exists before writing (handles the case where `~/.clooks/failures/` doesn't exist yet).
+
+Those are the unchanged default Claude paths. The helper now accepts an optional fourth provider argument: `codex` selects `<projectRoot>/.clooks/.cache/agents/codex/failures.json` with project config, or `<homeRoot>/.clooks/failures/codex/<hash>.json` without it. The Codex engine uses `getFailureLocation()` to carry both path and selected managed root through failure reads, writes and clearing. Codex validates real parent directories and regular single-link files, uses no-follow reads and atomic staged writes; Claude retains its existing string-path I/O. See [Execution](./config/execution.md) for storage checks. `getConfigFailurePath()` uses the same Codex selection, including home-only configuration failures; Claude config failures retain their historical project `.clooks/.failures` path. Docker integration validation has passed. Registration receipts, installation-home selection and native activation behavior are unchanged.
 
 **`LOAD_ERROR_EVENT` recovery:** When a hook fails to load (missing file), failures are recorded under the synthetic event key `__load__` (not the runtime event name). When the hook file is restored and loads successfully, the engine clears the `__load__` counter. This was a bug fix — previously, the `__load__` counter was never cleared because the success path only cleared the runtime event counter.
 
@@ -107,6 +154,8 @@ clooks: project hooks shadowing home: security-audit
 - `src/engine/run.ts` — `runEngine()`, `startupWarnings` assembly, failure path computation.
 - `src/commands/config.ts` — `config --resolved` provenance command.
 - `src/commands/init.ts` — `init --global` for home directory setup.
+- `src/agents/codex/settings.ts` — physical Codex-home resolution and registration.
+- `src/registration-state.ts` — Codex recovery records, suppression receipts and guarded cleanup.
 
 ## Related
 

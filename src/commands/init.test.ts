@@ -38,12 +38,16 @@ import {
   makeCodexProjectEntrypointCommand,
 } from '../agents/codex/settings.js'
 import os from 'os'
+import * as registrationState from '../registration-state.js'
+import * as fs from 'node:fs'
+import * as codexSettings from '../agents/codex/settings.js'
 
 let tempDir: string
 let originalCwd: () => string
 let originalStdinIsTTY: boolean | undefined
 let exitSpy: ReturnType<typeof spyOn>
 let stdoutSpy: ReturnType<typeof spyOn>
+let originalEnvironment: Record<string, string | undefined>
 
 function createTestProgram() {
   const program = new Command()
@@ -81,6 +85,15 @@ function infoMessages(): string[] {
 
 beforeEach(() => {
   tempDir = mkdtempSync(join(tmpdir(), 'clooks-init-test-'))
+  originalEnvironment = {
+    HOME: process.env.HOME,
+    CODEX_HOME: process.env.CODEX_HOME,
+    CLOOKS_HOME_ROOT: process.env.CLOOKS_HOME_ROOT,
+  }
+  process.env.HOME = join(tempDir, 'home')
+  mkdirSync(process.env.HOME, { recursive: true })
+  delete process.env.CODEX_HOME
+  process.env.CLOOKS_HOME_ROOT = process.env.HOME
   originalCwd = process.cwd
   originalStdinIsTTY = process.stdin.isTTY
   process.cwd = () => tempDir
@@ -100,6 +113,11 @@ afterEach(() => {
   Object.defineProperty(process.stdin, 'isTTY', { value: originalStdinIsTTY, writable: true })
   exitSpy.mockRestore()
   stdoutSpy.mockRestore()
+  mock.restore()
+  for (const [name, value] of Object.entries(originalEnvironment)) {
+    if (value === undefined) delete process.env[name]
+    else process.env[name] = value
+  }
   if (tempDir) {
     rmSync(tempDir, { recursive: true, force: true })
   }
@@ -943,9 +961,11 @@ describe('clooks init --global', () => {
     expect(parsed.data.updated).toBeInstanceOf(Array)
     expect(parsed.data.agent).toBe('codex')
     expect(parsed.data.agents).toEqual(['codex'])
-    expect(parsed.data.created.some((item: string) => item.includes('~/.codex/hooks.json'))).toBe(
-      true,
-    )
+    expect(
+      parsed.data.created.some((item: string) =>
+        item.includes(join(fakeHome, '.codex/hooks.json')),
+      ),
+    ).toBe(true)
   })
 
   test('--agent codex global rerun is idempotent', async () => {
@@ -966,7 +986,7 @@ describe('clooks init --global', () => {
         .join('')
         .trim(),
     )
-    expect(parsed.data.skipped).toContain('~/.codex/hooks.json')
+    expect(parsed.data.skipped).toContain(join(fakeHome, '.codex/hooks.json'))
   })
 
   test('--agent codex global human output reports trust warning and no runtime-placeholder warning', async () => {
@@ -974,7 +994,9 @@ describe('clooks init --global', () => {
     await program.parseAsync(['init', '--global', '--agent', 'codex'], { from: 'user' })
 
     expect(
-      successMessages().some((message) => message.includes('Created ~/.codex/hooks.json')),
+      successMessages().some((message) =>
+        message.includes(`Created ${join(fakeHome, '.codex/hooks.json')}`),
+      ),
     ).toBe(true)
     expect(warningMessages().some((message) => message.includes('Codex hook'))).toBe(true)
     expect(
@@ -987,7 +1009,9 @@ describe('clooks init --global', () => {
     await program.parseAsync(['init', '--global', '--agent', 'all'], { from: 'user' })
 
     expect(
-      successMessages().some((message) => message.includes('Created ~/.codex/hooks.json')),
+      successMessages().some((message) =>
+        message.includes(`Created ${join(fakeHome, '.codex/hooks.json')}`),
+      ),
     ).toBe(true)
     expect(warningMessages().some((message) => message.includes('Codex hook'))).toBe(true)
     expect(
@@ -1024,9 +1048,8 @@ describe('ENTRYPOINT_SCRIPT', () => {
     expect(ENTRYPOINT_SCRIPT).toContain(
       '[ "$CLOOKS_DEDUP_AGENT" = "claude-code" ] && [ -f "$HOME/.clooks/.global-entrypoint-active" ]',
     )
-    expect(ENTRYPOINT_SCRIPT).toContain(
-      'if [ -f "$HOME/.clooks/.global-entrypoint-active.$CLOOKS_DEDUP_AGENT" ]',
-    )
+    expect(ENTRYPOINT_SCRIPT).toContain('clooks-codex-registration-v1')
+    expect(ENTRYPOINT_SCRIPT).toContain('cksum')
   })
 
   test('dedup check appears after SKIP_CLOOKS and before CLOOKS_BIN', () => {
@@ -1068,6 +1091,22 @@ describe('entrypoint dedup behavior', () => {
   let fakeHome: string
   let originalHomedir: typeof os.homedir
 
+  function runEntrypoint(entrypointPath: string, agent = 'claude-code') {
+    return Bun.spawnSync(['/bin/bash', entrypointPath], {
+      cwd: tempDir,
+      env: {
+        HOME: fakeHome,
+        CODEX_HOME: join(fakeHome, '.codex'),
+        CLOOKS_HOME_ROOT: fakeHome,
+        CLOOKS_AGENT: agent,
+        PATH: '/usr/bin:/bin',
+      },
+      stdin: Buffer.from('{}'),
+      timeout: 2000,
+      killSignal: 'SIGKILL',
+    })
+  }
+
   beforeEach(() => {
     fakeHome = join(tempDir, 'fakehome')
     mkdirSync(fakeHome, { recursive: true })
@@ -1091,10 +1130,7 @@ describe('entrypoint dedup behavior', () => {
     writeFileSync(join(fakeHome, '.clooks', '.global-entrypoint-active'), '')
 
     // Run the entrypoint — it should exit 0 immediately due to dedup
-    const proc = Bun.spawnSync(['bash', entrypointPath], {
-      env: { ...process.env, HOME: fakeHome },
-      stdin: Buffer.from('{}'),
-    })
+    const proc = runEntrypoint(entrypointPath)
     expect(proc.exitCode).toBe(0)
   })
 
@@ -1107,10 +1143,7 @@ describe('entrypoint dedup behavior', () => {
 
     // Do NOT create the flag file — entrypoint should proceed to binary check.
     // Use a restricted PATH so `command -v clooks` won't find a real binary.
-    const proc = Bun.spawnSync(['bash', entrypointPath], {
-      env: { HOME: fakeHome, PATH: '/usr/local/bin:/usr/bin:/bin' },
-      stdin: Buffer.from('{}'),
-    })
+    const proc = runEntrypoint(entrypointPath)
     // Should exit 0 (allow) with install advisory on stderr — missing binary
     // is a setup state, not a runtime failure. Blocking here would deadlock
     // /clooks:setup, which invokes the Bash tool guarded by this hook.
@@ -1130,16 +1163,13 @@ describe('entrypoint dedup behavior', () => {
     await projectProgram.parseAsync(['init'], { from: 'user' })
 
     const entrypointPath = join(tempDir, '.clooks', 'bin', 'entrypoint.sh')
-    const proc = Bun.spawnSync(['bash', entrypointPath], {
-      env: { HOME: fakeHome, PATH: '/usr/local/bin:/usr/bin:/bin' },
-      stdin: Buffer.from('{}'),
-    })
+    const proc = runEntrypoint(entrypointPath)
 
     expect(proc.exitCode).toBe(0)
     expect(proc.stderr.toString()).toContain('Binary not found')
   })
 
-  test('Codex project entrypoint exits early when Codex global flag exists', async () => {
+  test('Codex project entrypoint remains eligible with an empty legacy flag', async () => {
     const program = createTestProgram()
     await program.parseAsync(['init', '--agent', 'codex'], { from: 'user' })
 
@@ -1147,16 +1177,294 @@ describe('entrypoint dedup behavior', () => {
     writeFileSync(join(fakeHome, '.clooks', '.global-entrypoint-active.codex'), '')
 
     const entrypointPath = join(tempDir, '.clooks', 'bin', 'entrypoint.sh')
-    const proc = Bun.spawnSync(['bash', entrypointPath], {
-      env: {
-        HOME: fakeHome,
-        PATH: '/usr/local/bin:/usr/bin:/bin',
-        CLOOKS_AGENT: 'codex',
-      },
-      stdin: Buffer.from('{}'),
-    })
+    const proc = runEntrypoint(entrypointPath, 'codex')
 
     expect(proc.exitCode).toBe(0)
-    expect(proc.stderr.toString()).not.toContain('Binary not found')
+    expect(proc.stderr.toString()).toContain('Binary not found')
   })
+})
+
+describe('global init registration recovery', () => {
+  let home: string
+  beforeEach(() => {
+    home = join(tempDir, 'installation')
+    mkdirSync(home)
+    spyOn(os, 'homedir').mockReturnValue(home)
+  })
+
+  function run(agent = 'codex') {
+    return createTestProgram().parseAsync(['--json', 'init', '--global', '--agent', agent], {
+      from: 'user',
+    })
+  }
+
+  test.each(['relative', '/bad\npath', '/bad\rpath'])(
+    'rejects invalid CODEX_HOME %j before all shared writes',
+    async (value) => {
+      process.env.CODEX_HOME = value
+      await expect(run('all')).rejects.toThrow('process.exit called')
+      expect(fs.readdirSync(home)).toEqual([])
+    },
+  )
+
+  test.each(['.codex-registration-home', '.global-entrypoint-active.codex'])(
+    'malformed %s prevents types, schema, launcher and Claude writes',
+    async (name) => {
+      mkdirSync(join(home, '.clooks/hooks'), { recursive: true })
+      const sentinel = join(home, '.clooks/hooks/types.d.ts')
+      writeFileSync(sentinel, 'keep types')
+      writeFileSync(join(home, '.clooks', name), 'malformed\n')
+      await expect(run('all')).rejects.toThrow('process.exit called')
+      expect(readFileSync(sentinel, 'utf-8')).toBe('keep types')
+      expect(existsSync(join(home, '.clooks/clooks.schema.json'))).toBe(false)
+      expect(existsSync(join(home, '.clooks/bin'))).toBe(false)
+      expect(existsSync(join(home, '.claude'))).toBe(false)
+      expect(existsSync(join(home, '.codex'))).toBe(false)
+    },
+  )
+
+  test('custom home output and receipt use installation HOME, ignoring runtime override', async () => {
+    const custom = join(tempDir, 'codex custom')
+    process.env.CODEX_HOME = custom
+    process.env.CLOOKS_HOME_ROOT = join(tempDir, 'runtime-only')
+    await run()
+    expect(existsSync(join(custom, 'hooks.json'))).toBe(true)
+    expect(existsSync(process.env.CLOOKS_HOME_ROOT)).toBe(false)
+    expect(registrationState.readCodexTrackedHome(home)).toEqual({
+      kind: 'home',
+      codexHome: custom,
+    })
+    const receipt = registrationState.readCodexReceipt(home)
+    expect(receipt.kind).toBe('receipt')
+    if (receipt.kind === 'receipt') expect(receipt.value.codexHome).toBe(custom)
+    expect(stdoutSpy.mock.calls.map((call: unknown[]) => String(call[0])).join('')).toContain(
+      join(custom, 'hooks.json'),
+    )
+  })
+
+  test('recovery write failure precedes Codex registration', async () => {
+    spyOn(registrationState, 'trackCodexHome').mockImplementation(() => {
+      throw new Error('track fault')
+    })
+    await expect(run()).rejects.toThrow('process.exit called')
+    expect(existsSync(join(home, '.codex/hooks.json'))).toBe(false)
+    expect(existsSync(join(home, '.clooks/.global-entrypoint-active.codex'))).toBe(false)
+    expect(fs.readdirSync(home)).toEqual([])
+  })
+
+  test('failed Codex registrar preserves recovery identity and successful Claude state', async () => {
+    mkdirSync(join(home, '.codex'))
+    writeFileSync(join(home, '.codex/hooks.json'), '{broken')
+    await expect(run('all')).rejects.toThrow('process.exit called')
+    expect(readFileSync(join(home, '.codex/hooks.json'), 'utf-8')).toBe('{broken')
+    expect(existsSync(join(home, '.clooks/.global-entrypoint-active'))).toBe(true)
+    expect(existsSync(join(home, '.clooks/.global-entrypoint-active.codex'))).toBe(false)
+    expect(registrationState.readCodexTrackedHome(home).kind).toBe('home')
+  })
+
+  test('failed Claude registrar does not publish a Claude flag', async () => {
+    mkdirSync(join(home, '.claude'))
+    writeFileSync(join(home, '.claude/settings.json'), '{broken')
+    await expect(run('all')).rejects.toThrow('process.exit called')
+    expect(existsSync(join(home, '.clooks/.global-entrypoint-active'))).toBe(false)
+    expect(existsSync(join(home, '.clooks/.global-entrypoint-active.codex'))).toBe(false)
+  })
+
+  test('publication runs after committed hooks and executable launcher; failure permits same-home retry', async () => {
+    let observed: { hooksExist: boolean; launcherMode: number } | undefined
+    const publish = spyOn(registrationState, 'publishCodexReceipt').mockImplementation(() => {
+      observed = {
+        hooksExist: existsSync(join(home, '.codex/hooks.json')),
+        launcherMode: statSync(join(home, '.clooks/bin/entrypoint.sh')).mode,
+      }
+      throw new Error('publication fault')
+    })
+    await expect(run()).rejects.toThrow('process.exit called')
+    expect(publish).toHaveBeenCalledTimes(1)
+    expect(observed?.hooksExist).toBe(true)
+    expect((observed?.launcherMode ?? 0) & 0o111).toBeGreaterThan(0)
+    expect(stdoutSpy.mock.calls.map((call: unknown[]) => String(call[0])).join('')).toContain(
+      'publication fault',
+    )
+    expect(registrationState.readCodexTrackedHome(home).kind).toBe('home')
+    expect(registrationState.readCodexReceipt(home).kind).toBe('missing')
+    publish.mockRestore()
+    await run()
+    expect(registrationState.readCodexReceipt(home).kind).toBe('receipt')
+  })
+
+  test.each(['missing', 'nonexecutable'])(
+    'retires old receipt before repairing %s launcher on failed re-init',
+    async (condition) => {
+      await run()
+      const launcher = join(home, '.clooks/bin/entrypoint.sh')
+      if (condition === 'missing') fs.unlinkSync(launcher)
+      else fs.chmodSync(launcher, 0o644)
+      const hooksPath = join(home, '.codex/hooks.json')
+      const hooks = readFileSync(hooksPath, 'utf-8')
+      let observedMode: number | undefined
+      const register = spyOn(codexSettings, 'registerCodexClooks').mockImplementation(() => {
+        observedMode = statSync(launcher).mode
+        throw new Error('registration fault')
+      })
+      await expect(run()).rejects.toThrow('process.exit called')
+      expect(register).toHaveBeenCalledTimes(1)
+      expect((observedMode ?? 0) & 0o111).toBeGreaterThan(0)
+      expect(stdoutSpy.mock.calls.map((call: unknown[]) => String(call[0])).join('')).toContain(
+        'registration fault',
+      )
+      expect(readFileSync(hooksPath, 'utf-8')).toBe(hooks)
+      expect(existsSync(join(home, '.clooks/.global-entrypoint-active.codex'))).toBe(false)
+      expect(registrationState.readCodexTrackedHome(home).kind).toBe('home')
+    },
+  )
+
+  test('failed recovery write preserves old receipt and missing launcher', async () => {
+    await run()
+    const receiptPath = join(home, '.clooks/.global-entrypoint-active.codex')
+    const receipt = readFileSync(receiptPath, 'utf-8')
+    const launcher = join(home, '.clooks/bin/entrypoint.sh')
+    fs.unlinkSync(launcher)
+    spyOn(registrationState, 'trackCodexHome').mockImplementation(() => {
+      throw new Error('track fault')
+    })
+    await expect(run()).rejects.toThrow('process.exit called')
+    expect(readFileSync(receiptPath, 'utf-8')).toBe(receipt)
+    expect(existsSync(launcher)).toBe(false)
+  })
+
+  test('receipt retirement failure retains identity and aborts before launcher repair', async () => {
+    await run()
+    const receiptPath = join(home, '.clooks/.global-entrypoint-active.codex')
+    const receipt = readFileSync(receiptPath, 'utf-8')
+    const launcher = join(home, '.clooks/bin/entrypoint.sh')
+    fs.unlinkSync(launcher)
+    const unlink = fs.unlinkSync
+    spyOn(fs, 'unlinkSync').mockImplementation((path) => {
+      if (String(path) === receiptPath) throw new Error('retire fault')
+      unlink(path)
+    })
+    await expect(run()).rejects.toThrow('process.exit called')
+    expect(readFileSync(receiptPath, 'utf-8')).toBe(receipt)
+    expect(existsSync(launcher)).toBe(false)
+    expect(registrationState.readCodexTrackedHome(home).kind).toBe('home')
+  })
+
+  for (const agent of ['codex', 'all']) {
+    for (const condition of ['missing', 'nonexecutable']) {
+      test(`${agent}: publication failure after repairing ${condition} launcher retires old receipt until retry`, async () => {
+        await run(agent)
+        const launcher = join(home, '.clooks/bin/entrypoint.sh')
+        const hooksPath = join(home, '.codex/hooks.json')
+        const hooks = readFileSync(hooksPath, 'utf-8')
+        if (condition === 'missing') fs.unlinkSync(launcher)
+        else fs.chmodSync(launcher, 0o644)
+        const publish = spyOn(registrationState, 'publishCodexReceipt').mockImplementation(() => {
+          throw new Error('publication fault')
+        })
+        await expect(run(agent)).rejects.toThrow('process.exit called')
+        expect(readFileSync(hooksPath, 'utf-8')).toBe(hooks)
+        expect(statSync(launcher).mode & 0o111).toBeGreaterThan(0)
+        expect(registrationState.readCodexReceipt(home).kind).toBe('missing')
+        expect(registrationState.readCodexTrackedHome(home).kind).toBe('home')
+        publish.mockRestore()
+        await run(agent)
+        expect(registrationState.readCodexReceipt(home).kind).toBe('receipt')
+      })
+    }
+
+    test(`${agent}: malformed recovery preflight preserves previously eligible receipt, hooks and launcher bytes/mode`, async () => {
+      await run(agent)
+      const paths = [
+        '.clooks/.global-entrypoint-active.codex',
+        '.codex/hooks.json',
+        '.clooks/bin/entrypoint.sh',
+        '.clooks/hooks/types.d.ts',
+        '.clooks/clooks.schema.json',
+      ].map((path) => join(home, path))
+      const before = paths.map((path) => ({
+        path,
+        bytes: readFileSync(path),
+        mode: statSync(path).mode,
+      }))
+      writeFileSync(join(home, '.clooks/.codex-registration-home'), 'malformed\n')
+      await expect(run(agent)).rejects.toThrow('process.exit called')
+      for (const { path, bytes, mode } of before) {
+        expect(readFileSync(path)).toEqual(bytes)
+        expect(statSync(path).mode).toBe(mode)
+      }
+    })
+  }
+
+  test('project Codex init ignores invalid global CODEX_HOME', async () => {
+    process.env.CODEX_HOME = 'relative-invalid-global-home'
+    await createTestProgram().parseAsync(['--json', 'init', '--agent', 'codex'], { from: 'user' })
+    expect(existsSync(join(tempDir, '.codex/hooks.json'))).toBe(true)
+    expect(fs.readdirSync(home)).toEqual([])
+  })
+
+  test('conflicting records prevent all init writes', async () => {
+    await run()
+    const alternate = join(tempDir, 'alternate')
+    const recovery = join(home, '.clooks/.codex-registration-home')
+    writeFileSync(recovery, `clooks-codex-home-v1\n${alternate}\n`)
+    const paths = [
+      recovery,
+      join(home, '.clooks/.global-entrypoint-active.codex'),
+      join(home, '.codex/hooks.json'),
+      join(home, '.clooks/bin/entrypoint.sh'),
+    ]
+    const before = paths.map((path) => readFileSync(path))
+    await expect(run('all')).rejects.toThrow('process.exit called')
+    paths.forEach((path, index) => expect(readFileSync(path)).toEqual(before[index]!))
+    expect(existsSync(join(home, '.claude'))).toBe(false)
+    expect(existsSync(alternate)).toBe(false)
+  })
+
+  test('legacy default identity rejects custom init before writes and upgrades on default retry', async () => {
+    mkdirSync(join(home, '.clooks'))
+    const receipt = join(home, '.clooks/.global-entrypoint-active.codex')
+    writeFileSync(receipt, '')
+    process.env.CODEX_HOME = join(tempDir, 'custom')
+    await expect(run('all')).rejects.toThrow('process.exit called')
+    expect(readFileSync(receipt, 'utf-8')).toBe('')
+    expect(fs.readdirSync(join(home, '.clooks'))).toEqual(['.global-entrypoint-active.codex'])
+    expect(existsSync(join(home, '.claude'))).toBe(false)
+    delete process.env.CODEX_HOME
+    await run()
+    expect(registrationState.readCodexReceipt(home).kind).toBe('receipt')
+  })
+
+  test.each(['missing', 'nonexecutable'])(
+    'Claude-only repair of %s shared launcher preserves old Codex receipt even after Claude failure',
+    async (condition) => {
+      await run('codex')
+      const launcher = join(home, '.clooks/bin/entrypoint.sh')
+      const receiptPath = join(home, '.clooks/.global-entrypoint-active.codex')
+      const recoveryPath = join(home, '.clooks/.codex-registration-home')
+      const hooksPath = join(home, '.codex/hooks.json')
+      const before = [receiptPath, recoveryPath, hooksPath].map((path) => readFileSync(path))
+      if (condition === 'missing') fs.unlinkSync(launcher)
+      else fs.chmodSync(launcher, 0o644)
+      mkdirSync(join(home, '.claude'))
+      writeFileSync(join(home, '.claude/settings.json'), '{broken')
+      process.env.CODEX_HOME = 'invalid-but-unselected'
+      const readReceipt = spyOn(registrationState, 'readCodexReceipt')
+      const readTracked = spyOn(registrationState, 'readCodexTrackedHome')
+      const track = spyOn(registrationState, 'trackCodexHome')
+      const publish = spyOn(registrationState, 'publishCodexReceipt')
+      await expect(run('claude-code')).rejects.toThrow('process.exit called')
+      expect(readReceipt).not.toHaveBeenCalled()
+      expect(readTracked).not.toHaveBeenCalled()
+      expect(track).not.toHaveBeenCalled()
+      expect(publish).not.toHaveBeenCalled()
+      ;[receiptPath, recoveryPath, hooksPath].forEach((path, index) =>
+        expect(readFileSync(path)).toEqual(before[index]!),
+      )
+      expect(statSync(launcher).mode & 0o111).toBeGreaterThan(0)
+      expect(readFileSync(launcher, 'utf-8')).toBe(GLOBAL_ENTRYPOINT_SCRIPT)
+      expect(readFileSync(join(home, '.claude/settings.json'), 'utf-8')).toBe('{broken')
+      expect(existsSync(join(home, '.clooks/.global-entrypoint-active'))).toBe(false)
+    },
+  )
 })

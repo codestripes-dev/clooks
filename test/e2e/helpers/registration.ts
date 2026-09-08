@@ -5,22 +5,31 @@ export function createRegistrationSandbox(): Sandbox {
   const sandbox = createSandbox()
   const run = sandbox.run.bind(sandbox)
   const runAsync = sandbox.runAsync.bind(sandbox)
-  const runEntrypoint = sandbox.runEntrypoint.bind(sandbox)
   sandbox.run = (args, opts) =>
     run(args, {
       ...opts,
-      env: { CODEX_HOME: join(sandbox.home, '.codex'), ...opts?.env },
+      timeout: opts?.timeout ?? 10_000,
+      env: { ...registrationEnv(sandbox), ...opts?.env },
     })
   sandbox.runAsync = (args, opts) =>
     runAsync(args, {
       ...opts,
-      env: { CODEX_HOME: join(sandbox.home, '.codex'), ...opts?.env },
+      timeout: opts?.timeout ?? 10_000,
+      env: { ...registrationEnv(sandbox), ...opts?.env },
     })
-  sandbox.runEntrypoint = (opts) =>
-    runEntrypoint({
-      ...opts,
-      env: { CODEX_HOME: join(sandbox.home, '.codex'), ...opts?.env },
+  sandbox.runEntrypoint = (opts) => {
+    const result = Bun.spawnSync(['/bin/bash', join(sandbox.dir, '.clooks/bin/entrypoint.sh')], {
+      cwd: sandbox.dir,
+      stdin: Buffer.from(opts?.stdin ?? ''),
+      env: { ...registrationEnv(sandbox), ...opts?.env },
+      timeout: 10_000,
     })
+    return {
+      exitCode: result.exitCode ?? 2,
+      stdout: result.stdout.toString(),
+      stderr: result.stderr.toString(),
+    }
+  }
   return sandbox
 }
 

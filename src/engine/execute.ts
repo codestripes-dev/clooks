@@ -14,12 +14,15 @@ import { orderHooksForEvent, partitionIntoGroups } from '../ordering.js'
 import type { ExecutionGroup } from '../ordering.js'
 import { runHookLifecycle, LifecycleMetaCache } from '../lifecycle.js'
 import type { LifecycleResult } from '../lifecycle.js'
-import type { EngineResult } from './types.js'
+import type { EngineResult, ExecutionResult } from './types.js'
+import type { InvocationResultPolicy, ResultOrigin, RuntimePolicyFailure } from '../agents/types.js'
+import { checkDetachedResult, legacyResultPolicy } from './result-policy.js'
 import { applyHandoff } from './handoff.js'
 import { decisionForResult, emptyTurn, warnTurnStateOnce } from './turn-state.js'
 import type { TurnTracker } from './turn-state.js'
+import type { FailureLocation } from '../failures.js'
 import type { TurnContext, TurnDecision } from '../types/turn.js'
-import { omitBy, isNull } from 'lodash-es'
+import { cloneDeep, omitBy, isNull } from 'lodash-es'
 
 // --- PreToolUse vote collector types and helpers ---
 
@@ -335,24 +338,68 @@ export async function executeHooks(
   eventName: EventName,
   normalized: Record<string, unknown>,
   config: ClooksConfig,
-  failurePath: string,
+  failurePath: FailureLocation,
   handoffRoot: string,
   loadErrors: HookLoadError[] = [],
   disabledNames?: Set<HookName>,
   turnTracker?: TurnTracker,
-): Promise<{
-  lastResult?: EngineResult
-  degradedMessages: string[]
-  debugMessages: string[]
-  traceMessages: string[]
-  systemMessages: string[]
-}> {
+  policy: InvocationResultPolicy = legacyResultPolicy,
+): Promise<ExecutionResult> {
   const debug = process.env.CLOOKS_DEBUG === 'true'
   const debugMessages: string[] = []
   const degradedMessages: string[] = []
   const traceMessages: string[] = []
   const systemMessages: string[] = []
+  let inlineHandoffReported = false
+  const reportInlineHandoff = (message: string) => {
+    if (inlineHandoffReported) return
+    inlineHandoffReported = true
+    systemMessages.push(message)
+  }
   let lastResult: EngineResult | undefined
+  let policyFailure: RuntimePolicyFailure | undefined
+  let effectsOpen = true
+  const rejectUnreadableResult = (hookName: HookName) => {
+    policyFailure ??= {
+      eventName,
+      hookName,
+      capability: 'result-policy',
+      message: `clooks: result policy failed for hook "${hookName}" on ${eventName}; result effects refused.`,
+    }
+    effectsOpen = false
+  }
+  const recorded = new Set<HookName>()
+  const recordRaw = (name: HookName, value: unknown, failed = false) => {
+    if (recorded.has(name)) return
+    recorded.add(name)
+    let decision: TurnDecision = 'error'
+    try {
+      const malformed =
+        value != null && (typeof value !== 'object' || Array.isArray(value) || !('result' in value))
+      if (!failed && !malformed) decision = decisionForResult(value)
+    } catch {
+      // Dynamic hook values can throw while their raw outcome is inspected.
+      rejectUnreadableResult(name)
+    }
+    safeRecordTurn(turnTracker, name, eventName, decision)
+  }
+  const originalToolInput = normalized.toolInput as Record<string, unknown> | undefined
+  let currentToolInput = originalToolInput
+  const audit = (value: unknown, origin: ResultOrigin, hookName: HookName, parallel: boolean) => {
+    if (!effectsOpen) return undefined
+    const checked = checkDetachedResult(
+      policy,
+      { value, origin, hookName, parallel, currentToolInput },
+      eventName,
+    )
+    if (checked.kind === 'rejected') {
+      policyFailure ??= checked.failure
+      effectsOpen = false
+      return undefined
+    }
+    systemMessages.push(...checked.diagnostics)
+    return checked
+  }
 
   let failureState = await readFailures(failurePath)
   let failuresDirty = false
@@ -380,7 +427,16 @@ export async function executeHooks(
         result: 'block',
         reason: formatDiagnostic(loadError.name, eventName, new Error(loadError.error), 'block'),
       }
-      return { lastResult, degradedMessages, debugMessages, traceMessages, systemMessages }
+      lastResult = audit(lastResult, 'load-error', loadError.name, false)?.result
+      effectsOpen = false
+      return {
+        lastResult,
+        policyFailure,
+        degradedMessages,
+        debugMessages,
+        traceMessages,
+        systemMessages,
+      }
     }
 
     // Threshold reached or already degraded — degrade (don't block)
@@ -395,6 +451,9 @@ export async function executeHooks(
       error: loadError.error,
     })
     degradedMessages.push(msg)
+    audit(undefined, 'load-error', loadError.name, false)
+    if (policyFailure)
+      return { policyFailure, degradedMessages, debugMessages, traceMessages, systemMessages }
   }
 
   // Clear LOAD_ERROR_EVENT counters for hooks that loaded successfully.
@@ -410,8 +469,6 @@ export async function executeHooks(
   }
 
   // --- Pipeline state ---
-  const originalToolInput = normalized.toolInput as Record<string, unknown> | undefined
-  let currentToolInput = originalToolInput
   const accumulatedInjectContext: string[] = []
   let pipelineBlocked = false
   let blockResult: EngineResult | undefined
@@ -441,10 +498,12 @@ export async function executeHooks(
       // Build context: clone normalized, set pipeline fields
       const context: Record<string, unknown> = { ...normalized }
       if (currentToolInput !== undefined) {
-        context.toolInput = currentToolInput
+        context.toolInput =
+          policy === legacyResultPolicy ? currentToolInput : cloneDeep(currentToolInput)
       }
       if (originalToolInput !== undefined) {
-        context.originalToolInput = originalToolInput
+        context.originalToolInput =
+          policy === legacyResultPolicy ? originalToolInput : cloneDeep(originalToolInput)
       }
       context.parallel = false
       context.signal = sharedController.signal
@@ -466,7 +525,25 @@ export async function executeHooks(
       } catch (e) {
         // Recorded before any mode resolution: the record describes what the
         // hook did, not what the engine decided to do about it.
-        safeRecordTurn(turnTracker, loaded.name, eventName, 'error')
+        recordRaw(loaded.name, undefined, true)
+        const rawGeneratedError: EngineResult = {
+          result: 'block',
+          reason: formatDiagnostic(
+            loaded.name,
+            eventName,
+            e,
+            'block',
+            loaded.usesTarget,
+            loaded.hookPath,
+          ),
+        }
+        const generatedError = policy.deferRuntimeErrorAudit
+          ? undefined
+          : audit(rawGeneratedError, 'engine-error', loaded.name, false)
+        if (!effectsOpen) {
+          sharedController.abort()
+          return
+        }
         const errorMessage = e instanceof Error ? e.message : String(e)
         const onErrorMode = resolveOnError(loaded.name, eventName, config)
 
@@ -513,17 +590,9 @@ export async function executeHooks(
             // Under threshold — block. Write failures and stop pipeline.
             await writeFailures(failurePath, failureState)
             failuresDirty = false
-            blockResult = {
-              result: 'block',
-              reason: formatDiagnostic(
-                loaded.name,
-                eventName,
-                e,
-                'block',
-                loaded.usesTarget,
-                loaded.hookPath,
-              ),
-            }
+            blockResult = policy.deferRuntimeErrorAudit
+              ? audit(rawGeneratedError, 'engine-error', loaded.name, false)?.result
+              : generatedError?.result
             pipelineBlocked = true
             return
           }
@@ -573,6 +642,13 @@ export async function executeHooks(
         continue
       }
 
+      recordRaw(loaded.name, lifecycleResult.result)
+      const checked = audit(lifecycleResult.result, lifecycleResult.origin, loaded.name, false)
+      if (!effectsOpen) {
+        sharedController.abort()
+        return
+      }
+
       // Success — clear any failure state for this hook+event
       if (getFailureCount(failureState, loaded.name, eventName) > 0) {
         failureState = clearFailure(failureState, loaded.name, eventName)
@@ -593,9 +669,8 @@ export async function executeHooks(
         debugMessages.push(`hook="${loaded.name}" afterHook: ${lifecycleResult.afterDebug}`)
       }
 
-      const result = lifecycleResult.result
+      const result = checked?.result
       if (result === undefined || result === null) {
-        safeRecordTurn(turnTracker, loaded.name, eventName, 'skip')
         if (debug) {
           debugMessages.push(`hook="${loaded.name}" event="${eventName}" returned: null/undefined`)
         }
@@ -609,11 +684,19 @@ export async function executeHooks(
       // never the tag, so either side records the same value today — reading
       // the raw object keeps the record independent of a transform that could
       // grow new behavior later.
-      safeRecordTurn(turnTracker, loaded.name, eventName, decisionForResult(resultObj))
 
       // Handoff runs before the debug serialization below so debug output shows
       // the pointer, not the payload handoff was meant to keep out of the transcript.
-      const hookResult = await applyHandoff(resultObj, loaded.name, eventName, config, handoffRoot)
+      const hookResult = await applyHandoff(
+        resultObj,
+        loaded.name,
+        eventName,
+        config,
+        handoffRoot,
+        policy.handoff,
+        reportInlineHandoff,
+      )
+      if (!effectsOpen) return
 
       if (debug) {
         debugMessages.push(
@@ -662,7 +745,9 @@ export async function executeHooks(
         if (eventName === 'PreToolUse') {
           // Ask hooks can carry updatedInput. Merge it into pipeline state
           // so subsequent sequential hooks and the reducer see the accumulated input.
-          if (hookResult.updatedInput) {
+          if (checked?.nextToolInput !== undefined) {
+            currentToolInput = checked.nextToolInput
+          } else if (hookResult.updatedInput) {
             const base = (currentToolInput ?? {}) as Record<string, unknown>
             currentToolInput = omitBy({ ...base, ...hookResult.updatedInput }, isNull) as Record<
               string,
@@ -696,7 +781,9 @@ export async function executeHooks(
       // Patch-merge: hooks return a partial patch. Spread it onto the running tool
       // input and strip `null` values (explicit-unset sentinel). `undefined` is
       // already absent after spread, which is the "no patch on this key" case.
-      if (hookResult.updatedInput) {
+      if (checked?.nextToolInput !== undefined) {
+        currentToolInput = checked.nextToolInput
+      } else if (hookResult.updatedInput) {
         const base = (currentToolInput ?? {}) as Record<string, unknown>
         currentToolInput = omitBy({ ...base, ...hookResult.updatedInput }, isNull) as Record<
           string,
@@ -722,9 +809,12 @@ export async function executeHooks(
       value?: unknown
       reason?: unknown
       hookName: HookName
+      contractViolation?: string
+      generatedError?: EngineResult
     }
 
     function shouldShortCircuit(settled: SettledHookResult): boolean {
+      if (policyFailure || settled.contractViolation) return true
       // NOTIFY_ONLY events cannot honor block — never short-circuit a parallel batch
       // on a notify-only hook crash. The post-batch circuit-breaker loop still
       // records failures for quarantine accounting.
@@ -734,7 +824,6 @@ export async function executeHooks(
         const val = lr.result as EngineResult | undefined
         // PreToolUse specifically: block is a deny-vote, not a pipeline terminator.
         if (eventName !== 'PreToolUse' && val?.result === 'block') return true
-        if (val?.updatedInput) return true // contract violation — always short-circuits
       }
       if (settled.status === 'rejected') {
         const onErrorMode = resolveOnError(settled.hookName, eventName, config)
@@ -768,10 +857,12 @@ export async function executeHooks(
       // Build context: all parallel hooks see the same toolInput
       const context: Record<string, unknown> = { ...normalized }
       if (currentToolInput !== undefined) {
-        context.toolInput = currentToolInput
+        context.toolInput =
+          policy === legacyResultPolicy ? currentToolInput : cloneDeep(currentToolInput)
       }
       if (originalToolInput !== undefined) {
-        context.originalToolInput = originalToolInput
+        context.originalToolInput =
+          policy === legacyResultPolicy ? originalToolInput : cloneDeep(originalToolInput)
       }
       context.parallel = true
       context.signal = controller.signal
@@ -797,47 +888,101 @@ export async function executeHooks(
       let settledCount = 0
       const results: (SettledHookResult | undefined)[] = new Array(hookTasks.length)
 
+      const abortBatch = () => {
+        resolved = true
+        for (let j = 0; j < hookTasks.length; j++) {
+          if (!results[j]) recordRaw(hookTasks[j]!.hookName, undefined, true)
+        }
+        controller.abort()
+        resolve({ results, shortCircuited: true })
+      }
+
+      const captureSettlement = (settled: SettledHookResult, i: number) => {
+        // Capture available outcomes before ordinary abort selection, without
+        // admitting any result after the batch closes. Policy rejection closes immediately.
+        if (resolved) return undefined
+        try {
+          if (settled.status === 'fulfilled') {
+            const lr = settled.value as LifecycleResult
+            recordRaw(settled.hookName, lr.result)
+            const checked = audit(lr.result, lr.origin, settled.hookName, true)
+            settled.value = { ...lr, result: checked?.result }
+            const raw = lr.result as EngineResult | null | undefined
+            if (
+              effectsOpen &&
+              (raw?.updatedInput !== undefined ||
+                checked?.result?.updatedInput !== undefined ||
+                checked?.nextToolInput !== undefined)
+            ) {
+              const message = `clooks: hook "${settled.hookName}" returned updatedInput in parallel mode — this is a contract violation. Parallel hooks cannot modify tool input.`
+              settled.contractViolation = message
+              settled.generatedError = audit(
+                { result: 'block', reason: message },
+                'parallel-contract',
+                settled.hookName,
+                true,
+              )?.result
+            }
+          } else {
+            recordRaw(settled.hookName, undefined, true)
+            const rawGeneratedError: EngineResult = {
+              result: 'block',
+              reason: formatDiagnostic(
+                settled.hookName,
+                eventName,
+                settled.reason,
+                'block',
+                usesTargetMap.get(settled.hookName),
+                hookPathMap.get(settled.hookName),
+              ),
+            }
+            settled.generatedError = policy.deferRuntimeErrorAudit
+              ? rawGeneratedError
+              : audit(rawGeneratedError, 'engine-error', settled.hookName, true)?.result
+          }
+          results[i] = settled
+          settledCount++
+
+          if (policyFailure) abortBatch()
+          return settled
+        } catch {
+          rejectUnreadableResult(settled.hookName)
+          recordRaw(settled.hookName, undefined, true)
+          results[i] = settled
+          abortBatch()
+          return undefined
+        }
+      }
+
       hookTasks.forEach((task, i) => {
         task.promise
           .then(
-            (value): SettledHookResult => ({
-              status: 'fulfilled' as const,
-              value,
-              hookName: task.hookName,
-            }),
-          )
-          .catch(
-            (reason): SettledHookResult => ({
-              status: 'rejected' as const,
-              reason,
-              hookName: task.hookName,
-            }),
+            (value) =>
+              captureSettlement({ status: 'fulfilled', value, hookName: task.hookName }, i),
+            (reason) =>
+              captureSettlement({ status: 'rejected', reason, hookName: task.hookName }, i),
           )
           .then((settled) => {
-            // Always store the settled result so the circuit breaker
-            // update loop can process hooks that settled before or
-            // concurrently with the short-circuit trigger.
-            results[i] = settled
-            settledCount++
-            if (resolved) return
-
-            if (shouldShortCircuit(settled)) {
-              resolved = true
-              controller.abort()
-              resolve({ results, shortCircuited: true })
-              return
-            }
-
-            if (settledCount === hookTasks.length) {
-              resolved = true
-              resolve({ results, shortCircuited: false })
+            if (resolved || !settled) return
+            try {
+              if (shouldShortCircuit(settled)) {
+                abortBatch()
+              } else if (settledCount === hookTasks.length) {
+                resolved = true
+                resolve({ results, shortCircuited: false })
+              }
+            } catch {
+              rejectUnreadableResult(settled.hookName)
+              abortBatch()
             }
           })
       })
     })
 
     // --- Merge results ---
+    if (!effectsOpen) return
     const batchInjectContext: string[] = []
+    const deferredRuntimeBlocks: SettledHookResult[] = []
 
     for (let i = 0; i < results.length; i++) {
       const settled = results[i]
@@ -845,13 +990,35 @@ export async function executeHooks(
         // Abandoned by a short circuit. The lifecycle started, so it is
         // recorded; its outcome is simply unknown.
         const abandoned = hookTasks[i]
-        if (abandoned) safeRecordTurn(turnTracker, abandoned.hookName, eventName, 'error')
+        if (abandoned) recordRaw(abandoned.hookName, undefined, true)
         continue
       }
 
       if (settled.status === 'fulfilled') {
         const lr = settled.value as LifecycleResult
         const val = lr.result as EngineResult | undefined
+
+        if (settled.contractViolation) {
+          const violationMsg = settled.contractViolation
+          systemMessages.push(violationMsg)
+          blockResult = settled.generatedError
+          pipelineBlocked = true
+          failureState = recordFailure(failureState, settled.hookName, eventName, violationMsg)
+          failuresDirty = true
+          const { maxFailures, maxFailuresMessage } = resolveMaxFailures(settled.hookName, config)
+          const newCount = getFailureCount(failureState, settled.hookName, eventName)
+          if (maxFailures !== 0 && newCount >= maxFailures) {
+            degradedMessages.push(
+              interpolateMessage(maxFailuresMessage, {
+                hook: settled.hookName,
+                event: eventName,
+                count: newCount,
+                error: violationMsg,
+              }),
+            )
+          }
+          continue
+        }
 
         // Add lifecycle debug logging
         if (debug && lr.blockedByBefore) {
@@ -868,15 +1035,21 @@ export async function executeHooks(
         }
 
         if (!val) {
-          safeRecordTurn(turnTracker, settled.hookName, eventName, 'skip')
           continue
         }
 
-        safeRecordTurn(turnTracker, settled.hookName, eventName, decisionForResult(val))
-
         // Handoff applies per hook, before reduction merges text and discards
         // hook identity. The loop is sequential, so writes do not race.
-        const hookResult = await applyHandoff(val, settled.hookName, eventName, config, handoffRoot)
+        const hookResult = await applyHandoff(
+          val,
+          settled.hookName,
+          eventName,
+          config,
+          handoffRoot,
+          policy.handoff,
+          reportInlineHandoff,
+        )
+        if (!effectsOpen) return
 
         if (hookResult.result === 'skip') {
           if (hookResult.injectContext) {
@@ -890,32 +1063,6 @@ export async function executeHooks(
               engineResult: hookResult,
               rank: rankPreToolUseResult(hookResult),
             })
-          }
-          continue
-        }
-
-        // Contract violation: updatedInput in parallel mode — unchanged for ALL events including PreToolUse
-        // (Decision D-2026-04-19-04: contract violation, not a structured opinion)
-        if (hookResult.updatedInput) {
-          const violationMsg = `clooks: hook "${settled.hookName}" returned updatedInput in parallel mode — this is a contract violation. Parallel hooks cannot modify tool input.`
-          systemMessages.push(violationMsg)
-          blockResult = { result: 'block', reason: violationMsg }
-          pipelineBlocked = true
-          // Record failure for contract violation — always, regardless of onError
-          const errorMessage = violationMsg
-          failureState = recordFailure(failureState, settled.hookName, eventName, errorMessage)
-          failuresDirty = true
-          const { maxFailures, maxFailuresMessage } = resolveMaxFailures(settled.hookName, config)
-          const newCount = getFailureCount(failureState, settled.hookName, eventName)
-          if (maxFailures !== 0 && newCount >= maxFailures) {
-            // Collect degraded message but STILL block (contract violations always block)
-            const msg = interpolateMessage(maxFailuresMessage, {
-              hook: settled.hookName,
-              event: eventName,
-              count: newCount,
-              error: errorMessage,
-            })
-            degradedMessages.push(msg)
           }
           continue
         }
@@ -983,7 +1130,6 @@ export async function executeHooks(
       }
 
       if (settled.status === 'rejected') {
-        safeRecordTurn(turnTracker, settled.hookName, eventName, 'error')
         const onErrorMode = resolveOnError(settled.hookName, eventName, config)
 
         // Runtime fallback: hook-level "trace" on a non-injectable event → "continue"
@@ -1010,16 +1156,9 @@ export async function executeHooks(
           const projectedCount = currentCount + 1
           if (maxFailures === 0 || projectedCount < maxFailures) {
             // Under threshold — block
-            const diagnostic = formatDiagnostic(
-              settled.hookName,
-              eventName,
-              settled.reason,
-              'block',
-              usesTargetMap.get(settled.hookName),
-              hookPathMap.get(settled.hookName),
-            )
-            blockResult = { result: 'block', reason: diagnostic }
+            blockResult = settled.generatedError
             pipelineBlocked = true
+            if (policy.deferRuntimeErrorAudit) deferredRuntimeBlocks.push(settled)
           }
           // At/above threshold case handled in circuit breaker loop below
         } else if (effectiveMode === 'continue') {
@@ -1069,11 +1208,8 @@ export async function executeHooks(
       if (!settled) continue
 
       if (settled.status === 'fulfilled') {
-        const lr = settled.value as LifecycleResult
-        const val = lr.result as EngineResult | undefined
-
         // Contract violations already recorded above
-        if (val?.updatedInput) continue
+        if (settled.contractViolation) continue
 
         // Success — clear any failure state (any successful invocation, matching sequential runner)
         if (getFailureCount(failureState, settled.hookName, eventName) > 0) {
@@ -1112,6 +1248,12 @@ export async function executeHooks(
       await writeFailures(failurePath, failureState)
       failuresDirty = false
     }
+    // Preserve all captured failure accounting before a selected runtime refusal closes effects.
+    for (const settled of deferredRuntimeBlocks) {
+      const checked = audit(settled.generatedError, 'engine-error', settled.hookName, true)
+      if (!effectsOpen) break
+      if (blockResult === settled.generatedError) blockResult = checked?.result
+    }
   }
 
   // --- Group dispatch loop ---
@@ -1121,11 +1263,13 @@ export async function executeHooks(
     } else {
       await executeSequentialGroup(group)
     }
-    if (pipelineBlocked) break
+    if (pipelineBlocked || policyFailure) break
   }
 
   // --- Build final result ---
-  if (eventName === 'PreToolUse') {
+  if (policyFailure) {
+    lastResult = undefined
+  } else if (eventName === 'PreToolUse') {
     // Crash-block path still short-circuits (Decision Log D-2026-04-19-05):
     // if pipelineBlocked is true, a crashed hook under onError:"block"
     // already set blockResult — use that without running reduction.
@@ -1190,7 +1334,15 @@ export async function executeHooks(
   // Every return path that follows a started lifecycle passes through here.
   // The only exception is the load-error early return above, which fires
   // before any runner is entered.
+  effectsOpen = false
   await safeCommitTurn(turnTracker)
 
-  return { lastResult, degradedMessages, debugMessages, traceMessages, systemMessages }
+  return {
+    lastResult,
+    policyFailure,
+    degradedMessages,
+    debugMessages,
+    traceMessages,
+    systemMessages,
+  }
 }

@@ -2,6 +2,76 @@ import { describe, expect, test } from 'bun:test'
 import { claudeCodeAdapter } from './adapter.js'
 
 describe('claudeCodeAdapter', () => {
+  test('invocation envelopes retain separate raw data without exposing metadata in context', () => {
+    const payload = {
+      hook_event_name: 'PreToolUse',
+      session_id: 'first',
+      agent_id: 'child',
+      tool_input: { nested_key: [{ value: 1 }] },
+    }
+    const first = claudeCodeAdapter.normalizeInvocation(payload, 'PreToolUse')
+    const second = claudeCodeAdapter.normalizeInvocation(
+      { ...payload, session_id: 'second' },
+      'PreToolUse',
+    )
+    expect(first.private.provider).toBe('claude-code')
+    expect(first.private.sessionId).toBe('first')
+    expect(second.private.sessionId).toBe('second')
+    expect(first.private.referencedAgentId).toBe('child')
+    expect(Object.keys(first.context).sort()).toEqual([
+      'agentId',
+      'event',
+      'sessionId',
+      'toolInput',
+    ])
+    const input = first.context.toolInput as { nestedKey: { value: number }[] }
+    input.nestedKey[0]!.value = 99
+    payload.tool_input.nested_key[0]!.value = 77
+    expect(first.private.raw.tool_input).toEqual({ nested_key: [{ value: 1 }] })
+    expect(second.context.toolInput).toEqual({ nestedKey: [{ value: 1 }] })
+    expect(second.private.raw.tool_input).toEqual({ nested_key: [{ value: 1 }] })
+  })
+
+  test('diagnostics are composed separately with unchanged Claude ordering and no input mutation', () => {
+    const result = { result: 'skip' as const, injectContext: 'hook' }
+    const composed = claudeCodeAdapter.composeDiagnostics({
+      eventName: 'SessionStart',
+      result,
+      traceMessages: ['trace'],
+      degradedMessages: ['degraded'],
+      debugMessages: ['debug'],
+    })
+    expect(composed).toEqual({
+      result: { result: 'skip', injectContext: 'hook\ntrace\ndegraded\n[clooks:debug] debug' },
+      stderr: ['[clooks:debug] debug'],
+      systemMessages: [],
+    })
+    expect(result.injectContext).toBe('hook')
+    expect(
+      claudeCodeAdapter.composeDiagnostics({
+        eventName: 'PostCompact',
+        traceMessages: [],
+        degradedMessages: ['degraded'],
+        debugMessages: [],
+      }),
+    ).toEqual({ result: undefined, stderr: ['clooks: warning: degraded'], systemMessages: [] })
+  })
+
+  test('a latched failure dominates an internally composed allow result', () => {
+    const output = claudeCodeAdapter.translateFinalOutput({
+      eventName: 'SessionStart',
+      result: { result: 'allow', injectContext: 'trace' },
+      policyFailure: {
+        eventName: 'SessionStart',
+        capability: 'test-policy',
+        message: 'policy rejected',
+      },
+      systemMessages: ['advisory'],
+      diagnostics: ['diagnostic'],
+    })
+    expect(output).toEqual({ exitCode: 2, stderr: 'policy rejected' })
+  })
+
   test('reads only recognized Claude Code event names', () => {
     expect(claudeCodeAdapter.readEventName({ hook_event_name: 'PreToolUse' })).toBe('PreToolUse')
     expect(claudeCodeAdapter.readEventName({ hook_event_name: 'Nope' })).toBeNull()
@@ -9,7 +79,7 @@ describe('claudeCodeAdapter', () => {
   })
 
   test('normalizes Claude Code payload keys late, including PermissionDenied reason rename', () => {
-    const normalized = claudeCodeAdapter.normalizeContext(
+    const invocation = claudeCodeAdapter.normalizeInvocation(
       {
         hook_event_name: 'PermissionDenied',
         session_id: 's1',
@@ -18,7 +88,7 @@ describe('claudeCodeAdapter', () => {
       'PermissionDenied',
     )
 
-    expect(normalized).toEqual({
+    expect(invocation.context).toEqual({
       event: 'PermissionDenied',
       sessionId: 's1',
       denialReason: 'denied by upstream',

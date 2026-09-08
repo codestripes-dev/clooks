@@ -9,6 +9,7 @@ import type { HandoffSetting } from '../config/constants.js'
 import { INJECTABLE_EVENTS } from '../config/constants.js'
 import { CONTINUATION_EVENTS } from './events.js'
 import type { EngineResult } from './types.js'
+import type { InvocationResultPolicy } from '../agents/types.js'
 
 /**
  * Backstop cap on handoff files in `.clooks/tmp/`. Content addressing collapses
@@ -293,6 +294,8 @@ export async function applyHandoff(
   eventName: EventName,
   config: ClooksConfig,
   handoffRoot: string,
+  delivery?: InvocationResultPolicy['handoff'],
+  onInlineFallback?: (message: string) => void,
 ): Promise<EngineResult> {
   const setting = resolveHandoff(hookName, eventName, config)
   if (setting === false) return result
@@ -307,6 +310,10 @@ export async function applyHandoff(
   for (const field of fields) {
     const text = transformed[field]
     if (typeof text !== 'string' || !shouldHandoff(setting, text)) continue
+    if (delivery && !delivery.isEligible(field)) {
+      onInlineFallback?.(delivery.inlineDiagnostic)
+      continue
+    }
     try {
       const absPath = await writeHandoffFile(handoffRoot, hookName, text)
       transformed[field] = buildPointer(hookName, absPath)

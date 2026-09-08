@@ -2,6 +2,8 @@
 
 Per-hook memory of what a hook already did during the current turn. This is what makes "remind exactly once per turn" a one-line expression instead of a transcript-parsing subsystem each hook author has to build.
 
+The lifecycle rules below describe the unchanged Claude Code runtime. Codex now connects provider-isolated history and boundary handling for the ten-event target. The expanded source implementation is described below; its Docker validation has passed, separately from the completed PreToolUse gate.
+
 ## Overview
 
 A **turn** is one user prompt and everything the agent does in response to it, up to the next prompt. Every hook context carries a `turn` field describing *that hook's own* prior runs during *this* turn:
@@ -79,7 +81,7 @@ Unrecognized sources take the non-destructive branch so a future upstream source
 
 **Every destructive boundary increments the generation monotonically.** A reset never returns the counter to zero or to a default: an in-flight invocation holding the pre-boundary stamp must be able to detect that its turn ended, and an equal counter would let it write pre-boundary records straight back into the freshly cleared document.
 
-A boundary occurs on **every** `UserPromptSubmit`, which is what makes a turn a turn. What is singular is the *emitter*: subagents never receive `UserPromptSubmit`, so the main agent's prompt is the only thing that can advance the turn, and when it does it clears every scope — subagents included.
+A boundary occurs on **every** `UserPromptSubmit` in the current Claude implementation. Its emitter assumption is Claude-specific: subagents do not receive that event, so the main agent's prompt is the only thing that can advance the turn, and when it does it clears every scope — subagents included. Codex child prompts violate that assumption.
 
 Boundary maintenance and the `SessionStart` prune sit **before** the engine's early exits, so a project that registers no `UserPromptSubmit` hook still gets its turn boundary.
 
@@ -103,6 +105,16 @@ Hooks in the same invocation do not appear in each other's `prior`. The snapshot
 
 One JSON document per session at `<homeRoot>/.clooks/turn-state/<hash>.json`, where `hash` is the first 16 hex characters of `sha256(sessionId)`. The directory is 0700, files 0600. The raw session id is never written into a path or into the file.
 
+### Provider-aware storage helpers
+
+The engine reads snapshots with `readTurnState(path, { homeRoot, provider })`. For Codex, the path's parent must match the selected provider directory; `.clooks`, `turn-state` and `codex` must each be real directories, and their resolved location must remain inside the selected home. Invalid parents produce empty history with a warning (missing parents are quiet), without reading through the alias. The subsequent bounded read uses the existing no-follow descriptor and regular-file check. Omitting access metadata or selecting Claude retains the existing parent-validation behavior; the shared reader now also uses `O_NONBLOCK` to avoid waiting on FIFO snapshots. These checks complement provider-aware writes and pruning; they address accidental link isolation, not hostile concurrent filesystem mutation or a new trust boundary. Corrected-source Docker validation has passed.
+
+The storage helpers now accept an optional provider, defaulting to `claude-code`. The default and explicit Claude paths remain unchanged. `turnStatePath(homeRoot, sessionId, 'codex')` selects `<homeRoot>/.clooks/turn-state/codex/<hash>.json`, using the same session hash. The Codex runtime selects this provider through its private turn policy and passes it through tracker creation and commit.
+
+Pass the same provider through `applyTurnBoundary()`, `createTurnTracker({ provider, ... })`, `commitTurnRecords()` and `pruneTurnState()`. The tracker forwards its provider when committing. Boundary and commit operations resolve the selected managed directory and use the supplied path's basename there; changing only the path without passing its provider does not select the Codex write directory. The shared base and selected provider directory retain mode enforcement, symlink refusal and realpath containment checks. Locks and staging files stay beside the selected state file. Pruning reads only regular files in that provider's directory and does not recurse into the other provider's state; Claude pruning skips the Codex subdirectory.
+
+Provider selection partitions storage, not logical turns. The epoch/generation format, size limits, lock behavior and best-effort loss semantics below still apply. The implemented Codex policy selects `main` for roots and `agent:<agentId>` for children. SessionStart requires session identity without a native turn ID; other events require both. Startup/clear reset the session; resume/compact preserve it. Every root UserPromptSubmit advances all scopes, even when its native turn ID repeats; child prompts and Stop continuations preserve history. SessionStart requests provider-local pruning. The engine applies boundaries before no-hooks/no-matches exits on configured invocations; no-config bypass remains. Expanded Docker validation has passed.
+
 ```json
 {
   "version": 1,
@@ -119,7 +131,7 @@ One JSON document per session at `<homeRoot>/.clooks/turn-state/<hash>.json`, wh
 
 `epoch` is random and reminted whenever a fresh document is created. The generation alone cannot identify a turn across a document being *replaced*: an unreadable, oversized, or unknown-version file collapses to generation 0, the next boundary writes generation 1, and an old tracker also holding generation 1 would compare equal. A snapshot therefore captures a **stamp** — epoch plus generation — and a commit proceeds only when both halves still match; otherwise the pending records are discarded wholesale, because they belong to a turn that has ended.
 
-**Reads** go through a single no-follow descriptor: `open(O_RDONLY | O_NOFOLLOW)`, `fstat` that descriptor for the size bound, read the body through the same handle. Never a path-based stat-then-read, which follows symlinks and measures a different thing than it reads.
+**Reads** go through a single nonblocking, no-follow descriptor: `open(O_RDONLY | O_NOFOLLOW | O_NONBLOCK)`, then `fstat` that descriptor to require a regular file and enforce the size bound, and read the body through the same handle. A FIFO cannot block the open waiting for a writer; nonregular snapshots are rejected before reading their body and yield empty history. This shared `readBounded()` correction also applies to Claude, whose regular-file behavior is unchanged. It is not a general filesystem I/O deadline. Never a path-based stat-then-read, which follows symlinks and measures a different thing than it reads.
 
 **Writes** happen once per invocation, at the end of `executeHooks`, under one lock acquisition: acquire, read, stamp check, bounded append, staging file with exclusive create, ownership re-check, atomic rename, release. Records are buffered in memory until then, so a hard crash before the commit loses that invocation's records. A crash *after* the lock was acquired costs more than that: the lockfile survives the process, and every subsequent invocation skips its write until the lock ages past the 60-second staleness threshold and someone takes it over. That is a benign degrade — records skipped, no decision overridden — but it is not confined to the crashed invocation.
 
@@ -168,6 +180,25 @@ Concurrent invocations can commit out of chronological order, so the on-disk arr
 ### `clooks test` does no turn-state I/O
 
 The harness synthesizes an empty `ctx.turn` and accepts a `turn` object in its input JSON as an override. It never reads or writes the real store, so a debugging tool cannot depend on invisible global state or pollute a user's home directory with fake sessions.
+
+## Codex Source Constraints and Proposed Mapping
+
+Source inspection on 2026-09-07 is bound to exact tag `rust-v0.153.4`, commit `3d2ee51ca2d5db578f328aa75e20aa22c0197c9a`. These are upstream source constraints, not executed parity evidence or implemented Clooks behavior. Root and descendants share [session identity](https://github.com/openai/codex/blob/3d2ee51ca2d5db578f328aa75e20aa22c0197c9a/codex-rs/core/src/session/session.rs#L595-L603); the [identity helper](https://github.com/openai/codex/blob/3d2ee51ca2d5db578f328aa75e20aa22c0197c9a/codex-rs/core/src/hook_runtime.rs#L1013-L1033) supplies `agent_id` only for ThreadSpawn children, including their ordinary prompt/tool/compact events.
+
+The implemented best-effort mapping for ordinary root/ThreadSpawn paths is (expanded Docker validation passed):
+
+| Native event | Implemented Clooks boundary |
+|---|---|
+| Root `UserPromptSubmit` | Advance the generation and clear every scope, including when a new steering prompt repeats the native `turn_id`. |
+| Child `UserPromptSubmit` with `agent_id` | Preserve all history; file child runs under the native child identity. A changed child `turn_id` is not a root user boundary. |
+| Stop/SubagentStop continuation | Preserve history. Continuation stays in the same native turn loop and ID and emits no `UserPromptSubmit`. |
+| Root SessionStart startup/clear versus resume/compact | Reset startup/clear; preserve resume/compact, matching existing Clooks semantics. |
+
+The [input loop](https://github.com/openai/codex/blob/3d2ee51ca2d5db578f328aa75e20aa22c0197c9a/codex-rs/core/src/session/turn.rs#L638-L664) inspects submitted user input, whereas the [Stop branch](https://github.com/openai/codex/blob/3d2ee51ca2d5db578f328aa75e20aa22c0197c9a/codex-rs/core/src/session/turn.rs#L510-L565) inserts a user-role history item directly and continues. User-role text is not itself a prompt-hook boundary. [Steering](https://github.com/openai/codex/blob/3d2ee51ca2d5db578f328aa75e20aa22c0197c9a/codex-rs/core/src/session/turn_input.rs#L237-L324) can reuse the active turn for distinct root prompts; native turn IDs therefore cannot deduplicate deliveries or replace local generation bookkeeping. [Session initialization](https://github.com/openai/codex/blob/3d2ee51ca2d5db578f328aa75e20aa22c0197c9a/codex-rs/core/src/session/session.rs#L1600-L1624) and [compact queuing](https://github.com/openai/codex/blob/3d2ee51ca2d5db578f328aa75e20aa22c0197c9a/codex-rs/core/src/session/mod.rs#L3797-L3813) establish the startup/resume/clear/compact sources.
+
+**Concrete limitation:** internal Review work synthesizes user input, inherits enabled hook configuration, and can emit `UserPromptSubmit` with the root `session_id` but no `agent_id`. The [Review task](https://github.com/openai/codex/blob/3d2ee51ca2d5db578f328aa75e20aa22c0197c9a/codex-rs/core/src/tasks/review.rs#L54-L144), [delegate submission](https://github.com/openai/codex/blob/3d2ee51ca2d5db578f328aa75e20aa22c0197c9a/codex-rs/core/src/codex_delegate.rs#L180-L237), and [command input schema](https://github.com/openai/codex/blob/3d2ee51ca2d5db578f328aa75e20aa22c0197c9a/codex-rs/hooks/src/schema.rs#L567-L584) expose no reliable human-origin discriminator. Root-like internal tool events may also lack child scope. Prompt text, transcript paths, timestamps, permission mode, and native IDs cannot establish genuine-user parity. This is a source counterexample, not a captured run.
+
+Normal best-effort native-prompt history is the approved policy, now implemented in the adapter. Review is an accepted nonblocking limitation, with no special workaround or tracking disablement. The mapping does not promise full genuine-user parity. Provider-isolated history and the boundary mapping above are connected. The earlier PreToolUse gate passed; expanded boundary Docker validation has passed. Existing storage/race limitations still apply. Recorded raw interventions do not prove delivery or enforcement.
 
 ## Related
 

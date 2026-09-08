@@ -14,6 +14,12 @@ The type system is organized around the `ClooksHook<C>` interface — a single t
 - **Per-event handlers** — Each handler is a property keyed by event name. No unions, no runtime discrimination.
 - **All types inferred** — Context, config, and result types are inferred from `ClooksHook`. Hook authors don't need to import context or result types.
 
+## Codex Compatibility
+
+The public authoring types and decision-method surface are unchanged. Codex's ten-event normalizer selects envelope fields instead of recursively renaming tool data. Unknown tool input remains `Record<string, unknown>` through the existing unknown-tool context types; PostToolUse response remains `unknown` publicly and accepts any JSON value at this boundary. Known discriminators require compatible public field types, including canonical Bash for `exec_command`; aliases do not invent Claude Edit/Write shapes.
+
+On relevant events, absent/null transcript paths, child transcript paths, compact instructions/summary and last assistant message become empty strings. This preserves existing string types without fabricated paths, but makes unavailable and genuinely empty values indistinguishable publicly; raw values remain private. Operational IDs are not fabricated. SessionStart preserves the supplied model; PermissionRequest has no invented tool-use ID. These implemented compatibility paths have passed expanded Docker runtime validation. The public types describe the Claude-oriented authoring surface, not a promise that every field or method is supported by Codex; its invocation policy rejects unsupported capabilities.
+
 ## Sub-docs
 
 | Document | Path | Topics |
@@ -44,7 +50,7 @@ The type system is organized around the `ClooksHook<C>` interface — a single t
 - **Greenfield rename** — `DebugFields` was renamed to `DebugMessage`, `InjectableContext` to `Inject`. No aliases — the old names are gone. Update any imports accordingly.
 - **`StopEventResult` vs `StopResult`** — `StopResult` is a base result (`{ result: "stop", reason }`) used in continuation events. `StopEventResult` is the per-event result for the `Stop` guard event (allow | block | skip). Don't confuse them.
 - **`hookEventName` → `event` rename** — Generic key normalization converts `hook_event_name` to `hookEventName`. The engine then renames this to `event` to match the context types. This is a domain-specific mapping that lives in the engine, not in `normalizeKeys()`.
-- **`toolInput` fields are camelCase at runtime** — The engine normalizes the entire payload recursively, including nested objects like `tool_input`. This means `tool_input.file_path` becomes `toolInput.filePath`, `old_string` becomes `oldString`, etc. Hook authors must use camelCase keys when accessing `toolInput` fields. If a hook needs to work with both raw and normalized payloads (e.g., in unit tests), use fallback access: `toolInput.filePath ?? toolInput.file_path`.
+- **Claude `toolInput` fields are camelCase at runtime** — Claude normalization recursively maps nested keys such as `file_path` to `filePath`. Codex preserves opaque tool keys instead; do not assume recursive camelCase conversion across providers.
 
 ## Related
 

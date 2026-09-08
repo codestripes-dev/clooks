@@ -1372,7 +1372,7 @@ function executeHooks(
     normalized,
     config,
     failurePath,
-    dirname(dirname(failurePath)),
+    dirname(dirname(typeof failurePath === 'string' ? failurePath : failurePath.path)),
     loadErrors,
     disabledNames,
   )

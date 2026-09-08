@@ -7,7 +7,7 @@ import { loadAllHooks } from '../loader.js'
 import { INJECTABLE_EVENTS } from '../config/constants.js'
 import { DEFAULT_MAX_FAILURES } from '../config/constants.js'
 import {
-  getFailurePath,
+  getFailureLocation,
   readFailures,
   writeFailures,
   recordFailure,
@@ -16,7 +16,7 @@ import {
   LOAD_ERROR_EVENT,
 } from '../failures.js'
 import { discoverProjectRoot } from '../config/discovery.js'
-import type { RunEngineDeps } from './types.js'
+import type { RunEngineDeps, ExitCode } from './types.js'
 import { EXIT_OK, EXIT_STDERR } from './types.js'
 import { matchHooksForEvent, buildShadowWarnings } from './match.js'
 import { executeHooks } from './execute.js'
@@ -33,9 +33,15 @@ import type { TurnState, TurnTracker } from './turn-state.js'
 import {
   AgentSelectionError,
   UnsupportedAgentAdapterError,
+  InvocationPolicyError,
   selectAgentAdapter,
 } from '../agents/index.js'
-import type { AgentAdapter, TranslatedAgentOutput } from '../agents/index.js'
+import type {
+  AgentAdapter,
+  TranslatedAgentOutput,
+  NormalizedInvocation,
+  InvocationTurnPolicy,
+} from '../agents/index.js'
 import { claudeCodePluginDeps } from '../agents/claude-code/adapter.js'
 
 /**
@@ -55,7 +61,7 @@ export const defaultDeps: RunEngineDeps = {
   discoverProjectRoot,
 }
 
-function emitTranslatedOutput(translated: TranslatedAgentOutput): void {
+function emitTranslatedOutput(translated: TranslatedAgentOutput): ExitCode {
   if (translated.stderr) {
     process.stderr.write(`${translated.stderr}\n`)
   }
@@ -63,6 +69,7 @@ function emitTranslatedOutput(translated: TranslatedAgentOutput): void {
   if (translated.output) {
     process.stdout.write(translated.output + '\n')
   }
+  return translated.exitCode
 }
 
 /**
@@ -92,7 +99,85 @@ export async function runEngineCore(
   adapter: AgentAdapter,
   deps: RunEngineDeps = defaultDeps,
 ): Promise<void> {
-  const discovery = await (deps.discoverProjectRoot ?? discoverProjectRoot)()
+  const state: { eventName: EventName | null; invocation?: NormalizedInvocation } = {
+    eventName: null,
+  }
+  let exitCode: ExitCode | undefined
+  try {
+    await runEngineInvocation(adapter, deps, state)
+  } catch (error) {
+    if (error instanceof EngineCompletion) {
+      exitCode = error.code
+    } else if (adapter.inputStage === 'before-hooks') {
+      const failure =
+        error instanceof InvocationPolicyError
+          ? error.failure
+          : {
+              eventName: state.eventName,
+              capability: 'runtime',
+              message: `clooks: runtime failure: ${error instanceof Error ? error.message : String(error)}`,
+            }
+      exitCode = emitTranslatedOutput(
+        adapter.translateFailure({
+          eventName: state.eventName,
+          invocation: state.invocation,
+          failure,
+        }),
+      )
+    } else {
+      throw error
+    }
+  }
+  if (exitCode !== undefined) process.exit(exitCode)
+}
+
+class EngineCompletion {
+  constructor(readonly code: ExitCode) {}
+}
+
+function finishEngine(code: ExitCode): never {
+  throw new EngineCompletion(code)
+}
+
+async function runEngineInvocation(
+  adapter: AgentAdapter,
+  deps: RunEngineDeps,
+  state: { eventName: EventName | null; invocation?: NormalizedInvocation },
+): Promise<void> {
+  const readInvocation = async (): Promise<NormalizedInvocation> => {
+    if (state.invocation) return state.invocation
+    let input: unknown
+    try {
+      input = await deps.readStdin()
+    } catch (error) {
+      throw new InvocationPolicyError({
+        eventName: null,
+        capability: 'stdin',
+        message: `clooks: failed to parse stdin JSON: ${error instanceof Error ? error.message : String(error)}`,
+      })
+    }
+    if (input === null || typeof input !== 'object' || Array.isArray(input)) {
+      throw new InvocationPolicyError({
+        eventName: null,
+        capability: 'stdin',
+        message: 'clooks: stdin payload is not a JSON object',
+      })
+    }
+    const payload = input as Record<string, unknown>
+    state.eventName = adapter.readEventName(payload)
+    if (state.eventName === null) {
+      throw new InvocationPolicyError({
+        eventName: null,
+        capability: 'event',
+        message: 'clooks: stdin payload missing or unrecognized hook_event_name field',
+      })
+    }
+    state.invocation = adapter.normalizeInvocation(payload, state.eventName)
+    return state.invocation
+  }
+  const discovery = await (deps.discoverProjectRoot ?? discoverProjectRoot)({
+    env: adapter.discoveryEnvironment(process.env),
+  })
   const projectRoot = discovery.projectRoot
   const homeRoot = process.env.CLOOKS_HOME_ROOT ?? homedir()
 
@@ -101,26 +186,60 @@ export async function runEngineCore(
   // Config errors are stored in the project's .clooks/.failures (if .clooks/ exists)
   // or in the home failures directory. Since a config error means .clooks/clooks.yml
   // exists but is invalid, .clooks/ is guaranteed to exist.
-  const configFailurePath = join(projectRoot, '.clooks/.failures')
+  const hasProjectFile =
+    join(projectRoot, '.clooks/clooks.yml') !== join(homeRoot, '.clooks/clooks.yml') &&
+    (await Bun.file(join(projectRoot, '.clooks/clooks.yml')).exists())
+  const configFailurePath = getFailureLocation(
+    projectRoot,
+    homeRoot,
+    hasProjectFile,
+    adapter.id,
+    true,
+  )
   let result: LoadConfigResult | null
   try {
     result = await deps.loadConfig(projectRoot, { homeRoot })
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)
+    const earlyInvocation =
+      adapter.inputStage === 'before-hooks' ? await readInvocation() : undefined
     let state = await readFailures(configFailurePath)
     state = recordFailure(state, CONFIG_ERROR_HOOK, CONFIG_ERROR_EVENT, message)
     await writeFailures(configFailurePath, state)
     const failCount = getFailureCount(state, CONFIG_ERROR_HOOK, CONFIG_ERROR_EVENT)
 
+    if (earlyInvocation) {
+      const invocation = earlyInvocation
+      if (failCount < DEFAULT_MAX_FAILURES) {
+        throw new InvocationPolicyError({
+          eventName: invocation.eventName,
+          capability: 'config',
+          message: `config validation failed: ${message}; hooks were not imported or executed.`,
+        })
+      }
+      finishEngine(
+        emitTranslatedOutput(
+          adapter.translateFinalOutput({
+            eventName: invocation.eventName,
+            invocation,
+            systemMessages: [
+              `[clooks] Config validation failed ${failCount} consecutive times. Hooks are disabled to prevent deadlock. Fix .clooks/clooks.yml: ${message}`,
+            ],
+            diagnostics: [],
+          }),
+        ),
+      )
+    }
+
     if (failCount < DEFAULT_MAX_FAILURES) {
       process.stderr.write(`clooks: ${message}\n`)
-      process.exit(EXIT_STDERR)
+      finishEngine(EXIT_STDERR)
     }
 
     process.stderr.write(
       `clooks: config error (degraded after ${failCount} consecutive failures): ${message}\n`,
     )
-    emitTranslatedOutput(
+    const exitCode = emitTranslatedOutput(
       adapter.translateFinalOutput({
         eventName: CONFIG_ERROR_EVENT,
         systemMessages: [
@@ -130,7 +249,7 @@ export async function runEngineCore(
         diagnostics: [],
       }),
     )
-    process.exit(EXIT_OK)
+    finishEngine(exitCode)
   }
 
   if (result === null) {
@@ -154,8 +273,10 @@ export async function runEngineCore(
         }
       }
     }
-    process.exit(EXIT_OK)
+    finishEngine(EXIT_OK)
   }
+
+  if (adapter.inputStage === 'before-hooks') await readInvocation()
 
   const configState = await readFailures(configFailurePath)
   if (getFailureCount(configState, CONFIG_ERROR_HOOK, CONFIG_ERROR_EVENT) > 0) {
@@ -167,7 +288,7 @@ export async function runEngineCore(
   let shadows = result!.shadows
   const hasProjectConfig = result!.hasProjectConfig
 
-  const failurePath = getFailurePath(projectRoot, homeRoot, hasProjectConfig)
+  const failurePath = getFailureLocation(projectRoot, homeRoot, hasProjectConfig, adapter.id)
 
   const pluginSystemMessages: string[] = []
   const danglingWarnings: string[] = []
@@ -230,33 +351,41 @@ export async function runEngineCore(
   // Parsed here (before the hooks-empty early-exit) so that eventName is
   // available for SessionStart-gated advisory emission below, even in the
   // "no hooks configured at all" case (e.g. pure enable-without-install drift).
-  let input: unknown
-  try {
-    input = await deps.readStdin()
-  } catch (e) {
-    const message = e instanceof Error ? e.message : String(e)
-    process.stderr.write(`clooks: failed to parse stdin JSON: ${message}\n`)
-    process.exit(EXIT_STDERR)
+  let invocation = state.invocation
+  if (!invocation) {
+    let input: unknown
+    try {
+      input = await deps.readStdin()
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      process.stderr.write(`clooks: failed to parse stdin JSON: ${message}\n`)
+      finishEngine(EXIT_STDERR)
+    }
+
+    if (input === null || typeof input !== 'object' || Array.isArray(input)) {
+      process.stderr.write('clooks: stdin payload is not a JSON object\n')
+      finishEngine(EXIT_STDERR)
+    }
+
+    const payload = input as Record<string, unknown>
+    const eventName = adapter.readEventName(payload)
+
+    if (eventName === null) {
+      process.stderr.write('clooks: stdin payload missing or unrecognized hook_event_name field\n')
+      finishEngine(EXIT_STDERR)
+    }
+
+    // Normalized here, before the early exits, so the turn boundary below can
+    // read a session identity the adapter owns rather than a raw wire key.
+    // `normalizeInvocation` is a pure transform, and this same object is reused at
+    // the executeHooks call site — the payload is never normalized twice.
+    invocation = adapter.normalizeInvocation(payload, eventName)
+    state.invocation = invocation
+    state.eventName = eventName
   }
-
-  if (input === null || typeof input !== 'object' || Array.isArray(input)) {
-    process.stderr.write('clooks: stdin payload is not a JSON object\n')
-    process.exit(EXIT_STDERR)
-  }
-
-  const payload = input as Record<string, unknown>
-  const eventName = adapter.readEventName(payload)
-
-  if (eventName === null) {
-    process.stderr.write('clooks: stdin payload missing or unrecognized hook_event_name field\n')
-    process.exit(EXIT_STDERR)
-  }
-
-  // Normalized here, before the early exits, so the turn boundary below can
-  // read a session identity the adapter owns rather than a raw wire key.
-  // `normalizeContext` is a pure transform, and this same object is reused at
-  // the executeHooks call site — the payload is never normalized twice.
-  const normalized = adapter.normalizeContext(payload, eventName)
+  const eventName = invocation.eventName
+  const normalized = invocation.context
+  const policy = adapter.createResultPolicy(invocation)
 
   // Runs before the hooks-empty/no-match early exits so a project with no
   // SessionStart hooks still prunes. A prune failure never affects the run.
@@ -272,7 +401,26 @@ export async function runEngineCore(
     typeof normalized.sessionId === 'string' && normalized.sessionId.length > 0
       ? normalized.sessionId
       : null
-  const turnPath = sessionId === null ? null : turnStatePath(homeRoot, sessionId)
+  const legacyTurnPolicy: InvocationTurnPolicy | null =
+    sessionId === null
+      ? null
+      : {
+          sessionId,
+          scopeKey: turnScopeKey(eventName, normalized),
+          boundary:
+            eventName === 'SessionStart' &&
+            (normalized.source === 'startup' || normalized.source === 'clear')
+              ? 'reset'
+              : eventName === 'UserPromptSubmit'
+                ? 'advance'
+                : null,
+          prune: eventName === 'SessionStart',
+        }
+  const turnPolicy = adapter.resolveTurnPolicy
+    ? adapter.resolveTurnPolicy(invocation)
+    : legacyTurnPolicy
+  const turnPath =
+    turnPolicy === null ? null : turnStatePath(homeRoot, turnPolicy.sessionId, adapter.id)
 
   // Post-boundary state, kept so the snapshot step below does not read the
   // file a second time.
@@ -281,17 +429,15 @@ export async function runEngineCore(
   // Placed before both early exits for the same reason the handoff prune is: a
   // project with no UserPromptSubmit hooks must still get its turn boundary, or
   // every dedup hook goes permanently silent after its first intervention.
-  if (turnPath !== null) {
-    if (eventName === 'SessionStart') {
-      await pruneTurnState(homeRoot).catch(() => {})
-      // Unrecognized sources take the non-destructive branch, so a future
-      // upstream source value cannot start clearing turns by accident.
-      const source = normalized.source
-      if (source === 'startup' || source === 'clear') {
-        boundaryState = await applyTurnBoundary(turnPath, homeRoot, 'reset').catch(() => null)
-      }
-    } else if (eventName === 'UserPromptSubmit') {
-      boundaryState = await applyTurnBoundary(turnPath, homeRoot, 'advance').catch(() => null)
+  if (turnPath !== null && turnPolicy !== null) {
+    if (turnPolicy.prune) await pruneTurnState(homeRoot, adapter.id).catch(() => {})
+    if (turnPolicy.boundary !== null) {
+      boundaryState = await applyTurnBoundary(
+        turnPath,
+        homeRoot,
+        turnPolicy.boundary,
+        adapter.id,
+      ).catch(() => null)
     }
   }
 
@@ -320,21 +466,20 @@ export async function runEngineCore(
 
   if (hooks.length === 0 && loadErrors.length === 0) {
     const earlyMessages = [...pluginSystemMessages, ...danglingWarnings]
-    if (earlyMessages.length > 0) {
-      emitTranslatedOutput(
-        adapter.translateFinalOutput({
-          eventName,
-          systemMessages: earlyMessages,
-          diagnostics: [],
-        }),
-      )
-    }
+    const exitCode = emitTranslatedOutput(
+      adapter.translateFinalOutput({
+        eventName,
+        invocation,
+        systemMessages: earlyMessages,
+        diagnostics: [],
+      }),
+    )
     if (debug) {
       for (const line of engineDebugLines) {
         process.stderr.write(`[clooks:debug] ${line}\n`)
       }
     }
-    process.exit(EXIT_OK)
+    finishEngine(exitCode)
   }
 
   const { matched, disabledSkips } = matchHooksForEvent(hooks, eventName, config)
@@ -388,21 +533,20 @@ export async function runEngineCore(
 
   if (matched.length === 0 && loadErrors.length === 0) {
     const earlyMessages = [...pluginSystemMessages, ...danglingWarnings, ...startupWarnings]
-    if (earlyMessages.length > 0) {
-      emitTranslatedOutput(
-        adapter.translateFinalOutput({
-          eventName,
-          systemMessages: earlyMessages,
-          diagnostics: [],
-        }),
-      )
-    }
+    const exitCode = emitTranslatedOutput(
+      adapter.translateFinalOutput({
+        eventName,
+        invocation,
+        systemMessages: earlyMessages,
+        diagnostics: [],
+      }),
+    )
     if (debug) {
       for (const line of engineDebugLines) {
         process.stderr.write(`[clooks:debug] ${line}\n`)
       }
     }
-    process.exit(EXIT_OK)
+    finishEngine(exitCode)
   }
 
   for (const loaded of hooks) {
@@ -426,13 +570,14 @@ export async function runEngineCore(
   // run. A boundary above already produced the post-boundary state; reuse it
   // rather than reading the file again.
   let turnTracker: TurnTracker | undefined
-  if (turnPath !== null) {
+  if (turnPath !== null && turnPolicy !== null) {
     try {
       turnTracker = createTurnTracker({
         path: turnPath,
         homeRoot,
-        state: boundaryState ?? (await readTurnState(turnPath)),
-        scopeKey: turnScopeKey(eventName, normalized),
+        provider: adapter.id,
+        state: boundaryState ?? (await readTurnState(turnPath, { homeRoot, provider: adapter.id })),
+        scopeKey: turnPolicy.scopeKey,
       })
     } catch {
       // Turn state degrades to empty rather than affecting the run.
@@ -446,6 +591,7 @@ export async function runEngineCore(
     debugMessages,
     traceMessages,
     systemMessages,
+    policyFailure,
   } = await executeHooks(
     matched,
     eventName,
@@ -456,54 +602,18 @@ export async function runEngineCore(
     loadErrors,
     disabledNames,
     turnTracker,
+    policy,
   )
-  let lastResult = initialResult
-
-  // Preserve injection order when multiple engine-level diagnostics are added.
-  if (traceMessages.length > 0 && INJECTABLE_EVENTS.has(eventName)) {
-    const traceBlock = traceMessages.join('\n')
-    if (lastResult === undefined) {
-      lastResult = { result: 'allow', injectContext: traceBlock }
-    } else {
-      const existing =
-        typeof lastResult.injectContext === 'string' ? lastResult.injectContext + '\n' : ''
-      lastResult.injectContext = existing + traceBlock
-    }
-  }
-
-  if (degradedMessages.length > 0) {
-    if (INJECTABLE_EVENTS.has(eventName)) {
-      if (lastResult === undefined) {
-        lastResult = { result: 'allow', injectContext: degradedMessages.join('\n') }
-      } else {
-        const existing =
-          typeof lastResult.injectContext === 'string' ? lastResult.injectContext + '\n' : ''
-        lastResult.injectContext = existing + degradedMessages.join('\n')
-      }
-    } else {
-      for (const msg of degradedMessages) {
-        process.stderr.write(`clooks: warning: ${msg}\n`)
-      }
-    }
-  }
-
-  if (debug) {
-    const allDebug = [...engineDebugLines, ...debugMessages]
-    for (const line of allDebug) {
-      process.stderr.write(`[clooks:debug] ${line}\n`)
-    }
-
-    if (allDebug.length > 0) {
-      const debugBlock = allDebug.map((l) => `[clooks:debug] ${l}`).join('\n')
-      if (lastResult === undefined) {
-        lastResult = { result: 'allow', injectContext: debugBlock }
-      } else {
-        const existing =
-          typeof lastResult.injectContext === 'string' ? lastResult.injectContext + '\n' : ''
-        lastResult.injectContext = existing + debugBlock
-      }
-    }
-  }
+  const composed = adapter.composeDiagnostics({
+    eventName,
+    result: initialResult,
+    traceMessages,
+    degradedMessages,
+    debugMessages: debug ? [...engineDebugLines, ...debugMessages] : [],
+  })
+  for (const line of composed.stderr) process.stderr.write(`${line}\n`)
+  systemMessages.push(...composed.systemMessages)
+  let lastResult = composed.result
 
   const adjusted = adapter.adjustResultBeforeFinalOutput({
     eventName,
@@ -513,42 +623,27 @@ export async function runEngineCore(
   lastResult = adjusted.result
   systemMessages.push(...adjusted.systemMessages)
 
-  if (lastResult === undefined) {
-    const allSystemMessages = [
-      ...pluginSystemMessages,
-      ...danglingWarnings,
-      ...startupWarnings,
-      ...systemMessages,
-    ]
-    if (allSystemMessages.length > 0) {
-      emitTranslatedOutput(
-        adapter.translateFinalOutput({
-          eventName,
-          systemMessages: allSystemMessages,
-          diagnostics: [],
-        }),
-      )
-    }
-    process.exit(EXIT_OK)
-  }
-
   const allSystemMessages = [
     ...pluginSystemMessages,
     ...danglingWarnings,
     ...startupWarnings,
     ...systemMessages,
   ]
-  const translated = adapter.translateFinalOutput({
-    eventName,
-    result: lastResult,
-    systemMessages: allSystemMessages,
-    diagnostics: [],
-  })
+  const translated = policyFailure
+    ? adapter.translateFailure({ eventName, invocation, failure: policyFailure })
+    : adapter.translateFinalOutput({
+        eventName,
+        invocation,
+        policyFailure,
+        result: lastResult,
+        systemMessages: allSystemMessages,
+        diagnostics: [],
+      })
 
   emitTranslatedOutput(translated)
 
-  if (translated.exitCode !== EXIT_OK) {
-    process.exit(translated.exitCode)
+  if (translated.exitCode !== EXIT_OK || lastResult === undefined) {
+    finishEngine(translated.exitCode)
   }
 
   process.exitCode = EXIT_OK

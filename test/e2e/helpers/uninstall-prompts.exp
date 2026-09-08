@@ -20,7 +20,7 @@ proc abort_child {message} {
     exit 70
 }
 
-set stty_init "rows 40 columns 240"
+set stty_init "rows 40 columns 1024"
 spawn -noecho [lindex $argv 0] uninstall --[lindex $argv 1] --agent [lindex $argv 2]
 trap {abort_child "PTY driver interrupted"} {SIGTERM SIGINT}
 match_max 65536

@@ -15,6 +15,20 @@ The `LoadedHook` interface carries fields used by the lifecycle system and alias
 - `configPath: string` — Absolute path to the `clooks.yml` that registered the hook. Derived from the hook's origin (home or project).
 - `usesTarget?: string` — Raw `uses` value from YAML config, present only for alias hooks. Used by error formatting to include provenance in diagnostic messages.
 
+### Invocation Result Policy
+
+`executeHooks` accepts an optional tenth argument, an invocation-bound `InvocationResultPolicy`. Omitting it uses the same permissive result policy as the Claude adapter. The first nine arguments retain their existing meanings. These contracts are private engine types, not hook-author API additions. Codex supplies event-bound policies for all ten target events. The PreToolUse gate passed; expanded Docker validation has passed. Codex sets `deferRuntimeErrorAudit`: ordinary errors are captured and configured onError/counter accounting runs first; only a selected blocking error is then audited. Sequential failure writes precede this audit; parallel captured counters are persisted before deferred blocking audits. Continue/trace and threshold degradation do not become premature capability refusals. Author-capability failures and parallel-contract violations remain immediate. This correction is implemented and has passed full Docker validation.
+
+Every completed lifecycle value is audited before handoff, input merging, vote reduction or the parallel short-circuit decision. `LifecycleResult.origin` distinguishes a beforeHook block/skip from a handler result. The handler value is checked after afterHook completes because the observer receives that object by reference and can mutate it. An attempted afterHook override remains ignored, and malformed beforeHook returns retain Claude's warning/no-op behavior.
+
+The policy sees the raw value, hook identity, origin, execution mode and current tool input. Accepted results and optional full `nextToolInput` candidates are deeply detached before consumption, preserving opaque JSON keys. A supplied candidate replaces pipeline input without a second patch merge. Without a candidate, Claude keeps its existing shallow patch/null behavior and mutable hook-visible input; an injected policy gets detached tool-input views. Generated load failures, engine errors and parallel contract violations have distinct origins. Parallel updatedInput requests, including empty objects and malformed skip-plus-update returns, are checked before any handoff.
+
+The optional `validateRawResult()` preflight runs inside protected policy evaluation **before** deep cloning. Codex uses descriptor-based shape checks to reject accessors, symbol/non-enumerable properties, cycles, sparse or extended arrays, non-finite numbers and other values that cloning/JSON would lose; undefined object fields remain no-ops. Its concrete policy permits PreToolUse allow/block/skip, supported string context/debug fields and allow-only sequential rewrites through an approved codec. It rejects ask/defer, unsupported fields and blank block reasons. Allow reasons become human system-message annotations; they are removed from the accepted control result. These rules do not tighten Claude's permissive author surface.
+
+A rejection is retained as `policyFailure` outside ordinary reduction and error degradation. It stops later execution and result effects, so a losing vote, subsequent allow, trace or maxFailures setting cannot erase it. Exceptions in policy evaluation become a policy failure rather than a configurable hook crash. Raw-history classification is also protected: a throwing result getter records one raw error and latches a policy failure. Settlement-processing exceptions close and resolve the parallel batch instead of leaving its promise pending. Provider-owned diagnostic composition remains separate from author-result checking.
+
+Parallel batches check their closed state before storing any settlement. Capture precedes ordinary crash/block abort consumption, preserving accounting for already-captured outcomes. Author-capability and parallel-contract audits remain immediate; with Codex's deferred runtime-error audit, ordinary error accounting precedes auditing the selected blocking error. Each started lifecycle records its raw decision once; at abort, each still-pending lifecycle records one abandoned error. Later fulfillment or rejection cannot amend the batch, add diagnostics, create handoff files, vote or append history. A lifecycle timeout likewise records one raw error and discards its eventual completion. Each executor invocation owns its policy failure, input candidates and history bookkeeping, including when invocations overlap. History describes raw returns rather than accepted or delivered decisions; a rejected valid raw tag remains that tag. Unintelligible handler values record an error. Hook code remains trusted code: neither result policy nor JavaScript abort signals can undo its own arbitrary I/O.
+
 ### Ordering
 
 Hook execution order is determined by `orderHooksForEvent()` in `src/ordering.ts`. There are two modes:
@@ -51,6 +65,12 @@ A hook+event pair that fails N consecutive times (default 3) enters "degraded mo
 
 **State storage:** Failure state is persisted in `.clooks/.failures` (JSON, gitignored). The file is managed entirely by the engine. It is created on first failure, updated on subsequent failures, and deleted when all hooks are healthy. The in-memory type is `FailureState = Record<HookName, Partial<Record<EventName, HookEventFailure>>>` — both dimensions are branded, preventing key confusion between hook names and event names.
 
+**Provider-aware paths:** The engine calls `getFailureLocation()` with `adapter.id`. Its `FailureLocation` result is a legacy path string for Claude or `{ path, root }` for Codex, carried through the existing executor failure argument into reads, writes and recovery clearing. `getFailurePath()` still computes Codex `<projectRoot>/.clooks/.cache/agents/codex/failures.json` with project config or `<homeRoot>/.clooks/failures/codex/<hash>.json` without it (first 12 hex characters of `SHA-256(projectRoot)`). The managed root is respectively projectRoot or homeRoot. Claude retains its existing project/home paths, string-path I/O and counter schema.
+
+**Codex managed failure I/O:** Every managed parent component beneath the selected root must be a real directory, starting at `.clooks`; relative escapes and resolved directories outside that root are rejected. Missing directories are created with mode 0700 only for nonempty writes. Reads open with `O_NOFOLLOW | O_NONBLOCK` and require a single-link regular file on the opened descriptor. Writes and clearing reject existing symlinks, nonregular files and multiply linked files. Nonempty writes use an exclusive same-directory 0600 staging file, recheck parents and destination, then rename atomically and clean up staging. Empty state unlinks only a validated destination and does not create directories. Missing state reads as empty; invalid managed locations reject rather than reading another provider's counters. These checks address accidental state aliasing, not hostile concurrent filesystem mutation or a new repository trust model. Corrected-source Docker validation has passed.
+
+`getConfigFailurePath()` preserves Claude's historical project `.clooks/.failures` path and routes Codex config errors through its provider-aware path. The engine detects whether a distinct project config file exists before loading, so a home-only Codex config failure does not create project-local failure storage. Codex config failures identify/normalize the input before recording counters: below the default failure threshold, a supported event receives a translated refusal; at threshold, final translation carries a human degradation notice without importing hooks. Malformed or unsupported input remains an invocation failure rather than a fabricated config event. These paths are implemented and Docker-validated, not evidence of native refusal.
+
 **File format:**
 
 ```json
@@ -77,7 +97,9 @@ A hook+event pair that fails N consecutive times (default 3) enters "degraded mo
 
 - `src/ordering.ts` — `orderHooksForEvent()`, `partitionIntoGroups()`.
 - `src/failures.ts` — `getFailurePath()`, `readFailures()`, `writeFailures()`, `recordFailure()`, `clearFailure()`.
-- `src/engine/run.ts` — `runEngine()`, group execution logic.
+- `src/engine/run.ts` — `runEngine()`, invocation and final-output orchestration.
+- `src/engine/execute.ts` — group execution, result audit, reduction and raw-history recording.
+- `src/engine/result-policy.ts` — legacy policy and detached policy evaluation.
 - `src/loader.ts` — `loadAllHooks()`, dangling detection, load error routing.
 
 ## Related

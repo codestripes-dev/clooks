@@ -1,9 +1,10 @@
-import { join, dirname } from 'path'
-import { unlink } from 'fs/promises'
-import { mkdirSync } from 'fs'
-import { createHash } from 'crypto'
+import { join, dirname, basename, relative, resolve, sep } from 'path'
+import { unlink, lstat, mkdir, open, realpath, rename } from 'fs/promises'
+import { mkdirSync, constants } from 'fs'
+import { createHash, randomBytes } from 'crypto'
 import type { EventName, HookName } from './types/branded.js'
 import { isPlainObject } from 'lodash-es'
+import type { AgentId } from './agents/types.js'
 
 /**
  * Synthetic event key for load/import errors.
@@ -22,6 +23,8 @@ export interface HookEventFailure {
 // Top-level: hook name → event name → failure data
 export type FailureState = Record<HookName, Partial<Record<EventName, HookEventFailure>>>
 
+export type FailureLocation = string | { path: string; root: string }
+
 /**
  * Computes the failure state file path.
  *
@@ -35,26 +38,132 @@ export function getFailurePath(
   projectRoot: string,
   homeRoot: string,
   hasProjectConfig: boolean,
+  provider: AgentId = 'claude-code',
 ): string {
   if (hasProjectConfig) {
+    if (provider === 'codex') {
+      return join(projectRoot, '.clooks', '.cache', 'agents', provider, 'failures.json')
+    }
     return join(projectRoot, '.clooks/.failures')
   }
   const hash = createHash('sha256').update(projectRoot).digest('hex').slice(0, 12)
+  if (provider === 'codex') {
+    return join(homeRoot, '.clooks/failures', provider, `${hash}.json`)
+  }
   return join(homeRoot, '.clooks/failures', `${hash}.json`)
 }
 
-export async function readFailures(failurePath: string): Promise<FailureState> {
-  const file = Bun.file(failurePath)
+export function getConfigFailurePath(
+  projectRoot: string,
+  homeRoot: string,
+  hasProjectConfig: boolean,
+  provider: AgentId = 'claude-code',
+): string {
+  return provider === 'claude-code'
+    ? join(projectRoot, '.clooks/.failures')
+    : getFailurePath(projectRoot, homeRoot, hasProjectConfig, provider)
+}
 
-  if (!(await file.exists())) {
-    return {}
+export function getFailureLocation(
+  projectRoot: string,
+  homeRoot: string,
+  hasProjectConfig: boolean,
+  provider: AgentId,
+  configError = false,
+): FailureLocation {
+  const path = configError
+    ? getConfigFailurePath(projectRoot, homeRoot, hasProjectConfig, provider)
+    : getFailurePath(projectRoot, homeRoot, hasProjectConfig, provider)
+  return provider === 'claude-code'
+    ? path
+    : { path, root: hasProjectConfig ? projectRoot : homeRoot }
+}
+
+/** Validate managed components without following a link into another provider's state. */
+async function managedFailurePath(
+  location: Exclude<FailureLocation, string>,
+  create: boolean,
+): Promise<string> {
+  const root = resolve(location.root)
+  const path = resolve(location.path)
+  const parts = relative(root, dirname(path)).split(sep)
+  if (parts[0] !== '.clooks' || parts.includes('..')) {
+    throw new Error('failure state path is outside its selected managed root')
   }
+  let directory = root
+  for (const part of parts) {
+    directory = join(directory, part)
+    if (create) {
+      try {
+        await mkdir(directory, { mode: 0o700 })
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+      }
+    }
+    const entry = await lstat(directory)
+    if (entry.isSymbolicLink() || !entry.isDirectory()) {
+      throw new Error('failure state parent is not a real directory')
+    }
+  }
+  const resolvedRoot = await realpath(root)
+  const resolvedDirectory = await realpath(directory)
+  if (
+    !resolvedDirectory.startsWith(resolvedRoot.endsWith(sep) ? resolvedRoot : resolvedRoot + sep)
+  ) {
+    throw new Error('failure state directory resolves outside its selected root')
+  }
+  return join(resolvedDirectory, basename(path))
+}
 
-  let text: string
+async function assertFailureFile(path: string): Promise<void> {
   try {
-    text = await file.text()
-  } catch {
-    return {}
+    const entry = await lstat(path)
+    if (!entry.isFile() || entry.isSymbolicLink() || entry.nlink !== 1) {
+      throw new Error('failure state file is not a single-link regular file')
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  }
+}
+
+async function readManagedFailures(
+  location: Exclude<FailureLocation, string>,
+): Promise<string | null> {
+  let handle
+  try {
+    const path = await managedFailurePath(location, false)
+    handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
+    const entry = await handle.stat()
+    if (!entry.isFile() || entry.nlink !== 1)
+      throw new Error('failure state file is not a single-link regular file')
+    return await handle.readFile('utf8')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+    throw error
+  } finally {
+    await handle?.close()
+  }
+}
+
+export async function readFailures(location: FailureLocation): Promise<FailureState> {
+  const failurePath = typeof location === 'string' ? location : location.path
+  let text: string
+  if (typeof location !== 'string') {
+    const content = await readManagedFailures(location)
+    if (content === null) return {}
+    text = content
+  } else {
+    const file = Bun.file(failurePath)
+
+    if (!(await file.exists())) {
+      return {}
+    }
+
+    try {
+      text = await file.text()
+    } catch {
+      return {}
+    }
   }
 
   let parsed: unknown
@@ -80,7 +189,42 @@ export async function readFailures(failurePath: string): Promise<FailureState> {
   return parsed as FailureState
 }
 
-export async function writeFailures(failurePath: string, state: FailureState): Promise<void> {
+export async function writeFailures(location: FailureLocation, state: FailureState): Promise<void> {
+  if (typeof location !== 'string') {
+    const empty = Object.keys(state).length === 0
+    let path: string
+    try {
+      path = await managedFailurePath(location, !empty)
+    } catch (error) {
+      if (empty && (error as NodeJS.ErrnoException).code === 'ENOENT') return
+      throw error
+    }
+    await assertFailureFile(path)
+    if (empty) {
+      try {
+        await unlink(path)
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      }
+      return
+    }
+    const staging = join(
+      dirname(path),
+      `.failures-${process.pid}-${randomBytes(8).toString('hex')}.tmp`,
+    )
+    const handle = await open(staging, 'wx', 0o600)
+    try {
+      await handle.writeFile(JSON.stringify(state, null, 2) + '\n')
+      await managedFailurePath(location, false)
+      await assertFailureFile(path)
+      await rename(staging, path)
+    } finally {
+      await handle.close().catch(() => {})
+      await unlink(staging).catch(() => {})
+    }
+    return
+  }
+  const failurePath = location
   if (Object.keys(state).length === 0) {
     try {
       await unlink(failurePath)

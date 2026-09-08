@@ -5,6 +5,9 @@ import { join } from 'path'
 import { tmpdir } from 'os'
 import * as fs from 'node:fs'
 import * as clack from '@clack/prompts'
+import os from 'os'
+import * as registrationState from '../registration-state.js'
+import { createInitCommand } from './init.js'
 
 // Mock @clack/prompts BEFORE imports
 mock.module('@clack/prompts', () => ({
@@ -128,6 +131,253 @@ afterEach(() => {
   if (tempDir) {
     rmSync(tempDir, { recursive: true, force: true })
   }
+})
+
+describe('global Codex home recovery', () => {
+  function run(action = '--unhook') {
+    return createTestProgram().parseAsync(
+      ['--json', 'uninstall', '--global', '--agent', 'codex', action, '--force'],
+      { from: 'user' },
+    )
+  }
+
+  function init() {
+    const program = new Command().option('--json').addCommand(createInitCommand())
+    return program.parseAsync(['--json', 'init', '--global', '--agent', 'codex'], { from: 'user' })
+  }
+
+  function registerHome(home: string) {
+    mkdirSync(join(fakeHome, '.clooks/hooks'), { recursive: true })
+    writeFileSync(join(fakeHome, '.clooks/hooks/custom.ts'), 'keep custom')
+    registerCodexClooks(home, makeCodexGlobalEntrypointCommand(fakeHome))
+  }
+
+  test('failed publication in A rejects init B, then full B cleans recorded A', async () => {
+    spyOn(os, 'homedir').mockReturnValue(fakeHome)
+    const a = join(tempDir, 'home-a')
+    const b = join(tempDir, 'home-b')
+    process.env.CODEX_HOME = a
+    const publish = spyOn(registrationState, 'publishCodexReceipt').mockImplementation(() => {
+      throw new Error('publication fault')
+    })
+    await expect(init()).rejects.toThrow('process.exit called')
+    publish.mockRestore()
+    const hooks = readFileSync(join(a, 'hooks.json'), 'utf-8')
+    expect(registrationState.readCodexTrackedHome(fakeHome)).toEqual({ kind: 'home', codexHome: a })
+    process.env.CODEX_HOME = b
+    await expect(init()).rejects.toThrow('process.exit called')
+    expect(existsSync(b)).toBe(false)
+    expect(readFileSync(join(a, 'hooks.json'), 'utf-8')).toBe(hooks)
+    await run('--full')
+    expect(JSON.parse(readFileSync(join(a, 'hooks.json'), 'utf-8')).hooks).toBeUndefined()
+    expect(existsSync(join(fakeHome, '.clooks'))).toBe(false)
+  })
+
+  test('unknown reference retains A identity after unhook and rejects B until explicit repair', async () => {
+    spyOn(os, 'homedir').mockReturnValue(fakeHome)
+    const a = join(tempDir, 'home-a')
+    const b = join(tempDir, 'home-b')
+    process.env.CODEX_HOME = a
+    await init()
+    const hooksPath = join(a, 'hooks.json')
+    const data = JSON.parse(readFileSync(hooksPath, 'utf-8'))
+    data.hooks.FutureEvent = [
+      { hooks: [{ type: 'command', command: makeCodexGlobalEntrypointCommand(fakeHome) }] },
+    ]
+    writeFileSync(hooksPath, JSON.stringify(data))
+    const receipt = readFileSync(join(fakeHome, '.clooks/.global-entrypoint-active.codex'), 'utf-8')
+    await expect(run()).rejects.toThrow('process.exit called')
+    expect(Object.keys(JSON.parse(readFileSync(hooksPath, 'utf-8')).hooks)).toEqual(['FutureEvent'])
+    expect(registrationState.readCodexTrackedHome(fakeHome)).toEqual({ kind: 'home', codexHome: a })
+    expect(readFileSync(join(fakeHome, '.clooks/.global-entrypoint-active.codex'), 'utf-8')).toBe(
+      receipt,
+    )
+    process.env.CODEX_HOME = b
+    await expect(init()).rejects.toThrow('process.exit called')
+    await expect(run('--full')).rejects.toThrow('process.exit called')
+    expect(existsSync(b)).toBe(false)
+    writeFileSync(hooksPath, '{}\n')
+    process.env.CODEX_HOME = a
+    await run()
+    expect(registrationState.readCodexTrackedHome(fakeHome).kind).toBe('missing')
+    process.env.CODEX_HOME = b
+    await init()
+    expect(existsSync(join(b, 'hooks.json'))).toBe(true)
+  })
+
+  test('unhook B preserves A registration and recovery identity', async () => {
+    const a = join(tempDir, 'home-a')
+    const b = join(tempDir, 'home-b')
+    registerHome(a)
+    registerHome(b)
+    registrationState.trackCodexHome(fakeHome, a)
+    const original = readFileSync(join(a, 'hooks.json'), 'utf-8')
+    process.env.CODEX_HOME = b
+    await run()
+    expect(readFileSync(join(a, 'hooks.json'), 'utf-8')).toBe(original)
+    expect(registrationState.readCodexTrackedHome(fakeHome)).toEqual({ kind: 'home', codexHome: a })
+    expect(existsSync(join(fakeHome, '.clooks/hooks/custom.ts'))).toBe(true)
+  })
+
+  test.each([false, 'cancel'])(
+    'selected B consent cannot authorize recorded A cleanup: %j',
+    async (answer) => {
+      const a = join(tempDir, 'home-a')
+      const b = join(tempDir, 'home-b')
+      registerHome(a)
+      registerHome(b)
+      registrationState.trackCodexHome(fakeHome, a)
+      process.env.CODEX_HOME = b
+      const beforeA = readFileSync(join(a, 'hooks.json'), 'utf-8')
+      const beforeB = readFileSync(join(b, 'hooks.json'), 'utf-8')
+      Object.defineProperty(process.stdin, 'isTTY', { value: true, writable: true })
+      const confirm = clack.confirm as ReturnType<typeof mock>
+      confirm
+        .mockImplementationOnce(() => true)
+        .mockImplementationOnce(() => true)
+        .mockImplementationOnce(() => answer)
+      ;(clack.isCancel as unknown as ReturnType<typeof mock>).mockImplementation(
+        (value: unknown) => value === 'cancel',
+      )
+      const operation = createTestProgram().parseAsync(
+        ['uninstall', '--global', '--agent', 'codex'],
+        { from: 'user' },
+      )
+      if (answer === 'cancel') await expect(operation).rejects.toThrow()
+      else await operation
+      expect(confirm.mock.calls).toHaveLength(3)
+      const prompt = (confirm.mock.calls[2]![0] as { message: string }).message
+      expect(prompt).toContain(join(a, 'hooks.json'))
+      expect(prompt).toContain(join(b, 'hooks.json'))
+      expect(readFileSync(join(a, 'hooks.json'), 'utf-8')).toBe(beforeA)
+      expect(readFileSync(join(b, 'hooks.json'), 'utf-8')).toBe(beforeB)
+      expect(readFileSync(join(fakeHome, '.clooks/hooks/custom.ts'), 'utf-8')).toBe('keep custom')
+      expect(registrationState.readCodexTrackedHome(fakeHome)).toEqual({
+        kind: 'home',
+        codexHome: a,
+      })
+    },
+  )
+
+  test('full cleanup unions events in catalog order and sums preserved groups across distinct homes', async () => {
+    const a = join(tempDir, 'home-a')
+    const b = join(tempDir, 'home-b')
+    for (const home of [a, b]) {
+      registerHome(home)
+      const path = join(home, 'hooks.json')
+      const data = JSON.parse(readFileSync(path, 'utf-8'))
+      const events = home === a ? ['PreToolUse', 'SessionStart'] : ['Stop', 'PreToolUse']
+      data.hooks = Object.fromEntries(events.map((event) => [event, data.hooks[event]]))
+      for (let index = 0; index < (home === a ? 1 : 2); index++) {
+        data.hooks.PreToolUse.push({ hooks: [{ type: 'command', command: 'echo unrelated' }] })
+      }
+      writeFileSync(path, JSON.stringify(data))
+    }
+    registrationState.trackCodexHome(fakeHome, a)
+    process.env.CODEX_HOME = b
+    await run('--full')
+    const result = JSON.parse(
+      stdoutSpy.mock.calls.map((call: unknown[]) => String(call[0])).join(''),
+    ).data
+    expect(result.codexEventsRemoved).toEqual(['SessionStart', 'PreToolUse', 'Stop'])
+    expect(result.codexNonClooksPreserved).toBe(3)
+    expect(result.eventsRemoved).toEqual(result.claudeEventsRemoved)
+    expect(result.nonClooksPreserved).toBe(result.claudeNonClooksPreserved)
+    expect(result.agent).toBe('codex')
+    expect(result.agents).toEqual(['codex'])
+  })
+
+  test('malformed recorded-home registration preflights before effective-home cleanup', async () => {
+    const a = join(tempDir, 'home-a')
+    const b = join(tempDir, 'home-b')
+    registerHome(a)
+    registerHome(b)
+    registrationState.trackCodexHome(fakeHome, a)
+    writeFileSync(join(a, 'hooks.json'), '{broken')
+    const beforeB = readFileSync(join(b, 'hooks.json'), 'utf-8')
+    process.env.CODEX_HOME = b
+    await expect(run('--full')).rejects.toThrow('process.exit called')
+    expect(readFileSync(join(b, 'hooks.json'), 'utf-8')).toBe(beforeB)
+    expect(readFileSync(join(a, 'hooks.json'), 'utf-8')).toBe('{broken')
+    expect(existsSync(join(fakeHome, '.clooks/hooks/custom.ts'))).toBe(true)
+  })
+
+  test('state clear failure retains shared runtime and permits retry', async () => {
+    const home = process.env.CODEX_HOME!
+    registerHome(home)
+    registrationState.trackCodexHome(fakeHome, home)
+    const clear = spyOn(registrationState, 'clearCodexRegistrationState').mockImplementation(() => {
+      throw new Error('clear fault')
+    })
+    await expect(run('--full')).rejects.toThrow('process.exit called')
+    expect(existsSync(join(fakeHome, '.clooks/hooks/custom.ts'))).toBe(true)
+    expect(registrationState.readCodexTrackedHome(fakeHome).kind).toBe('home')
+    clear.mockRestore()
+    await run('--full')
+    expect(existsSync(join(fakeHome, '.clooks'))).toBe(false)
+  })
+
+  test('physical home aliases are cleaned and counted once', async () => {
+    const home = join(tempDir, 'physical')
+    const alias = join(tempDir, 'alias')
+    registerHome(home)
+    const path = join(home, 'hooks.json')
+    const data = JSON.parse(readFileSync(path, 'utf-8'))
+    data.hooks.Stop.push({ hooks: [{ type: 'command', command: 'echo unrelated' }] })
+    writeFileSync(path, JSON.stringify(data))
+    fs.symlinkSync(home, alias)
+    registrationState.trackCodexHome(fakeHome, home)
+    process.env.CODEX_HOME = alias
+    process.env.CLOOKS_HOME_ROOT = join(tempDir, 'runtime-only')
+    await run('--full')
+    const result = JSON.parse(
+      stdoutSpy.mock.calls.map((call: unknown[]) => String(call[0])).join(''),
+    ).data
+    expect(result.codexNonClooksPreserved).toBe(1)
+    expect(result.codexEventsRemoved).toEqual([...CODEX_REGISTRATION_EVENTS])
+    expect(existsSync(process.env.CLOOKS_HOME_ROOT)).toBe(false)
+  })
+
+  test.each(['.codex-registration-home', '.global-entrypoint-active.codex'])(
+    'malformed %s preflights before any full cleanup',
+    async (name) => {
+      setupGlobal(fakeHome)
+      registerHome(process.env.CODEX_HOME!)
+      const path = join(fakeHome, '.clooks', name)
+      writeFileSync(path, 'malformed\n')
+      const claude = join(fakeHome, '.claude/settings.json')
+      const codex = join(process.env.CODEX_HOME!, 'hooks.json')
+      const before = [claude, codex, path].map((file) => readFileSync(file))
+      await expect(run('--full')).rejects.toThrow('process.exit called')
+      ;[claude, codex, path].forEach((file, index) =>
+        expect(readFileSync(file)).toEqual(before[index]!),
+      )
+      expect(readFileSync(join(fakeHome, '.clooks/hooks/custom.ts'), 'utf-8')).toBe('keep custom')
+    },
+  )
+
+  test('late recorded-home write failure retains identity and runtime after effective-home cleanup', async () => {
+    const a = join(tempDir, 'home-a')
+    const b = join(tempDir, 'home-b')
+    registerHome(a)
+    registerHome(b)
+    registrationState.trackCodexHome(fakeHome, a)
+    process.env.CODEX_HOME = b
+    const aBytes = readFileSync(join(a, 'hooks.json'), 'utf-8')
+    const rename = fs.renameSync
+    const fault = spyOn(fs, 'renameSync').mockImplementation((from, to) => {
+      if (String(to) === join(a, 'hooks.json')) throw new Error('recorded home write fault')
+      rename(from, to)
+    })
+    await expect(run('--full')).rejects.toThrow('process.exit called')
+    expect(JSON.parse(readFileSync(join(b, 'hooks.json'), 'utf-8')).hooks).toBeUndefined()
+    expect(readFileSync(join(a, 'hooks.json'), 'utf-8')).toBe(aBytes)
+    expect(registrationState.readCodexTrackedHome(fakeHome)).toEqual({ kind: 'home', codexHome: a })
+    expect(readFileSync(join(fakeHome, '.clooks/hooks/custom.ts'), 'utf-8')).toBe('keep custom')
+    fault.mockRestore()
+    await run('--full')
+    expect(existsSync(join(fakeHome, '.clooks'))).toBe(false)
+  })
 })
 
 describe('clooks uninstall — force mode', () => {
@@ -1251,7 +1501,7 @@ describe('clooks uninstall — global scope', () => {
     expect(
       successCalls.some((msg: string) =>
         msg.includes(
-          `Removed Clooks hooks from ~/.codex/hooks.json (${CODEX_REGISTRATION_EVENTS.length} events).`,
+          `Removed Clooks hooks from ${join(fakeHome, '.codex/hooks.json')} (${CODEX_REGISTRATION_EVENTS.length} events).`,
         ),
       ),
     ).toBe(true)
@@ -1348,7 +1598,7 @@ describe('shared runtime deletion', () => {
       writeFileSync(custom, 'export const sentinel = "preserve me"\n')
       if (scope === 'global') {
         writeFileSync(join(root, '.clooks/.global-entrypoint-active'), 'claude sentinel')
-        writeFileSync(join(root, '.clooks/.global-entrypoint-active.codex'), 'codex sentinel')
+        writeFileSync(join(root, '.clooks/.global-entrypoint-active.codex'), '')
       }
       const claude = join(root, '.claude/settings.json')
       const codex = join(root, '.codex/hooks.json')
@@ -1410,7 +1660,10 @@ describe('shared runtime deletion', () => {
         const { root, claude, codex } = fixture()
         await interactive(agent, [false, true, true])
         expect(clack.confirm).toHaveBeenLastCalledWith({
-          message: cleanupQuestion,
+          message:
+            scope === 'project'
+              ? cleanupQuestion
+              : `Remove all Claude Code and Codex Clooks hook registrations at ${claude}, ${codex} before deleting the shared directory?`,
           initialValue: false,
         })
         expect(JSON.parse(readFileSync(claude, 'utf8')).hooks).toBeUndefined()
@@ -1421,10 +1674,13 @@ describe('shared runtime deletion', () => {
 
       for (const selectedConsent of [false, true]) {
         test(`${scope}: refusing required cleanup after ${agent} unhook=${selectedConsent} preserves all bytes`, async () => {
-          const { before } = fixture()
+          const { before, claude, codex } = fixture()
           await interactive(agent, [selectedConsent, true, false])
           expect(clack.confirm).toHaveBeenLastCalledWith({
-            message: cleanupQuestion,
+            message:
+              scope === 'project'
+                ? cleanupQuestion
+                : `Remove all Claude Code and Codex Clooks hook registrations at ${claude}, ${codex} before deleting the shared directory?`,
             initialValue: false,
           })
           unchanged(before)
@@ -1434,11 +1690,14 @@ describe('shared runtime deletion', () => {
 
       test(`${scope}: other-agent-only installation requires consent with selector ${agent}`, async () => {
         const other = agent === 'codex' ? 'claude-code' : 'codex'
-        const { root } = fixture([other])
+        const { root, claude, codex } = fixture([other])
         await interactive(agent, [true, true])
         expect(clack.confirm).toHaveBeenCalledTimes(2)
         expect(clack.confirm).toHaveBeenLastCalledWith({
-          message: cleanupQuestion,
+          message:
+            scope === 'project'
+              ? cleanupQuestion
+              : `Remove all Claude Code and Codex Clooks hook registrations at ${claude}, ${codex} before deleting the shared directory?`,
           initialValue: false,
         })
         expect(existsSync(join(root, '.clooks'))).toBe(false)
@@ -1644,7 +1903,8 @@ describe('shared runtime deletion', () => {
         '.clooks',
         agent === 'codex' ? '.global-entrypoint-active.codex' : '.global-entrypoint-active',
       )
-      writeFileSync(flag, 'sentinel')
+      const flagBytes = agent === 'codex' ? '' : 'sentinel'
+      writeFileSync(flag, flagBytes)
       const custom = join(fakeHome, '.clooks/hooks/custom.ts')
       writeFileSync(custom, 'preserve me')
       const unlink = fs.unlinkSync
@@ -1660,7 +1920,7 @@ describe('shared runtime deletion', () => {
         'Injected flag failure',
       )
       expect(readFileSync(custom, 'utf8')).toBe('preserve me')
-      expect(readFileSync(flag, 'utf8')).toBe('sentinel')
+      expect(readFileSync(flag, 'utf8')).toBe(flagBytes)
       unlinkSpy.mockRestore()
       exitSpy.mockClear()
       await createTestProgram().parseAsync(args, { from: 'user' })

@@ -1,8 +1,10 @@
 # Codex Hook Capability Matrix
 
-**2026-09-07 reassessment:** The tables below preserve the May evidence snapshot, not a current version-pinned implementation contract. Read [continuation-review.md](continuation-review.md) before consuming them. Current upstream documentation has changed; runtime behavior remains unverified. The next contract pass must revalidate tool coverage, input codecs, output handling, trust, and identity against a selected release. Synthetic fixtures are examples, not independent confirmation.
+**2026-09-07 reassessment:** The tables below preserve the May evidence snapshot, not the current version-pinned implementation contract. Read [the September contract refresh](codex-runtime-contract-refresh.md), the selected-source follow-up below, and [continuation-review.md](continuation-review.md) before consuming them. The [runtime plan](../done/feat-0044-codex-runtime/PLAN-FEAT-0044D-codex-runtime-capability-policy.md) tracks M0's source, executable and native evidence separately. Synthetic fixtures are examples, not independent confirmation. Repository trust and merged configuration execution remain accepted Clooks assumptions, not a new authorization workstream.
 
 This matrix is the historical Plan A contract artifact for EPIC-0044. The agreed MVP targets these ten Codex lifecycle events: `SessionStart`, `SubagentStart`, `PreToolUse`, `PermissionRequest`, `PostToolUse`, `PreCompact`, `PostCompact`, `UserPromptSubmit`, `SubagentStop`, and `Stop`. This is the product target, not an assertion that the current upstream catalog contains only ten events or that their semantics are identical to Claude's.
+
+**Selected-source follow-up:** M0 has now verified the exact `0.153.4` tag and audited its source. The [wire-contract audit](codex-runtime-m0-wire-contract.md) corrects the historical PermissionRequest fail-closed assumption and bare PreToolUse allow mapping; the [identity audit](codex-runtime-m0-identity-delivery.md) separates ordinary Stop continuation from internal review prompt ambiguity. The May tables below are preserved as historical evidence. See [M0 evidence](codex-runtime-m0-evidence.md) for execution status, which is separate from source inspection.
 
 ## Evidence Metadata
 

@@ -1,5 +1,5 @@
 import { Command } from 'commander'
-import { mkdirSync, writeFileSync, readFileSync, existsSync, chmodSync } from 'fs'
+import { mkdirSync, writeFileSync, readFileSync, existsSync, chmodSync, unlinkSync } from 'fs'
 import { join } from 'path'
 import os from 'os'
 import { getCtx } from '../tui/context.js'
@@ -18,7 +18,15 @@ import {
   makeCodexGlobalEntrypointCommand,
   makeCodexProjectEntrypointCommand,
   registerCodexClooks,
+  resolveCodexHome,
+  quotePosixSingleArg,
 } from '../agents/codex/settings.js'
+import {
+  readCodexReceipt,
+  readCodexTrackedHome,
+  trackCodexHome,
+  publishCodexReceipt,
+} from '../registration-state.js'
 import { ENTRYPOINT_SCRIPT, GLOBAL_ENTRYPOINT_SCRIPT } from './init-entrypoint.js'
 import EMBEDDED_TYPES_DTS from '../generated/clooks-types.d.ts.txt' with { type: 'text' }
 import _EMBEDDED_SCHEMA from '../../schemas/clooks.schema.json' with { type: 'text' }
@@ -60,7 +68,7 @@ function printCodexTrustWarning(ctx: ReturnType<typeof getCtx>): void {
 
 function printCodexSkippedRegistrations(ctx: ReturnType<typeof getCtx>, skipped: string[]): void {
   for (const item of skipped) {
-    if (item.includes('.codex/hooks.json')) {
+    if (item.includes('hooks.json')) {
       printInfo(ctx, `Skipped ${item}`)
     }
   }
@@ -107,6 +115,45 @@ async function initGlobal(cmd: Command, agent: InitAgent): Promise<void> {
         'Refusing to initialize global hooks: home directory resolves to filesystem root (/).'
       printError(ctx, 'init', message)
       process.exit(1)
+    }
+
+    // Identity preflight must precede even shared runtime and Claude writes.
+    const codexHome = includesAgent(agent, 'codex')
+      ? resolveCodexHome(homeRoot, process.env)
+      : undefined
+    let previousReceipt: string | undefined
+    if (codexHome !== undefined) {
+      const tracked = readCodexTrackedHome(homeRoot)
+      const receipt = readCodexReceipt(homeRoot)
+      if (tracked.kind === 'invalid') {
+        throw new Error(tracked.reason)
+      }
+      if (receipt.kind === 'invalid') {
+        throw new Error(receipt.reason)
+      }
+      const recordedHomes = [
+        ...(tracked.kind === 'home' ? [tracked.codexHome] : []),
+        ...(receipt.kind === 'receipt' ? [receipt.value.codexHome] : []),
+        ...(receipt.kind === 'legacy' ? [resolveCodexHome(homeRoot, {})] : []),
+      ]
+      if (new Set(recordedHomes).size > 1) {
+        throw new Error(
+          `Conflicting Codex registration identities in ${join(homeRoot, '.clooks')}: ${recordedHomes.join(', ')}. Repair the records and retry.`,
+        )
+      }
+      for (const recordedHome of recordedHomes) {
+        if (recordedHome !== codexHome) {
+          throw new Error(
+            `Codex registration still records ${recordedHome}. Unhook that home with CODEX_HOME=${quotePosixSingleArg(recordedHome)} before initializing ${codexHome}.`,
+          )
+        }
+      }
+      const receiptPath = globalEntrypointFlagPath(homeRoot, 'codex')
+      if (receipt.kind !== 'missing') previousReceipt = readFileSync(receiptPath, 'utf-8')
+      // Retain cleanup identity before retiring suppression. Repairing the launcher
+      // must not make an old receipt newly eligible if registration later fails.
+      trackCodexHome(homeRoot, codexHome)
+      if (receipt.kind !== 'missing') unlinkSync(receiptPath)
     }
 
     // -- Track what we create/skip/update --
@@ -181,23 +228,19 @@ async function initGlobal(cmd: Command, agent: InitAgent): Promise<void> {
       skipped.push('~/.clooks/bin/entrypoint.sh')
     }
 
-    // -- Step 4: Create agent-specific global entrypoint flags --
-    for (const selectedAgent of selectedAgents(agent)) {
-      const flagPath = globalEntrypointFlagPath(homeRoot, selectedAgent)
-      const flagLabel = globalEntrypointFlagLabel(selectedAgent)
+    // -- Register selected agents, then publish their successful state --
+    if (includesAgent(agent, 'claude-code')) {
+      const globalEntrypointCommand = join(homeRoot, '.clooks/bin/entrypoint.sh')
+      const settingsDir = join(homeRoot, '.claude')
+      const regResult = registerClooks(settingsDir, globalEntrypointCommand)
+      const flagPath = globalEntrypointFlagPath(homeRoot, 'claude-code')
+      const flagLabel = globalEntrypointFlagLabel('claude-code')
       if (!existsSync(flagPath)) {
         writeFileSync(flagPath, '')
         created.push(flagLabel)
       } else {
         skipped.push(flagLabel)
       }
-    }
-
-    // -- Step 5: Register selected agents --
-    if (includesAgent(agent, 'claude-code')) {
-      const globalEntrypointCommand = join(homeRoot, '.clooks/bin/entrypoint.sh')
-      const settingsDir = join(homeRoot, '.claude')
-      const regResult = registerClooks(settingsDir, globalEntrypointCommand)
       const totalEvents =
         regResult.added.length + regResult.updated.length + regResult.skipped.length
       if (regResult.added.length > 0 || regResult.updated.length > 0) {
@@ -213,21 +256,28 @@ async function initGlobal(cmd: Command, agent: InitAgent): Promise<void> {
       }
     }
 
-    if (includesAgent(agent, 'codex')) {
+    if (codexHome !== undefined) {
       const codexEntrypointCommand = makeCodexGlobalEntrypointCommand(homeRoot)
-      const regResult = registerCodexClooks(join(homeRoot, '.codex'), codexEntrypointCommand)
+      const regResult = registerCodexClooks(codexHome, codexEntrypointCommand)
+      const receiptPath = globalEntrypointFlagPath(homeRoot, 'codex')
+      publishCodexReceipt(homeRoot, codexHome)
+      const receiptLabel = globalEntrypointFlagLabel('codex')
+      if (previousReceipt === undefined) created.push(receiptLabel)
+      else if (previousReceipt === readFileSync(receiptPath, 'utf-8')) skipped.push(receiptLabel)
+      else updated.push(receiptLabel)
+      const hooksLabel = join(codexHome, 'hooks.json')
       const totalEvents =
         regResult.added.length + regResult.updated.length + regResult.skipped.length
       if (regResult.added.length > 0 || regResult.updated.length > 0) {
         if (regResult.created) {
-          created.push(`~/.codex/hooks.json (${totalEvents} events)`)
+          created.push(`${hooksLabel} (${totalEvents} events)`)
         } else {
           updated.push(
-            `~/.codex/hooks.json (${regResult.added.length} added, ${regResult.updated.length} updated)`,
+            `${hooksLabel} (${regResult.added.length} added, ${regResult.updated.length} updated)`,
           )
         }
       } else {
-        skipped.push('~/.codex/hooks.json')
+        skipped.push(hooksLabel)
       }
     }
 

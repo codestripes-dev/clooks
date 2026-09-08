@@ -1,5 +1,5 @@
-import { mkdirSync } from 'fs'
-import { join, resolve } from 'path'
+import { lstatSync, mkdirSync, realpathSync, statSync } from 'fs'
+import { dirname, isAbsolute, join, resolve } from 'path'
 import { readRegistrationFile, writeRegistrationFileAtomic } from '../../registration-file.js'
 
 export const CODEX_REGISTRATION_EVENTS = [
@@ -26,6 +26,58 @@ export interface CodexRegisterResult {
 
 export interface CodexUnregisterResult {
   removed: CodexRegistrationEvent[]
+}
+
+export function resolveCodexHome(
+  homeRoot: string,
+  env: Record<string, string | undefined>,
+): string {
+  const selected = env.CODEX_HOME || `${homeRoot}/.codex`
+  if (!isAbsolute(homeRoot) || /[\r\n\0]/.test(homeRoot)) {
+    throw new Error('Installation home must be an absolute path without CR/LF or NUL.')
+  }
+  if (!isAbsolute(selected) || /[\r\n\0]/.test(selected)) {
+    throw new Error(
+      'CODEX_HOME must be an absolute path without CR/LF or NUL. Repair the path, then retry.',
+    )
+  }
+
+  let physical = '/'
+  const missing: string[] = []
+  // Resolve each existing prefix before processing '..'; lexical normalization
+  // of an unresolved symlink's parent can select a different directory.
+  for (const component of selected.split('/')) {
+    if (component === '' || component === '.') continue
+    if (component === '..') {
+      if (missing.length > 0) missing.pop()
+      else physical = dirname(physical)
+      continue
+    }
+    if (missing.length > 0) {
+      missing.push(component)
+      continue
+    }
+    const candidate = join(physical, component)
+    try {
+      const resolved = realpathSync(candidate)
+      if (!statSync(resolved).isDirectory()) {
+        throw new Error(`\`${candidate}\` must be a directory. Repair the path, then retry.`)
+      }
+      physical = resolved
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      // A dangling symlink is not a missing directory we may invent beneath its parent.
+      if (lstatSync(candidate, { throwIfNoEntry: false })) throw error
+      missing.push(component)
+    }
+  }
+  const selectedHome = join(physical, ...missing)
+  if (/[\r\n\0]/.test(selectedHome)) {
+    throw new Error(
+      'CODEX_HOME must resolve to an absolute path without CR/LF or NUL. Repair the path, then retry.',
+    )
+  }
+  return selectedHome
 }
 
 export function quotePosixSingleArg(value: string): string {

@@ -73,7 +73,7 @@ clooks init --global --agent codex
 Clooks creates or updates:
 
 - `~/.clooks/` runtime files
-- `~/.codex/hooks.json`
+- `${CODEX_HOME:-$HOME/.codex}/hooks.json`
 
 The user sees a clear note that Codex may require hook review/trust before project hooks run.
 
@@ -95,7 +95,7 @@ The existing bash entrypoint behavior remains useful:
 - locates the `clooks` binary on `PATH`
 - captures stdin for debug replay
 - pipes the original Codex JSON into the binary
-- fail-closes unexpected binary failures
+- reports unexpected binary failures through exit 2; native Codex effects remain event-specific
 
 The key difference is that `CLOOKS_AGENT=codex` reaches the binary, where it selects the Codex adapter.
 
@@ -127,9 +127,9 @@ The same hook can run under Claude Code and Codex when it uses shared lifecycle 
 | Gotcha | Why it matters | Source |
 |--------|---------------|--------|
 | Codex project registration cannot use `$CLAUDE_PROJECT_DIR`. | Current Clooks Claude registration command is Claude-specific. Codex registration needs an absolute path or must set `CLOOKS_PROJECT_ROOT`. | verifier report, `src/settings.ts` |
-| `CLOOKS_AGENT=codex` does not mean runtime support yet. | The placeholder refuses runtime execution with stderr and exit 2. Whether that prevents an upstream operation is event-specific and unverified. | Plan B, September continuation review, `src/agents/codex/adapter.ts` |
-| `runEngine()` now has an adapter boundary, but Claude is still the only runtime adapter. | Plan B split selection from `runEngineCore(adapter, deps)` and moved Claude wire parsing/output/advisories behind the Claude adapter. Downstream plans must preserve that boundary instead of adding Codex conditionals to the shared core. | Plan B, `src/engine/run.ts`, `src/agents/*` |
-| Codex's documented API surface is narrower than Clooks' Claude surface. | `PermissionRequest` rewrites and interrupts are reserved/fail-closed. `PreToolUse` support for `ask`, `updatedInput`, and other parsed fields must be empirically verified before exposing. | verifier report, Codex docs |
+| `CLOOKS_AGENT=codex` handles the ten-event target in current source. | M2 validated PreToolUse; M3 adds the other events with restricted result capabilities and root/child boundaries. Generated-error accounting correction is implemented via `deferRuntimeErrorAudit`; expanded Docker validation has passed; emitted controls do not prove native enforcement. | `src/agents/codex/{adapter,normalize,policy,translate}.ts` |
+| `runEngine()` has an adapter boundary with Claude handling and validated Codex PreToolUse handling. | Plan B separated selection from `runEngineCore(adapter, deps)`; completed M2 adds concrete Codex normalization, policy and translation. Preserve that boundary while validating M3's implemented remaining events; this is not a full-support or native-enforcement claim. | Plans B/D, `src/engine/run.ts`, `src/agents/*` |
+| Codex's source capabilities differ from Clooks' Claude surface. | Reserved `PermissionRequest` fields fail the handler with no decision, leaving normal review absent another decision. Bare PreToolUse allow without replacement and ask are unsupported. Pinned source resolves these constraints; execution remains unverified. | M0 wire audit, Codex 0.153.4 source |
 | Codex command hooks require trust/review. | A successful `clooks init --agent codex` does not guarantee hooks run immediately in every project. CLI output and docs must explain review/trust. | Codex docs |
 | Codex launches multiple matching command hooks concurrently. | Clooks must register one entrypoint per event and preserve multi-hook ordering internally. Do not register individual Clooks hooks directly with Codex. | Codex docs, design discussion |
 | Plugin distribution is a separate integration. | Keep command-hook JSON distribution first because it matches Clooks' existing runtime and ownership model. Do not rely on the historical claim that plugin hooks are disabled by default. | September continuation review |
@@ -143,15 +143,15 @@ The same hook can run under Claude Code and Codex when it uses shared lifecycle 
 ### Dependency Graph
 
 ```text
-Completed: A (runtime-unverified), B (adapter boundary), C (registration)
+Completed: A (runtime-unverified), B, C, C1, D (M0-M4; no P/L)
   |
   +--> C1: Registration Correctness --------+
   |                                       |
   +--> Bounded runtime contract refresh ---+
                                           |
-                                          +--> D: Codex Runtime + Capability Policy
+                                          +--> D: Codex Runtime + Capability Policy (complete)
                                                   |
-                                                  +--> E: Upstream Conformance + Full Workflow
+                                                  +--> E: Native Conformance (not started)
                                                           |
                                                           +--> F: Docs + Distribution Guidance
 ```
@@ -253,8 +253,8 @@ Plan B and Plan C remain historically complete. The September reassessment propo
 
 ### Plan C1: Registration Correctness
 
-**Status:** in progress; Milestones 1 and 2 complete, Milestone 3 not started
-**Plan file:** [Registration Correctness](../plans/feat-0044-cross-agent-portability/PLAN-FEAT-0044C1-registration-correctness.md)
+**Status:** completed
+**Plan file:** [Registration Correctness](../plans/done/feat-0044-cross-agent-portability/PLAN-FEAT-0044C1-registration-correctness.md)
 **Depends on:** Plans B and C. Deterministic registration fixes do not depend on a live Codex run or the full runtime contract refresh; that refresh remains a prerequisite for Plan D.
 
 **Goal:** Make registration recoverable while preserving trusted-repository assumptions and the existing merged global/project pipeline.
@@ -263,6 +263,10 @@ Plan B and Plan C remain historically complete. The September reassessment propo
 
 **Milestone 2 result:** Final deletion intent now controls all-agent cleanup, with explicit consent, preflight, remaining-reference checks and recoverable partial failure. Independent code and QA approved; 231 focused units and 510 full E2E tests passed inside Docker, including real PTY journeys. CLI/testing knowledge documents were updated. Active-home/receipt corrections remain Milestone 3; no Codex runtime activation or host installation changes were made.
 
+**Milestone 3 result:** Global registration and cleanup honor the effective physical Codex home. Separate recovery identity and byte-fresh receipts support failed setup, explicit home switching and selected-plus-recorded cleanup. New project launchers validate home/file/checksum eligibility; selected Codex/all retries retire old receipts before launcher repair. Claude-only setup remains independent, with its documented shared-launcher exception. Five domain documents were updated. Independent code review and QA approved; final Docker units passed 1,957 tests and full E2E passed 600 tests, including generated-command probes, failure/retry and real PTY consent. No host installation was changed.
+
+**Next:** Plan D and M0-M4 are complete with final code/QA GO. Selective archival is authorized: Plan D and runtime ATTENTION move to `docs/plans/done/feat-0044-codex-runtime/`; the active ATTENTION becomes a pointer and shared research/evidence sidecars remain in place. Plan E native conformance is next and has not started. Final Docker gates passed 2,192 units and 787 E2E, plus static checks; M4 made no production changes. P/L remain absent, Review remains an accepted nonblocking best-effort limitation. No README or release-confidence upgrade follows.
+
 **Scope:**
 - Correct failed-init marker publication, active Codex-home resolution, interactive deletion, ownership detection, and malformed-shape preservation.
 - C1 specifies tracking one global Codex home in a pre-write recovery record, with a separate post-success suppression receipt and stale-file checks. Explicit unhook must remove all known references before changing that home. Global deletion cleans selected and recorded homes; unrecorded historical homes require explicit cleanup. These are registration constraints, not a new permission model.
@@ -270,7 +274,7 @@ Plan B and Plan C remain historically complete. The September reassessment propo
 - Retain absolute project commands and the accepted re-init-after-relocation tradeoff. Test repair with the old checkout still present and preserve nested-root behavior. Agent-aware inherited-environment handling belongs to the runtime boundary in Plan D, not a discovery redesign here.
 - Include a regression test for each correction, applicable compiled-binary Docker E2E or smoke coverage, danger-zone review, and domain updates with each implementation milestone.
 
-**Key files:** `src/agents/codex/settings.ts`, `src/commands/init.ts`, `src/commands/uninstall.ts`, `src/commands/init-entrypoint.ts`, and their unit/E2E tests. Existing discovery and loading boundaries are preservation checks, not redesign targets.
+**Key files:** `src/agents/codex/settings.ts`, `src/registration-state.ts`, `src/commands/init.ts`, `src/commands/uninstall.ts`, `src/commands/init-entrypoint.ts`, and their unit/E2E tests. Existing discovery and loading boundaries are preservation checks, not redesign targets.
 
 **Relevant research:** September continuation review and refreshed version-specific contract evidence.
 
@@ -278,8 +282,8 @@ Plan B and Plan C remain historically complete. The September reassessment propo
 
 ### Plan D: Codex Runtime + Capability Policy
 
-**Status:** not started
-**Plan file:** not yet written
+**Status:** M0/M1/M2/M3 complete. M4 and Plan D are complete with final code/QA GO, validated tests and confirmed cleanup. Plan E native conformance is next and has not started. Final M4 Docker gates passed: 2,192 units, 0 failures, 69 files, 8,229 assertions in 3.33 seconds; 787 E2E, 0 failures, 47 files, 9,268 assertions in 104.18 seconds; static checks all exit 0, with 112 lint warnings and 0 errors. Source manifests matched `11f1bc064814471e5c2edc41996eeae742d430ca06472c22717ae222f87e47eb`; the separate wrapper manifest matched `6ed9aa7f7fe33319d8fa656fcb2580d40e064a5f788425d2cc6a15fdfcaa6990` before/after. Final audit confirmed no owned M4 containers. Unit image: `3fe2f24dd9d7a515277d3b3f50cfe42ca935f97c2b7b610ad4ee5ed2f3de33f5`; E2E/static image: `93365cd1bc4b9222702b2bec14a250a83d05ea098132c8f82f5ffde99c318b53`. M4 is test-only with no production changes; final code/QA GO is confirmed. No P/L evidence is added. Artifacts: `tmp/codex-runtime-m4/20260908T093707Z-units-g43QGI`, `tmp/codex-runtime-m4/20260908T093440Z-e2e-4jueMy`, and `tmp/codex-runtime-m4/20260908T093645Z-static-JThIEb`.
+**Plan file:** [Codex Runtime + Capability Policy](../plans/done/feat-0044-codex-runtime/PLAN-FEAT-0044D-codex-runtime-capability-policy.md)
 **Depends on:** Plan B, corrective Plan C1, and refreshed runtime contract evidence.
 
 **Goal:** Implement the first conservative Codex adapter for the release-documented event subset.
@@ -287,9 +291,9 @@ Plan B and Plan C remain historically complete. The September reassessment propo
 **Scope:**
 - Normalize Codex wire JSON into Clooks internal context shape for the supported events.
 - Carry private invocation metadata separately from public context; preserve opaque tool data and define round-trip input codecs.
-- Validate each hook's capabilities before handoff, input mutation, and reduction, then translate only supported final fields.
+- Validate each completed hook/lifecycle result before parallel cancellation, handoff, input mutation, and reduction, then separately audit generated diagnostics and final output. Policy rejection must survive ordinary crash degradation and later votes.
 - Define supported refusal behavior for unsupported safety controls, and honest diagnostics for observational events and unknown-event failures.
-- Include event-aware failure routing, turn identity/boundaries, provider isolation, and handoff delivery eligibility.
+- Include event-aware failure routing, turn identity/boundaries, provider-isolated failure counters and history, and recipient-aware handoff delivery eligibility. Preserve existing Claude storage paths and behavior.
 - Support all ten agreed MVP events. New upstream events require a separate scope decision. Include unit and compiled-binary E2E with each production milestone.
 
 **Key files:**
@@ -300,11 +304,19 @@ Plan B and Plan C remain historically complete. The September reassessment propo
 - `src/engine/context-methods.ts`
 - `src/engine/execute.ts`
 
-**Relevant research:** Plan A capability matrix, verifier report.
+**Entry gate:** Target Codex CLI 0.153.4, announced September 4, 2026. Exact-source provenance and inspection now establish parser/executor source paths, failure channels, tool replacements and native continuation constraints. Reconciliation and final independent code/QA reviews are complete with GO. The accepted best-effort history policy resolves the remaining entry decision: M0/M1/M2/M3 are complete with final milestone GO; M4 is complete with final code/QA GO. Source inspection and accepted probe dispositions do not establish executed behavior. Empty-string unavailable values preserve existing public string types without invented paths; accepting absent required nullable fields is broader compatibility than the producer contract. Native turn IDs are not equivalent to genuine user turns. Live confidence remains a separate release gate.
+
+**M0 source result:** Exact ref `refs/tags/rust-v0.153.4`, tag object `042fb41b7c813ac7999105e886b2b7aa715b5081`, peels to [commit `3d2ee51ca2d5db578f328aa75e20aa22c0197c9a`](https://github.com/openai/codex/tree/3d2ee51ca2d5db578f328aa75e20aa22c0197c9a/codex-rs/hooks). Source rejects bare PreToolUse allow without rewriting; reserved PermissionRequest fields yield a failed handler with no decision, not guaranteed denial; successful stderr is discarded. Stop continuation preserves the native turn and bypasses UserPromptSubmit. Ordinary child prompts expose identity, but internal Review prompts can omit it, preventing a universal once-per-human-turn guarantee. The user's "Then ignore it and move on." selects normal best-effort history and accepts Review as a documented nonblocking limitation. No special workaround or tracking disablement is required. The first offline feasibility attempt found no Rust tools. The sole retry stopped at dependency preparation when `cargo fetch --locked` refused the required upstream `Cargo.lock` update. The retry exited 101 after 49 seconds. Both attempts ran zero tests; the allowance is exhausted with no P evidence, and native L evidence remains absent. The runner owns detailed evidence recording; cleanup is confirmed, with the owned container removed and the label-filtered container listing empty. See [M0 evidence](../plans/feat-0044-cross-agent-portability/codex-runtime-m0-evidence.md), [wire audit](../plans/feat-0044-cross-agent-portability/codex-runtime-m0-wire-contract.md), and [identity audit](../plans/feat-0044-cross-agent-portability/codex-runtime-m0-identity-delivery.md). Together with completed probe dispositions, final code/QA GO and the accepted history policy, M0/M1/M2/M3 are complete with final milestone GO; M4 is complete with final code/QA GO. P/L and shipped-runtime claims do not follow.
+
+**Relevant research:** [September contract refresh](../plans/feat-0044-cross-agent-portability/codex-runtime-contract-refresh.md), [consolidated acceptance matrix](../plans/feat-0044-cross-agent-portability/codex-runtime-acceptance-matrix.md), historical Plan A capability matrix and verifier report.
+
+**M1 implementation result:** Added public context/private invocation separation, invocation-bound result policies, detached result checking before engine-controlled effects, structured diagnostic composition and explicit policy-failure translation. Claude keeps its public authoring shape and behavior; Codex remained an unsupported placeholder at that gate. Throwing-getter batch hangs and lost pre-abort sibling failure counters are resolved with bounded regressions. The policy boundary provided the foundation for M2's now-completed concrete Codex implementation; provider state and recipient-readable handoff were downstream work at that snapshot.
+
+**M1 final gate evidence:** All runs used the same frozen source hash and exited 0: 2,000 units, 0 failures, 64 files, 7,207 assertions; 603 compiled-binary Docker E2E, 0 failures, 44 files, 5,369 assertions; typecheck/lint/format checks passed with 112 existing warnings and 0 errors. Logs: `tmp/codex-runtime-m1/20260908T065006Z-units-EYbymd/output.log`, `tmp/codex-runtime-m1/20260908T065029Z-e2e-gtCAyf/output.log`, and `tmp/codex-runtime-m1/20260908T065232Z-static-k02BdQ/output.log`. No owned containers remain; no host tests or mutations occurred. M1 final milestone GO remains confirmed. M2/M3 have since completed with final GO; M4 is complete with final code/QA GO. These U/D gates establish Claude preservation and the shared boundary, not upstream P/L or release confidence.
 
 ---
 
-### Plan E: Codex Test Harness + E2E
+### Plan E: Native Conformance
 
 **Status:** not started
 **Plan file:** not yet written
@@ -372,17 +384,23 @@ Plan B and Plan C remain historically complete. The September reassessment propo
 
 | Question | Relevant Plan | Notes |
 |----------|--------------|-------|
-| Which input rewrites and permission controls does the selected release honor? | Contract refresh, Plan D | Revalidate the historical matrix against the selected version, including newer local-tool paths. The previous live attempt was blocked by disposable auth; this review did not retry it. |
-| What is the exact Codex-compatible fail-closed channel? | Plan A, Plan D | Docs describe JSON stdout and selected exit-code behavior, but live verification remains blocked by disposable auth. |
-| Should `transcriptPath` stay a string with an adapter fallback, or become nullable in public types? | Plan D | Prefer adapter fallback for first pass. |
-| Should `ctx.raw` / `ctx.agent` become public? | Plan D or later feature | Useful for cross-agent hooks, but it is a public API decision. |
+| Do implemented rewrite and permission mappings conform under upstream/native execution? | Plan E | Clooks mappings are implemented and U/D-verified, including command-only Bash/patch mutation and refusal of reserved PermissionRequest fields. Exact-source constraints are resolved. Only upstream P/native L conformance remains open; the two bounded upstream attempts ran zero tests. |
+| Do verified local refusal and process-failure channels have the expected native effects? | Plan E | Event-specific Clooks output and local process channels are implemented and U/D-verified. Source identifies denial, feedback, continuation and failure consumers; P/L evidence remains absent. Local exit/JSON assertions do not establish native enforcement. |
+| Does implemented unavailable-string compatibility conform to native payloads? | Plan E | Empty-string compatibility is implemented and U/D-verified: supplied strings are preserved, malformed types rejected and operational data not fabricated. Accepting absent required nullable fields is deliberately broader than producers. No implementation gap remains; native P/L conformance is unverified. |
+| Should `ctx.raw` / `ctx.agent` become public? | Deferred separate feature; outside Plan D | No public raw/agent fields were added. Reconsider only through a separately scoped public API decision, not as unfinished runtime work. |
 | Should `clooks test` gain `--agent codex`? | Plan E or separate feature | Useful for hook authors once adapter exists. |
-| How should demonstrated dedup failures be corrected? | C1 | Preserve merged execution and the trusted-repository model; test failed registration, active Codex home, and controlled layered launcher execution. Static markers cannot establish native activation; D/E retain upstream conformance coverage. |
-| How do native turns and Stop continuation map to `ctx.turn`? | Plan D | Audit parent/child scope, duplicate prompts, provider isolation, compaction/resume, and the meaning of one user turn. |
+| How does native activation affect layered invocation beyond stored registration freshness? | D/E | C1 corrected deterministic failed-setup, active-home and stale-receipt defects while preserving merged execution. Stored state still cannot establish native activity or exactly-once execution; upstream conformance remains open. |
+| Does implemented best-effort history conform under native invocation? | Plan E | Root advancement (including same-ID steering), child/Stop preservation, session reset/pruning and provider isolation are implemented and U/D-verified. Only native P/L conformance remains open. Review remains an accepted nonblocking limitation without a workaround; full genuine-user parity and native retry deduplication are not promised. |
 | Should the MVP include newly documented SessionEnd/Interrupt? | Separate scope decision | Recommendation: retain the agreed ten; assess additions after the first working adapter. |
 
 ## Revision Log
 
+- 2026-09-08: M1 final milestone GO confirmed; M1 done and M2 in progress. Zeno owns production/units and Plan D/ATTENTION, Lagrange owns E2E/matrix, and the documentation owner owns affected domains, epic and findings. Domain behavior updates follow implemented evidence. No full Codex support or P/L claim; Review remains an accepted nonblocking limitation.
+- 2026-09-07: Final M1 implementation gates passed on the same frozen source: 2,000 units, 603 E2E, typecheck/lint/format checks with 112 existing warnings and zero errors. Getter/counter regressions are resolved. Policy boundary implemented/tested for Claude preservation and ready for M2; final docs review pending. Codex remains a placeholder, P/L absent, and C1/coverage/native activation distinctions are preserved.
+- 2026-09-07: User instructed "Then ignore it and move on." Accepted normal best-effort history with Review as a documented nonblocking limitation, no special workaround and no tracking disablement. M0 source/probe/review work is complete; M1 is authorized/in progress under parent coordination. P/L remain absent; no shipped-runtime or full genuine-user-parity claim.
+- 2026-09-07: Reconciled closure metadata with exact-tag acquisition and completed wire/identity source audits. Recorded two bounded execution attempts with zero tests: missing Rust tools, then locked dependency preparation rejection. Retry allowance exhausted; P/L absent, reconciliation and final independent code/QA GO complete, history decision pending. Preserved historical research and C1 completion; no M0 completion or production approval.
+- 2026-09-07: Completed Plan D drafting with current official documentation research, target release 0.153.4 and a consolidated behavior/evidence matrix. Independent code/product/QA review approved starting bounded M0. QA clarified existing context reduction, reachable milestone tests and pre-abort diagnostic precedence. Pinned-source M0 precedes production work; Claude compatibility and trusted merged execution remain unchanged. No runtime implementation or new execution evidence in this drafting pass.
+- 2026-09-07: Completed all C1 milestones and archived its plan with focused ATTENTION while preserving active shared research and prior plans. Effective Codex-home registration, recoverable receipt ordering and conservative shell eligibility passed independent code/QA review, 1,957 full Docker units and 600 full Docker E2E tests. Runtime evidence refresh and Plan D remain next; repository trust and merged execution are unchanged.
 - 2026-09-07: Completed C1 planning with three ordered milestones and independent product/code/QA review. Corrected recovery-state gaps before implementation; retained domain updates and unit/Docker/interactive-smoke gates in every applicable milestone. No production code or tests changed in this drafting task.
 - 2026-09-07: Began the delegated C1 ExecPlan draft and linked it. Deterministic registration corrections can proceed independently of the runtime contract refresh. Retained machine-local absolute commands with re-init after relocation; native activation and provider-aware runtime discovery remain downstream scope.
 - 2026-09-07: User confirmed repository trust as a Clooks assumption. Withdrew the proposed separate authorization/release gate; preserve existing global/home/project/local merging and defer tighter permission models. Every correction retains regression and applicable E2E/smoke requirements.
@@ -394,6 +412,10 @@ Plan B and Plan C remain historically complete. The September reassessment propo
 - 2026-05-26: Completed Plan C registration/entrypoint work. Codex hook registration and uninstall are implemented and tested; Codex runtime normalization/translation remains Plan D/E scope.
 
 ## Instruction Prompts
+
+- **2026-09-07** (Joe-Degler):
+
+  > Okay. You can conitinue.
 
 - **2026-09-07** (Joe-Degler):
 

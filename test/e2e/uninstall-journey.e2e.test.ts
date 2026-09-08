@@ -100,7 +100,23 @@ function forced(scope: Scope, agent: Agent, action: '--full' | '--unhook' = '--f
   return sandbox.run(['uninstall', `--${scope}`, '--agent', agent, action, '--force', '--json'])
 }
 
-async function interactive(scope: Scope, agent: Agent, steps: [string, Reply][]): Promise<string> {
+const projectCleanupPrompt =
+  'Remove all Claude Code and Codex Clooks hook registrations before deleting the shared directory?'
+
+function globalCleanupPrompt(codexHomes = [join(sandbox.home, '.codex')]): string {
+  const paths = [
+    join(sandbox.home, '.claude/settings.json'),
+    ...codexHomes.map((home) => join(home, 'hooks.json')),
+  ]
+  return `Remove all Claude Code and Codex Clooks hook registrations at ${paths.join(', ')} before deleting the shared directory?`
+}
+
+async function interactive(
+  scope: Scope,
+  agent: Agent,
+  steps: [string, Reply][],
+  env: Record<string, string> = {},
+): Promise<string> {
   const proc = Bun.spawn(
     [
       '/usr/bin/expect',
@@ -108,7 +124,12 @@ async function interactive(scope: Scope, agent: Agent, steps: [string, Reply][])
       join(import.meta.dir, '../../dist/clooks'),
       scope,
       agent,
-      ...steps.flat(),
+      ...steps
+        .map(([prompt, reply]) => [
+          scope === 'global' && prompt === projectCleanupPrompt ? globalCleanupPrompt() : prompt,
+          reply,
+        ])
+        .flat(),
     ],
     {
       cwd: sandbox.dir,
@@ -123,6 +144,7 @@ async function interactive(scope: Scope, agent: Agent, steps: [string, Reply][])
         PATH: '/usr/local/bin:/usr/bin:/bin',
         TERM: 'xterm',
         NO_COLOR: '1',
+        ...env,
       },
     },
   )
@@ -318,8 +340,50 @@ describe('shared runtime cleanup', () => {
 })
 
 describe('interactive shared runtime cleanup', () => {
-  const cleanupPrompt =
-    'Remove all Claude Code and Codex Clooks hook registrations before deleting the shared directory?'
+  const cleanupPrompt = projectCleanupPrompt
+
+  for (const answer of ['yes', 'no', 'cancel'] as const) {
+    test(`global selected B and recorded A: ${answer} pathful cleanup consent`, async () => {
+      sandbox = createSandbox()
+      const a = join(sandbox.dir, 'state-A')
+      const b = join(sandbox.dir, 'state-B')
+      expect(
+        sandbox.run(['init', '--global', '--agent', 'all'], { env: { CODEX_HOME: a } }).exitCode,
+      ).toBe(0)
+      sandbox.writeHomeHook('keep.ts', customHook)
+      mkdirSync(b)
+      writeFileSync(join(b, 'hooks.json'), readFileSync(join(a, 'hooks.json')))
+      const paths = [
+        join(a, 'hooks.json'),
+        join(b, 'hooks.json'),
+        join(sandbox.home, '.claude/settings.json'),
+        join(sandbox.home, '.clooks/.codex-registration-home'),
+        join(sandbox.home, '.clooks/.global-entrypoint-active.codex'),
+      ]
+      const before = paths.map((path) => readFileSync(path, 'utf8'))
+      const prompt = globalCleanupPrompt([b, a])
+      const transcript = await interactive(
+        'global',
+        'codex',
+        [
+          ['Remove Codex global Clooks hook registrations?', 'yes'],
+          ['Delete ~/.clooks/ directory?', 'yes'],
+          [prompt, answer],
+        ],
+        { CODEX_HOME: b },
+      )
+      expect(transcript).toContain(prompt)
+      if (answer === 'yes') {
+        for (const path of paths.slice(0, 3))
+          expect(JSON.parse(readFileSync(path, 'utf8')).hooks).toBeUndefined()
+        expect(sandbox.homeFileExists('.clooks')).toBe(false)
+      } else {
+        expect(paths.map((path) => readFileSync(path, 'utf8'))).toEqual(before)
+        expectRuntimeRetained('global')
+        if (answer === 'cancel') expect(transcript).toContain('Operation cancelled.')
+      }
+    }, 40_000)
+  }
 
   for (const selected of ['claude-code', 'codex'] as const) {
     const label = selected === 'claude-code' ? 'Claude Code' : 'Codex'
@@ -384,7 +448,7 @@ describe('interactive shared runtime cleanup', () => {
           [cleanupPrompt, answer],
         ])
         expect(transcript).not.toContain(`Remove ${label} global Clooks hook registrations?`)
-        expect(transcript).toContain(cleanupPrompt)
+        expect(transcript).toContain(globalCleanupPrompt())
         if (answer === 'yes') {
           expectUnregistered('global', other)
           expect(existsSync(join(sandbox.home, '.clooks'))).toBe(false)

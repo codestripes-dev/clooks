@@ -39,6 +39,14 @@ Only fields the model reads are eligible: `injectContext` on injectable events; 
 
 Config-time validation rejects an event-level `handoff: true` or a number on an event with no eligible payload (mirrors the `trace`-on-non-injectable check). An explicit event-level `handoff: false` is always accepted, even on an ineligible event — global and hook-level `handoff` are accepted everywhere since a hook typically serves multiple events.
 
+### Provider delivery eligibility
+
+Focused compiled E2E now checks long Stop/SubagentStop reasons remain inline, unchanged decision/reason output, repeat-reminder history, absence of handoff files, and capability rejection before delivery. This adds test coverage only; it does not establish recipient access or native delivery. Final full Docker validation passed; no production behavior changed.
+
+`applyHandoff()` now accepts the invocation policy's optional delivery eligibility and an inline-fallback callback. After the normal field/threshold checks, an ineligible field remains unchanged and no handoff file is written. The executor collects the fallback notice for human system-message delivery. Claude omits this extra restriction and retains the existing file protocol.
+
+The implemented Codex event policies mark every handoff field ineligible because recipient file readability is unverified. Requested handoff therefore keeps qualifying context/block text inline, preserves the decision and emits a human warning; `handoff:false` or text below the threshold does not trigger that warning. Allow explanations already use human `systemMessage` annotations and remain inline. Prompt/stop/child results now also remain inline when otherwise eligible for handoff. The earlier PreToolUse gate passed; expanded event Docker validation has passed. Inline output does not claim native delivery or reader access.
+
 ## File protocol
 
 Files live in `<projectRoot>/.clooks/tmp/` (directory mode 0700, files mode 0600), named `handoff-<sanitized-hook-name>-<sha256(content)[0:12]>.md`. Content addressing gives dedup (repeated identical messages reuse one file) and a byte-identical pointer across repeats, so the model can recognize instructions it already read. Existing content at the target path is verified before reuse (never trusted on name alone); a mismatch triggers an atomic replace via temp-file + `rename`. The directory is self-gitignoring — a `.clooks/tmp/.gitignore` containing `*` is created on first use, so no changes to `clooks init` or the project's root `.gitignore` are needed.

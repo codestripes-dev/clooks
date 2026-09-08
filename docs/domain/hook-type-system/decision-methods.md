@@ -23,6 +23,12 @@ Every context object carries per-event **decision methods** — `ctx.allow(...)`
 - `PreToolUseDecisionMethods<Input>.defer` — type-level JSDoc on `PreToolUseDecisionMethods<Input>` carries the `claude -p` mode + single-tool-call + v2.1.89+ + ignored-fields caveats.
 - `UserPromptSubmit.allow.sessionTitle` — caveat lives on the `SessionTitle` primitive declaration (unchanged). Equivalent to running `/rename`; whether upstream honors it on a `block` arm is unverified.
 
+## Codex Capability Checks
+
+The same public methods and runtime constructors remain attached for Codex. Constructing a well-typed result is not proof that Codex accepts its capabilities. The implemented ten-event policy rejects ask/defer and unsupported fields rather than silently dropping them: PermissionRequest permits only plain allow, block with reason, or skip/debug; no updated input/permissions or interrupt. PostToolUse has block/skip and supported context, not rewritten MCP output. UserPromptSubmit rejects sessionTitle. SessionStart/SubagentStart/PostCompact are observer handlers, so only skip is accepted (context only on the first two). A beforeHook block on an observer becomes an event-aware failure, not an ordinary observer result.
+
+Stop/SubagentStop author block requests continuation through decision/reason; runtime failure instead requests termination. PreCompact block requests termination before compaction. PreToolUse retains its codec-gated rewrite and human allow-reason annotations. Context is accepted only for SessionStart, SubagentStart, PreToolUse, PostToolUse and UserPromptSubmit; generated traces on other events use human system messages. The Claude method/type tables below remain unchanged. The generated-error accounting correction is implemented via `deferRuntimeErrorAudit`; expanded Codex Docker validation has passed; see [Cross-Agent Hooks](../cross-agent-hooks.md#current-pretooluse-implementation).
+
 ## Decision method runtime
 
 `attachDecisionMethods(eventName, ctx)` in `src/engine/context-methods.ts` is the runtime half of the decision-method system:

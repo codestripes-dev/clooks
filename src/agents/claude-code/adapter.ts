@@ -1,11 +1,17 @@
 import { join } from 'path'
-import { isEventName as isClaudeCodeEventName, NOTIFY_ONLY_EVENTS } from '../../config/constants.js'
+import {
+  isEventName as isClaudeCodeEventName,
+  NOTIFY_ONLY_EVENTS,
+  INJECTABLE_EVENTS,
+} from '../../config/constants.js'
+import { cloneDeep } from 'lodash-es'
+import { legacyResultPolicy } from '../../engine/result-policy.js'
 import { translateResult as translateClaudeCodeResult } from '../../engine/translate.js'
 import { normalizeKeys } from '../../normalize.js'
 import type { ClaudeCodeOutput } from '../../types/claude-code.js'
 import type { EventName } from '../../types/branded.js'
 import type { AgentAdapter, TranslatedAgentOutput, TranslateFinalOutputInput } from '../types.js'
-import { EXIT_OK } from '../../engine/types.js'
+import { EXIT_OK, EXIT_STDERR } from '../../engine/types.js'
 import { discoverPluginPacks as defaultDiscoverPluginPacks } from '../../plugin-discovery.js'
 import { vendorAndRegisterPack as defaultVendorAndRegisterPack } from '../../plugin-vendor.js'
 import {
@@ -231,7 +237,7 @@ export const claudeCodeAdapter: AgentAdapter = {
     })
   },
 
-  normalizeContext(payload, eventName) {
+  normalizeInvocation(payload, eventName) {
     const normalized = normalizeKeys(payload)
     normalized.event = normalized.hookEventName
     delete normalized.hookEventName
@@ -239,7 +245,55 @@ export const claudeCodeAdapter: AgentAdapter = {
       normalized.denialReason = normalized.reason
       delete normalized.reason
     }
-    return normalized
+    return {
+      eventName,
+      context: normalized,
+      private: {
+        provider: 'claude-code',
+        raw: cloneDeep(payload),
+        sessionId: typeof payload.session_id === 'string' ? payload.session_id : null,
+        nativeTurnId: null,
+        referencedAgentId: typeof payload.agent_id === 'string' ? payload.agent_id : null,
+        tool: null,
+      },
+    }
+  },
+
+  discoveryEnvironment(env) {
+    return env
+  },
+
+  createResultPolicy() {
+    return legacyResultPolicy
+  },
+
+  composeDiagnostics(input) {
+    let result = input.result
+    const stderr: string[] = []
+    const append = (text: string) => {
+      if (result === undefined) result = { result: 'allow', injectContext: text }
+      else
+        result = {
+          ...result,
+          injectContext:
+            (typeof result.injectContext === 'string' ? result.injectContext + '\n' : '') + text,
+        }
+    }
+    if (input.traceMessages.length > 0 && INJECTABLE_EVENTS.has(input.eventName)) {
+      append(input.traceMessages.join('\n'))
+    }
+    if (input.degradedMessages.length > 0) {
+      if (INJECTABLE_EVENTS.has(input.eventName)) append(input.degradedMessages.join('\n'))
+      else for (const message of input.degradedMessages) stderr.push(`clooks: warning: ${message}`)
+    }
+    for (const line of input.debugMessages) stderr.push(`[clooks:debug] ${line}`)
+    if (input.debugMessages.length > 0)
+      append(input.debugMessages.map((line) => `[clooks:debug] ${line}`).join('\n'))
+    return { result, stderr, systemMessages: [] }
+  },
+
+  translateFailure({ failure }) {
+    return { exitCode: EXIT_STDERR, stderr: failure.message }
   },
 
   adjustResultBeforeFinalOutput(input) {
@@ -262,6 +316,12 @@ export const claudeCodeAdapter: AgentAdapter = {
   },
 
   translateFinalOutput(input) {
+    if (input.policyFailure)
+      return this.translateFailure({
+        eventName: input.eventName,
+        invocation: input.invocation,
+        failure: input.policyFailure,
+      })
     return translateFinalClaudeCodeOutput(input)
   },
 

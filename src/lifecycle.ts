@@ -56,6 +56,7 @@ export class LifecycleMetaCache {
 }
 
 export interface LifecycleResult {
+  origin: 'before-hook' | 'handler'
   /** The final result (handler result, beforeHook block, or beforeHook skip). */
   result: unknown
   /** True if beforeHook short-circuited with a `block`. Used by the engine for debug logging. */
@@ -122,14 +123,24 @@ export async function runHookLifecycle(
 
       if (isLifecycleResultObject(ret)) {
         if (ret.result === 'block') {
-          return { result: ret, blockedByBefore: true, overriddenByAfter: false }
+          return {
+            result: ret,
+            origin: 'before-hook',
+            blockedByBefore: true,
+            overriddenByAfter: false,
+          }
         }
         if (ret.result === 'skip') {
           // `blockedByBefore: false` is correct here — skip means "hook is
           // invisible," distinct from "hook emitted a blocking decision."
           // Downstream consumers treat skip like a no-match. Don't "fix"
           // this to true.
-          return { result: ret, blockedByBefore: false, overriddenByAfter: false }
+          return {
+            result: ret,
+            origin: 'before-hook',
+            blockedByBefore: false,
+            overriddenByAfter: false,
+          }
         }
         if (!VALID_BEFORE_RESULTS.has(ret.result)) {
           warnUnexpectedReturn('beforeHook', loaded.name, ret)
@@ -152,6 +163,7 @@ export async function runHookLifecycle(
 
     return {
       result: handlerResult,
+      origin: 'handler',
       blockedByBefore: false,
       overriddenByAfter: false,
       beforeDebug,

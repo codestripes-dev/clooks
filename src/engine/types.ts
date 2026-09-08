@@ -5,6 +5,16 @@ import type { loadAllHooks } from '../loader.js'
 import type { discoverPluginPacks } from '../plugin-discovery.js'
 import type { vendorAndRegisterPack } from '../plugin-vendor.js'
 import type { discoverProjectRoot } from '../config/discovery.js'
+import type { RuntimePolicyFailure } from '../agents/types.js'
+
+export interface ExecutionResult {
+  lastResult?: EngineResult
+  policyFailure?: RuntimePolicyFailure
+  degradedMessages: string[]
+  debugMessages: string[]
+  traceMessages: string[]
+  systemMessages: string[]
+}
 
 /** Typed result object used within the engine after the hook return boundary. */
 export interface EngineResult {

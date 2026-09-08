@@ -33,6 +33,23 @@ function projectFailurePath(dir: string): string {
 }
 
 describe('getFailurePath', () => {
+  test('Codex isolates project and home-only counters while Claude defaults stay equal', () => {
+    const project = '/projects/shared'
+    const home = '/homes/shared'
+    const hash = createHash('sha256').update(project).digest('hex').slice(0, 12)
+    expect(getFailurePath(project, home, true, 'codex')).toBe(
+      join(project, '.clooks/.cache/agents/codex/failures.json'),
+    )
+    expect(getFailurePath(project, home, false, 'codex')).toBe(
+      join(home, '.clooks/failures/codex', `${hash}.json`),
+    )
+    for (const hasProject of [false, true]) {
+      expect(getFailurePath(project, home, hasProject)).toBe(
+        getFailurePath(project, home, hasProject, 'claude-code'),
+      )
+    }
+  })
+
   test('returns project path when project config exists', () => {
     const projectRoot = '/home/user/my-project'
     const homeRoot = '/home/user'

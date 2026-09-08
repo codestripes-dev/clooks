@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { AgentSelectionError, UnsupportedAgentAdapterError, selectAgentAdapter } from './index.js'
+import { AgentSelectionError, InvocationPolicyError, selectAgentAdapter } from './index.js'
 import type { AgentSelectionEnv } from './select.js'
 
 describe('selectAgentAdapter', () => {
@@ -15,11 +15,11 @@ describe('selectAgentAdapter', () => {
     expect(selectAgentAdapter({ CLOOKS_AGENT: 'claude-code' }).id).toBe('claude-code')
   })
 
-  test('selects the Codex placeholder explicitly', () => {
+  test('selects the Codex runtime explicitly', () => {
     const adapter = selectAgentAdapter({ CLOOKS_AGENT: 'codex' })
 
     expect(adapter.id).toBe('codex')
-    expect(adapter.supportsRuntime).toBe(false)
+    expect(adapter.supportsRuntime).toBe(true)
     expect(adapter.supportsClaudePluginAdvisories).toBe(false)
   })
 
@@ -53,10 +53,10 @@ describe('selectAgentAdapter', () => {
     ).toBe('codex')
   })
 
-  test('Codex placeholder runtime methods fail closed as unsupported', async () => {
+  test('Codex supports valid SessionStart without enabling Claude plugins', async () => {
     const adapter = selectAgentAdapter({ CLOOKS_AGENT: 'codex' })
 
-    expect(adapter.readEventName({ hook_event_name: 'SessionStart' })).toBeNull()
+    expect(adapter.readEventName({ hook_event_name: 'SessionStart' })).toBe('SessionStart')
     await expect(
       adapter.prepareConfigAfterLoad({
         projectRoot: '/project',
@@ -81,17 +81,34 @@ describe('selectAgentAdapter', () => {
       adapter.collectSessionStartAdvisories({ projectRoot: '/project', homeRoot: '/home' }),
     ).toEqual([])
     expect(() =>
-      adapter.normalizeContext({ hook_event_name: 'SessionStart' }, 'SessionStart'),
-    ).toThrow(UnsupportedAgentAdapterError)
-    expect(() =>
-      adapter.translateFinalOutput({
-        eventName: 'SessionStart',
-        systemMessages: [],
-        diagnostics: [],
-      }),
-    ).toThrow(UnsupportedAgentAdapterError)
-    expect(() => adapter.routeSystemMessage('SessionStart', 'message')).toThrow(
-      UnsupportedAgentAdapterError,
+      adapter.normalizeInvocation({ hook_event_name: 'SessionStart' }, 'SessionStart'),
+    ).toThrow(InvocationPolicyError)
+    const invocation = adapter.normalizeInvocation(
+      {
+        hook_event_name: 'SessionStart',
+        session_id: 'session',
+        cwd: '/project',
+        model: 'actual-model',
+        permission_mode: 'default',
+        transcript_path: null,
+        source: 'startup',
+      },
+      'SessionStart',
     )
+    expect(invocation.context).toMatchObject({
+      event: 'SessionStart',
+      model: 'actual-model',
+      source: 'startup',
+    })
+    expect(invocation.private.nativeTurnId).toBeNull()
+    const translated = adapter.translateFinalOutput({
+      eventName: 'SessionStart',
+      invocation,
+      systemMessages: [],
+      diagnostics: [],
+    })
+    expect(translated.exitCode).toBe(0)
+    expect(translated.output).toBeUndefined()
+    expect(adapter.routeSystemMessage('SessionStart', 'message')).toBe('stdout-json')
   })
 })

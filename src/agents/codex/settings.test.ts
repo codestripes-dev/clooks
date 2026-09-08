@@ -2,7 +2,7 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
-import { symlinkSync, readlinkSync, statSync } from 'fs'
+import { symlinkSync, readlinkSync, realpathSync, statSync } from 'fs'
 import {
   CODEX_REGISTRATION_EVENTS,
   isCodexClooksHook,
@@ -11,10 +11,173 @@ import {
   makeCodexProjectEntrypointCommand,
   quotePosixSingleArg,
   registerCodexClooks,
+  resolveCodexHome,
   unregisterCodexClooks,
 } from './settings.js'
 
 let tempDir: string
+
+describe('resolveCodexHome', () => {
+  beforeEach(() => {
+    tempDir = realpathSync(tempDir)
+  })
+
+  test('defaults unset and empty CODEX_HOME to the installation home', () => {
+    const expected = join(realpathSync(tempDir), '.codex')
+    expect(resolveCodexHome(tempDir, {})).toBe(expected)
+    expect(resolveCodexHome(tempDir, { CODEX_HOME: '' })).toBe(expected)
+    expect(resolveCodexHome(tempDir, { CLOOKS_HOME_ROOT: '/ignored' })).toBe(expected)
+    expect(existsSync(expected)).toBe(false)
+  })
+
+  test('uses a custom absolute home without creating it', () => {
+    const selected = join(tempDir, "custom 'quoted' $home", 'nested')
+    expect(resolveCodexHome(tempDir, { CODEX_HOME: selected })).toBe(selected)
+    expect(existsSync(join(tempDir, "custom 'quoted' $home"))).toBe(false)
+  })
+
+  test('canonicalizes existing symlinks and the nearest existing ancestor', () => {
+    const physical = join(tempDir, 'physical')
+    const alias = join(tempDir, 'alias')
+    mkdirSync(physical)
+    symlinkSync(physical, alias)
+    expect(resolveCodexHome(tempDir, { CODEX_HOME: alias })).toBe(physical)
+    expect(resolveCodexHome(tempDir, { CODEX_HOME: `${alias}/one/two` })).toBe(
+      join(physical, 'one/two'),
+    )
+    expect(existsSync(join(physical, 'one'))).toBe(false)
+    expect(resolveCodexHome(alias, {})).toBe(join(physical, '.codex'))
+  })
+
+  test('resolves parent components after following directory symlinks', () => {
+    const physical = join(tempDir, 'physical', 'child')
+    const alias = join(tempDir, 'alias')
+    mkdirSync(physical, { recursive: true })
+    symlinkSync(physical, alias)
+    expect(resolveCodexHome(tempDir, { CODEX_HOME: `${alias}/../missing` })).toBe(
+      join(tempDir, 'physical/missing'),
+    )
+    expect(existsSync(join(tempDir, 'physical/missing'))).toBe(false)
+    expect(existsSync(join(tempDir, 'missing'))).toBe(false)
+  })
+
+  test('uses the physical parent even when both possible destination directories exist', () => {
+    const physical = join(tempDir, 'physical', 'child')
+    const alias = join(tempDir, 'alias')
+    mkdirSync(physical, { recursive: true })
+    mkdirSync(join(tempDir, 'physical/existing'))
+    mkdirSync(join(tempDir, 'existing'))
+    symlinkSync(physical, alias)
+    expect(resolveCodexHome(tempDir, { CODEX_HOME: `${alias}/..` })).toBe(join(tempDir, 'physical'))
+    expect(resolveCodexHome(tempDir, { CODEX_HOME: `${alias}/../existing` })).toBe(
+      join(tempDir, 'physical/existing'),
+    )
+    expect(resolveCodexHome(tempDir, { CODEX_HOME: `${alias}//./../existing/./` })).toBe(
+      join(tempDir, 'physical/existing'),
+    )
+  })
+
+  test('preserves physical parent components in the default installation home', () => {
+    const physical = join(tempDir, 'physical', 'child')
+    const alias = join(tempDir, 'alias')
+    mkdirSync(physical, { recursive: true })
+    symlinkSync(physical, alias)
+    const expected = join(tempDir, 'physical/.codex')
+    expect(resolveCodexHome(`${alias}/..`, {})).toBe(expected)
+    expect(resolveCodexHome(`${alias}/..`, { CODEX_HOME: '' })).toBe(expected)
+    expect(existsSync(expected)).toBe(false)
+    mkdirSync(expected)
+    mkdirSync(join(tempDir, '.codex'))
+    expect(resolveCodexHome(`${alias}/..`, {})).toBe(expected)
+  })
+
+  test('follows another symlink after resolving the first physical parent', () => {
+    const physical = join(tempDir, 'physical', 'child')
+    const target = join(tempDir, 'target', 'nested')
+    const alias = join(tempDir, 'alias')
+    mkdirSync(physical, { recursive: true })
+    mkdirSync(target, { recursive: true })
+    symlinkSync(physical, alias)
+    symlinkSync(target, join(tempDir, 'physical/next'))
+    expect(resolveCodexHome(tempDir, { CODEX_HOME: `${alias}/../next/../missing/deep` })).toBe(
+      join(tempDir, 'target/missing/deep'),
+    )
+    expect(existsSync(join(tempDir, 'target/missing'))).toBe(false)
+  })
+
+  test('rejects CR/LF introduced by a directory symlink target', () => {
+    const physical = join(tempDir, 'line\nbreak')
+    const alias = join(tempDir, 'alias')
+    mkdirSync(physical)
+    symlinkSync(physical, alias)
+    expect(() => resolveCodexHome(tempDir, { CODEX_HOME: `${alias}/missing` })).toThrow(
+      'absolute path',
+    )
+    expect(existsSync(join(physical, 'missing'))).toBe(false)
+  })
+
+  test('resumes physical resolution after cancelling a missing component', () => {
+    const physical = join(tempDir, 'physical')
+    const alias = join(tempDir, 'alias')
+    const missing = join(tempDir, 'missing')
+    mkdirSync(physical)
+    symlinkSync(physical, alias)
+    expect(resolveCodexHome(tempDir, { CODEX_HOME: `${missing}/../alias` })).toBe(physical)
+    expect(existsSync(missing)).toBe(false)
+    expect(readlinkSync(alias)).toBe(physical)
+  })
+
+  test('rejects files and dangling links after cancelling a missing component', () => {
+    const missing = join(tempDir, 'missing')
+    const file = join(tempDir, 'file')
+    const dangling = join(tempDir, 'dangling')
+    const target = join(tempDir, 'absent')
+    writeFileSync(file, 'keep')
+    symlinkSync(target, dangling)
+    expect(() => resolveCodexHome(tempDir, { CODEX_HOME: `${missing}/../file` })).toThrow(
+      'directory',
+    )
+    expect(() => resolveCodexHome(tempDir, { CODEX_HOME: `${missing}/../dangling` })).toThrow()
+    expect(existsSync(missing)).toBe(false)
+    expect(existsSync(target)).toBe(false)
+    expect(readFileSync(file, 'utf8')).toBe('keep')
+    expect(readlinkSync(dangling)).toBe(target)
+  })
+
+  for (const value of [
+    'relative',
+    '.',
+    '../state',
+    '~/state',
+    '/tmp/line\nbreak',
+    '/tmp/line\rbreak',
+    '/tmp/nul\0',
+  ]) {
+    test(`rejects invalid CODEX_HOME ${JSON.stringify(value)} without writes`, () => {
+      expect(() => resolveCodexHome(tempDir, { CODEX_HOME: value })).toThrow('absolute path')
+      expect(existsSync(join(tempDir, '.codex'))).toBe(false)
+    })
+  }
+
+  test('rejects an invalid installation home even with an absolute override', () => {
+    expect(() => resolveCodexHome('relative', { CODEX_HOME: tempDir })).toThrow('absolute path')
+    expect(() => resolveCodexHome(`${tempDir}\n`, {})).toThrow('absolute path')
+  })
+
+  test('rejects files, file ancestors and dangling symlinks without writes', () => {
+    const file = join(tempDir, 'file')
+    writeFileSync(file, 'keep')
+    expect(() => resolveCodexHome(tempDir, { CODEX_HOME: file })).toThrow('directory')
+    expect(() => resolveCodexHome(tempDir, { CODEX_HOME: `${file}/child` })).toThrow()
+    const link = join(tempDir, 'dangling')
+    const target = join(tempDir, 'absent')
+    symlinkSync(target, link)
+    expect(() => resolveCodexHome(tempDir, { CODEX_HOME: link })).toThrow()
+    expect(readlinkSync(link)).toBe(target)
+    expect(existsSync(target)).toBe(false)
+    expect(readFileSync(file, 'utf8')).toBe('keep')
+  })
+})
 
 describe('registration preservation', () => {
   test('no-op registration preserves noncanonical JSON bytes and inode', () => {

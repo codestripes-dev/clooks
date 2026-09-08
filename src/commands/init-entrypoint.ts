@@ -23,7 +23,7 @@ const SKIP_CLOOKS_CHECK =
   '  exit 0\n' +
   'fi\n'
 
-/** Dedup check: project entrypoint yields to the global one when active for the same agent. */
+/** Persisted registration freshness, not proof that the native global hook will fire. */
 const DEDUP_CHECK =
   '\n' +
   '# Global entrypoint dedup: if a global entrypoint is active, this project\n' +
@@ -32,7 +32,47 @@ const DEDUP_CHECK =
   'if [ "$CLOOKS_DEDUP_AGENT" = "claude-code" ] && [ -f "$HOME/.clooks/.global-entrypoint-active" ]; then\n' +
   '  exit 0\n' +
   'fi\n' +
-  'if [ -f "$HOME/.clooks/.global-entrypoint-active.$CLOOKS_DEDUP_AGENT" ]; then\n' +
+  'clooks_codex_receipt_matches() {\n' +
+  '  local receipt version home codex checksum extra physical_home physical_codex runtime_home actual\n' +
+  '  case "${HOME:-}" in /*) ;; *) return 1 ;; esac\n' +
+  "  case \"$HOME\" in *$'\\r'*|*$'\\n'*) return 1 ;; esac\n" +
+  '  receipt="$HOME/.clooks/.global-entrypoint-active.codex"\n' +
+  '  [ ! -L "$receipt" ] && [ -f "$receipt" ] && [ -r "$receipt" ] || return 1\n' +
+  '  # Bash line reads ignore NUL bytes; reject them before parsing the wire format.\n' +
+  '  if IFS= read -r -d "" extra < "$receipt"; then return 1; fi\n' +
+  '  {\n' +
+  '    IFS= read -r version && IFS= read -r home &&\n' +
+  '      IFS= read -r codex && IFS= read -r checksum || return 1\n' +
+  '    if IFS= read -r extra || [ -n "$extra" ]; then return 1; fi\n' +
+  '  } < "$receipt" || return 1\n' +
+  '  [ "$version" = "clooks-codex-registration-v1" ] || return 1\n' +
+  '  case "$home" in /*) ;; *) return 1 ;; esac\n' +
+  '  case "$codex" in /*) ;; *) return 1 ;; esac\n' +
+  "  case \"$home$codex\" in *$'\\r'*|*$'\\n'*) return 1 ;; esac\n" +
+  '  [[ "$checksum" =~ ^(0|[1-9][0-9]*):(0|[1-9][0-9]*)$ ]] || return 1\n' +
+  '  physical_home=$(cd -P -- "$HOME" && pwd -P) || return 1\n' +
+  '  [ "$home" = "$physical_home" ] || return 1\n' +
+  '  if [ "${CLOOKS_HOME_ROOT+x}" = x ]; then\n' +
+  '    case "$CLOOKS_HOME_ROOT" in /*) ;; *) return 1 ;; esac\n' +
+  "    case \"$CLOOKS_HOME_ROOT\" in *$'\\r'*|*$'\\n'*) return 1 ;; esac\n" +
+  '    runtime_home=$(cd -P -- "$CLOOKS_HOME_ROOT" && pwd -P) || return 1\n' +
+  '    [ "$runtime_home" = "$home" ] || return 1\n' +
+  '  fi\n' +
+  '  physical_codex="${CODEX_HOME:-$HOME/.codex}"\n' +
+  '  case "$physical_codex" in /*) ;; *) return 1 ;; esac\n' +
+  "  case \"$physical_codex\" in *$'\\r'*|*$'\\n'*) return 1 ;; esac\n" +
+  '  physical_codex=$(cd -P -- "$physical_codex" && pwd -P) || return 1\n' +
+  '  [ "$codex" = "$physical_codex" ] || return 1\n' +
+  '  [ -f "$home/.clooks/bin/entrypoint.sh" ] && [ -x "$home/.clooks/bin/entrypoint.sh" ] || return 1\n' +
+  '  [ ! -L "$codex/hooks.json" ] && [ -f "$codex/hooks.json" ] && [ -r "$codex/hooks.json" ] || return 1\n' +
+  '  actual=$(cksum < "$codex/hooks.json") || return 1\n' +
+  '  [[ "$actual" =~ ^(0|[1-9][0-9]*)[[:blank:]]+(0|[1-9][0-9]*)$ ]] || return 1\n' +
+  '  [ "$checksum" = "${BASH_REMATCH[1]}:${BASH_REMATCH[2]}" ]\n' +
+  '}\n' +
+  'if [ "$CLOOKS_DEDUP_AGENT" = "codex" ] && clooks_codex_receipt_matches 2>/dev/null; then\n' +
+  '  exit 0\n' +
+  'fi\n' +
+  'if [ "$CLOOKS_DEDUP_AGENT" != "codex" ] && [ -f "$HOME/.clooks/.global-entrypoint-active.$CLOOKS_DEDUP_AGENT" ]; then\n' +
   '  exit 0\n' +
   'fi\n'
 
