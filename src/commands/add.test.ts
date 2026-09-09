@@ -115,13 +115,17 @@ function mockFetchStatus(status: number, statusText: string) {
  * defaultResponse: fallback if no URL matches.
  */
 function mockFetchByUrl(
-  urlResponseMap: Record<string, { ok: boolean; status: number; statusText: string; body: string }>,
+  urlResponseMap: Record<
+    string,
+    { ok: boolean; status: number; statusText: string; body: string } | Error
+  >,
   defaultResponse?: { ok: boolean; status: number; statusText: string; body: string },
 ) {
   globalThis.fetch = mock((url: string | URL | Request) => {
     const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.href : url.url
     for (const [key, resp] of Object.entries(urlResponseMap)) {
       if (urlStr.includes(key)) {
+        if (resp instanceof Error) return Promise.reject(resp)
         return Promise.resolve({
           ok: resp.ok,
           status: resp.status,
@@ -570,17 +574,19 @@ describe('clooks add (pack/repo URL)', () => {
 
   test('a rejected download does not prevent successful siblings from being installed', async () => {
     setupClooksYml()
-    mockFetchByUrl(
-      buildPackFetchMap({
+    mockFetchByUrl({
+      ...buildPackFetchMap({
         'hook-a.ts': { ok: true, status: 200, statusText: 'OK', body: VALID_HOOK_CONTENT },
       }),
-    )
+      'hook-b.ts': new Error('hook-b download unavailable'),
+    })
     await createTestProgram().parseAsync(['--json', 'add', '--all', TEST_REPO_URL], {
       from: 'user',
     })
-    expect(JSON.parse(String(stdoutSpy.mock.calls[0]![0])).data.hooks).toEqual([
-      { name: 'hook-a', address: 'testowner/test-pack:hook-a' },
-    ])
+    const envelope = JSON.parse(String(stdoutSpy.mock.calls[0]![0]))
+    expect(envelope.data.hooks).toEqual([{ name: 'hook-a', address: 'testowner/test-pack:hook-a' }])
+    // The current JSON envelope reports validation warnings, not download failures.
+    expect(envelope.data.warnings).toEqual([])
     expect(readFileSync(join(tempDir, '.clooks/clooks.yml'), 'utf8')).not.toContain('hook-b:')
     expect(exitSpy).not.toHaveBeenCalled()
   })

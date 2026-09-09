@@ -724,18 +724,17 @@ describe('runEngine', () => {
     expect(stdout).toContain('shadowing')
   })
 
-  it('defaultDeps.readStdin wraps Bun.stdin.json', () => {
-    // Why: the arrow function in defaultDeps.readStdin is a counted function
-    // for coverage purposes.  Without invoking it, engine.ts drops below the
-    // 95% function threshold.  We must replace Bun.stdin.json first because
-    // the real one blocks forever waiting for stdin data in test environments.
-    const origJson = Bun.stdin.json
-    ;(Bun.stdin as any).json = () => Promise.resolve({ test: true })
+  it('default stdin dependency returns parsed payload and propagates parse failure', async () => {
+    const payload = { hook_event_name: 'Stop', session_id: 'stdin-dependency' }
+    const json = spyOn(Bun.stdin, 'json').mockResolvedValueOnce(payload)
     try {
-      const result = defaultDeps.readStdin()
-      expect(result).toBeInstanceOf(Promise)
+      expect(await defaultDeps.readStdin()).toEqual(payload)
+      expect(json).toHaveBeenCalledTimes(1)
+      json.mockRejectedValueOnce(new SyntaxError('invalid stdin'))
+      await expect(defaultDeps.readStdin()).rejects.toThrow('invalid stdin')
+      expect(json).toHaveBeenCalledTimes(2)
     } finally {
-      ;(Bun.stdin as any).json = origJson
+      json.mockRestore()
     }
   })
 

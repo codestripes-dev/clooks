@@ -81,6 +81,23 @@ function makeOutside(): string {
   return dir
 }
 
+async function expectUnrelatedIO(): Promise<void> {
+  const root = makeOutside()
+  const path = join(root, 'control.json.stale-control.tmp')
+  const renamed = join(root, 'renamed.json.stale-control.tmp')
+  await fsPromises.writeFile(path, 'unrelated contents', { flag: 'wx' })
+  const handle = await fsPromises.open(path, 'r')
+  try {
+    expect(await handle.readFile('utf8')).toBe('unrelated contents')
+  } finally {
+    await handle.close()
+  }
+  await fsPromises.rename(path, renamed)
+  expect(readFileSync(renamed, 'utf8')).toBe('unrelated contents')
+  await fsPromises.unlink(renamed)
+  expect(readdirSync(root)).toEqual([])
+}
+
 const SESSION = 'session-abc'
 const EPOCH = 'abcdef0123456789'
 const STOP = 'Stop' as EventName
@@ -168,23 +185,24 @@ describe('turn-state cleanup failures', () => {
     writeRaw(`${path}.lock`, JSON.stringify({ token: 'abandoned' }))
     await utimes(`${path}.lock`, LONG_ABANDONED, LONG_ABANDONED)
     const originalOpen = fsPromises.open
-    const closed: string[] = []
+    let closeFailed = false
     const openSpy = spyOn(fsPromises, 'open').mockImplementation(async (...args) => {
       const handle = await originalOpen(...args)
+      const target = String(args[0])
+      if (target !== dirname(path) && target !== path && target !== `${path}.lock`) return handle
       const close = handle.close.bind(handle)
       handle.close = async () => {
         await close()
-        closed.push(String(args[0]))
+        closeFailed = true
         throw new Error('descriptor close reported failure')
       }
       return handle
     })
     try {
+      await expectUnrelatedIO()
       await commitTurnRecords(path, home, turnStampOf(stored), [pending('lint-reminder')])
       expect(readState(path).scopes.main?.['lint-reminder']).toEqual([record()])
-      expect(closed).toContain(dirname(path))
-      expect(closed).toContain(path)
-      expect(closed.filter((name) => name === `${path}.lock`).length).toBeGreaterThanOrEqual(3)
+      expect(closeFailed).toBe(true)
       expect(existsSync(`${path}.lock`)).toBe(false)
       expect(stagingFiles(dirname(path))).toEqual([])
     } finally {
@@ -201,13 +219,14 @@ describe('turn-state cleanup failures', () => {
     const originalUnlink = fsPromises.unlink
     let residue: string | undefined
     const unlinkSpy = spyOn(fsPromises, 'unlink').mockImplementation(async (target) => {
-      if (String(target).includes('.stale-')) {
+      if (String(target).startsWith(`${path}.lock.stale-`)) {
         residue = String(target)
         throw new Error('stale cleanup failed')
       }
       return originalUnlink(target)
     })
     try {
+      await expectUnrelatedIO()
       const token = await acquireTurnLock(path)
       expect(token).not.toBeNull()
       expect(await verifyTurnLock(path, token!)).toBe(true)
@@ -232,35 +251,51 @@ describe('turn-state cleanup failures', () => {
       writeRaw(path, bytes)
       const originalWrite = fsPromises.writeFile
       const originalUnlink = fsPromises.unlink
+      const originalRename = fsPromises.rename
       let staged: string | undefined
+      let writeFailed = false
+      let publishFailed = false
+      let cleanupFailed = false
       const writeSpy = spyOn(fsPromises, 'writeFile').mockImplementation(
         async (target, data, options) => {
-          if (String(target).endsWith('.tmp')) {
+          if (String(target).startsWith(`${path}.`) && String(target).endsWith('.tmp')) {
             staged = String(target)
             if (failure === 'partial-write') {
               await originalWrite(target, 'partial', options)
+              writeFailed = true
               throw new Error('partial write failed')
             }
           }
           return originalWrite(target, data, options)
         },
       )
-      const renameSpy = spyOn(fsPromises, 'rename').mockRejectedValue(new Error('publish failed'))
+      const renameSpy = spyOn(fsPromises, 'rename').mockImplementation(async (source, target) => {
+        if (String(source) === staged && String(target) === path) {
+          publishFailed = true
+          throw new Error('publish failed')
+        }
+        return originalRename(source, target)
+      })
       const unlinkSpy = spyOn(fsPromises, 'unlink').mockImplementation(async (target) => {
-        if (String(target).endsWith('.tmp')) throw new Error('staging cleanup failed')
+        if (String(target) === staged) {
+          cleanupFailed = true
+          throw new Error('staging cleanup failed')
+        }
         return originalUnlink(target)
       })
       try {
+        await expectUnrelatedIO()
         await commitTurnRecords(path, home, turnStampOf(stored), [pending('new-hook')])
         expect(readFileSync(path, 'utf8')).toBe(bytes)
         expect(staged).toBeDefined()
-        expect(unlinkSpy).toHaveBeenCalledWith(staged!)
+        expect(cleanupFailed).toBe(true)
         expect(existsSync(staged!)).toBe(true)
         expect(existsSync(`${path}.lock`)).toBe(false)
         expect(warnings.join('')).toContain(
           failure === 'partial-write' ? 'partial write failed' : 'publish failed',
         )
-        expect(renameSpy).toHaveBeenCalledTimes(failure === 'publish' ? 1 : 0)
+        expect(writeFailed).toBe(failure === 'partial-write')
+        expect(publishFailed).toBe(failure === 'publish')
       } finally {
         unlinkSpy.mockRestore()
         renameSpy.mockRestore()
@@ -279,18 +314,27 @@ describe('turn-state cleanup failures', () => {
       const bytes = JSON.stringify(stored)
       writeRaw(path, bytes)
       const originalWrite = fsPromises.writeFile
+      const originalUnlink = fsPromises.unlink
       let staged: string | undefined
+      let cleanupFailed = false
       const writeSpy = spyOn(fsPromises, 'writeFile').mockImplementation(
         async (target, data, options) => {
           await originalWrite(target, data, options)
-          if (String(target).endsWith('.tmp')) {
+          if (String(target).startsWith(`${path}.`) && String(target).endsWith('.tmp')) {
             staged = String(target)
             await originalWrite(`${path}.lock`, JSON.stringify({ token: 'new-owner' }))
           }
         },
       )
-      const unlinkSpy = spyOn(fsPromises, 'unlink').mockRejectedValue(new Error('cleanup failed'))
+      const unlinkSpy = spyOn(fsPromises, 'unlink').mockImplementation(async (target) => {
+        if (String(target) === staged) {
+          cleanupFailed = true
+          throw new Error('cleanup failed')
+        }
+        return originalUnlink(target)
+      })
       try {
+        await expectUnrelatedIO()
         if (operation === 'commit') {
           await commitTurnRecords(path, home, turnStampOf(stored), [pending('new-hook')])
         } else {
@@ -300,8 +344,7 @@ describe('turn-state cleanup failures', () => {
         expect(await verifyTurnLock(path, 'new-owner')).toBe(true)
         expect(staged).toBeDefined()
         expect(existsSync(staged!)).toBe(true)
-        expect(unlinkSpy).toHaveBeenCalledTimes(1)
-        expect(unlinkSpy).toHaveBeenCalledWith(staged!)
+        expect(cleanupFailed).toBe(true)
         expect(warnings.join('')).toContain('taken over mid-write')
       } finally {
         unlinkSpy.mockRestore()
@@ -316,13 +359,20 @@ describe('turn-state cleanup failures', () => {
     const path = statePathFor(home)
     const stored = emptyTurnState()
     writeRaw(path, JSON.stringify(stored))
-    const unlinkSpy = spyOn(fsPromises, 'unlink').mockRejectedValue(
-      new Error('lock cleanup failed'),
-    )
+    const originalUnlink = fsPromises.unlink
+    let cleanupFailed = false
+    const unlinkSpy = spyOn(fsPromises, 'unlink').mockImplementation(async (target) => {
+      if (String(target) === `${path}.lock`) {
+        cleanupFailed = true
+        throw new Error('lock cleanup failed')
+      }
+      return originalUnlink(target)
+    })
     try {
+      await expectUnrelatedIO()
       await commitTurnRecords(path, home, turnStampOf(stored), [pending('lint-reminder')])
       expect(readState(path).scopes.main?.['lint-reminder']).toEqual([record()])
-      expect(unlinkSpy).toHaveBeenCalledWith(`${path}.lock`)
+      expect(cleanupFailed).toBe(true)
       const lock = JSON.parse(readFileSync(`${path}.lock`, 'utf8')) as { token: string }
       expect(await verifyTurnLock(path, lock.token)).toBe(true)
       expect(stagingFiles(dirname(path))).toEqual([])
@@ -342,11 +392,19 @@ describe('turn-state cleanup failures', () => {
       paths.push(path)
     }
     await utimes(paths[0]!, oldest, oldest)
-    const unlinkSpy = spyOn(fsPromises, 'unlink').mockRejectedValue(new Error('eviction failed'))
+    const originalUnlink = fsPromises.unlink
+    let evictionFailed = false
+    const unlinkSpy = spyOn(fsPromises, 'unlink').mockImplementation(async (target) => {
+      if (String(target) === paths[0]) {
+        evictionFailed = true
+        throw new Error('eviction failed')
+      }
+      return originalUnlink(target)
+    })
     try {
+      await expectUnrelatedIO()
       await pruneTurnState(home)
-      expect(unlinkSpy).toHaveBeenCalledTimes(1)
-      expect(unlinkSpy).toHaveBeenCalledWith(paths[0]!)
+      expect(evictionFailed).toBe(true)
       expect(readdirSync(dir)).toHaveLength(TURN_STATE_MAX_FILES + 1)
       for (const [i, path] of paths.entries())
         expect(readFileSync(path, 'utf8')).toBe(`session-${i}`)

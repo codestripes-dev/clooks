@@ -2,6 +2,14 @@
 
 Build issues, slow commands, flaky CI, broken toolchain steps, or other tooling problems that blocked or slowed progress.
 
+### Coverage and E2E hooks rebuild the same Docker image
+
+**Severity:** note
+**Date:** 2026-09-08
+**Context:** Accepted Claude coverage-review cleanup, PLAN-0078.
+
+The parallel `coverage` and `e2e` hooks in `lefthook.yml` each build and tag `clooks-e2e`. This duplicates build work and may race on the shared tag. Shared-build orchestration is deferred to the user's next performance task; this cleanup leaves both hooks unchanged and the parent runs validation serially.
+
 ### bun build --compile skips type checking
 
 **Severity:** friction

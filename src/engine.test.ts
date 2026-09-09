@@ -379,7 +379,31 @@ describe('translateResult', () => {
     expect(out.exitCode).toBe(0)
   })
 
+  it.each(['Stop', 'SubagentStop'] as const)(
+    '%s allow drops unsupported context without a block decision',
+    (event) => {
+      expect(
+        translateResult(event, { result: 'allow', injectContext: 'Review completed' }),
+      ).toEqual({ exitCode: 0 })
+    },
+  )
+
   // --- Observe events ---
+
+  it('PostToolUseFailure crash block maps to injectable context', () => {
+    const out = translateResult('PostToolUseFailure', {
+      result: 'block',
+      reason: 'Audit failed',
+    })
+    expect(out.exitCode).toBe(0)
+    expect(out.stderr).toBeUndefined()
+    expect(JSON.parse(out.output!)).toEqual({
+      hookSpecificOutput: {
+        hookEventName: 'PostToolUseFailure',
+        additionalContext: 'Audit failed',
+      },
+    })
+  })
 
   it('PostToolUse skip → exit 0, no output', () => {
     const out = translateResult('PostToolUse', { result: 'skip' })
@@ -507,8 +531,7 @@ describe('translateResult', () => {
 
   it('TeammateIdle skip → exit 0, no output', () => {
     const out = translateResult('TeammateIdle', { result: 'skip' })
-    expect(out.exitCode).toBe(0)
-    expect(out.output).toBeUndefined()
+    expect(out).toEqual({ exitCode: 0 })
   })
 
   // --- new translateResult tests ---
@@ -661,8 +684,7 @@ describe('translateResult', () => {
 
   it('PermissionRequest allow with no extra fields → still returns plain exit 0', () => {
     const out = translateResult('PermissionRequest', { result: 'allow' })
-    expect(out.exitCode).toBe(0)
-    expect(out.output).toBeUndefined()
+    expect(out).toEqual({ exitCode: 0 })
   })
 
   it('PermissionRequest skip → exit 0, no output', () => {

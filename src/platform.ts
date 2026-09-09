@@ -2,7 +2,7 @@ import { homedir } from 'os'
 
 /**
  * Returns the current user's home directory.
- * Extracted into its own module so tests can mock it via mock.module().
+ * Isolated so tests can replace home discovery with a scoped spy.
  */
 export function getHomeDir(): string {
   return homedir()

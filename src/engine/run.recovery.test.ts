@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import * as handoff from './handoff.js'
 import * as turnState from './turn-state.js'
-import { defaultDeps, runEngineCore } from './run.js'
+import { runEngineCore } from './run.js'
 import { claudeCodeAdapter } from '../agents/claude-code/adapter.js'
 import { ms } from '../test-utils.js'
 
@@ -12,7 +12,11 @@ test('SessionStart completes when housekeeping dependencies reject', async () =>
   const root = mkdtempSync(join(tmpdir(), 'clooks-run-recovery-'))
   const originalHome = process.env.CLOOKS_HOME_ROOT
   const originalExitCode = process.exitCode
+  const originalDebug = process.env.CLOOKS_DEBUG
   process.env.CLOOKS_HOME_ROOT = root
+  delete process.env.CLOOKS_DEBUG
+  const stdout = spyOn(process.stdout, 'write').mockImplementation(() => true)
+  const stderr = spyOn(process.stderr, 'write').mockImplementation(() => true)
   const pruneHandoff = spyOn(handoff, 'pruneHandoffFiles').mockRejectedValueOnce(
     new Error('handoff prune failed'),
   )
@@ -74,8 +78,13 @@ test('SessionStart completes when housekeeping dependencies reject', async () =>
       'claude-code',
     )
     expect(translate).toHaveBeenCalledTimes(1)
+    expect(translate).toHaveReturnedWith({ exitCode: 0 })
     expect(exit).toHaveBeenCalledWith(0)
+    expect(stdout).not.toHaveBeenCalled()
+    expect(stderr).not.toHaveBeenCalled()
   } finally {
+    stdout.mockRestore()
+    stderr.mockRestore()
     exit.mockRestore()
     translate.mockRestore()
     boundary.mockRestore()
@@ -83,21 +92,9 @@ test('SessionStart completes when housekeeping dependencies reject', async () =>
     pruneHandoff.mockRestore()
     if (originalHome === undefined) delete process.env.CLOOKS_HOME_ROOT
     else process.env.CLOOKS_HOME_ROOT = originalHome
+    if (originalDebug === undefined) delete process.env.CLOOKS_DEBUG
+    else process.env.CLOOKS_DEBUG = originalDebug
     process.exitCode = originalExitCode
     rmSync(root, { recursive: true, force: true })
-  }
-})
-
-test('default stdin dependency returns parsed payload and propagates parse failure', async () => {
-  const payload = { hook_event_name: 'Stop', session_id: 'stdin-dependency' }
-  const json = spyOn(Bun.stdin, 'json').mockResolvedValueOnce(payload)
-  try {
-    expect(await defaultDeps.readStdin()).toEqual(payload)
-    expect(json).toHaveBeenCalledTimes(1)
-    json.mockRejectedValueOnce(new SyntaxError('invalid stdin'))
-    await expect(defaultDeps.readStdin()).rejects.toThrow('invalid stdin')
-    expect(json).toHaveBeenCalledTimes(2)
-  } finally {
-    json.mockRestore()
   }
 })

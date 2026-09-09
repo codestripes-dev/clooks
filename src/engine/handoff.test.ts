@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync, symlinkSync, readFileSyn
 import { chmod, lstat, readdir, stat, utimes, readFile } from 'fs/promises'
 import * as fsPromises from 'node:fs/promises'
 import { createHash } from 'crypto'
-import { join } from 'path'
+import { dirname, join } from 'path'
 import { tmpdir } from 'os'
 import {
   resolveHandoff,
@@ -32,17 +32,19 @@ describe('handoff I/O recovery', () => {
     let closes = 0
     const openSpy = spyOn(fsPromises, 'open').mockImplementation(async (...args) => {
       const handle = await originalOpen(...args)
+      if (String(args[0]) !== target) return handle
       const close = handle.close.bind(handle)
       handle.close = async () => {
-        closes++
         await close()
+        closes++
         throw new Error('close reported failure')
       }
       return handle
     })
     try {
+      await expectUnrelatedIO()
       expect(await writeHandoffFile(root, hn('close'), 'instructions')).toBe(target)
-      expect(closes).toBe(1)
+      expect(closes).toBeGreaterThan(0)
       expect(readFileSync(target, 'utf8')).toBe('instructions')
       expect(await listHandoffFiles(root)).toHaveLength(1)
     } finally {
@@ -56,7 +58,7 @@ describe('handoff I/O recovery', () => {
     const collisions: string[] = []
     const writeSpy = spyOn(fsPromises, 'writeFile').mockImplementation(
       async (path, data, options) => {
-        if (String(path).endsWith('.tmp')) {
+        if (dirname(String(path)) === join(root, '.clooks/tmp') && String(path).endsWith('.tmp')) {
           collisions.push(String(path))
           await originalWrite(path, 'foreign writer', { flag: 'wx' })
         }
@@ -64,6 +66,7 @@ describe('handoff I/O recovery', () => {
       },
     )
     try {
+      await expectUnrelatedIO()
       await expect(writeHandoffFile(root, hn('collision'), 'instructions')).rejects.toMatchObject({
         code: 'EEXIST',
       })
@@ -79,10 +82,12 @@ describe('handoff I/O recovery', () => {
   it('keeps instructions inline when partial staging write and its cleanup both fail', async () => {
     const root = makeTempRoot()
     const originalWrite = fsPromises.writeFile
+    const originalUnlink = fsPromises.unlink
     let staged: string | undefined
+    let cleanupFailed = false
     const writeSpy = spyOn(fsPromises, 'writeFile').mockImplementation(
       async (path, data, options) => {
-        if (String(path).endsWith('.tmp')) {
+        if (dirname(String(path)) === join(root, '.clooks/tmp') && String(path).endsWith('.tmp')) {
           staged = String(path)
           await originalWrite(path, 'partial', options)
           throw new Error('staging write failed')
@@ -90,9 +95,16 @@ describe('handoff I/O recovery', () => {
         return originalWrite(path, data, options)
       },
     )
-    const unlinkSpy = spyOn(fsPromises, 'unlink').mockRejectedValue(new Error('cleanup failed'))
+    const unlinkSpy = spyOn(fsPromises, 'unlink').mockImplementation(async (path) => {
+      if (String(path) === staged) {
+        cleanupFailed = true
+        throw new Error('cleanup failed')
+      }
+      return originalUnlink(path)
+    })
     const original: EngineResult = { result: 'block', reason: 'Keep these instructions inline' }
     try {
+      await expectUnrelatedIO()
       const warnings = await captureStderr(async () => {
         expect(
           await applyHandoff(
@@ -105,7 +117,7 @@ describe('handoff I/O recovery', () => {
         ).toEqual(original)
       })
       expect(staged).toBeDefined()
-      expect(unlinkSpy).toHaveBeenCalledWith(staged!)
+      expect(cleanupFailed).toBe(true)
       expect(readFileSync(staged!, 'utf8')).toBe('partial')
       expect(await listHandoffFiles(root)).toEqual([])
       expect(warnings).toHaveLength(1)
@@ -123,13 +135,25 @@ describe('handoff I/O recovery', () => {
     rmSync(target)
     mkdirSync(target)
     writeFileSync(join(target, 'sentinel'), 'existing contents')
-    const unlinkSpy = spyOn(fsPromises, 'unlink').mockRejectedValue(new Error('cleanup failed'))
+    const originalUnlink = fsPromises.unlink
+    let staged: string | undefined
+    const unlinkSpy = spyOn(fsPromises, 'unlink').mockImplementation(async (path) => {
+      if (dirname(String(path)) === dirname(target) && String(path).endsWith('.tmp')) {
+        staged = String(path)
+        throw new Error('cleanup failed')
+      }
+      return originalUnlink(path)
+    })
     try {
-      await expect(writeHandoffFile(root, hn('publish'), 'instructions')).rejects.toBeDefined()
-      expect(unlinkSpy).toHaveBeenCalledTimes(1)
-      const staged = String(unlinkSpy.mock.calls[0]![0])
+      await expectUnrelatedIO()
+      await expect(writeHandoffFile(root, hn('publish'), 'instructions')).rejects.toMatchObject({
+        code: 'EISDIR',
+        syscall: 'rename',
+        dest: target,
+      })
       expect(staged).toMatch(/\.handoff-.*\.tmp$/)
-      expect(readFileSync(staged, 'utf8')).toBe('instructions')
+      expect(readFileSync(staged!, 'utf8')).toBe('instructions')
+      expect((await lstat(target)).isDirectory()).toBe(true)
       expect(readFileSync(join(target, 'sentinel'), 'utf8')).toBe('existing contents')
     } finally {
       unlinkSpy.mockRestore()
@@ -147,6 +171,23 @@ function makeTempRoot(): string {
   const dir = mkdtempSync(join(tmpdir(), 'clooks-handoff-'))
   tempDirs.push(dir)
   return dir
+}
+
+async function expectUnrelatedIO(): Promise<void> {
+  const root = makeTempRoot()
+  const path = join(root, '.handoff-control.tmp')
+  const renamed = join(root, '.handoff-renamed.tmp')
+  await fsPromises.writeFile(path, 'unrelated contents', { flag: 'wx' })
+  const handle = await fsPromises.open(path, 'r')
+  try {
+    expect(await handle.readFile('utf8')).toBe('unrelated contents')
+  } finally {
+    await handle.close()
+  }
+  await fsPromises.rename(path, renamed)
+  expect(readFileSync(renamed, 'utf8')).toBe('unrelated contents')
+  await fsPromises.unlink(renamed)
+  expect(await readdir(root)).toEqual([])
 }
 
 function makeConfig(

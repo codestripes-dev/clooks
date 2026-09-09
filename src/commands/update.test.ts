@@ -77,6 +77,12 @@ describe('clooks update command', () => {
     outputSpies = (
       ['printIntro', 'printOutro', 'printSuccess', 'printWarning', 'printInfo'] as const
     ).map((name) => spyOn(output, name).mockImplementation(() => {}))
+    const printError = output.printError
+    outputSpies.push(
+      spyOn(output, 'printError').mockImplementation((ctx, command, message) => {
+        if (ctx.json) printError(ctx, command, message)
+      }),
+    )
   })
 
   afterEach(() => {
@@ -104,33 +110,29 @@ describe('clooks update command', () => {
       ['test-pack', 'Expected format: plugin:<pack-name>'],
       ['plugin:', 'Missing pack name'],
     ])(`rejects malformed target %s before discovery; json=${json}`, async (target, message) => {
-      const errorSpy = spyOn(output, 'printError')
-      try {
-        await expect(run(target, json)).rejects.toThrow('process.exit called')
-        expect(exitSpy).toHaveBeenCalledWith(1)
-        expect(discoverSpy).not.toHaveBeenCalled()
-        if (json) expect(envelopes()[0].error).toContain(message)
-        else
-          expect(errorSpy.mock.calls.some((call) => String(call[2]).includes(message))).toBe(true)
-      } finally {
-        errorSpy.mockRestore()
-      }
+      await expect(run(target, json)).rejects.toThrow('process.exit called')
+      expect(exitSpy).toHaveBeenCalledWith(1)
+      expect(discoverSpy).not.toHaveBeenCalled()
+      if (json) expect(envelopes()[0].error).toContain(message)
+      else
+        expect(output.printError).toHaveBeenCalledWith(
+          { json: false },
+          'update',
+          expect.stringContaining(message),
+        )
     })
 
     test(`reports a missing pack and exits unsuccessfully; json=${json}`, async () => {
-      const errorSpy = spyOn(output, 'printError')
-      try {
-        await expect(run('plugin:missing', json)).rejects.toThrow('process.exit called')
-        expect(discoverSpy).toHaveBeenCalledWith({ homeRoot: home, projectRoot: root })
-        if (json) expect(envelopes()[0]).toMatchObject({ ok: false, command: 'update' })
-        else
-          expect(
-            errorSpy.mock.calls.some((call) => String(call[2]).includes('No installed plugin')),
-          ).toBe(true)
-        expect(exitSpy).toHaveBeenCalledWith(1)
-      } finally {
-        errorSpy.mockRestore()
-      }
+      await expect(run('plugin:missing', json)).rejects.toThrow('process.exit called')
+      expect(discoverSpy).toHaveBeenCalledWith({ homeRoot: home, projectRoot: root })
+      if (json) expect(envelopes()[0]).toMatchObject({ ok: false, command: 'update' })
+      else
+        expect(output.printError).toHaveBeenCalledWith(
+          { json: false },
+          'update',
+          expect.stringContaining('No installed plugin'),
+        )
+      expect(exitSpy).toHaveBeenCalledWith(1)
     })
 
     test(`reports updates, registrations, collisions and partial errors; json=${json}`, async () => {
@@ -177,6 +179,11 @@ describe('clooks update command', () => {
           { json: false },
           'Skipped 1 hook(s) due to name collision: collision',
         )
+        expect(output.printError).toHaveBeenCalledWith(
+          { json: false },
+          'update',
+          expect.stringContaining('missing: copy failed'),
+        )
         expect(output.printOutro).toHaveBeenCalledWith({ json: false }, 'Done.')
       }
     })
@@ -202,6 +209,18 @@ describe('clooks update command', () => {
       expect(discoverSpy).not.toHaveBeenCalled()
     },
   )
+
+  test('reports root discovery exceptions in text mode before discovery', async () => {
+    await expect(
+      run('plugin:test-pack', false, async () => {
+        throw new Error('root unavailable')
+      }),
+    ).rejects.toThrow('process.exit called')
+    expect(output.printError).toHaveBeenCalledWith({ json: false }, 'update', 'root unavailable')
+    expect(stdoutSpy).not.toHaveBeenCalled()
+    expect(discoverSpy).not.toHaveBeenCalled()
+    expect(exitSpy).toHaveBeenCalledWith(1)
+  })
 })
 
 describe('updatePluginPack', () => {

@@ -36,6 +36,10 @@ The thresholds in `bunfig.toml` are the ratchet. To raise the bar, increment the
 
 Fault-injection tests should restore each owned spy in `finally` (or the existing scoped teardown), including when an assertion throws. Limit injected filesystem failures to the test's isolated paths and delegate other calls to the original implementation. Shared full-suite coverage must not depend on a previous test leaving a patched function behind.
 
+Shared fixtures remain measured. In `src/commands/test.test.ts`, stdin/file-input parity checks assert exact decisions and empty stderr for the shared dispatch fixture. Lifecycle suppression tests first execute cloned fixture exports with an absent or passthrough `beforeHook`, assert ordered handler/observer markers, then assert the original gate suppresses those phases. Do not mutate cached fixture exports or duplicate suppression suites.
+
+Keep constructor and platform tests bounded to public contracts: error identity/fields and the home-directory boundary. Avoid assertions about internal implementation steps.
+
 ### Limitations
 
 - **No branch coverage.** Bun does not support branch coverage metrics ([oven-sh/bun#7100](https://github.com/oven-sh/bun/issues/7100)). Only line and function coverage are available.

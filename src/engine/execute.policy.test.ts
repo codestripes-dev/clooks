@@ -144,47 +144,88 @@ function run(
 }
 
 describe('result policy before effects', () => {
-  test.each(['ask', 'defer'] as const)(
-    'parallel %s votes survive reduction and every sibling executes',
-    async (decision) => {
+  test.each([
+    ['ask', 'vote'],
+    ['ask', 'allow'],
+    ['defer', 'vote'],
+    ['defer', 'allow'],
+  ] as const)(
+    'parallel %s votes survive reduction when %s settles first',
+    async (decision, first) => {
       const seen: string[] = []
+      const started = gate()
+      const releases = { vote: gate(), allow: gate() }
+      const firstRecorded = gate()
+      const begin = (name: string) => {
+        seen.push(name)
+        if (seen.length === 2) started.release()
+      }
       const hooks = [
         hook('vote', {
-          PreToolUse() {
-            seen.push('vote')
+          async PreToolUse() {
+            begin('vote')
+            await releases.vote.promise
             return decision === 'ask'
               ? { result: decision, reason: 'Confirm operation' }
               : { result: decision }
           },
         }),
         hook('allow', {
-          PreToolUse() {
-            seen.push('allow')
+          async PreToolUse() {
+            begin('allow')
+            await releases.allow.promise
             return { result: 'allow', injectContext: 'Sibling context' }
           },
         }),
       ]
       const history = tracker()
-      const result = await run(
+      const record = history.value.record
+      history.value.record = (name, event, recordedDecision) => {
+        record(name, event, recordedDecision)
+        if (name === first) firstRecorded.release()
+      }
+      const pending = run(
         hooks,
         'PreToolUse' as EventName,
         config(['vote', 'allow'], true),
         undefined,
         history,
       )
+      let result: Awaited<typeof pending>
+      try {
+        await bounded(started.promise)
+        releases[first].release()
+        await bounded(firstRecorded.promise)
+        // Hold the sibling until the first result reaches history, not merely its handler return.
+        expect(history.records).toEqual([
+          { name: first, decision: first === 'vote' ? decision : 'allow' },
+        ])
+        releases[first === 'vote' ? 'allow' : 'vote'].release()
+        result = await pending
+      } finally {
+        releases.vote.release()
+        releases.allow.release()
+        await pending
+      }
       expect(seen.sort()).toEqual(['allow', 'vote'])
       expect(result.lastResult).toEqual(
         decision === 'ask'
           ? { result: 'ask', reason: 'Confirm operation', injectContext: 'Sibling context' }
           : { result: 'defer' },
       )
-      expect(history.records).toEqual([
-        { name: 'vote', decision },
+      expect([...history.records].sort((a, b) => a.name.localeCompare(b.name))).toEqual([
         { name: 'allow', decision: 'allow' },
+        { name: 'vote', decision },
       ])
       expect(history.commits()).toBe(1)
       expect(result.policyFailure).toBeUndefined()
-      if (decision === 'defer') expect(result.systemMessages.join('\n')).toContain('dropping')
+      const contextWarning =
+        'clooks: defer wins but one or more PreToolUse hooks returned additionalContext / injectContext — upstream Claude Code ignores additionalContext for defer; dropping.'
+      const updatedInputWarning =
+        'clooks: defer wins but one or more PreToolUse hooks returned updatedInput — upstream Claude Code ignores updatedInput for defer; dropping.'
+      if (decision === 'defer') expect(result.systemMessages).toEqual([contextWarning])
+      else expect(result.systemMessages).toEqual([])
+      expect(result.systemMessages).not.toContain(updatedInputWarning)
     },
   )
 

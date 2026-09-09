@@ -23,7 +23,7 @@ import {
 import { Command } from 'commander'
 import { copyFileSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
-import { join } from 'path'
+import { basename, join } from 'path'
 import { createTestCommand, runHarness } from './test.js'
 import { renderExample } from './test/render-example.js'
 import { CLAUDE_CODE_EVENTS } from '../config/constants.js'
@@ -193,19 +193,28 @@ afterEach(() => {
 })
 
 describe('runHarness — stdin and --input parity', () => {
-  test('stdin and --input <file> produce identical stdout for the same payload', async () => {
-    // Release the outer beforeEach mocks before installing inner ones; otherwise
-    // each parity-test run leaks two `process.exit`/stdout/stderr mock layers.
-    // We re-install fresh outer spies at the bottom so afterEach has a target.
-    restoreHarnessSpies(spies)
-
-    const payload = {
+  test.each([
+    {
       event: 'PreToolUse',
       toolName: 'Bash',
       toolInput: { command: 'echo hi' },
       originalToolInput: { command: 'echo hi' },
       toolUseId: 'tu_parity_0001',
-    }
+    },
+    {
+      event: 'PostToolUse',
+      toolName: 'Bash',
+      toolInput: { command: 'echo hi' },
+      originalToolInput: { command: 'echo hi' },
+      toolUseId: 'tu_parity_0001',
+      toolResponse: { stdout: 'hi' },
+    },
+    { event: 'UserPromptSubmit', prompt: 'Check this change' },
+  ])('stdin and --input dispatch $event identically', async (payload) => {
+    // Release the outer beforeEach mocks before installing inner ones; otherwise
+    // each parity-test run leaks two `process.exit`/stdout/stderr mock layers.
+    // We re-install fresh outer spies at the bottom so afterEach has a target.
+    restoreHarnessSpies(spies)
 
     // Stdin path
     const stdinSpies = installHarnessSpies()
@@ -232,7 +241,11 @@ describe('runHarness — stdin and --input parity', () => {
     expect(stdinCode).toBe(0)
     expect(inputCode).toBe(0)
     expect(stdinOut).toBe(inputOut)
-    expect(stdinOut).toBe('{"result":"allow"}\n')
+    expect(stdinOut).toBe(
+      JSON.stringify({ result: payload.event === 'PostToolUse' ? 'skip' : 'allow' }) + '\n',
+    )
+    expect(stdinSpies.stderrChunks).toEqual([])
+    expect(inputSpies.stderrChunks).toEqual([])
 
     // Re-install the per-test spies the afterEach expects.
     spies = installHarnessSpies()
@@ -537,6 +550,41 @@ describe('runHarness — error paths', () => {
       toolUseId: 'tu_lifecycle',
     }
 
+    async function assertExecutablePhases(fixture: string) {
+      // Clone the export so positive controls cannot mutate the cached fixture.
+      for (const mode of ['absent', 'passthrough'] as const) {
+        const control = join(tempDir, `${basename(fixture)}-${mode}.ts`)
+        writeFileSync(
+          control,
+          `import { hook as original } from ${JSON.stringify(fixture)}
+const { beforeHook, ...remaining } = original
+export const hook = {
+  ...remaining,
+  ${
+    mode === 'passthrough'
+      ? `beforeHook(event) {
+    process.stderr.write('control:before;')
+    return event.passthrough()
+  },`
+      : ''
+  }
+}
+`,
+        )
+        const code = await withStdin(PRE_TOOL_USE_PAYLOAD, () =>
+          runAndCaptureExit(control, {}, spies),
+        )
+        expect(code).toBe(0)
+        expect(spies.stdoutChunks.join('')).toBe('{"result":"allow"}\n')
+        expect(spies.stderrChunks.join('')).toBe(
+          (mode === 'passthrough' ? 'control:before;' : '') +
+            'lifecycle:handler-RAN;lifecycle:after-RAN;',
+        )
+        spies.stdoutChunks.length = 0
+        spies.stderrChunks.length = 0
+      }
+    }
+
     test('beforeHook event.passthrough → handler runs, afterHook observes handlerResult', async () => {
       const code = await withStdin(PRE_TOOL_USE_PAYLOAD, () =>
         runAndCaptureExit(HOOK_LIFECYCLE_FULL, {}, spies),
@@ -552,6 +600,7 @@ describe('runHarness — error paths', () => {
     })
 
     test('beforeHook event.block → handler skipped, afterHook skipped, exit 1, block decision printed', async () => {
+      await assertExecutablePhases(HOOK_LIFECYCLE_BLOCK)
       const code = await withStdin(PRE_TOOL_USE_PAYLOAD, () =>
         runAndCaptureExit(HOOK_LIFECYCLE_BLOCK, {}, spies),
       )
@@ -565,6 +614,7 @@ describe('runHarness — error paths', () => {
     })
 
     test('beforeHook event.skip → handler skipped, afterHook skipped, exit 0, skip decision printed', async () => {
+      await assertExecutablePhases(HOOK_LIFECYCLE_SKIP)
       const code = await withStdin(PRE_TOOL_USE_PAYLOAD, () =>
         runAndCaptureExit(HOOK_LIFECYCLE_SKIP, {}, spies),
       )

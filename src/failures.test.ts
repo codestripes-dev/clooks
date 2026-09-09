@@ -184,6 +184,7 @@ describe('writeFailures', () => {
       writeFailures(location, recordFailure({}, hn('guard'), 'PreToolUse', 'blocked')),
     ).rejects.toThrow('outside its selected managed root')
     expect(await fsPromises.readdir(root)).toEqual(['.clooks'])
+    expect(await fsPromises.readdir(join(root, '.clooks'))).toEqual([])
   })
 
   test('writes formatted JSON to the correct path', async () => {
