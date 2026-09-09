@@ -94,6 +94,7 @@ The harness fills in `BaseContext` fields the JSON omits. Authors override only 
 
 | Field | Default |
 |---|---|
+| `provider` | `"claude-code"`; explicitly set `"codex"` to exercise that branch |
 | `sessionId` | `"test-session-0000000000000000"` |
 | `cwd` | `process.cwd()` |
 | `transcriptPath` | `"/tmp/clooks-test-transcript.jsonl"` |
@@ -102,6 +103,8 @@ The harness fills in `BaseContext` fields the JSON omits. Authors override only 
 | `permissionMode`, `agentId`, `agentType` | omitted (already optional on `BaseContext`) |
 
 A handler that reads `ctx.cwd` to resolve a path needs no override. A handler that branches on `ctx.permissionMode` should set `permissionMode` in the JSON to exercise each branch.
+
+`provider` is deliberate synthetic identity: omission defaults to Claude regardless of `CLOOKS_AGENT`. Only `"claude-code"` and `"codex"` are accepted; explicit null, empty or unknown values produce a usage error before lifecycle/handler execution. Both lifecycle slots see the same value at `event.input.provider`. Setting `"provider":"codex"` does not run Codex normalization, capability policy or output translation; the harness still consumes normalized context and emits the hook's decision object.
 
 ### `hookConfig` — overriding via `--config` / `--config-json`
 

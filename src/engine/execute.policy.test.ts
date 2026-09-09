@@ -144,6 +144,50 @@ function run(
 }
 
 describe('result policy before effects', () => {
+  test.each(['ask', 'defer'] as const)(
+    'parallel %s votes survive reduction and every sibling executes',
+    async (decision) => {
+      const seen: string[] = []
+      const hooks = [
+        hook('vote', {
+          PreToolUse() {
+            seen.push('vote')
+            return decision === 'ask'
+              ? { result: decision, reason: 'Confirm operation' }
+              : { result: decision }
+          },
+        }),
+        hook('allow', {
+          PreToolUse() {
+            seen.push('allow')
+            return { result: 'allow', injectContext: 'Sibling context' }
+          },
+        }),
+      ]
+      const history = tracker()
+      const result = await run(
+        hooks,
+        'PreToolUse' as EventName,
+        config(['vote', 'allow'], true),
+        undefined,
+        history,
+      )
+      expect(seen.sort()).toEqual(['allow', 'vote'])
+      expect(result.lastResult).toEqual(
+        decision === 'ask'
+          ? { result: 'ask', reason: 'Confirm operation', injectContext: 'Sibling context' }
+          : { result: 'defer' },
+      )
+      expect(history.records).toEqual([
+        { name: 'vote', decision },
+        { name: 'allow', decision: 'allow' },
+      ])
+      expect(history.commits()).toBe(1)
+      expect(result.policyFailure).toBeUndefined()
+      if (decision === 'defer') expect(result.systemMessages.join('\n')).toContain('dropping')
+    },
+  )
+
   test.each(['sparse', 'extra-property'] as const)(
     'parallel Codex capture rejects a %s MCP rewrite before clone or late effects',
     async (shape) => {

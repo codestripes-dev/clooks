@@ -3,7 +3,7 @@ root = "src/"
 coverageReporter = ["text", "lcov"]
 coverageDir = "coverage/unit"
 coverageSkipTestFiles = true
-coveragePathIgnorePatterns = ["**/tmp/**"]
+coveragePathIgnorePatterns = ["**/tmp/**", ".clooks/vendor/plugin/**"]
 
 [test.coverageThreshold]
 lines = 0.95

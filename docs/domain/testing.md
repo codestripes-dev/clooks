@@ -88,23 +88,11 @@ E2E test files are organized by the domain they exercise, not by implementation 
 
 **Test-specific hooks** that are unique to a single test are written inline via `sandbox.writeHook()`. This keeps the fixture directory focused on truly shared artifacts and makes individual tests self-contained.
 
-### Codex event fixtures
-Codex wire fixtures live under `test/fixtures/codex/events/`. They use the snake_case input field names described by the documentation snapshot, not Clooks' camelCase normalized names. The fixture set is validated by `src/codex-fixtures.test.ts`, which checks coverage of the agreed ten-event target and basic per-event fields without treating the shapes as runtime-captured payloads. This hardcoded coverage check does not discover new upstream events or independently validate the wire contract. Revalidate each fixture against version-specific evidence before adapter consumption.
-
-These historical fixtures remain docs-shaped contract artifacts, not native payload captures. The current PreToolUse unit and compiled E2E suites separately exercise the implemented adapter; passing replay does not upgrade fixture provenance. Live Codex CLI hook spikes should stay opt-in and disposable: use temporary `HOME`, `CODEX_HOME`, and project directories, avoid real `~/.codex` or trust-state changes, and promote only summarized evidence back into docs.
-
-### Codex evidence levels
-Keep three kinds of evidence separate:
-
-| Evidence | What it establishes |
-|---|---|
-| Pinned source inspection (`S`; unsupported capabilities labeled `unsupported`) | Inspected producers, parser branches, consumers and test assertions at an immutable revision. Reading a test is not running it. |
-| Actual upstream parser/executor execution (`P`) | Original upstream code executed at that revision with recorded command, exit status and matched/executed test counts. A Clooks replay or local parser mirror does not qualify. |
-| Native execution (`L`) | Captured behavior from the actual Codex runtime for the exercised workflow. Source inspection, registration receipts and shell probes do not establish native activation or enforcement. |
-
-As of the 2026-09-07 source audit, exact tag `rust-v0.153.4` is verified to commit `3d2ee51ca2d5db578f328aa75e20aa22c0197c9a`. The ten-event source inspection resolves input/output, failure, codec and identity constraints; it does not upgrade the existing docs-shaped fixtures into captures. Generated schemas are not the upstream runtime validator: the [output parser](https://github.com/openai/codex/blob/3d2ee51ca2d5db578f328aa75e20aa22c0197c9a/codex-rs/hooks/src/engine/output_parser.rs#L345-L363) uses Serde. Future conformance coverage must distinguish schema declarations from actual null, unknown-field and discriminator handling, plain allow without rewrite, discarded rewrite-allow reasons versus human-facing `systemMessage`, reserved PermissionRequest fields yielding no decision, exit 2 with blank/nonblank stderr, and ignored successful stderr.
-
-The original offline feasibility probe verified the retained archive but found neither cargo nor rustc in the cached container; **zero upstream tests executed**. The [pinned toolchain](https://github.com/openai/codex/blob/3d2ee51ca2d5db578f328aa75e20aa22c0197c9a/codex-rs/rust-toolchain.toml) requires Rust `1.95.0`. The one bounded retry stopped during dependency preparation: `cargo fetch --locked` refused the required update to upstream `Cargo.lock`, exiting 101 after 49 seconds. No tests ran in the retry either. The retry allowance is exhausted; execution remains unverified with no `P` evidence. This does not establish general toolchain unavailability or diagnose why the lockfile needed updating. The owned container was removed, and the label-filtered container listing was empty. Native `L` evidence remains absent. Full genuine-user-turn parity has the concrete [Review limitation](./turn-state.md#codex-source-constraints-and-proposed-mapping); normal best-effort history is approved as a planned mapping with Review as a nonblocking limitation and no special workaround. Provider-isolated history has the completed PreToolUse gate. Prompt-boundary handling is now implemented, with expanded Docker validation passed.
+<a id="codex-event-fixtures"></a>
+<a id="codex-evidence-levels"></a>
+<a id="authorized-real-session-evidence"></a>
+<a id="opt-in-native-cli-smoke"></a>
+See [Codex Native Testing](testing/codex-native.md) for fixture provenance, evidence levels, real-session limits and opt-in native commands. These anchors preserve existing inbound links.
 
 ### Agent adapter boundary tests
 Historical selector coverage established default/explicit Claude equivalence, unknown-agent refusal, no payload sniffing and Claude-only advisory isolation through units and `test/e2e/agent-adapter.e2e.test.ts`. The original Codex placeholder refusal assertion belongs to that snapshot, not the current adapter; it never established native fail-closed behavior.
@@ -208,7 +196,11 @@ bun run test:e2e
 bun test src/
 ```
 
-The Docker image contains the base environment (Bun, git, expect, testuser, `node_modules`) and package metadata. Source code, tests and `bunfig.toml` are bind-mounted read-only at runtime, so `bun run test:e2e` picks up current changes. The entrypoint rejects a missing test configuration before typechecking and compiling the binary. Explicit `./test/e2e/` selection remains the default even though bunfig's unit discovery root is `src/`. Coordinate one Docker run at a time when multiple workers share the checkout. For Docker-only unit or coverage validation, use `bun run test:e2e src/` or `bun run test:e2e --coverage src/`; neither command deploys a host binary.
+The Docker image contains Bun, git, expect, testuser, dependencies and package metadata. Standard `bun run test:e2e` mounts source, tests, schemas, configuration and `.clooks/vendor/plugin` read-only; the latter maps to `/app/.clooks/vendor/plugin` unconditionally, without an optional flag. Shipped-hook tests use actual pack modules rather than copied implementations. The entrypoint requires bunfig, typechecks, compiles the binary and defaults to `./test/e2e/`. Mount wiring does not establish passing tests. Coordinate one Docker run at a time and freeze source during validation. For focused units or coverage, append `src/` or `--coverage src/` to the direct Docker invocation from `test:e2e:run`; do not assume filtering arguments traverse the chained package script. These commands do not deploy a host binary.
+
+### Provider context regressions
+
+`test/e2e/provider-context.e2e.test.ts` covers compiled engine dispatch with unset/explicit Claude and Codex, raw-provider spoofing, and before/handler/after receipt in sequential and parallel groups. Exact per-hook logs and returned context markers prove execution. Compiled synthetic harness cases cover explicit identity, environment-independent defaults and invalid-value rejection before dispatch. Helper units and explicit-adapter engine tests complement source/generated declaration checks in `test/types/provider-context.types.ts` and `scripts/verify-types-emit.ts`. These are local Clooks regressions, not native Codex conformance or proof of every provider capability.
 
 ## Anti-patterns
 
@@ -262,42 +254,7 @@ When hooks run sequentially, `context.toolInput` modifications in one hook leak 
 
 ## Coverage
 
-Unit test coverage is configured in `bunfig.toml` at the project root. The relevant settings:
-
-```toml
-[test]
-coverageReporter = ["text", "lcov"]
-coverageDir = "coverage/unit"
-coverageSkipTestFiles = true
-coveragePathIgnorePatterns = ["**/tmp/**"]
-
-[test.coverageThreshold]
-lines = 0.95
-functions = 0.95
-```
-
-Coverage is **not** enabled by default. Running `bun test src/` is the fast path — no instrumentation, no threshold checking. Coverage is only enabled explicitly:
-
-```bash
-# Run unit tests with coverage (prints per-file table, writes lcov)
-bun test --coverage src/
-
-# Convenience alias
-bun run test:coverage
-```
-
-lcov output is written to `coverage/unit/lcov.info`. The entire `coverage/` directory is gitignored.
-
-### Ratchet enforcement
-
-A Lefthook pre-commit hook invokes `bun run test:coverage`. That script directly runs `CLAUDECODE=1 bun test --coverage src/`, retaining Bun's output and exit status without a pseudo-terminal or filtering pipeline. The configured thresholds are 95% lines and functions; a threshold failure is a failed gate even if all test assertions pass. `validation-config.e2e.test.ts` checks the read-only Docker configuration wiring and the script's success/failure status propagation using an isolated stub. It does not establish that the actual suite meets the thresholds.
-
-The thresholds in `bunfig.toml` are the ratchet. To raise the bar, increment the values in a separate PR. Thresholds can only move up.
-
-### Limitations
-
-- **No branch coverage.** Bun does not support branch coverage metrics ([oven-sh/bun#7100](https://github.com/oven-sh/bun/issues/7100)). Only line and function coverage are available.
-- **No E2E coverage.** E2E tests spawn the compiled binary as a subprocess. A compiled Bun binary cannot be instrumented for coverage ([oven-sh/bun#17867](https://github.com/oven-sh/bun/issues/17867)). Coverage metrics reflect unit tests only.
+See [Coverage Ownership](testing/coverage.md) for the engine ratchet, separate hook-pack report, commands and limitations. Coverage exclusions do not change unit, E2E or native test discovery.
 
 ## Related
 

@@ -17,7 +17,7 @@ pre-commit:
     typecheck:
       run: bun run typecheck
     coverage:
-      run: bun run test:coverage
+      run: bun run test:e2e:build && bun run test:e2e:run --coverage src/
     e2e:
       run: bun run test:e2e
     lockfile-up-to-date:

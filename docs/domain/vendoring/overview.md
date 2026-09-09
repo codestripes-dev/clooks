@@ -26,6 +26,28 @@ This layout avoids name collisions, mirrors the source provenance, and matches t
 
 Plugin-delivered hooks use a separate prefix: `.clooks/vendor/plugin/<pack-name>/<hook-name>.ts`. See `vendoring/plugin-vendoring.md` for details.
 
+### Local Pack Updates
+
+For local trials, maintain reviewed changes in the repository's actual vendor files, not only scratch or home-library copies. Compare marketplace, repository and home preimages before promotion so local customizations survive. Record source identity and local file hashes separately; do not fabricate a marketplace release hash or rewrite provenance to imply upstream equivalence. Plugin refresh can replace a local override. Source changes alone do not establish successful tests or deployment.
+
+The vendored project pack's `no-edit-protected` lock defaults include `bun.lock` and `**/` patterns for root and nested workspace lockfiles, retaining the existing rule-group toggle. Native patch-path inspection uses the existing rules as described below. Core provider differences are described in [Cross-Agent Hook Systems](../cross-agent-hooks.md).
+
+### Hook Inspection Boundaries
+
+The canonical modules are `.clooks/vendor/plugin/clooks-project-hooks/no-edit-protected.ts`, `.clooks/vendor/plugin/clooks-core-hooks/no-bare-mv.ts` and `.clooks/vendor/plugin/clooks-core-hooks/no-auto-confirm.ts`. Their inspection boundaries are deliberately narrower than full patch or shell execution.
+
+`no-edit-protected` uses `UnknownPreToolUseContext` for explicit Codex `apply_patch`, checks a string `toolInput.command`, and scans supported patch envelope/headers without applying content. It collects Add/Delete/Update paths and both source/destination paths for moves, resolving them against cwd before existing protection rules. Environment-ID and bounded heredoc envelopes and CRLF are handled; body text is not a substitute for a header. Unrecognized or malformed input is left to native validation, not a new trust policy or full patch validator. Claude file-tool handling and the existing outside-cwd matching boundary remain.
+
+`no-bare-mv` accepts only standalone literal `mv` with two nonempty operands and no option except optional `--`. Supported quoting/escaping is decoded without shell execution; ambiguous syntax, expansion, compound commands and other options skip with no subprocess. A supported move uses argv-only `git mv -n` with a three-second timeout. Success permits the equivalent rewrite; dry-run failure retains the existing allow-with-guidance fallback. Feasibility is not a guarantee of history preservation, and inspection does not execute the move.
+
+`no-auto-confirm` retains quoted literal argument values for supported yes/echo/printf pipelines, while distinguishing inert quoted pipe text, comments and unrelated words. Its bounded lexer does not evaluate substitutions or parse the whole shell language: unsupported nested execution, heredocs or incomplete quoting stop inspection, retaining already complete prefix pipelines. Variable/glob-derived echo/printf confirmation text is not evaluated. These limits are deliberate inspection boundaries, not universal prevention of automated input.
+
+### Recommendation and Notification Boundaries
+
+The project pack's `prefer-project-scripts` compares only the configured recommendation with its package.json script. Verification requires explicit `bun run`, `npm run`, `pnpm run` or `yarn run` plus one script name, and identical supported literal words in order. Yarn shorthand, pre/post lifecycle keys, environment prefixes, unquoted tilde/globs, unsupported syntax and nested runner/shell wrappers prevent verification. Uncertain matches skip with debug information only; custom non-package recommendations remain valid configuration but cannot force an unverified replacement. Literal equality does not prove identical PATH resolution or package-runner environments. See the [project pack README](../../../.clooks/vendor/plugin/clooks-project-hooks/README.md) for configuration.
+
+The core pack's `tmux-notifications` colors window status on Stop when attentionOnStop is enabled and resets attention on focus or supported activity. It uses shared server state: the configured indexed hook slot must be free, because installing there can replace its binding while preserving other indices. A sentinel suppresses repeat installation without migrating a changed slot. Claude notification feedback does not imply corresponding Codex events. Existing shell interpolation and shared-style limitations remain. See the [core pack README](../../../.clooks/vendor/plugin/clooks-core-hooks/README.md) for settings and the free-slot requirement.
+
 ## Supported File Formats
 
 Vendored hooks must be single-file. Two formats are supported:

@@ -132,7 +132,14 @@ export async function runHarness(
   const { event: _stripped, ...rest } = payloadObj
   void _stripped
 
-  const ctx = createHarnessContext(event, rest as CreateContextPayload<typeof event>)
+  let ctx: ReturnType<typeof createHarnessContext>
+  try {
+    ctx = createHarnessContext(event, rest as CreateContextPayload<typeof event>)
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e)
+    process.stderr.write(`clooks test: ${message}\n`)
+    process.exit(HARNESS_USAGE_EXIT)
+  }
 
   // Compute hookConfig the same way `src/loader.ts:144-146` does in
   // production: shallow-merge `meta.config` defaults with overrides.

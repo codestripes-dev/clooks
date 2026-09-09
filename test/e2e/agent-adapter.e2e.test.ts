@@ -224,6 +224,7 @@ agent-policy-envelope: {}
             'event',
             'originalToolInput',
             'parallel',
+            'provider',
             'requestMetadata',
             'sessionId',
             'signal',

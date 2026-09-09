@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, mkdirSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import { createHash } from 'crypto'
+import * as fsPromises from 'fs/promises'
 import {
   readFailures,
   writeFailures,
@@ -85,12 +86,15 @@ describe('readFailures', () => {
     const fPath = projectFailurePath(dir)
     await Bun.write(fPath, 'not json{{{')
     const spy = spyOn(process.stderr, 'write').mockImplementation(() => true)
-    const result = await readFailures(fPath)
-    expect(result).toEqual({})
-    expect(spy).toHaveBeenCalledWith(
-      `clooks: warning: failure state at ${fPath} is malformed, resetting\n`,
-    )
-    spy.mockRestore()
+    try {
+      const result = await readFailures(fPath)
+      expect(result).toEqual({})
+      expect(spy).toHaveBeenCalledWith(
+        `clooks: warning: failure state at ${fPath} is malformed, resetting\n`,
+      )
+    } finally {
+      spy.mockRestore()
+    }
   })
 
   test('returns {} and warns to stderr when file contains a non-object', async () => {
@@ -98,12 +102,15 @@ describe('readFailures', () => {
     const fPath = projectFailurePath(dir)
     await Bun.write(fPath, JSON.stringify([1, 2, 3]))
     const spy = spyOn(process.stderr, 'write').mockImplementation(() => true)
-    const result = await readFailures(fPath)
-    expect(result).toEqual({})
-    expect(spy).toHaveBeenCalledWith(
-      `clooks: warning: failure state at ${fPath} is malformed, resetting\n`,
-    )
-    spy.mockRestore()
+    try {
+      const result = await readFailures(fPath)
+      expect(result).toEqual({})
+      expect(spy).toHaveBeenCalledWith(
+        `clooks: warning: failure state at ${fPath} is malformed, resetting\n`,
+      )
+    } finally {
+      spy.mockRestore()
+    }
   })
 
   test('parses a valid failures file correctly', async () => {
@@ -143,6 +150,42 @@ describe('readFailures', () => {
 })
 
 describe('writeFailures', () => {
+  test('a close error after publication does not lose managed state or leave staging files', async () => {
+    const root = makeTempDir()
+    const path = join(root, '.clooks/failures.json')
+    const state = recordFailure({}, hn('guard'), 'PreToolUse', 'blocked')
+    const realOpen = fsPromises.open
+    let closeSpy: ReturnType<typeof spyOn> | undefined
+    const openSpy = spyOn(fsPromises, 'open').mockImplementation(async (...args) => {
+      const handle = await realOpen(...args)
+      const close = handle.close.bind(handle)
+      closeSpy = spyOn(handle, 'close').mockImplementation(async () => {
+        await close()
+        throw new Error('close acknowledgement failed')
+      })
+      return handle
+    })
+    try {
+      await writeFailures({ root, path }, state)
+      expect(closeSpy).toHaveBeenCalledTimes(1)
+      expect(JSON.parse(await Bun.file(path).text())).toEqual(state)
+      expect(await fsPromises.readdir(join(root, '.clooks'))).toEqual(['failures.json'])
+    } finally {
+      closeSpy?.mockRestore()
+      openSpy.mockRestore()
+    }
+  })
+
+  test('managed state rejects paths outside its selected root without creating files', async () => {
+    const root = makeTempDir()
+    const location = { root, path: join(root, 'outside/failures.json') }
+    await expect(readFailures(location)).rejects.toThrow('outside its selected managed root')
+    await expect(
+      writeFailures(location, recordFailure({}, hn('guard'), 'PreToolUse', 'blocked')),
+    ).rejects.toThrow('outside its selected managed root')
+    expect(await fsPromises.readdir(root)).toEqual(['.clooks'])
+  })
+
   test('writes formatted JSON to the correct path', async () => {
     const dir = makeTempDir()
     const state = {

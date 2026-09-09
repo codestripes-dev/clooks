@@ -8,6 +8,8 @@ Hook authors can define optional `beforeHook` and `afterHook` methods on their `
 
 `beforeHook` returns one of three universal verbs (`event.block`, `event.skip`, `event.passthrough`) or `void`. `afterHook` is a pure observer with one verb (`event.passthrough`) — it can read `event.handlerResult` typed once narrowed on `event.type`, but it cannot mutate the result.
 
+Both lifecycle slots read provider identity at `event.input.provider`, exactly like the handler's `ctx.provider`. It is not duplicated on `event.meta`. Sequential and parallel dispatch preserve the engine-assigned provider; synthetic harness lifecycle calls use the fixture's validated provider or Claude default.
+
 ## Why afterHook is observer-only
 
 There are no clearly-reasonable use cases for afterHook override. Lifecycle methods are per-hook self-only (the contract explicitly excludes meta-hook wrapping), so compliance/audit/cross-cutting overrides are architecturally out of scope; dry-run / config-flag rewrites are cleaner expressed in the per-event handler with `if (config.dryRun) return ctx.allow(...)`; quota / rate-limit patterns require external state regardless of where the check lives.

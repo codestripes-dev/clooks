@@ -73,6 +73,7 @@ export type {
 } from './method-primitives.js'
 
 export type {
+  Provider,
   BaseContext,
   PreToolUseContext,
   UnknownPreToolUseContext,

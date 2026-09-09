@@ -6,6 +6,7 @@ import { tmpdir } from 'os'
 import * as fs from 'node:fs'
 import * as clack from '@clack/prompts'
 import os from 'os'
+import * as platform from '../platform.js'
 import * as registrationState from '../registration-state.js'
 import { createInitCommand } from './init.js'
 
@@ -25,11 +26,8 @@ mock.module('@clack/prompts', () => ({
   cancel: mock(),
 }))
 
-// Mock platform module for getHomeDir
 let fakeHome = ''
-mock.module('../platform.js', () => ({
-  getHomeDir: () => fakeHome,
-}))
+let homeSpy: ReturnType<typeof spyOn>
 
 // Import after mocking
 import { createUninstallCommand } from './uninstall.js'
@@ -102,6 +100,7 @@ beforeEach(() => {
   tempDir = mkdtempSync(join(tmpdir(), 'clooks-uninstall-test-'))
   fakeHome = join(tempDir, 'fakehome')
   mkdirSync(fakeHome, { recursive: true })
+  homeSpy = spyOn(platform, 'getHomeDir').mockReturnValue(fakeHome)
   originalEnvironment = {
     HOME: process.env.HOME,
     CODEX_HOME: process.env.CODEX_HOME,
@@ -122,6 +121,7 @@ afterEach(() => {
   Object.defineProperty(process.stdin, 'isTTY', { value: originalIsTTY, writable: true })
   exitSpy.mockRestore()
   stdoutSpy.mockRestore()
+  homeSpy.mockRestore()
   mock.restore()
   resetPromptMocks()
   for (const [name, value] of Object.entries(originalEnvironment)) {

@@ -1,4 +1,4 @@
-// prefer-builtin-tools — Blocks bash commands that have dedicated Claude Code tools
+// prefer-builtin-tools — Provider-aware shell tool preferences
 //
 // Blocked (9 rules):
 //   cat, head, tail, grep (grep/rg/egrep/fgrep), find, sed-inplace,
@@ -64,23 +64,28 @@ interface Rule {
   additionalCheck?: (segment: string) => boolean
   hasPipeException: boolean
   reason: string
+  codexReason?: string
+  claudeOnly?: boolean
 }
 
 const RULES: Rule[] = [
   {
     id: 'cat',
+    claudeOnly: true,
     commands: ['cat'],
     hasPipeException: true,
     reason: '[cat] Use the Read tool instead of cat — it integrates with your toolchain and provides structured output. If cat is needed, prefix with ALLOW_BUILTIN_COMMAND=true.',
   },
   {
     id: 'head',
+    claudeOnly: true,
     commands: ['head'],
     hasPipeException: true,
     reason: '[head] Use the Read tool (with the limit parameter) instead of head. If head is needed, prefix with ALLOW_BUILTIN_COMMAND=true.',
   },
   {
     id: 'tail',
+    claudeOnly: true,
     commands: ['tail'],
     additionalCheck: (segment) => !isTailFollow(segment),
     hasPipeException: true,
@@ -88,18 +93,21 @@ const RULES: Rule[] = [
   },
   {
     id: 'grep',
+    claudeOnly: true,
     commands: ['grep', 'rg', 'egrep', 'fgrep'],
     hasPipeException: true,
     reason: '[grep] Use the Grep tool instead of grep/rg — it provides structured output modes, file-type filters, and context lines. If grep is needed as a stream filter or for features Grep doesn\'t support, prefix with ALLOW_BUILTIN_COMMAND=true.',
   },
   {
     id: 'find',
+    claudeOnly: true,
     commands: ['find'],
     hasPipeException: true,
     reason: '[find] Use the Glob tool for file discovery. If you need find\'s action flags (-exec, -delete) or predicates (-mtime, -size), prefix with ALLOW_BUILTIN_COMMAND=true.',
   },
   {
     id: 'sed-inplace',
+    codexReason: '[sed-inplace] Use apply_patch for in-place file modifications when available. Stream processing (sed without -i) is allowed.',
     commands: ['sed'],
     additionalCheck: hasSedInplace,
     hasPipeException: true,
@@ -107,18 +115,21 @@ const RULES: Rule[] = [
   },
   {
     id: 'ls',
+    claudeOnly: true,
     commands: ['ls'],
     hasPipeException: true,
     reason: '[ls] Use the Glob tool for file and directory listing. If you need file metadata (permissions, sizes), prefix with ALLOW_BUILTIN_COMMAND=true.',
   },
   {
     id: 'sleep',
+    codexReason: '[sleep] Do not use shell sleep to poll a process. Use the available process tools to wait for a running command; use a returned session ID only with the matching process tool. Tool availability depends on this session.',
     commands: ['sleep'],
     hasPipeException: false,
     reason: '[sleep] Don\'t sleep. Execute commands sequentially, use timeout for long-running commands, or use run_in_background to avoid blocking.',
   },
   {
     id: 'echo-redirect',
+    codexReason: '[echo-redirect] Use apply_patch to create or modify files when available instead of shell redirects.',
     commands: ['echo', 'printf'],
     additionalCheck: hasRedirect,
     hasPipeException: true,
@@ -143,7 +154,7 @@ const RULE_LABELS: Record<string, string> = {
 export const hook: ClooksHook<Config> = {
   meta: {
     name: 'prefer-builtin-tools',
-    description: 'Blocks bash commands that have dedicated Claude Code tools',
+    description: 'Provider-aware shell tool preferences',
     config: {
       "cat": true,
       "head": true,
@@ -160,10 +171,15 @@ export const hook: ClooksHook<Config> = {
 
   SessionStart(ctx, config) {
     const enabled = RULES
+      .filter(r => ctx.provider !== 'codex' || !r.claudeOnly)
       .filter(r => config[r.id] !== false)
       .map(r => RULE_LABELS[r.id])
       .filter(Boolean)
     if (enabled.length === 0) return ctx.skip()
+    if (ctx.provider === 'codex') return ctx.skip({
+      injectContext: `INFORMATION (no need to comment on it): The prefer-builtin-tools clooks hook is active in this project. Shell calls will refuse: ${enabled.join(', ')}. Shell reads and searches are permitted by the built-in preferences. Use apply_patch for file edits when available, and available process tools to wait for running commands using their returned session IDs. Tool availability depends on this session; configured additional rules still apply.`,
+      debugMessage: 'prefer-builtin-tools: announced',
+    })
     return ctx.skip({
       injectContext: `INFORMATION (no need to comment on it): The prefer-builtin-tools clooks hook is active in this project. The Bash tool will refuse: ${enabled.join(', ')}. Use the dedicated tools instead — Read, Glob, Grep, Edit, Write. Stream uses (piped grep, sed without -i) are allowed.`,
       debugMessage: 'prefer-builtin-tools: announced',
@@ -195,6 +211,7 @@ export const hook: ClooksHook<Config> = {
       if (hasEscapeHatch) continue
 
       for (const rule of RULES) {
+        if (ctx.provider === 'codex' && rule.claudeOnly) continue
         // Skip disabled rules
         if (config[rule.id] === false) continue
 
@@ -209,7 +226,7 @@ export const hook: ClooksHook<Config> = {
 
         // All checks passed — block
         return ctx.block({
-          reason: rule.reason,
+          reason: ctx.provider === 'codex' ? (rule.codexReason ?? rule.reason) : rule.reason,
           debugMessage: `prefer-builtin-tools: blocked by rule '${rule.id}'`,
         })
       }

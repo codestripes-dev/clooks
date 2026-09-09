@@ -1,6 +1,7 @@
 import { describe, expect, it, afterEach, spyOn } from 'bun:test'
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, symlinkSync, readFileSync } from 'fs'
 import { chmod, lstat, readdir, stat, utimes, readFile } from 'fs/promises'
+import * as fsPromises from 'node:fs/promises'
 import { createHash } from 'crypto'
 import { join } from 'path'
 import { tmpdir } from 'os'
@@ -22,6 +23,119 @@ import { hn, ms } from '../test-utils.js'
 import { DEFAULT_MAX_FAILURES_MESSAGE } from '../config/constants.js'
 
 const tempDirs: string[] = []
+
+describe('handoff I/O recovery', () => {
+  it('reuses matching content even when closing its descriptor reports an error', async () => {
+    const root = makeTempRoot()
+    const target = await writeHandoffFile(root, hn('close'), 'instructions')
+    const originalOpen = fsPromises.open
+    let closes = 0
+    const openSpy = spyOn(fsPromises, 'open').mockImplementation(async (...args) => {
+      const handle = await originalOpen(...args)
+      const close = handle.close.bind(handle)
+      handle.close = async () => {
+        closes++
+        await close()
+        throw new Error('close reported failure')
+      }
+      return handle
+    })
+    try {
+      expect(await writeHandoffFile(root, hn('close'), 'instructions')).toBe(target)
+      expect(closes).toBe(1)
+      expect(readFileSync(target, 'utf8')).toBe('instructions')
+      expect(await listHandoffFiles(root)).toHaveLength(1)
+    } finally {
+      openSpy.mockRestore()
+    }
+  })
+
+  it('does not delete either foreign staging file when both exclusive creates collide', async () => {
+    const root = makeTempRoot()
+    const originalWrite = fsPromises.writeFile
+    const collisions: string[] = []
+    const writeSpy = spyOn(fsPromises, 'writeFile').mockImplementation(
+      async (path, data, options) => {
+        if (String(path).endsWith('.tmp')) {
+          collisions.push(String(path))
+          await originalWrite(path, 'foreign writer', { flag: 'wx' })
+        }
+        return originalWrite(path, data, options)
+      },
+    )
+    try {
+      await expect(writeHandoffFile(root, hn('collision'), 'instructions')).rejects.toMatchObject({
+        code: 'EEXIST',
+      })
+      expect(collisions).toHaveLength(2)
+      expect(new Set(collisions).size).toBe(2)
+      for (const path of collisions) expect(readFileSync(path, 'utf8')).toBe('foreign writer')
+      expect(await listHandoffFiles(root)).toEqual([])
+    } finally {
+      writeSpy.mockRestore()
+    }
+  })
+
+  it('keeps instructions inline when partial staging write and its cleanup both fail', async () => {
+    const root = makeTempRoot()
+    const originalWrite = fsPromises.writeFile
+    let staged: string | undefined
+    const writeSpy = spyOn(fsPromises, 'writeFile').mockImplementation(
+      async (path, data, options) => {
+        if (String(path).endsWith('.tmp')) {
+          staged = String(path)
+          await originalWrite(path, 'partial', options)
+          throw new Error('staging write failed')
+        }
+        return originalWrite(path, data, options)
+      },
+    )
+    const unlinkSpy = spyOn(fsPromises, 'unlink').mockRejectedValue(new Error('cleanup failed'))
+    const original: EngineResult = { result: 'block', reason: 'Keep these instructions inline' }
+    try {
+      const warnings = await captureStderr(async () => {
+        expect(
+          await applyHandoff(
+            original,
+            hn('partial'),
+            'PreToolUse' as EventName,
+            makeConfig({ global: true }),
+            root,
+          ),
+        ).toEqual(original)
+      })
+      expect(staged).toBeDefined()
+      expect(unlinkSpy).toHaveBeenCalledWith(staged!)
+      expect(readFileSync(staged!, 'utf8')).toBe('partial')
+      expect(await listHandoffFiles(root)).toEqual([])
+      expect(warnings).toHaveLength(1)
+      expect(warnings[0]).toContain('staging write failed')
+      expect(warnings[0]).toContain('delivering inline')
+    } finally {
+      unlinkSpy.mockRestore()
+      writeSpy.mockRestore()
+    }
+  })
+
+  it('preserves a target directory when publish and staging cleanup fail', async () => {
+    const root = makeTempRoot()
+    const target = await writeHandoffFile(root, hn('publish'), 'instructions')
+    rmSync(target)
+    mkdirSync(target)
+    writeFileSync(join(target, 'sentinel'), 'existing contents')
+    const unlinkSpy = spyOn(fsPromises, 'unlink').mockRejectedValue(new Error('cleanup failed'))
+    try {
+      await expect(writeHandoffFile(root, hn('publish'), 'instructions')).rejects.toBeDefined()
+      expect(unlinkSpy).toHaveBeenCalledTimes(1)
+      const staged = String(unlinkSpy.mock.calls[0]![0])
+      expect(staged).toMatch(/\.handoff-.*\.tmp$/)
+      expect(readFileSync(staged, 'utf8')).toBe('instructions')
+      expect(readFileSync(join(target, 'sentinel'), 'utf8')).toBe('existing contents')
+    } finally {
+      unlinkSpy.mockRestore()
+    }
+  })
+})
 
 afterEach(() => {
   for (const dir of tempDirs.splice(0)) {

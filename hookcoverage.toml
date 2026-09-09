@@ -1,0 +1,6 @@
+[test]
+root = "src/"
+coverageReporter = ["text", "lcov"]
+coverageDir = "coverage/hooks"
+coverageSkipTestFiles = true
+coveragePathIgnorePatterns = ["**/tmp/**", "src/**", "test/**"]

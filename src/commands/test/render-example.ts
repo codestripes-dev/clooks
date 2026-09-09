@@ -25,7 +25,7 @@
 //
 //     ExitPlanMode and any mcp__* tool: <fallback note>
 //
-//   Optional keys — provided during real Claude Code invocations,
+//   Optional keys — provided during real hook invocations,
 //   optional when running `clooks test`. The harness fills these in with
 //   deterministic defaults; override only when your hook reads them.
 //
@@ -53,6 +53,11 @@ const OPTIONAL_KEYS_INDENT = '  '
 // src/types/contexts.ts:60-73 and the harness defaults set by
 // `createHarnessContext` in src/testing/create-context.ts.
 const OPTIONAL_KEYS: ReadonlyArray<{ name: string; type: string; description: string }> = [
+  {
+    name: 'provider',
+    type: '"claude-code" | "codex"',
+    description: 'Default: "claude-code". Synthetic identity only; no provider wire translation.',
+  },
   {
     name: 'sessionId',
     type: 'string',
@@ -155,7 +160,7 @@ function renderOptionalKeysSection(): string {
   })
 
   const header = [
-    'Optional keys — provided during real Claude Code invocations,',
+    'Optional keys — provided during real hook invocations,',
     'optional when running `clooks test`. The harness fills these in with',
     'deterministic defaults; override only when your hook reads them.',
   ].join('\n')

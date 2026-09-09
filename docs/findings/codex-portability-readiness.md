@@ -1,6 +1,6 @@
 # Codex Portability Readiness
 
-### Native conformance and recipient readability remain unverified
+### Remaining native coverage and recipient readability
 
 **Severity:** friction
 **Date:** 2026-09-08
@@ -8,8 +8,9 @@
 
 Remaining work:
 
-- **Native conformance:** Verify registration activation, input delivery and output enforcement in Codex itself. No upstream parser/executor or live-native execution evidence was obtained; historical probe dispositions remain in the runtime evidence. A registration receipt does not establish that hooks are enabled, reviewed or executed, and replay does not establish exactly-once delivery.
+- **Remaining native coverage:** Historical [smoke evidence](../plans/done/feat-0044-native-conformance/native-conformance-evidence.md) and [capability matrix](../plans/done/feat-0044-native-conformance/native-execution-matrix.md) retain their six-case synthetic-model/Docker boundary. Separate authorized [real-session evidence](../research/codex-live-dogfood.md) adds exact-command PermissionRequest allow/deny/default skip, two children's distinct SubagentStart context delivery, one targeted SubagentStop continuation with preserved hook history, controlled shell failure blocking, direct pre/post context and completed-output post-block feedback. A separate synthetic-loopback/offline-Docker forced NEW-session compaction pass adds raw and configured PreCompact/PostCompact invocation (auto, same raw turn ID), summary delivery into user-message content in the second request and final stdout. Combined sources now establish some native invocation evidence for all ten target events, not all variants/tools or full release conformance. Remaining gaps include result/failure variants, patch/MCP mutation, real-conversation/rich-history compaction and block variants, layered activation, root reset, broader trust/approval modes and exactly-once delivery. The interactive mid-turn fixture adds no root startup/prompt/Stop evidence, and its observer captured no native turn ID. Upstream Rust-test evidence remains absent.
 - **Recipient readability:** Establish whether the intended native recipient can read generated handoff files before enabling file-based delivery. Until then, qualifying handoff remains inline.
+- **Hook-specific file-tool compatibility:** The existing no-edit-protected hook checks Claude Write/Edit/MultiEdit and skips native apply_patch; the owned fake-vendor probe confirmed the gap. See [code-quality finding](./code-quality.md#protected-path-hook-assumes-claude-file-tools). No production/vendor fix is authorized.
 - **Claude global command quoting:** `globalEntrypointCommand` in `src/commands/init.ts` emits an unquoted absolute launcher path. Paths requiring shell quoting can fail. A bounded quoting migration needs registration/removal compatibility tests and shell smoke coverage. See [Bash Entrypoint](../domain/bash-entrypoint.md#hook-registration).
 
-**Disposition:** Native conformance is the next release-confidence gate. Internal Review history ambiguity remains an accepted, nonblocking best-effort limitation, not a request to disable history or redesign permissions. Clooks continues to assume a trusted repository. Completed implementation and isolated test-attempt history belong in the archived plan and milestone evidence, not active readiness findings.
+**Disposition:** Narrow native proof is established; broader native conformance remains a release-confidence gap. Internal Review history ambiguity remains an accepted, nonblocking best-effort limitation, not a request to disable history or redesign permissions. Clooks continues to assume a trusted repository. Completed implementation and isolated test-attempt history belong in the archived plan and milestone evidence, not active readiness findings.

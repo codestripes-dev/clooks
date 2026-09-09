@@ -177,10 +177,10 @@ describe('Codex compiled PreToolUse wire translation', () => {
       hook(
         'agent-codex-runtime-codec',
         `
-        observe({ event: ctx.event, toolName: ctx.toolName, toolInput: ctx.toolInput,
+        observe({ event: ctx.event, provider: ctx.provider, toolName: ctx.toolName, toolInput: ctx.toolInput,
           originalToolInput: ctx.originalToolInput, sessionId: ctx.sessionId,
           transcriptPath: ctx.transcriptPath,
-          privateKeys: ['private', 'provider', 'raw', 'model', 'nativeTurnId', 'codec']
+          privateKeys: ['private', 'raw', 'model', 'nativeTurnId', 'codec']
             .filter(key => Object.hasOwn(ctx, key)) })
         return ctx.allow()
       `,
@@ -190,6 +190,7 @@ describe('Codex compiled PreToolUse wire translation', () => {
       expect(calls()).toEqual(['agent-codex-runtime-codec'])
       expect(observed()).toEqual({
         event: 'PreToolUse',
+        provider: 'codex',
         toolName: toolName === 'exec_command' ? 'Bash' : toolName,
         toolInput: input,
         originalToolInput: input,

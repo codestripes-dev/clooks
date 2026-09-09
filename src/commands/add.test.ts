@@ -3,6 +3,7 @@ import { Command } from 'commander'
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, mkdirSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
+import * as platform from '../platform.js'
 
 // Mock @clack/prompts to avoid TTY issues in tests
 // Note: multiselect starts returning [] so interactive promptMultiSelect returns []
@@ -31,15 +32,7 @@ mock.module('@clack/prompts', () => ({
 
 // Mock platform.js so tests can control what getHomeDir() returns
 // without touching the real home directory.
-let _mockHomeDirValue: string | null = null
-mock.module('../platform.js', () => ({
-  getHomeDir: () => {
-    if (_mockHomeDirValue === null) {
-      throw new Error('Test error: _mockHomeDirValue not set. Call setMockHomeDir() first.')
-    }
-    return _mockHomeDirValue
-  },
-}))
+let homeSpy: ReturnType<typeof spyOn>
 
 // Import after mocking
 import { createAddCommand } from './add.js'
@@ -75,7 +68,7 @@ let originalFetch: typeof globalThis.fetch
 let originalIsTTY: boolean | undefined
 
 function setMockHomeDir(dir: string) {
-  _mockHomeDirValue = dir
+  homeSpy = spyOn(platform, 'getHomeDir').mockReturnValue(dir)
 }
 
 function createTestProgram() {
@@ -196,7 +189,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  _mockHomeDirValue = null
+  homeSpy.mockRestore()
   exitSpy.mockRestore()
   stdoutSpy.mockRestore()
   globalThis.fetch = originalFetch
@@ -524,6 +517,74 @@ describe('clooks add (blob URL)', () => {
 })
 
 describe('clooks add (pack/repo URL)', () => {
+  test('JSON listing includes names and descriptions without downloading hooks', async () => {
+    setupClooksYml()
+    mockFetchByUrl(buildPackFetchMap({}))
+    await expect(
+      createTestProgram().parseAsync(['--json', 'add', TEST_REPO_URL], { from: 'user' }),
+    ).rejects.toThrow('process.exit called')
+    const first = JSON.parse(String(stdoutSpy.mock.calls[0]![0]))
+    expect(first).toMatchObject({
+      ok: true,
+      command: 'add',
+      data: {
+        available: [
+          { name: 'hook-a', description: 'Hook A' },
+          { name: 'hook-b', description: 'Hook B' },
+        ],
+        message: 'Use --all to install all hooks in non-interactive mode.',
+      },
+    })
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1)
+    expect(readFileSync(join(tempDir, '.clooks/clooks.yml'), 'utf8')).toBe('version: "1.0.0"\n')
+  })
+
+  test.each([false, true])(
+    'skips a hook when both registration names are taken; json=%s',
+    async (json) => {
+      const original =
+        'version: "1.0.0"\nhook-a:\n  uses: other/pack:hook-a\n"testowner/test-pack:hook-a": {}\n'
+      setupClooksYml(original)
+      mockFetchByUrl(
+        buildPackFetchMap({
+          'hook-a.ts': { ok: true, status: 200, statusText: 'OK', body: VALID_HOOK_CONTENT },
+          'hook-b.ts': { ok: true, status: 200, statusText: 'OK', body: VALID_HOOK_CONTENT },
+        }),
+      )
+      await createTestProgram().parseAsync(
+        [...(json ? ['--json'] : []), 'add', '--all', TEST_REPO_URL],
+        { from: 'user' },
+      )
+      expect(exitSpy).not.toHaveBeenCalled()
+      const content = readFileSync(join(tempDir, '.clooks/clooks.yml'), 'utf8')
+      expect(content).toBe(original + '\nhook-b:\n  uses: testowner/test-pack:hook-b\n')
+      if (json) {
+        expect(JSON.parse(String(stdoutSpy.mock.calls[0]![0])).data).toEqual({
+          hooks: [{ name: 'hook-b', address: 'testowner/test-pack:hook-b' }],
+          skipped: ['hook-a'],
+          warnings: [],
+        })
+      }
+    },
+  )
+
+  test('a rejected download does not prevent successful siblings from being installed', async () => {
+    setupClooksYml()
+    mockFetchByUrl(
+      buildPackFetchMap({
+        'hook-a.ts': { ok: true, status: 200, statusText: 'OK', body: VALID_HOOK_CONTENT },
+      }),
+    )
+    await createTestProgram().parseAsync(['--json', 'add', '--all', TEST_REPO_URL], {
+      from: 'user',
+    })
+    expect(JSON.parse(String(stdoutSpy.mock.calls[0]![0])).data.hooks).toEqual([
+      { name: 'hook-a', address: 'testowner/test-pack:hook-a' },
+    ])
+    expect(readFileSync(join(tempDir, '.clooks/clooks.yml'), 'utf8')).not.toContain('hook-b:')
+    expect(exitSpy).not.toHaveBeenCalled()
+  })
+
   test('pack happy path: installs all hooks with short addresses using --all', async () => {
     setupClooksYml()
     mockFetchByUrl(

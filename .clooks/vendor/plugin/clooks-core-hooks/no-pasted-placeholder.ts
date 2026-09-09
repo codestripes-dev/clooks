@@ -21,6 +21,9 @@ export const hook: ClooksHook = {
   },
 
   UserPromptSubmit(ctx) {
+    if (ctx.provider === 'codex') return ctx.skip()
+    // Subagent completion notices can legitimately quote an unresolved placeholder.
+    if (ctx.prompt.startsWith('<task-notification>')) return ctx.skip()
     if (!hasPastedPlaceholder(ctx.prompt)) return ctx.skip()
 
     return ctx.block({

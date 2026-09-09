@@ -21,6 +21,208 @@ function payload(overrides: Record<string, unknown> = {}) {
 }
 
 describe('Codex PreToolUse runtime policy', () => {
+  test.each([
+    {
+      tool: 'Edit',
+      required: { filePath: '/file', oldString: 'old', newString: 'new' },
+      optional: { replaceAll: false },
+    },
+    { tool: 'Read', required: { filePath: '/file' }, optional: { offset: 0, limit: 10 } },
+    { tool: 'Glob', required: { pattern: '*.ts' }, optional: { path: '/project' } },
+    {
+      tool: 'Grep',
+      required: { pattern: 'needle' },
+      optional: {
+        path: '/project',
+        glob: '*.ts',
+        outputMode: 'content',
+        '-i': false,
+        multiline: true,
+      },
+    },
+    {
+      tool: 'WebSearch',
+      required: { query: 'query' },
+      optional: { allowedDomains: ['example.org'], blockedDomains: ['blocked.org'] },
+    },
+    {
+      tool: 'Agent',
+      required: { prompt: 'inspect', description: 'review', subagentType: 'worker' },
+      optional: { model: 'model' },
+    },
+  ])(
+    '$tool validates each optional public input field without changing its value',
+    ({ tool, required, optional }) => {
+      const toolInput = { ...required, ...optional }
+      const invocation = codexAdapter.normalizeInvocation(
+        payload({ tool_name: tool, tool_input: toolInput }),
+        'PreToolUse',
+      )
+      expect(invocation.context.toolName).toBe(tool)
+      expect(invocation.context.toolInput).toEqual(toolInput)
+      expect(invocation.context.toolInput).not.toBe(toolInput)
+      for (const [key, value] of Object.entries(optional)) {
+        const invalidValues = Array.isArray(value) ? [false, ['valid.org', 1]] : [null]
+        for (const invalid of invalidValues) {
+          expect(() =>
+            codexAdapter.normalizeInvocation(
+              payload({ tool_name: tool, tool_input: { ...toolInput, [key]: invalid } }),
+              'PreToolUse',
+            ),
+          ).toThrow(`${tool}.${key} has an incompatible public input type`)
+        }
+      }
+    },
+  )
+
+  test('recognized but unsupported events fail before envelope validation', () => {
+    expect(() => codexAdapter.normalizeInvocation({}, 'Notification')).toThrow(
+      'runtime handling for this recognized event is unsupported',
+    )
+  })
+
+  test.each([
+    { tool_name: 'Write', tool_input: { filePath: '/file' } },
+    { tool_name: 'AskUserQuestion', tool_input: { questions: [] } },
+  ])('refuses a tool discriminator without a compatible public shape: %j', (overrides) => {
+    expect(() => codexAdapter.normalizeInvocation(payload(overrides), 'PreToolUse')).toThrow(
+      `no compatible public input shape for ${overrides.tool_name}`,
+    )
+  })
+
+  test('context-channel diagnostics preserve the result and order without mutating it', () => {
+    const result = { result: 'allow' as const, injectContext: 'author context' }
+    expect(
+      codexAdapter.composeDiagnostics({
+        eventName: 'PreToolUse',
+        result,
+        traceMessages: ['first', 'second'],
+        degradedMessages: ['degraded'],
+        debugMessages: ['debug'],
+      }),
+    ).toEqual({
+      result: { result: 'allow', injectContext: 'author context\nfirst\nsecond' },
+      stderr: ['[clooks:debug] debug'],
+      systemMessages: ['degraded'],
+    })
+    expect(result).toEqual({ result: 'allow', injectContext: 'author context' })
+    expect(
+      codexAdapter.composeDiagnostics({
+        eventName: 'SessionStart',
+        traceMessages: ['trace'],
+        degradedMessages: [],
+        debugMessages: [],
+      }),
+    ).toEqual({
+      result: { result: 'skip', injectContext: 'trace' },
+      stderr: [],
+      systemMessages: [],
+    })
+  })
+
+  test('allow reasons become human annotations without granting a native policy override', () => {
+    const invocation = codexAdapter.normalizeInvocation(payload(), 'PreToolUse')
+    const checked = checkDetachedResult(
+      codexAdapter.createResultPolicy(invocation),
+      {
+        value: { result: 'allow', reason: 'reviewed', debugMessage: 'checked' },
+        origin: 'handler',
+        parallel: false,
+      },
+      'PreToolUse',
+    )
+    expect(checked.kind).toBe('accepted')
+    if (checked.kind !== 'accepted') throw new Error('expected accepted allow')
+    expect(checked.result).toEqual({ result: 'allow', debugMessage: 'checked' })
+    expect(checked.diagnostics).toEqual([
+      'clooks: PreToolUse allow reason (human annotation only; original allow-reason recipient unavailable; native policy retained): reviewed',
+    ])
+    const translated = codexAdapter.translateFinalOutput({
+      eventName: 'PreToolUse',
+      invocation,
+      result: checked.result,
+      diagnostics: checked.diagnostics,
+      systemMessages: [],
+    })
+    expect(translated.exitCode).toBe(0)
+    expect(JSON.parse(translated.output!)).not.toHaveProperty(
+      'hookSpecificOutput.permissionDecision',
+    )
+    expect(translated.output).toContain('reviewed')
+  })
+
+  test.each([
+    { value: 42, origin: 'handler' as const, capability: 'result' },
+    { value: { result: 'allow' }, origin: 'before-hook' as const, capability: 'before-hook' },
+    {
+      value: { result: 'skip', injectContext: false },
+      origin: 'handler' as const,
+      capability: 'injectContext',
+    },
+  ])(
+    'policy refuses $capability violations at its own boundary',
+    ({ value, origin, capability }) => {
+      const invocation = codexAdapter.normalizeInvocation(payload(), 'PreToolUse')
+      expect(
+        codexAdapter.createResultPolicy(invocation).checkResult({
+          value,
+          origin,
+          parallel: false,
+          hookName: hn('guard'),
+        }),
+      ).toMatchObject({
+        kind: 'rejected',
+        failure: { eventName: 'PreToolUse', hookName: 'guard', capability },
+      })
+    },
+  )
+
+  test('policy accepts omitted optional effects and absent hook results', () => {
+    const policy = codexAdapter.createResultPolicy(
+      codexAdapter.normalizeInvocation(payload(), 'PreToolUse'),
+    )
+    for (const value of [null, undefined]) {
+      expect(policy.checkResult({ value, origin: 'handler', parallel: false })).toEqual({
+        kind: 'accepted',
+        diagnostics: [],
+      })
+    }
+    expect(
+      policy.checkResult({
+        value: { result: 'skip', unsupported: undefined },
+        origin: 'handler',
+        parallel: false,
+      }),
+    ).toEqual({
+      kind: 'accepted',
+      result: { result: 'skip' },
+      nextToolInput: undefined,
+      diagnostics: [],
+    })
+  })
+
+  test('rewrite refusal distinguishes parallel execution from a missing codec', () => {
+    const invocation = codexAdapter.normalizeInvocation(
+      payload({ tool_name: 'Read', tool_input: { filePath: '/file' } }),
+      'PreToolUse',
+    )
+    const policy = codexAdapter.createResultPolicy(invocation)
+    for (const parallel of [true, false]) {
+      const checked = policy.checkResult({
+        value: { result: 'allow', updatedInput: { filePath: '/other' } },
+        origin: 'handler',
+        parallel,
+      })
+      expect(checked).toMatchObject({ kind: 'rejected', failure: { capability: 'updatedInput' } })
+      if (checked.kind !== 'rejected') throw new Error('expected refused rewrite')
+      expect(checked.failure.message).toContain(
+        parallel
+          ? 'parallel input rewrites are unsupported'
+          : 'tool has no approved replacement codec',
+      )
+    }
+  })
+
   test('normalization keeps private identity and opaque record data separate', () => {
     const opaqueInput: { opaque_key: { nested_key: string | null }[] } = {
       opaque_key: [{ nested_key: null }],

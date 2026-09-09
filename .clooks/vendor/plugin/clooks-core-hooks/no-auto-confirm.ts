@@ -16,35 +16,128 @@
 //
 // No escape hatch. No config.
 
-import type { ClooksHook } from "./types"
+import type { ClooksHook } from './types'
 
 const BLOCK_REASON = `Piping auto-responses (yes, echo, printf) into a command simulates human input instead of using the command's non-interactive mode. Use the command's own flag (e.g. -y, --yes, --force, --non-interactive, -auto-approve) or ask the user to run the command interactively.`
 
-export function sanitize(command: string): string {
-  return command
-    .replace(/'[^']*'/g, '')
-    .replace(/"[^"]*"/g, '')
-    .replace(/#.*$/gm, '')
+type Token = { kind: 'word'; value: string; literal: boolean } | { kind: 'operator'; value: string }
+
+// This is a bounded lexer, not shell evaluation. Unsupported nested execution
+// and heredocs stop inspection, retaining already complete prefix pipelines.
+export function confirmationTokens(command: string): Token[] {
+  if (command.includes('\0')) return []
+  const tokens: Token[] = []
+  let i = 0
+  while (i < command.length) {
+    const char = command[i]!
+    if (char === '\\' && command[i + 1] === '\n') {
+      i += 2
+      continue
+    }
+    if (/[ \t\r]/.test(char)) {
+      i++
+      continue
+    }
+    if (char === '#') {
+      while (i < command.length && command[i] !== '\n') i++
+      continue
+    }
+    if (';&|\n<>'.includes(char)) {
+      const pair = command.slice(i, i + 2)
+      if (pair === '<<') return tokens
+      const value = ['&&', '||', '>>', '|&'].includes(pair) ? pair : char
+      tokens.push({ kind: 'operator', value })
+      i += value.length
+      continue
+    }
+    if ('()'.includes(char)) return tokens
+    let value = ''
+    let quote = ''
+    let literal = true
+    while (i < command.length) {
+      const next = command[i]!
+      if (!quote && /[ \t\r\n;&|<>]/.test(next)) break
+      if (next === quote) {
+        quote = ''
+        i++
+        continue
+      }
+      if (!quote && (next === "'" || next === '"')) {
+        quote = next
+        i++
+        continue
+      }
+      if (next === '\\' && quote !== "'") {
+        const escaped = command[i + 1]
+        if (escaped === undefined) return tokens
+        if (escaped === '\n') {
+          i += 2
+          continue
+        }
+        if (quote === '"' && !['$', '`', '"', '\\'].includes(escaped)) {
+          value += next
+          i++
+        } else {
+          value += escaped
+          i += 2
+        }
+        continue
+      }
+      if (quote !== "'") {
+        if (next === '`' || (next === '$' && command[i + 1] === '(')) return tokens
+        if (next === '$' || (!quote && /[*?\[\]{}~]/.test(next))) literal = false
+        if (!quote && '()'.includes(next)) return tokens
+      }
+      value += next
+      i++
+    }
+    if (quote) return tokens
+    tokens.push({ kind: 'word', value, literal })
+  }
+  return tokens
 }
 
-export function getSegments(sanitized: string): string[] {
-  return sanitized.split(/\s*(?:&&|\|\||;)\s*/).filter(s => s.length > 0)
+function confirmationSource(words: Array<Extract<Token, { kind: 'word' }>>): boolean {
+  let start = 0
+  while (words[start] && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[start]!.value)) start++
+  const source = words.slice(start)
+  if (!source[0]?.literal) return false
+  const [name, ...args] = source.map((word) => word.value)
+  if (!name) return false
+  if (/^(?:[\w./]*\/)?yes$/.test(name)) return true
+  if (source.some((word) => !word.literal)) return false
+  if (name === 'echo') {
+    if (args[0] && /^-[neE]+$/.test(args[0])) args.shift()
+    return args.length === 1 && /^(y|yes)$/i.test(args[0]!)
+  }
+  if (name === 'printf') {
+    const confirm = (value: string) => /^(y|yes)(?:\\n|\n)?$/i.test(value)
+    if (args.length === 1) return confirm(args[0]!)
+    return (
+      args.length === 2 &&
+      /^%[sb](?:\\n|\n)?$/.test(args[0]!) &&
+      (args[0]!.startsWith('%b') ? confirm(args[1]!) : /^(y|yes)\n?$/i.test(args[1]!))
+    )
+  }
+  return false
 }
 
-export function stripEnvPrefix(segment: string): string {
-  return segment.trim().replace(/^(?:\w+=\S*\s+)*/, '')
-}
-
-export function isAutoConfirm(stripped: string): boolean {
-  // yes: optional path prefix, optional argument, pipe
-  if (/^(?:[\w./]*\/)?yes(?:\s+\S+)?\s*\|/.test(stripped)) return true
-
-  // echo: optional -[neE]+ flags, then y or yes (case-insensitive), pipe
-  if (/^echo\s+(?:-[neE]+\s+)?[yY](?:[eE][sS])?\s*\|/.test(stripped)) return true
-
-  // printf: y or yes (case-insensitive), pipe
-  if (/^printf\s+[yY](?:[eE][sS])?\s*\|/.test(stripped)) return true
-
+export function isAutoConfirm(command: string): boolean {
+  let words: Array<Extract<Token, { kind: 'word' }>> = []
+  let redirected = false
+  for (const token of confirmationTokens(command)) {
+    if (token.kind === 'word') words.push(token)
+    else {
+      if (['<', '>', '>>'].includes(token.value)) {
+        redirected = true
+        continue
+      }
+      if (!redirected && (token.value === '|' || token.value === '|&') && confirmationSource(words))
+        return true
+      words = []
+      redirected = false
+    }
+  }
   return false
 }
 
@@ -65,24 +158,15 @@ export const hook: ClooksHook = {
   PreToolUse(ctx) {
     if (ctx.toolName !== 'Bash') return ctx.skip()
 
-    const command = typeof ctx.toolInput.command === 'string'
-      ? ctx.toolInput.command : ''
+    const command = typeof ctx.toolInput.command === 'string' ? ctx.toolInput.command : ''
     if (!command) return ctx.skip()
 
     try {
-      const sanitized = sanitize(command)
-      const segments = getSegments(sanitized)
-
-      for (const segment of segments) {
-        const stripped = stripEnvPrefix(segment)
-        if (!stripped) continue
-
-        if (isAutoConfirm(stripped)) {
-          return ctx.block({
-            reason: BLOCK_REASON,
-            debugMessage: `no-auto-confirm: blocked "${command}"`,
-          })
-        }
+      if (isAutoConfirm(command)) {
+        return ctx.block({
+          reason: BLOCK_REASON,
+          debugMessage: `no-auto-confirm: blocked "${command}"`,
+        })
       }
     } catch {
       return ctx.skip()

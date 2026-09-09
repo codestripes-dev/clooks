@@ -162,14 +162,15 @@ describe('Codex event no-ops, public envelopes and lifecycle', () => {
       sandbox = createSandbox()
       install(
         event,
-        `observe({ event: ctx.event, sessionId: ctx.sessionId, transcriptPath: ctx.transcriptPath,
+        `observe({ event: ctx.event, provider: ctx.provider, sessionId: ctx.sessionId, transcriptPath: ctx.transcriptPath,
         model: ctx.model,
-        privateKeys: ['private', 'provider', 'raw', 'nativeTurnId', 'codec', ${event === 'SessionStart' ? '' : "'model'"}].filter(key => Object.hasOwn(ctx, key)) }); return ctx.skip()`,
+        privateKeys: ['private', 'raw', 'nativeTurnId', 'codec', ${event === 'SessionStart' ? '' : "'model'"}].filter(key => Object.hasOwn(ctx, key)) }); return ctx.skip()`,
       )
       output(replay(event))
       marks()
       expect(observed()).toEqual({
         event,
+        provider: 'codex',
         sessionId: 'agent-codex-events-session',
         transcriptPath: '',
         privateKeys: [],
@@ -609,7 +610,7 @@ describe('Codex event-specific required and nullable inputs', () => {
 })
 
 describe('Codex persisted ordinary prompt boundaries', () => {
-  test('root same-ID prompts reset root and child reminders; child prompts and repeated stops preserve them', () => {
+  function setupReminders() {
     sandbox = createSandbox()
     sandbox.writeHook(
       `${name}.ts`,
@@ -648,6 +649,11 @@ export const hook = {
       output(replay('SessionStart', { source }))
       marks('import\nstart\n')
     }
+    return { start, stop }
+  }
+
+  test('child prompts and repeated stops preserve root and child reminders', () => {
+    const { start, stop } = setupReminders()
     start('startup')
     stop('Stop', 0)
     stop('Stop', 1)
@@ -656,17 +662,44 @@ export const hook = {
     marks('import\nprompt\n')
     stop('Stop', 1)
     stop('SubagentStop', 1)
+  })
+
+  test('root same-ID prompts reset root and child reminders', () => {
+    const { start, stop } = setupReminders()
+    start('startup')
+    stop('Stop', 0)
+    stop('SubagentStop', 0)
     output(replay('UserPromptSubmit'))
     marks('import\nprompt\n')
+    stop('Stop', 0)
+    stop('SubagentStop', 0)
+  })
+
+  test('resume and compact preserve reminders', () => {
+    const { start, stop } = setupReminders()
+    start('startup')
     stop('Stop', 0)
     stop('SubagentStop', 0)
     start('resume')
     stop('Stop', 1)
     start('compact')
     stop('SubagentStop', 1)
+  })
+
+  test('clear resets root and child reminders', () => {
+    const { start, stop } = setupReminders()
+    start('startup')
+    stop('Stop', 0)
+    stop('SubagentStop', 0)
     start('clear')
     stop('Stop', 0)
     stop('SubagentStop', 0)
+  })
+
+  test('provider reminders stay isolated when Codex startup resets its reminders', () => {
+    const { start, stop } = setupReminders()
+    start('startup')
+    stop('Stop', 0)
     stop('Stop', 0, 'claude-code')
     stop('Stop', 1)
     start('startup')

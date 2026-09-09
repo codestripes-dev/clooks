@@ -25,6 +25,12 @@ Events fall into 4 categories, each with a distinct result pattern:
 
 The `ExitCode` type is `typeof EXIT_OK | typeof EXIT_HOOK_FAILURE | typeof EXIT_STDERR`, which resolves to `0 | 1 | 2`. All `process.exit()` calls in the engine and CLI use the named constants.
 
+## BaseContext provider identity
+
+Every event context, including unknown-tool variants, has required `provider: Provider` (`'claude-code' | 'codex'`). The shared engine assigns the selected adapter's identity after normalization, overriding raw payload fields. An explicit adapter controls this value even if the process environment says otherwise. Provider identifies the upstream hook host, not subagent identity, tool availability or supported decision capabilities. Existing `agentId` and `agentType` retain their subagent meanings.
+
+Synthetic `createContext` and `createHarnessContext` default an omitted or undefined provider to Claude, independently of `CLOOKS_AGENT`, and accept either explicit provider. Invalid explicit values throw before dispatch. The public `Provider` type is also the type-only source for internal `AgentId`; author declarations do not import adapter runtime code.
+
 ## BaseContext fields for parallel execution
 
 `BaseContext` includes two fields added for the parallel execution pipeline:

@@ -1,11 +1,12 @@
-// prefer-project-scripts — Blocks bare CLI tools when project scripts exist
+// prefer-project-scripts — Prefers verified literal-equivalent package scripts
 //
 // Users configure mappings: each mapping is a regex that matches a bare tool
 // invocation and a recommended project script to use instead.
 //
-// Blocked (when configured):
-//   Any command matching a user-defined regex in the mappings array.
-//   Example: eslint src/ → "Use `npm run lint` instead"
+// A regex match selects a recommendation, not proof of equivalence. Block only
+// when an explicit runner run command names a script with the same literal
+// executable and complete arguments, without pre/post scripts or shell syntax.
+// Arbitrary recommendations remain valid config; unverifiable cases skip.
 //
 // Explicitly NOT blocked:
 //   Commands that don't match any mapping regex, pipe targets,
@@ -18,9 +19,58 @@
 // injects a SessionStart nudge prompting the user to configure or disable.
 
 import type { ClooksHook } from "./types"
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 type Config = {
   mappings: { match: string; recommend: string }[]
+}
+
+// Only literal words and simple quotes are understood. No shell evaluation or
+// expansion is attempted; notably an unquoted glob is not a literal argument.
+function literalWords(command: string): string[] | null {
+  if (/[\r\n]/.test(command)) return null
+  const words: string[] = []
+  const pattern = /\s*(?:'([^'\r\n]*)'|"([^"$`\\\r\n]*)"|([^\s'"\\$`;&|<>(){}*?\[\]#!~]+))(?=\s|$)/gy
+  let offset = 0
+  while (offset < command.length) {
+    if (!command.slice(offset).trim()) break
+    pattern.lastIndex = offset
+    const match = pattern.exec(command)
+    if (!match) return null
+    words.push(match[1] ?? match[2] ?? match[3]!)
+    offset = pattern.lastIndex
+  }
+  if (!words.length || words[0]!.includes('=')) return null
+  return words
+}
+
+export function equivalentScript(command: string, recommend: string, cwd: string): boolean {
+  const requested = literalWords(command)
+  const runner = literalWords(recommend)
+  if (!requested || !runner) return false
+  const [name, verb, script] = runner
+  const scriptName =
+    runner.length === 3 && ['bun', 'npm', 'pnpm', 'yarn'].includes(name!) && verb === 'run'
+      ? script
+      : undefined
+  if (!scriptName || !/^[\w:.-]+$/.test(scriptName) || scriptName.startsWith('-')) return false
+  try {
+    const data: unknown = JSON.parse(readFileSync(join(cwd, 'package.json'), 'utf8'))
+    if (!data || typeof data !== 'object' || !('scripts' in data)) return false
+    const scripts = data.scripts
+    if (!scripts || typeof scripts !== 'object' || Array.isArray(scripts)) return false
+    const entries = scripts as Record<string, unknown>
+    if (Object.hasOwn(entries, `pre${scriptName}`) || Object.hasOwn(entries, `post${scriptName}`)) return false
+    const body = entries[scriptName]
+    if (typeof body !== 'string') return false
+    const actual = literalWords(body)
+    if (actual && ['bun', 'npm', 'pnpm', 'yarn', 'npx', 'bunx', 'sh', 'bash', 'env'].includes(actual[0]!)) return false
+    return actual !== null && actual.length === requested.length &&
+      actual.every((word, index) => word === requested[index])
+  } catch {
+    return false
+  }
 }
 
 // --- Exported utility functions ---
@@ -87,7 +137,7 @@ export function detectMatch(
 export const hook: ClooksHook<Config> = {
   meta: {
     name: 'prefer-project-scripts',
-    description: 'Blocks bare CLI tools when project scripts exist',
+    description: 'Prefers package scripts only when literal executable and arguments match',
     config: {
       mappings: [],
     },
@@ -112,7 +162,7 @@ How to derive mappings from the project:
   2. Pick the runner from package.json "packageManager" or the lockfile:
      - bun.lockb / bun.lock → "bun run"
      - pnpm-lock.yaml → "pnpm run"
-     - yarn.lock → "yarn" (scripts run without "run")
+     - yarn.lock → "yarn run" (use explicit script invocation)
      - package-lock.json → "npm run"
   3. Only add a mapping if the project actually has a script for that tool. Do not invent scripts.
 
@@ -146,44 +196,42 @@ Without configuration, this hook cannot protect against bare tool invocations th
     const list = recommendations.map(r => `\`${r}\``).join(', ')
 
     return ctx.skip({
-      injectContext: `INFORMATION (no need to comment on it): The prefer-project-scripts clooks hook is active in this project. Prefer these project scripts where applicable: ${list}. The Bash tool will refuse direct invocation of the underlying tools when a script exists for them; the block message will name the specific replacement.`,
+      injectContext: `INFORMATION (no need to comment on it): The prefer-project-scripts clooks hook is active in this project. Configured recommendations: ${list}. Direct tool invocations are blocked only when a literal package-script comparison verifies the same executable and complete arguments. Unverifiable recommendations remain configured but do not block.`,
       debugMessage: 'prefer-project-scripts: announced',
     })
   },
 
   PreToolUse(ctx, config) {
-    // 1. Skip non-Bash tools (FEAT step 1)
     if (ctx.toolName !== 'Bash') return ctx.skip()
 
-    // 2. Skip empty commands (FEAT step 2)
     const command = ctx.toolInput.command
     if (!command) return ctx.skip()
 
-    // 3. Skip if unconfigured (FEAT step 3)
     const mappings = Array.isArray(config.mappings) ? config.mappings : []
     if (mappings.length === 0) return ctx.skip()
 
-    // 4. Check escape hatch on original command (FEAT step 7, moved early — safe
-    //    because it checks the unsanitized original, independent of segment processing)
     if (hasEscapeHatch(command)) {
       return ctx.skip({
         debugMessage: 'prefer-project-scripts: escape hatch used',
       })
     }
 
-    // 5. Sanitize, segment, and match (FEAT steps 4-6, 8-9 inside detectMatch)
     const { matched, debugMessages } = detectMatch(command, mappings)
 
     if (matched) {
+      if (!equivalentScript(command, matched.recommend, ctx.cwd)) {
+        return ctx.skip({
+          debugMessage: [...debugMessages, 'prefer-project-scripts: equivalence unverified; retaining original invocation'].join('; '),
+        })
+      }
       return ctx.block({
-        reason: `[prefer-project-scripts] Use \`${matched.recommend}\` instead — project scripts include configuration and environment that direct tool invocation misses. If the bare tool is needed, prefix with ALLOW_DIRECT_TOOL=true.`,
+        reason: `[prefer-project-scripts] Use \`${matched.recommend}\` instead: its literal script matches the requested executable and complete arguments. If the bare tool is needed, prefix with ALLOW_DIRECT_TOOL=true.`,
         debugMessage: debugMessages.length > 0
           ? debugMessages.join('; ')
           : `prefer-project-scripts: blocked, recommending '${matched.recommend}'`,
       })
     }
 
-    // 6. No match — skip, not allow (FEAT step 10)
     return ctx.skip({
       debugMessage: debugMessages.length > 0
         ? debugMessages.join('; ')

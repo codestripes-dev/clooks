@@ -28,6 +28,7 @@ import {
   TURN_STATE_TTL_MS,
 } from './turn-state.js'
 import type { TurnContext } from '../types/turn.js'
+import type { ClooksHook } from '../types/hook.js'
 import { hn } from '../test-utils.js'
 
 class ExitCalled extends Error {
@@ -249,6 +250,60 @@ afterEach(() => {
     rmSync(dir, { recursive: true, force: true })
   }
   tempDirs = []
+})
+
+describe('public provider identity', () => {
+  for (const adapter of [claudeCodeAdapter, codexAdapter]) {
+    test(`${adapter.id} overrides raw provider and opposite environment in every lifecycle stage`, async () => {
+      const opposite = adapter.id === 'codex' ? 'claude-code' : 'codex'
+      process.env.CLOOKS_AGENT = opposite
+      for (const rawProvider of [opposite, null, '', 'unknown']) {
+        const received: unknown[] = []
+        const observe = (phase: string, input: Record<string, unknown>) => {
+          received.push([phase, input.provider, input.toolName, input.parallel])
+        }
+        const hook = makeHook('provider-probe', {
+          beforeHook(event) {
+            observe('before', event.input as unknown as Record<string, unknown>)
+          },
+          PreToolUse(ctx) {
+            observe('handler', ctx as unknown as Record<string, unknown>)
+            return ctx.allow({ injectContext: `provider:${ctx.provider}` })
+          },
+          afterHook(event) {
+            observe('after', event.input as unknown as Record<string, unknown>)
+          },
+        } satisfies Partial<ClooksHook>)
+        const result = await runCoreWithExitTrap(
+          makeDeps(
+            {
+              hook_event_name: 'PreToolUse',
+              provider: rawProvider,
+              session_id: 'provider-session',
+              cwd: '/tmp/clooks-test-project',
+              transcript_path: '/tmp/transcript',
+              permission_mode: 'default',
+              model: 'model',
+              turn_id: 'provider-turn',
+              tool_name: 'Bash',
+              tool_use_id: 'provider-call',
+              tool_input: { command: 'printf provider' },
+            },
+            [hook],
+          ),
+          adapter,
+        )
+        expect(result.code).toBe(0)
+        expect(result.stderr).toBe('')
+        expect(JSON.parse(result.stdout).hookSpecificOutput.additionalContext).toBe(
+          `provider:${adapter.id}`,
+        )
+        expect(received).toEqual(
+          ['before', 'handler', 'after'].map((phase) => [phase, adapter.id, 'Bash', false]),
+        )
+      }
+    })
+  }
 })
 
 describe('Codex turn and delivery integration', () => {

@@ -69,6 +69,7 @@ export interface CreateContextEventMap {
  * Fields the helper supplies defaults for. Callers may override any of them.
  */
 type BaseDefaultedKeys =
+  | 'provider'
   | 'sessionId'
   | 'cwd'
   | 'transcriptPath'
@@ -144,8 +145,13 @@ export function createContext<E extends EventName>(
   event: E,
   payload: CreateContextPayload<E>,
 ): CreateContextEventMap[E] {
+  const provider = payload.provider === undefined ? 'claude-code' : payload.provider
+  if (provider !== 'claude-code' && provider !== 'codex') {
+    throw new TypeError('provider must be "claude-code" or "codex"')
+  }
   const base: BaseContext = {
     event,
+    provider,
     sessionId: 'test-session',
     cwd: '/tmp',
     transcriptPath: '/tmp/transcript.json',
@@ -161,6 +167,7 @@ export function createContext<E extends EventName>(
     ...base,
     ...(payload as Record<string, unknown>),
     event,
+    provider,
   }
   attachDecisionMethods(event, ctx)
   return ctx as unknown as CreateContextEventMap[E]

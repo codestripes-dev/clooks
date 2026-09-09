@@ -22,6 +22,10 @@
 // name; `bun run typecheck` should then surface a clear error.
 
 import type {
+  Provider,
+  EventContextMap,
+  BeforeHookEvent,
+  AfterHookEvent,
   PreToolUseContext,
   UnknownPreToolUseContext,
   UserPromptSubmitContext,
@@ -36,6 +40,21 @@ import type {
   BashToolInput,
   Patch,
 } from '../src/generated/clooks-types'
+
+declare const eventContexts: EventContextMap
+declare const eventName: keyof EventContextMap
+declare const beforeProvider: BeforeHookEvent
+declare const afterProvider: AfterHookEvent
+const bundledProviders: Provider[] = [
+  eventContexts[eventName].provider,
+  beforeProvider.input.provider,
+  afterProvider.input.provider,
+]
+// @ts-expect-error The generated provider union must remain closed.
+bundledProviders.push('other')
+// @ts-expect-error Every generated context has non-optional provider identity.
+const missingProvider: undefined = eventContexts[eventName].provider
+void missingProvider
 
 // --- Tool-keyed PreToolUse:Bash arm ---
 declare const preToolUseCtx: PreToolUseContext

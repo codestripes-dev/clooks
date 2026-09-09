@@ -8,7 +8,40 @@
 // belong to `src/engine/context-methods.test.ts` and `src/types/claude-code.test.ts`.
 
 import { describe, test, expect } from 'bun:test'
-import { createHarnessContext } from './create-context.js'
+import { createContext, createHarnessContext } from './create-context.js'
+import type { Provider } from '../types/index.js'
+
+for (const [name, create] of Object.entries({ createContext, createHarnessContext })) {
+  describe(`${name} provider identity`, () => {
+    test('defaults omitted and undefined provider to Claude regardless of environment', () => {
+      const previous = process.env.CLOOKS_AGENT
+      try {
+        process.env.CLOOKS_AGENT = 'codex'
+        expect(create('UserPromptSubmit', { prompt: 'hi' }).provider).toBe('claude-code')
+        expect(create('UserPromptSubmit', { prompt: 'hi', provider: undefined }).provider).toBe(
+          'claude-code',
+        )
+      } finally {
+        if (previous === undefined) delete process.env.CLOOKS_AGENT
+        else process.env.CLOOKS_AGENT = previous
+      }
+    })
+
+    test.each(['claude-code', 'codex'] as Provider[])('preserves explicit %s', (provider) => {
+      const ctx = create('UserPromptSubmit', { prompt: 'hi', provider })
+      expect(ctx.provider).toBe(provider)
+      expect(ctx.skip()).toEqual({ result: 'skip' })
+    })
+
+    for (const invalid of [null, '', 'unknown', 0, false, {}, []]) {
+      test(`rejects explicit ${JSON.stringify(invalid)}`, () => {
+        expect(() =>
+          create('UserPromptSubmit', { prompt: 'hi', provider: invalid as Provider }),
+        ).toThrow('provider must be "claude-code" or "codex"')
+      })
+    }
+  })
+}
 
 describe('createHarnessContext — base defaults', () => {
   test('applies the harness-spec sessionId default', () => {

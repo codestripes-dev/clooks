@@ -31,6 +31,18 @@ Global hooks installed via `clooks add --global` use the same short address `use
 
 User-scoped plugins (scope `"user"` in `installed_plugins.json`) are automatically vendored to `~/.clooks/vendor/plugin/<pack-name>/` and registered in `~/.clooks/clooks.yml` with path-like `uses` values. This happens during the engine's plugin discovery step — no manual setup required. See `docs/domain/vendoring/plugin-vendoring.md` for the full discovery and vendoring workflow.
 
+## Guarded Local Hook Trials
+
+Existing installations can trial reviewed canonical vendor updates without uninstalling, rerunning init, changing registrations or running a global build script. Capture the actual launcher PATH and resolved executable first: the runtime can be `~/bin/clooks`, not the layout's `~/.clooks/bin/clooks` or another installed copy. Inspect regular-file/symlink identity and preserve unrelated binaries and launcher bytes.
+
+Validate the frozen source and binary before live replacement. The [native smoke export](./testing/codex-native.md#tested-binary-export) binds the deployable executable to all required native case receipts. Freeze exact source/destination hashes, modes and expected absence, plus immutable config/registration/provenance snapshots. Use separately approved outside-root operations and a unique backup directory with a manifest and verified original bytes; never reuse an existing clooks.bak.
+
+Install only the effective runtime through a guarded sibling temporary and atomic rename, preserving executable mode. Check both providers' lifecycle markers with that exact binary in isolated configuration before replacing allowlisted hooks. Preserve already-equal global files and legitimate local customizations; add provider-bearing pack declarations only as explicit manifest entries. Verify postimages, backup images and immutable snapshots. Guard rollback against the owned postimage, restore original modes/bytes, and remove originally absent additions only when still owned. These are individually guarded operations, not a multi-file transaction or protection against hostile concurrent writers.
+
+Canonical project overlays remain independently active through normal merge rules; global file identity alone does not establish project behavior. Separate benign native-session evidence from manually supplied provider wire probes. An absent global Codex registration cannot be treated as home-only native activation, and trial validation must not create registration or change trust merely to obtain that claim.
+
+Local trial overrides are not published releases. Preserve marketplace, plugin cache and release/lock provenance; defer external promotion until later feedback and review. Plugin refresh may replace local overrides. Keep attempt hashes, backup locations and rollout status in plan evidence rather than this architecture guide.
+
 ## Config Scoping Rules
 
 Three config layers, merged in order (last writer wins for scalars):

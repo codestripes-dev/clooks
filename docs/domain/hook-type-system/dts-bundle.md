@@ -28,6 +28,8 @@ import type { ClooksHook } from './types'
 
 This replaces the previous repo-internal import (`../../src/types/hook.js`) and works in any project directory after `clooks init` or `clooks types`.
 
+The bundle exports `Provider = 'claude-code' | 'codex'` and required `BaseContext.provider`; all event contexts and lifecycle inputs inherit it. Generation keeps `src/generated/clooks-types.d.ts.txt` (binary input), `src/generated/clooks-types.d.ts` (typechecking), and `.clooks/hooks/types.d.ts` (local authors) identical. Provider compile checks exercise both the source barrel and generated bundle, including lifecycle and unknown-tool context access.
+
 ## Drift gate
 
 **Drift gate.** A `bundle-up-to-date` step in `lefthook.yml`'s `pre-commit` block runs `bun run generate:types && git diff --exit-code src/generated/`. If a contributor edits `src/types/*.ts` but forgets to regenerate the bundle, the commit fails. Recovery: `git add src/generated/` to stage the regenerated bundle, or `git checkout src/types/` to revert the type-source change. The release workflow (`.github/workflows/release.yml`) regenerates fresh on every release, so production output is unaffected by repo-state drift; the gate's purpose is purely contributor-facing — to keep the in-repo bundle (consumed by `src/commands/init.ts` as a text import in dev) in sync with the in-repo source.

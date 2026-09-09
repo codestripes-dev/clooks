@@ -384,7 +384,7 @@ async function runEngineInvocation(
     state.eventName = eventName
   }
   const eventName = invocation.eventName
-  const normalized = invocation.context
+  const normalized: Record<string, unknown> = { ...invocation.context, provider: adapter.id }
   const policy = adapter.createResultPolicy(invocation)
 
   // Runs before the hooks-empty/no-match early exits so a project with no

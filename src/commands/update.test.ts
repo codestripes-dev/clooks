@@ -1,8 +1,12 @@
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
+import { describe, test, expect, beforeEach, afterEach, spyOn } from 'bun:test'
+import { Command } from 'commander'
+import * as platform from '../platform.js'
+import * as discovery from '../plugin-discovery.js'
+import * as output from '../tui/output.js'
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
-import { updatePluginPack } from './update.js'
+import { createUpdateCommand, updatePluginPack } from './update.js'
 import type { DiscoveredPack, DiscoverOptions } from '../plugin-discovery.js'
 import type { Manifest } from '../manifest.js'
 
@@ -46,6 +50,160 @@ function makePack(overrides: Partial<DiscoveredPack> = {}): DiscoveredPack {
   }
 }
 
+describe('clooks update command', () => {
+  let root: string
+  let home: string
+  let cache: string
+  let packs: DiscoveredPack[]
+  let homeSpy: ReturnType<typeof spyOn>
+  let discoverSpy: ReturnType<typeof spyOn>
+  let exitSpy: ReturnType<typeof spyOn>
+  let stdoutSpy: ReturnType<typeof spyOn>
+  let outputSpies: ReturnType<typeof spyOn>[]
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'clooks-update-command-'))
+    home = join(root, 'home')
+    cache = join(root, 'cache')
+    mkdirSync(home)
+    mkdirSync(cache)
+    packs = []
+    homeSpy = spyOn(platform, 'getHomeDir').mockReturnValue(home)
+    discoverSpy = spyOn(discovery, 'discoverPluginPacks').mockImplementation(() => packs)
+    exitSpy = spyOn(process, 'exit').mockImplementation((): never => {
+      throw new Error('process.exit called')
+    })
+    stdoutSpy = spyOn(process.stdout, 'write').mockReturnValue(true)
+    outputSpies = (
+      ['printIntro', 'printOutro', 'printSuccess', 'printWarning', 'printInfo'] as const
+    ).map((name) => spyOn(output, name).mockImplementation(() => {}))
+  })
+
+  afterEach(() => {
+    homeSpy.mockRestore()
+    discoverSpy.mockRestore()
+    exitSpy.mockRestore()
+    stdoutSpy.mockRestore()
+    for (const spy of outputSpies) spy.mockRestore()
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  function run(target = 'plugin:test-pack', json = false, findRoot = async () => root) {
+    return new Command()
+      .option('--json')
+      .addCommand(createUpdateCommand(findRoot))
+      .parseAsync([...(json ? ['--json'] : []), 'update', target], { from: 'user' })
+  }
+
+  function envelopes() {
+    return stdoutSpy.mock.calls.map((call: unknown[]) => JSON.parse(String(call[0])))
+  }
+
+  for (const json of [false, true]) {
+    test.each([
+      ['test-pack', 'Expected format: plugin:<pack-name>'],
+      ['plugin:', 'Missing pack name'],
+    ])(`rejects malformed target %s before discovery; json=${json}`, async (target, message) => {
+      const errorSpy = spyOn(output, 'printError')
+      try {
+        await expect(run(target, json)).rejects.toThrow('process.exit called')
+        expect(exitSpy).toHaveBeenCalledWith(1)
+        expect(discoverSpy).not.toHaveBeenCalled()
+        if (json) expect(envelopes()[0].error).toContain(message)
+        else
+          expect(errorSpy.mock.calls.some((call) => String(call[2]).includes(message))).toBe(true)
+      } finally {
+        errorSpy.mockRestore()
+      }
+    })
+
+    test(`reports a missing pack and exits unsuccessfully; json=${json}`, async () => {
+      const errorSpy = spyOn(output, 'printError')
+      try {
+        await expect(run('plugin:missing', json)).rejects.toThrow('process.exit called')
+        expect(discoverSpy).toHaveBeenCalledWith({ homeRoot: home, projectRoot: root })
+        if (json) expect(envelopes()[0]).toMatchObject({ ok: false, command: 'update' })
+        else
+          expect(
+            errorSpy.mock.calls.some((call) => String(call[2]).includes('No installed plugin')),
+          ).toBe(true)
+        expect(exitSpy).toHaveBeenCalledWith(1)
+      } finally {
+        errorSpy.mockRestore()
+      }
+    })
+
+    test(`reports updates, registrations, collisions and partial errors; json=${json}`, async () => {
+      const hooks = Object.fromEntries(
+        ['existing', 'fresh', 'collision', 'missing'].map((name) => [
+          name,
+          { path: `${name}.ts`, description: name },
+        ]),
+      )
+      packs = [makePack({ installPath: cache, manifest: makeManifest({ hooks }) })]
+      for (const name of ['existing', 'fresh', 'collision'])
+        writeValidHook(cache, `${name}.ts`, name)
+      const vendor = join(root, '.clooks/vendor/plugin/test-pack')
+      mkdirSync(vendor, { recursive: true })
+      writeFileSync(join(vendor, 'existing.ts'), 'old bytes')
+      const original = 'version: "1.0.0"\ncollision:\n  uses: ./local.ts\n'
+      writeFileSync(join(root, '.clooks/clooks.yml'), original)
+      await run('plugin:test-pack', json)
+      expect(exitSpy).not.toHaveBeenCalled()
+      expect(readFileSync(join(vendor, 'existing.ts'), 'utf8')).toBe(
+        readFileSync(join(cache, 'existing.ts'), 'utf8'),
+      )
+      expect(readFileSync(join(root, '.clooks/clooks.yml'), 'utf8')).toBe(
+        original + '\nfresh:\n  uses: ./.clooks/vendor/plugin/test-pack/fresh.ts\n',
+      )
+      if (json) {
+        expect(envelopes()[0]).toMatchObject({
+          ok: true,
+          command: 'update',
+          data: { updated: ['existing'], registered: ['fresh'], skipped: ['collision'] },
+        })
+        expect(envelopes()[0].data.errors).toHaveLength(1)
+        expect(envelopes()[0].data.errors[0]).toContain('missing: copy failed')
+      } else {
+        expect(output.printSuccess).toHaveBeenCalledWith(
+          { json: false },
+          'Updated 1 hook(s): existing',
+        )
+        expect(output.printSuccess).toHaveBeenCalledWith(
+          { json: false },
+          'Registered 1 new hook(s): fresh',
+        )
+        expect(output.printWarning).toHaveBeenCalledWith(
+          { json: false },
+          'Skipped 1 hook(s) due to name collision: collision',
+        )
+        expect(output.printOutro).toHaveBeenCalledWith({ json: false }, 'Done.')
+      }
+    })
+  }
+
+  test('reports no work when the discovered pack has no hook entries', async () => {
+    packs = [makePack({ manifest: makeManifest({ hooks: {} }) })]
+    await run()
+    expect(output.printInfo).toHaveBeenCalledWith({ json: false }, 'Nothing to update.')
+    expect(exitSpy).not.toHaveBeenCalled()
+    expect(existsSync(join(root, '.clooks'))).toBe(false)
+  })
+
+  test.each([new Error('root unavailable'), 'root unavailable'])(
+    'reports root discovery exceptions as JSON errors: %j',
+    async (error) => {
+      await expect(
+        run('plugin:test-pack', true, async () => {
+          throw error
+        }),
+      ).rejects.toThrow('process.exit called')
+      expect(envelopes()).toEqual([{ ok: false, command: 'update', error: 'root unavailable' }])
+      expect(discoverSpy).not.toHaveBeenCalled()
+    },
+  )
+})
+
 describe('updatePluginPack', () => {
   let tempDir: string
   let projectRoot: string
@@ -65,6 +223,31 @@ describe('updatePluginPack', () => {
   afterEach(() => {
     rmSync(tempDir, { recursive: true, force: true })
   })
+
+  test.each(['export const invalid = true', 'throw "import failed"'])(
+    'removes an invalid newly copied hook and leaves configuration unchanged: %s',
+    async (source) => {
+      writeFileSync(join(installPath, 'invalid.ts'), source)
+      const config = join(projectRoot, '.clooks/clooks.yml')
+      mkdirSync(join(projectRoot, '.clooks'))
+      const original = 'version: "1.0.0"\n'
+      writeFileSync(config, original)
+      const pack = makePack({
+        installPath,
+        manifest: makeManifest({
+          hooks: { invalid: { path: 'invalid.ts', description: 'Invalid hook' } },
+        }),
+      })
+      const result = await updatePluginPack('test-pack', projectRoot, homeRoot, () => [pack])
+      expect(result).toMatchObject({ updated: [], registered: [], skipped: [] })
+      expect(result.errors).toHaveLength(1)
+      expect(result.errors[0]).toContain('invalid: validation failed')
+      expect(existsSync(join(projectRoot, '.clooks/vendor/plugin/test-pack/invalid.ts'))).toBe(
+        false,
+      )
+      expect(readFileSync(config, 'utf8')).toBe(original)
+    },
+  )
 
   test('updates files in vendor directory', async () => {
     // Write original hook source in cache

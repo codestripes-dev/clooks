@@ -504,10 +504,14 @@ type WorktreeCreateDecisionMethods = Success<Path, WorktreeCreateResult> & Failu
 type TeammateIdleDecisionMethods = Continue<Feedback, TeammateIdleResult> & Stop<Reason, TeammateIdleResult> & Skip<EventSkipOptsMap["TeammateIdle"], TeammateIdleResult>;
 type TaskCreatedDecisionMethods = Continue<Feedback, TaskCreatedResult> & Stop<Reason, TaskCreatedResult> & Skip<EventSkipOptsMap["TaskCreated"], TaskCreatedResult>;
 type TaskCompletedDecisionMethods = Continue<Feedback, TaskCompletedResult> & Stop<Reason, TaskCompletedResult> & Skip<EventSkipOptsMap["TaskCompleted"], TaskCompletedResult>;
+/** Upstream hook provider selected by the engine. */
+export type Provider = "claude-code" | "codex";
 /** Fields present on every context, regardless of event. */
 export interface BaseContext {
 	/** Event name. Narrow on this first inside multi-event hooks. */
 	event: EventName;
+	/** Selected adapter identity, not a tool-availability or capability guarantee. */
+	provider: Provider;
 	sessionId: string;
 	cwd: string;
 	permissionMode?: PermissionMode;

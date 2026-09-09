@@ -1,0 +1,114 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CLOOKS_AGENT=codex CLOOKS_PROJECT_ROOT='/opt/development/clooks' '/opt/development/clooks/.clooks/bin/entrypoint.sh'"
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CLOOKS_AGENT=codex CLOOKS_PROJECT_ROOT='/opt/development/clooks' '/opt/development/clooks/.clooks/bin/entrypoint.sh'"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CLOOKS_AGENT=codex CLOOKS_PROJECT_ROOT='/opt/development/clooks' '/opt/development/clooks/.clooks/bin/entrypoint.sh'"
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CLOOKS_AGENT=codex CLOOKS_PROJECT_ROOT='/opt/development/clooks' '/opt/development/clooks/.clooks/bin/entrypoint.sh'"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CLOOKS_AGENT=codex CLOOKS_PROJECT_ROOT='/opt/development/clooks' '/opt/development/clooks/.clooks/bin/entrypoint.sh'"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CLOOKS_AGENT=codex CLOOKS_PROJECT_ROOT='/opt/development/clooks' '/opt/development/clooks/.clooks/bin/entrypoint.sh'"
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CLOOKS_AGENT=codex CLOOKS_PROJECT_ROOT='/opt/development/clooks' '/opt/development/clooks/.clooks/bin/entrypoint.sh'"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CLOOKS_AGENT=codex CLOOKS_PROJECT_ROOT='/opt/development/clooks' '/opt/development/clooks/.clooks/bin/entrypoint.sh'"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CLOOKS_AGENT=codex CLOOKS_PROJECT_ROOT='/opt/development/clooks' '/opt/development/clooks/.clooks/bin/entrypoint.sh'"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CLOOKS_AGENT=codex CLOOKS_PROJECT_ROOT='/opt/development/clooks' '/opt/development/clooks/.clooks/bin/entrypoint.sh'"
+          }
+        ]
+      }
+    ]
+  }
+}

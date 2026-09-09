@@ -592,6 +592,12 @@ function aggregate(
   const head = entries[0]
   const reason = entries.map(e => e.reason).join('\n\n')
   if (head.rule.verdict === 'ask') {
+    if (ctx.provider === 'codex') {
+      return ctx.block({
+        reason: `Recursive deletion blocked: confirmation is unavailable through this hook on Codex. The original classification follows; its confirmation-prompt instructions apply only to Claude.\n\n${reason}`,
+        debugMessage: `no-rm-rf: Codex confirmation unavailable on ${head.rule.id}`,
+      })
+    }
     return ctx.ask({
       reason,
       debugMessage: `no-rm-rf: asking on ${head.rule.id}`,

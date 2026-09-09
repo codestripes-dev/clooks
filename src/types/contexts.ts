@@ -57,10 +57,15 @@ import type {
   TaskCompletedDecisionMethods,
 } from './decision-methods.js'
 
+/** Upstream hook provider selected by the engine. */
+export type Provider = 'claude-code' | 'codex'
+
 /** Fields present on every context, regardless of event. */
 export interface BaseContext {
   /** Event name. Narrow on this first inside multi-event hooks. */
   event: EventName
+  /** Selected adapter identity, not a tool-availability or capability guarantee. */
+  provider: Provider
   sessionId: string
   cwd: string
   permissionMode?: PermissionMode

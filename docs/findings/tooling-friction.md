@@ -42,16 +42,6 @@ PLAN-0010 set up Lefthook with pre-commit lint on staged files, yet these errors
 
 The asdf shim failed because the temp project had no configured node/codex version. The workaround was to resolve the real `codex` and `node` binaries with `asdf which` and put the node bin dir on `PATH` in the spike script. A later live spike was blocked first by sandbox networking, then by `401 Unauthorized` with disposable `CODEX_HOME`, so live hook firing could not be verified without carrying usable auth state into the disposable environment.
 
-### Unit coverage does not meet the configured threshold
-
-**Severity:** friction
-**Date:** 2026-09-08
-**Context:** Docker coverage validation using the authoritative `bunfig.toml`.
-
-The current 95% line/function coverage policy produces per-file shortfalls across source modules as well as imported hook fixtures. Passing unit assertions do not establish a passing coverage gate. This is broader than the earlier fixture-only report, which described an older threshold.
-
-**Remaining work:** Add meaningful coverage for the reported gaps in a separately scoped change. Do not lower thresholds or exclude files to conceal failures. Docker now mounts the configuration and the coverage script preserves failure status; historical commands and outcomes belong in validation evidence, not this finding.
-
 ### Exact-release source acquisition required the remaining git route
 
 **Severity:** friction

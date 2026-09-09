@@ -242,6 +242,25 @@ describe('getRawBaseUrl', () => {
 })
 
 describe('classifyGitHubInput', () => {
+  test.each(['', 'owner:repo', '/repo', 'owner/', 'https://', 'https://github.com/owner'])(
+    'rejects incomplete or unsupported input %j',
+    (input) => {
+      expect(() => classifyGitHubInput(input)).toThrow(
+        'Expected a GitHub URL or owner/repo shorthand',
+      )
+    },
+  )
+
+  test('rejects insecure GitHub repository URLs', () => {
+    expect(() => classifyGitHubInput('http://github.com/owner/repo')).toThrow('Only HTTPS')
+  })
+
+  test('rejects a blob directory even when its parent path is present', () => {
+    expect(() => parseGitHubBlobUrl('https://github.com/owner/repo/blob/main/hooks/')).toThrow(
+      'file path is missing',
+    )
+  })
+
   test('blob URL is classified as blob with correct GitHubBlobInfo', () => {
     const result = classifyGitHubInput('https://github.com/someuser/hooks/blob/main/lint-guard.ts')
     expect(result.type).toBe('blob')

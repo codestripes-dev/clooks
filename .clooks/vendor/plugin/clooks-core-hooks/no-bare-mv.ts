@@ -1,35 +1,78 @@
-// no-bare-mv — Rewrites bare `mv` commands to `git mv` when possible
-//
-// When a bare `mv` is detected, runs the rewritten command as a dry-run
-// (`git mv -n`) to check feasibility. If it succeeds: rewrites via
-// updatedInput. If it fails: lets the bare `mv` through.
+// Inspect only a standalone literal, two-operand mv, with no options other
+// than --. Git dry-run feasibility is not a history guarantee.
 
 import { spawnSync } from 'child_process'
-import type { ClooksHook } from "./types"
+import type { ClooksHook } from './types'
 
-// Matches bare `mv` at the start of a command or after whitespace,
-// but not `git mv` or partial words like `mvn`
-const MV_RE = /(?:^|\s)mv\s/
+type Move = { argv: string[]; commandStart: number }
+
+export function literalMove(command: string): Move | null {
+  if (/[\r\n\0]/.test(command)) return null
+  const words: Array<{ value: string; start: number; end: number }> = []
+  let i = 0
+  while (i < command.length) {
+    if (/[ \t]/.test(command[i]!)) {
+      i++
+      continue
+    }
+    const start = i
+    let value = ''
+    let quote = ''
+    while (i < command.length) {
+      const char = command[i]!
+      if (!quote && /[ \t]/.test(char)) break
+      if (char === quote) {
+        quote = ''
+        i++
+        continue
+      }
+      if (!quote && (char === "'" || char === '"')) {
+        quote = char
+        i++
+        continue
+      }
+      if (char === '\\' && quote !== "'") {
+        const next = command[i + 1]
+        if (next === undefined) return null
+        if (quote === '"' && !['$', '`', '"', '\\'].includes(next)) {
+          value += char
+          i++
+        } else {
+          value += next
+          i += 2
+        }
+        continue
+      }
+      if (quote !== "'" && /[$`]/.test(char)) return null
+      if (!quote && /[;&|<>()*?\[\]{}~#]/.test(char)) return null
+      value += char
+      i++
+    }
+    if (quote) return null
+    words.push({ value, start, end: i })
+  }
+  const first = words[0]
+  if (!first || command.slice(first.start, first.end) !== 'mv') return null
+  const args = words.slice(1).map((word) => word.value)
+  const operands = args[0] === '--' ? args.slice(1) : args
+  if (operands.length !== 2 || operands.some((value) => !value)) return null
+  if (args[0] !== '--' && operands.some((value) => value.startsWith('-'))) return null
+  return { argv: args, commandStart: first.start }
+}
 
 export function isBareMove(command: string): boolean {
-  const sanitized = command
-    .replace(/'[^']*'/g, '')
-    .replace(/"[^"]*"/g, '')
-    .replace(/#.*$/gm, '')
-    .replace(/\bgit\s+mv\b/g, '')
-
-  return MV_RE.test(sanitized)
+  return literalMove(command) !== null
 }
 
-/** Replace the first bare `mv` with `git mv`. */
 export function rewriteToGitMv(command: string): string {
-  return command.replace(/(?:^|\s)mv\s/, (match) => match.replace("mv ", "git mv "))
+  const move = literalMove(command)
+  return move
+    ? command.slice(0, move.commandStart) + 'git ' + command.slice(move.commandStart)
+    : command
 }
 
-/** Run the rewritten command as a dry-run by injecting `-n` after `git mv`. */
-export function dryRunSucceeds(rewritten: string, cwd: string): boolean {
-  const dryRunCmd = rewritten.replace(/\bgit mv\s/, 'git mv -n ')
-  const result = spawnSync('sh', ['-c', dryRunCmd], {
+export function dryRunSucceeds(argv: string[], cwd: string): boolean {
+  const result = spawnSync('git', ['mv', '-n', ...argv], {
     cwd,
     timeout: 3000,
     stdio: 'pipe',
@@ -40,7 +83,7 @@ export function dryRunSucceeds(rewritten: string, cwd: string): boolean {
 export const hook: ClooksHook = {
   meta: {
     name: 'no-bare-mv',
-    description: 'Rewrites bare mv commands to git mv when git mv would succeed',
+    description: 'Rewrites a supported literal mv when git mv dry-run succeeds',
   },
 
   PreToolUse(ctx) {
@@ -50,13 +93,15 @@ export const hook: ClooksHook = {
 
     const command = ctx.toolInput.command
 
-    if (!command || !isBareMove(command)) {
+    if (typeof command !== 'string') return ctx.skip()
+    const move = literalMove(command)
+    if (!move) {
       return ctx.skip()
     }
 
     const rewritten = rewriteToGitMv(command)
 
-    if (!dryRunSucceeds(rewritten, ctx.cwd)) {
+    if (!dryRunSucceeds(move.argv, ctx.cwd)) {
       return ctx.allow({
         debugMessage: `no-bare-mv: dry-run failed, allowing bare mv`,
         injectContext: `no-bare-mv: Unable to automatically use git mv for this operation - consider using git mv if possible`,
@@ -65,7 +110,7 @@ export const hook: ClooksHook = {
 
     return ctx.allow({
       updatedInput: { command: rewritten },
-      injectContext: `[no-bare-mv] Rewrote \`mv\` → \`git mv\` to preserve git history.`,
+      injectContext: '[no-bare-mv] Rewrote mv to git mv after a successful feasibility dry-run.',
       debugMessage: `no-bare-mv: rewrote "${command}" → "${rewritten}"`,
     })
   },

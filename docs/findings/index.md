@@ -114,4 +114,4 @@ Findings that span multiple categories or represent compound bugs with broad imp
 | File | Severity | Summary |
 |------|----------|---------|
 | `config-validation-deadlock.md` | blocker | Config validation errors cause unrecoverable agent deadlock — two bugs combine to brick the session with no in-session recovery |
-| `codex-portability-readiness.md` | friction | Native conformance and recipient readability remain unverified; Claude global launcher quoting needs a bounded compatibility fix |
+| `codex-portability-readiness.md` | friction | All ten target events have some native invocation evidence; broader variants/codecs/activation and recipient readability remain open; Claude global launcher quoting needs a bounded compatibility fix |

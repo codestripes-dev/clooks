@@ -28,6 +28,48 @@ const validManifest = {
 }
 
 describe('validateManifest', () => {
+  test.each([null, [], 'manifest', 1].map((value) => ({ value })))(
+    'rejects non-object manifest %j',
+    ({ value }) => {
+      expect(() => validateManifest(value)).toThrow('must be a non-null object')
+    },
+  )
+
+  test.each([null, [], 'hooks', undefined].map((value) => ({ value })))(
+    'rejects invalid hooks container %j',
+    ({ value }) => {
+      expect(() => validateManifest({ ...validManifest, hooks: value })).toThrow(
+        '"hooks" must be a non-empty object',
+      )
+    },
+  )
+
+  test.each([null, [], 'hook'].map((value) => ({ value })))(
+    'rejects non-object hook definition %j',
+    ({ value }) => {
+      expect(() => validateManifest({ ...validManifest, hooks: { guard: value } })).toThrow(
+        'hook "guard" must be an object',
+      )
+    },
+  )
+
+  test.each([
+    ['events', 'PreToolUse', '"events" must be an array'],
+    ['events', [42], '"events" must be an array of strings'],
+    ['tags', 'safety', '"tags" must be an array'],
+    ['tags', [false], '"tags" must be an array of strings'],
+    ['configDefaults', null, '"configDefaults" must be an object'],
+    ['configDefaults', [], '"configDefaults" must be an object'],
+    ['configDefaults', 'strict', '"configDefaults" must be an object'],
+  ])('rejects malformed optional hook field %s=%j', (field, value, message) => {
+    expect(() =>
+      validateManifest({
+        ...validManifest,
+        hooks: { guard: { path: 'guard.ts', description: 'Guard', [field as string]: value } },
+      }),
+    ).toThrow(message as string)
+  })
+
   test('valid manifest with all fields parses correctly', () => {
     const result = validateManifest(validManifest)
     expect(result.version).toBe(1)
@@ -307,6 +349,22 @@ describe('fetchManifest', () => {
 
   afterEach(() => {
     globalThis.fetch = originalFetch
+  })
+
+  test('reports non-404 HTTP failures without attempting JSON parsing', async () => {
+    const json = mock(() => Promise.resolve(validManifest))
+    globalThis.fetch = mock(() =>
+      Promise.resolve({
+        ok: false,
+        status: 503,
+        statusText: 'Service Unavailable',
+        json,
+      } as unknown as Response),
+    ) as unknown as typeof fetch
+    await expect(fetchManifest('owner', 'repo')).rejects.toThrow(
+      'Failed to fetch manifest: HTTP 503 Service Unavailable',
+    )
+    expect(json).not.toHaveBeenCalled()
   })
 
   test('fetchManifest with mocked 200 returns parsed manifest', async () => {

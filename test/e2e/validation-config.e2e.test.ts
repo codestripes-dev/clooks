@@ -10,11 +10,32 @@ afterEach(() => sandbox?.cleanup())
 
 test('Docker mounts the authoritative test config and retains coverage policy', () => {
   const config = Bun.TOML.parse(readFileSync(join(root, 'bunfig.toml'), 'utf8')) as {
-    test: { root: string; coverageThreshold: { lines: number; functions: number } }
+    test: {
+      root: string
+      coverageThreshold: { lines: number; functions: number }
+      coveragePathIgnorePatterns: string[]
+      pathIgnorePatterns?: string[]
+    }
   }
   expect(pkg.scripts['test:e2e:run']).toContain('-v ./bunfig.toml:/app/bunfig.toml:ro')
   expect(config.test.root).toBe('src/')
   expect(config.test.coverageThreshold).toEqual({ lines: 0.95, functions: 0.95 })
+  expect(config.test.coveragePathIgnorePatterns).toEqual(['**/tmp/**', '.clooks/vendor/plugin/**'])
+  expect(config.test.pathIgnorePatterns).toBeUndefined()
+})
+
+test('hook coverage is report-only and excludes engine measurement, not test discovery', () => {
+  expect(pkg.scripts['test:e2e:run']).toContain('-v ./hookcoverage.toml:/app/hookcoverage.toml:ro')
+  const config = Bun.TOML.parse(readFileSync(join(root, 'hookcoverage.toml'), 'utf8'))
+  expect(config).toEqual({
+    test: {
+      root: 'src/',
+      coverageReporter: ['text', 'lcov'],
+      coverageDir: 'coverage/hooks',
+      coverageSkipTestFiles: true,
+      coveragePathIgnorePatterns: ['**/tmp/**', 'src/**', 'test/**'],
+    },
+  })
 })
 
 test.each([0, 23])('coverage command propagates child status %i and output', (code) => {
@@ -30,6 +51,61 @@ test.each([0, 23])('coverage command propagates child status %i and output', (co
   expect(result.exitCode, formatDiagnostics(result)).toBe(code)
   expect(result.stdout).toBe('1\ntest\n--coverage\nsrc/\n')
   expect(result.stderr).toBe('coverage diagnostic')
+})
+
+test.each([0, 23])('hook coverage command propagates child status %i and output', (code) => {
+  sandbox = createSandbox()
+  sandbox.writeFile(
+    'bun',
+    `#!/bin/bash\nprintf '%s\\n' "$CLAUDECODE" "$@"\nprintf 'hook coverage diagnostic' >&2\nexit ${code}\n`,
+  )
+  sandbox.writeEntrypoint(
+    `#!/bin/bash\nchmod +x ./bun\nexport PATH="$PWD:$PATH"\n${pkg.scripts['test:coverage:hooks']}\n`,
+  )
+  const result = sandbox.runEntrypoint()
+  expect(result.exitCode, formatDiagnostics(result)).toBe(code)
+  expect(result.stdout).toBe(
+    '1\ntest\n--config=./hookcoverage.toml\n--coverage\n./src/default-hooks/\n',
+  )
+  expect(result.stderr).toBe('hook coverage diagnostic')
+})
+
+test('coverage commands measure separate owners using the actual Bun config flag', () => {
+  sandbox = createSandbox()
+  for (const config of ['bunfig.toml', 'hookcoverage.toml']) {
+    sandbox.writeFile(config, readFileSync(join(root, config), 'utf8'))
+  }
+  const source = [
+    'export function reached() { return 1 }',
+    'export function missed() {',
+    '  return 2',
+    '}',
+  ].join('\n')
+  sandbox.writeFile('src/support.ts', source)
+  sandbox.writeFile('.clooks/vendor/plugin/example/hook.ts', source)
+  sandbox.writeFile(
+    'src/default-hooks/ownership.test.ts',
+    [
+      "import { expect, test } from 'bun:test'",
+      "import { reached as engine } from '../support'",
+      "import { reached as hook } from '../../.clooks/vendor/plugin/example/hook'",
+      "test('both owners execute', () => { expect(engine() + hook()).toBe(2) })",
+    ].join('\n'),
+  )
+  for (const [script, directory, expectedSource, status] of [
+    ['test:coverage', 'unit', 'src/support.ts', 1],
+    ['test:coverage:hooks', 'hooks', '.clooks/vendor/plugin/example/hook.ts', 0],
+  ] as const) {
+    sandbox.writeEntrypoint(`#!/bin/bash\n${pkg.scripts[script]}\n`)
+    const result = sandbox.runEntrypoint()
+    expect(result.exitCode, formatDiagnostics(result)).toBe(status)
+    expect(result.stderr).toContain('1 pass')
+    const records = sandbox
+      .readFile(`coverage/${directory}/lcov.info`)
+      .split('\n')
+      .filter((line) => line.startsWith('SF:'))
+    expect(records).toEqual([`SF:${expectedSource}`])
+  }
 })
 
 test('Docker entrypoint rejects missing config before compilation', () => {

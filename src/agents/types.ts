@@ -5,8 +5,9 @@ import type { loadConfig } from '../config/index.js'
 import type { discoverPluginPacks } from '../plugin-discovery.js'
 import type { vendorAndRegisterPack } from '../plugin-vendor.js'
 import type { EngineResult, ExitCode } from '../engine/types.js'
+import type { Provider } from '../types/contexts.js'
 
-export type AgentId = 'claude-code' | 'codex'
+export type AgentId = Provider
 
 export type JsonValue =
   | null

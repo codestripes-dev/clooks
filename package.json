@@ -20,9 +20,11 @@
     "test": "CLAUDECODE=1 bun test src/",
     "test:verbose": "bun test src/",
     "test:coverage": "CLAUDECODE=1 bun test --coverage src/",
+    "test:coverage:hooks": "CLAUDECODE=1 bun test --config=./hookcoverage.toml --coverage ./src/default-hooks/",
     "test:e2e:build": "docker build -q -t clooks-e2e -f test/Dockerfile .",
-    "test:e2e:run": "docker run --rm -v ./src:/app/src:ro -v ./test:/app/test:ro -v ./schemas:/app/schemas:ro -v ./tsconfig.json:/app/tsconfig.json:ro -v ./bunfig.toml:/app/bunfig.toml:ro clooks-e2e",
+    "test:e2e:run": "docker run --rm -v ./src:/app/src:ro -v ./test:/app/test:ro -v ./schemas:/app/schemas:ro -v ./tsconfig.json:/app/tsconfig.json:ro -v ./bunfig.toml:/app/bunfig.toml:ro -v ./hookcoverage.toml:/app/hookcoverage.toml:ro -v ./.clooks/vendor/plugin:/app/.clooks/vendor/plugin:ro clooks-e2e",
     "test:e2e": "bun run test:e2e:build && bun run test:e2e:run",
+    "test:codex-native": "bash scripts/test-codex-native.sh --smoke",
     "deploy:local": "bun run build && cp dist/clooks $(command -v clooks)",
     "typecheck": "tsc --noEmit",
     "prepare": "[ \"$CF_PAGES\" = \"1\" ] || lefthook install"

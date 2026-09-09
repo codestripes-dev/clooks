@@ -12,6 +12,12 @@ const BLOCK_REASON = `Compound command detected. Instead:
   - Write a dedicated bash script in tmp/ for multi-step sequences
   - If both commands MUST run together and a script is overkill, prefix with ALLOW_COMPOUND=true`
 
+const CODEX_BLOCK_REASON = `Compound command detected. Instead:
+  - Use apply_patch for file edits when available
+  - Run commands separately in individual shell tool calls
+  - Write a dedicated bash script in tmp/ for multi-step sequences
+  - If both commands MUST run together and a script is overkill, prefix with ALLOW_COMPOUND=true`
+
 // Matches &&, ||, or a single ; (excluding ;; case terminators)
 const COMPOUND_RE = /&&|\|\||[^;];[^;]|^;[^;]|[^;];$/m
 
@@ -58,8 +64,12 @@ export const hook: ClooksHook = {
   },
 
   SessionStart(ctx) {
+    if (ctx.provider === 'codex') return ctx.skip({
+      injectContext: `The no-compound-commands clooks hook is active in this project. Shell tools will refuse compound commands joined with \`&&\`, \`||\`, or \`;\`. Issue each command in a separate shell call, or write a script under \`tmp/\` for multi-step sequences. A single leading \`cd <path> && <one-command>\` is allowed as a special case.`,
+      debugMessage: 'no-compound-commands: announced',
+    })
     return ctx.skip({
-      injectContext: `INFORMATION (no need to comment on it): The no-compound-commands clooks hook is active in this project. The Bash tool will refuse compound commands joined with \`&&\`, \`||\`, or \`;\`. Issue each command in a separate Bash call, or write a script under \`tmp/\` for multi-step sequences. A single leading \`cd <path> && <one-command>\` is allowed as a special case.`,
+      injectContext: `The no-compound-commands clooks hook is active in this project. The Bash tool will refuse compound commands joined with \`&&\`, \`||\`, or \`;\`. Issue each command in a separate Bash call, or write a script under \`tmp/\` for multi-step sequences. A single leading \`cd <path> && <one-command>\` is allowed as a special case.`,
       debugMessage: 'no-compound-commands: announced',
     })
   },
@@ -77,7 +87,7 @@ export const hook: ClooksHook = {
 
     if (isCompoundCommand(command)) {
       return ctx.block({
-        reason: BLOCK_REASON,
+        reason: ctx.provider === 'codex' ? CODEX_BLOCK_REASON : BLOCK_REASON,
         debugMessage: `no-compound-commands: blocked "${command}"`,
       })
     }
