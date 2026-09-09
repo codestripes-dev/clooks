@@ -8,6 +8,15 @@ const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 let sandbox: Sandbox | undefined
 afterEach(() => sandbox?.cleanup())
 
+test('validation scripts share the runner while retaining the direct Docker interface', () => {
+  expect(pkg.scripts['test:validation']).toBe('bun test/tooling/run-validation.ts all')
+  expect(pkg.scripts['test:e2e']).toBe('bun test/tooling/run-validation.ts e2e')
+  expect(pkg.scripts['test:e2e:build']).toBe('docker build -q -t clooks-e2e -f test/Dockerfile .')
+  expect(pkg.scripts['test:e2e:run']).toBe(
+    'docker run --rm -v ./src:/app/src:ro -v ./test:/app/test:ro -v ./schemas:/app/schemas:ro -v ./tsconfig.json:/app/tsconfig.json:ro -v ./bunfig.toml:/app/bunfig.toml:ro -v ./hookcoverage.toml:/app/hookcoverage.toml:ro -v ./.clooks/vendor/plugin:/app/.clooks/vendor/plugin:ro clooks-e2e',
+  )
+})
+
 test('Docker mounts the authoritative test config and retains coverage policy', () => {
   const config = Bun.TOML.parse(readFileSync(join(root, 'bunfig.toml'), 'utf8')) as {
     test: {

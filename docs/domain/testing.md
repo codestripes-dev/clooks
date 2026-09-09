@@ -2,7 +2,7 @@
 
 How Clooks validates its core safety invariant — fail-closed behavior — through a hermetic end-to-end test suite that exercises the compiled binary as a subprocess. E2E tests run in a Docker container.
 
-**For agents and subagents:** Docker is a hard dependency of this project and is expected to be available. Always use `bun run test:e2e` (it builds and runs the container for you). Do **not** run `bun test test/e2e/…` directly — that bypasses the Docker orchestration and trips the `CLOOKS_E2E_DOCKER` guard in `createSandbox()`. If `docker ps` fails, the Docker **daemon/engine is not running** — start it (or alert the user) rather than concluding Docker is unavailable.
+**For agents and subagents:** Docker is a hard dependency of this project and is expected to be available. Use `bun run test:e2e` for E2E or `bun run test:validation` for the combined tooling/coverage/E2E gate; both manage Docker containers. Do **not** run `bun test test/e2e/…` directly — that bypasses the Docker orchestration and trips the `CLOOKS_E2E_DOCKER` guard in `createSandbox()`. If `docker ps` fails, the Docker **daemon/engine is not running** — start it (or alert the user) rather than concluding Docker is unavailable.
 
 ## Hook Author Testing
 This document covers Clooks's own E2E suite, which validates Clooks itself. It is **not** the documentation hook authors need.
@@ -171,7 +171,7 @@ Interactive cases use test-only Docker `expect` through `test/e2e/helpers/uninst
 
 Every subprocess in these journeys receives temporary `HOME`, `CODEX_HOME`, and `CLOOKS_HOME_ROOT`; no host credentials or environment are copied. The non-root second-registrar failure makes the Codex registration directory unwritable after both registrations exist, then restores permissions in `finally`. It proves failure while creating the second registrar's temporary file, not an injected mid-write/rename failure. Precise writer-stage faults remain unit tests. Global-state tests establish persisted registration/recovery behavior, not native runtime activity.
 
-Coordinate one Docker run at a time when workers share the checkout. The existing entrypoint supports forwarded test paths without a harness change:
+Coordinate one validation attempt under one owner at a time when sharing the checkout; that attempt may manage multiple isolated worker containers. The existing entrypoint supports forwarded test paths without a harness change:
 
 ```bash
 bun run test:e2e
@@ -196,7 +196,25 @@ bun run test:e2e
 bun test src/
 ```
 
-The Docker image contains Bun, git, expect, testuser, dependencies and package metadata. Standard `bun run test:e2e` mounts source, tests, schemas, configuration and `.clooks/vendor/plugin` read-only; the latter maps to `/app/.clooks/vendor/plugin` unconditionally, without an optional flag. Shipped-hook tests use actual pack modules rather than copied implementations. The entrypoint requires bunfig, typechecks, compiles the binary and defaults to `./test/e2e/`. Mount wiring does not establish passing tests. Coordinate one Docker run at a time and freeze source during validation. For focused units or coverage, append `src/` or `--coverage src/` to the direct Docker invocation from `test:e2e:run`; do not assume filtering arguments traverse the chained package script. These commands do not deploy a host binary.
+The Docker image contains Bun, git, expect, testuser, dependencies and package metadata. Standard `bun run test:e2e` mounts source, tests, schemas, scripts, current package metadata, configuration and `.clooks/vendor/plugin` read-only; the latter maps to `/app/.clooks/vendor/plugin` unconditionally. Shipped-hook tests use actual pack modules rather than copied implementations. The entrypoint requires bunfig, typechecks and compiles before testing. Coordinate one validation attempt under one owner at a time, allowing its managed isolated worker containers, and freeze source throughout. Existing `test:e2e:run` remains direct Docker/Bun argument passthrough; rebuild its image before reuse because its package metadata is baked. Append `src/` or `--coverage src/` for focused units or coverage. These commands do not deploy a host binary.
+
+### Isolated validation runner
+
+The default is four by user preference. Eight was fastest in the retained paired full-suite comparisons of 2/4/8 and adjacent 8/16 runs on the validation machine; sixteen was slower. Choosing four does not revise that benchmark result. Select `--workers 1` or `--workers 2` for lower-resource environments, or explicitly select eight. Compare complete suites on frozen inputs when tuning concurrency without relaxing test limits.
+
+`bun run test:e2e` runs the full E2E suite with four isolated workers by default; `--workers` accepts 1, 2, 4, 8, 16 or 32, and `bun run test:e2e --workers 1` selects serial execution. Supporting a count does not establish a speedup. The underlying command is `bun test/tooling/run-validation.ts e2e`. Each attempt builds once, updates the `clooks-e2e` tag for direct-run reuse and uses the captured immutable image ID for its separate non-root containers. Inputs are mounted read-only with before/after hashes, not copied snapshots. Multiple workers receive deterministic file-size-balanced selections; one receives the full directory. Keep inputs unchanged: an image ID does not freeze mounted source.
+
+Focused/raw arguments, such as `bun run test:e2e ./test/e2e/smoke.e2e.test.ts`, run in one container and are forwarded unchanged after any initial runner `--workers` option. A supplied `--` is forwarded to Bun, not consumed as a runner separator. These invocations retain the image environment and require a positive passing summary; they do not assert the full-suite file manifest. The existing `test:e2e:run` interface is unchanged.
+
+The underlying Bun package launcher may drop empty-string arguments before either wrapper receives them. The runner preserves the arguments it receives, including empty strings, spaces and metacharacters; package-launcher behavior is a separate boundary.
+
+`bun run test:validation` (underlying `bun test/tooling/run-validation.ts all`) is the combined pre-commit gate. It builds once and runs uninstrumented tooling regressions, unsharded engine coverage, then full E2E in separate containers sharing that image ID. Failed earlier phases stop later phases. `--workers 1` selects serial E2E; arbitrary test filters are not accepted in the combined gate. Coverage is retained as attempt-local `unit-lcov.info`; see [Coverage Ownership](testing/coverage.md) for validation and threshold semantics.
+
+Finish formatting and generation before validation, then keep input writers stopped. If parallel hooks change inputs, a before/after hash mismatch fails validation even when tests pass; wait for writers to finish and rerun the full validation. Hash comparison neither prevents races nor detects every transient write restored to its original bytes.
+
+Only full E2E worker containers unset `CLAUDECODE`, `REPL_ID` and `AGENT` to retain Bun's verbose file/case evidence; tooling, coverage and raw passthrough retain the image environment. Full-suite acceptance requires exact selected-file headers, positive passes per file and consistent nonzero summary counts. The original entrypoint still typechecks/compiles; external `bash -x` tracing with timestamped `PS4` supplies phase timings without entrypoint edits. Unique `tmp/isolated-e2e-workers/run-*` directories retain manifests, image ID, raw argv/logs/statuses, coverage output when applicable and `report.json`. Worker, evidence, cleanup and detected-source-mutation failures remain nonzero. Docker-only `test/tooling/test-validation.test.ts` contains helper and fake-Docker regressions; these do not replace real full-suite trials.
+
+Cleanup verifies the attempt ownership label and removes the identified container, preserving foreign name collisions. Structured inspection stdout is kept separate from warnings on stderr. Cancellation escalates for the owned process group even if its leader exits before a TERM-resistant descendant. Use `--workers 1` for a serial comparison; worker count changes scheduling, not the selected E2E files or timeout limits.
 
 ### Provider context regressions
 

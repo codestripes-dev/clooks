@@ -2,13 +2,13 @@
 
 Build issues, slow commands, flaky CI, broken toolchain steps, or other tooling problems that blocked or slowed progress.
 
-### Coverage and E2E hooks rebuild the same Docker image
+### Baseline generated declarations fail project formatting
 
 **Severity:** note
 **Date:** 2026-09-08
-**Context:** Accepted Claude coverage-review cleanup, PLAN-0078.
+**Context:** Read-only static checks during validation-runner integration.
 
-The parallel `coverage` and `e2e` hooks in `lefthook.yml` each build and tag `clooks-e2e`. This duplicates build work and may race on the shared tag. Shared-build orchestration is deferred to the user's next performance task; this cleanup leaves both hooks unchanged and the parent runs validation serially.
+`static-PrdZbw` passed lint and changed-file Prettier checks, but project `format:check` exited 1 solely for tracked `src/generated/clooks-types.d.ts`. The parent verified that file is unchanged versus HEAD. The failure predates this task's changes; no generated or production source was modified to hide it. A separately scoped generator/output formatting correction is needed. Do not describe the current project-wide format check as passing.
 
 ### bun build --compile skips type checking
 

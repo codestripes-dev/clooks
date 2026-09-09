@@ -16,10 +16,8 @@ pre-commit:
       stage_fixed: true
     typecheck:
       run: bun run typecheck
-    coverage:
-      run: bun run test:e2e:build && bun run test:e2e:run --coverage src/
-    e2e:
-      run: bun run test:e2e
+    validation:
+      run: bun run test:validation
     lockfile-up-to-date:
       run: bun install --frozen-lockfile --ignore-scripts
     bundle-up-to-date:
