@@ -18,6 +18,7 @@ import {
 import { discoverProjectRoot } from '../config/discovery.js'
 import type { RunEngineDeps, ExitCode } from './types.js'
 import { EXIT_OK, EXIT_STDERR } from './types.js'
+import { formatStdinError, readStdinJson } from './stdin.js'
 import { matchHooksForEvent, buildShadowWarnings } from './match.js'
 import { executeHooks } from './execute.js'
 import { pruneHandoffFiles } from './handoff.js'
@@ -55,7 +56,7 @@ const CONFIG_ERROR_EVENT = '__parse__' as EventName
 export const defaultDeps: RunEngineDeps = {
   loadConfig,
   loadAllHooks,
-  readStdin: () => Bun.stdin.json(),
+  readStdin: readStdinJson,
   discoverPluginPacks: claudeCodePluginDeps.discoverPluginPacks,
   vendorAndRegisterPack: claudeCodePluginDeps.vendorAndRegisterPack,
   discoverProjectRoot,
@@ -153,7 +154,7 @@ async function runEngineInvocation(
       throw new InvocationPolicyError({
         eventName: null,
         capability: 'stdin',
-        message: `clooks: failed to parse stdin JSON: ${error instanceof Error ? error.message : String(error)}`,
+        message: formatStdinError(error),
       })
     }
     if (input === null || typeof input !== 'object' || Array.isArray(input)) {
@@ -357,8 +358,7 @@ async function runEngineInvocation(
     try {
       input = await deps.readStdin()
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e)
-      process.stderr.write(`clooks: failed to parse stdin JSON: ${message}\n`)
+      process.stderr.write(`${formatStdinError(e)}\n`)
       finishEngine(EXIT_STDERR)
     }
 

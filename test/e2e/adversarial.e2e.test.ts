@@ -37,7 +37,7 @@ allow-all: {}
 `)
       const result = sandbox.run([], { stdin: '' })
       expect(result.exitCode).toBe(2)
-      expect(result.stderr).toContain('failed to parse stdin JSON')
+      expect(result.stderr).toContain('received empty stdin; no hook event was supplied.')
     })
 
     test('11b: non-JSON string stdin', () => {

@@ -726,7 +726,9 @@ describe('runEngine', () => {
 
   it('default stdin dependency returns parsed payload and propagates parse failure', async () => {
     const payload = { hook_event_name: 'Stop', session_id: 'stdin-dependency' }
-    const json = spyOn(Bun.stdin, 'json').mockResolvedValueOnce(payload)
+    const json = spyOn(Bun.stdin, 'bytes').mockResolvedValueOnce(
+      new TextEncoder().encode(JSON.stringify(payload)),
+    )
     try {
       expect(await defaultDeps.readStdin()).toEqual(payload)
       expect(json).toHaveBeenCalledTimes(1)

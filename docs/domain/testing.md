@@ -4,6 +4,12 @@ How Clooks validates its core safety invariant — fail-closed behavior — thro
 
 **For agents and subagents:** Docker is a hard dependency of this project and is expected to be available. Use `bun run test:e2e` for E2E or `bun run test:validation` for the combined tooling/coverage/E2E gate; both manage Docker containers. Do **not** run `bun test test/e2e/…` directly — that bypasses the Docker orchestration and trips the `CLOOKS_E2E_DOCKER` guard in `createSandbox()`. If `docker ps` fails, the Docker **daemon/engine is not running** — start it (or alert the user) rather than concluding Docker is unavailable.
 
+## Empty Stdin Coverage
+
+`src/engine/stdin.test.ts` spies on the native byte reader and checks empty/ASCII-whitespace rejection, single-read behavior, rejection propagation and generic error formatting. Nonempty fixtures compare parsed values or error name/message against both `Blob.json()` and the original `Bun.stdin.json()` in `test/fixtures/native-stdin-json.ts`, including BOM, NBSP, NUL, malformed UTF-8/JSON and valid scalars/objects. The original-reader subprocess uses `process.execPath`, Blob byte input, a finite timeout and isolated cwd/environment. Adapter units preserve early Codex and late Claude reads, config-error order and no-config bypass.
+
+`test/e2e/empty-stdin.e2e.test.ts` exercises the compiled binary with default/explicit Claude and Codex in isolated homes/projects, using an independent diagnostic literal rather than a production import. Positive handler markers are reset before rejected inputs; separate import markers distinguish Claude's allowed module imports from handler execution. Bare Codex allow expects empty stdout; Claude expects its allow JSON. Cases cover empty/whitespace/malformed input, semantic nonobject/missing-event failures, no-config bypass, configured zero hooks and generated-launcher forwarding. Run these through the Docker E2E runner. Blob fixtures avoid incremental child-process pipe writes when characterizing native parsing. These tests establish local runtime/launcher behavior, not sandbox transport repair or native agent enforcement.
+
 ## Hook Author Testing
 This document covers Clooks's own E2E suite, which validates Clooks itself. It is **not** the documentation hook authors need.
 

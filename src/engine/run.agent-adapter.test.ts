@@ -18,6 +18,7 @@ import type { ClooksConfig, HookEntry } from '../config/schema.js'
 import type { DanglingHook, LoadedHook } from '../loader.js'
 import type { HookName, Milliseconds } from '../types/branded.js'
 import { runEngine, runEngineCore } from './run.js'
+import { EmptyStdinError, formatStdinError } from './stdin.js'
 import type { RunEngineDeps } from './types.js'
 import { getConfigFailurePath } from '../failures.js'
 import {
@@ -776,6 +777,93 @@ describe('runEngine agent adapter selection', () => {
     expect(explicit).toEqual(unset)
     expect(JSON.parse(explicit.stdout).hookSpecificOutput.permissionDecision).toBe('allow')
   })
+})
+
+describe('stdin failures preserve adapter order', () => {
+  for (const adapter of [claudeCodeAdapter, codexAdapter]) {
+    test.each([new EmptyStdinError(), new SyntaxError('bad JSON'), 'read failed'])(
+      `${adapter.id} formats rejected stdin before handlers`,
+      async (error) => {
+        const calls: string[] = []
+        const deps = makeDeps(null, [
+          makeHook('sentinel', {
+            PreToolUse: () => {
+              calls.push('handler')
+            },
+          }),
+        ])
+        const load = deps.loadAllHooks
+        deps.loadAllHooks = async (...args) => {
+          calls.push('import')
+          return load(...args)
+        }
+        deps.readStdin = async () => {
+          calls.push('stdin')
+          throw error
+        }
+        const result = await runCoreWithExitTrap(deps, adapter)
+        const message = formatStdinError(error)
+        expect(result).toEqual({
+          code: 2,
+          stdout: '',
+          stderr:
+            adapter.id === 'codex'
+              ? `clooks: Codex unidentified event hook "runtime" capability "stdin": ${message} Unidentified event; local failure only, with no native prevention guarantee.\n`
+              : `${message}\n`,
+        })
+        expect(calls).toEqual(adapter.id === 'codex' ? ['stdin'] : ['import', 'stdin'])
+      },
+    )
+
+    test(`${adapter.id} keeps injected strings parsed and rejects with zero hooks`, async () => {
+      const result = await runCoreWithExitTrap(makeDeps(''), adapter)
+      expect(result.code).toBe(2)
+      expect(result.stdout).toBe('')
+      expect(result.stderr).toContain('stdin payload is not a JSON object')
+      expect(result.stderr).not.toContain('received empty stdin')
+    })
+
+    test.each([false, true])(`${adapter.id} no-config bypass, fallback=%s`, async (fallback) => {
+      const deps = makeDeps(null)
+      deps.loadConfig = async () => null
+      let reads = 0
+      deps.readStdin = async () => {
+        reads++
+        throw new EmptyStdinError()
+      }
+      const discovery = await deps.discoverProjectRoot!({})
+      deps.discoverProjectRoot = async () => ({
+        ...discovery,
+        signal: fallback ? 'cwd-fallback' : 'walk-up',
+      })
+      expect(await runCoreWithExitTrap(deps, adapter)).toEqual({ code: 0, stdout: '', stderr: '' })
+      expect(reads).toBe(fallback ? 1 : 0)
+    })
+
+    test(`${adapter.id} preserves config-error read order`, async () => {
+      const calls: string[] = []
+      const deps = makeDeps(null)
+      deps.loadConfig = async () => {
+        calls.push('config')
+        throw new Error('invalid config')
+      }
+      deps.readStdin = async () => {
+        calls.push('stdin')
+        throw new EmptyStdinError()
+      }
+      deps.loadAllHooks = async () => {
+        calls.push('import')
+        return { loaded: [], loadErrors: [], dangling: [] }
+      }
+      const result = await runCoreWithExitTrap(deps, adapter)
+      expect(result.code).toBe(2)
+      expect(result.stdout).toBe('')
+      expect(calls).toEqual(adapter.id === 'codex' ? ['config', 'stdin'] : ['config'])
+      expect(result.stderr).toContain(
+        adapter.id === 'codex' ? 'received empty stdin' : 'invalid config',
+      )
+    })
+  }
 })
 
 describe('runEngineCore Claude adapter boundary', () => {

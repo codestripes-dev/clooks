@@ -2,13 +2,29 @@
 
 Build issues, slow commands, flaky CI, broken toolchain steps, or other tooling problems that blocked or slowed progress.
 
-### Baseline generated declarations fail project formatting
+### Codex sandbox drops Bun child-process stdin over sockets
+
+**Severity:** friction
+**Date:** 2026-09-10
+**Context:** Planned Claude review stdin diagnosis in [PLAN-0080 progress](../plans/codex-ask-hybrid/PLAN-0080-codex-ask-hybrid.md#progress).
+
+Claude 2.1.268 launched inside the Codex exec sandbox reached the global Clooks launcher with empty stdin (four capture dumps contained only one newline byte), causing the JSON parse failure. The parent reports that the normal-permission launch with hooks enabled succeeds. Inspected Claude embedded hook code imports `child_process.spawn` with `shell: true, detached: true`, then calls `stdin.write` and `stdin.end`.
+
+The disposable probe `timeout --signal=KILL 35s bun tmp/claude-stdin-diagnosis/transport-probe.ts`, run from the repository root under Bun 1.3.10, reproduced zero-byte delivery to `/usr/bin/cat` with valid `Bun.spawn` writer `write(payload); end()`: `end()` returned `EPERM: operation not permitted, send`. Under Bun, `node:child_process` both `end(payload)` and write/end silently delivered zero bytes without stream error events, including with shell/detached enabled. The API's `"pipe"` stdin descriptors were sockets, not FIFOs. Blob (memfd) and shell printf (FIFO) controls delivered the exact 29-byte JSON payload; `Bun.stdin.json()` parsed both successfully. No sandbox case timed out. The parent reports the identical elevated probe passed all 13 cases with correct output bytes, exit 0, and no errors or timeouts.
+
+This reproduces a sandbox/Bun transport incompatibility that strongly explains the Claude symptom, not a demonstrated Clooks parser defect. No denied `send` was traced inside embedded Claude itself; the probe's descriptor inspection does not establish exact UNIX-STREAM/socketpair creation. Claude's separate `EROFS` creating `~/.claude/session-env/<session>` before SessionStart does not directly explain UserPromptSubmit's empty input.
+
+**Disposition:** Use approved normal-permission Claude launches with hooks enabled, not `SKIP_CLOOKS` or a weakened parser. The original disposable diagnostic spike made no production or global hook changes. Clooks now has a tested diagnostic-only empty-input correction; it does not repair this unresolved transport incompatibility or establish an upstream fix. Global hook settings remain unchanged.
+
+### Generated declaration formatting after regeneration remains unverified
 
 **Severity:** note
 **Date:** 2026-09-08
 **Context:** Read-only static checks during validation-runner integration.
 
-`static-PrdZbw` passed lint and changed-file Prettier checks, but project `format:check` exited 1 solely for tracked `src/generated/clooks-types.d.ts`. The parent verified that file is unchanged versus HEAD. The failure predates this task's changes; no generated or production source was modified to hide it. A separately scoped generator/output formatting correction is needed. Do not describe the current project-wide format check as passing.
+Historical `static-PrdZbw` passed lint and changed-file Prettier checks, but project `format:check` failed solely for tracked `src/generated/clooks-types.d.ts`. That baseline failure is no longer current: full format checks passed on 2026-09-10 and the generated file has no diff against HEAD. No generated source was changed to hide the earlier failure.
+
+Read-only inspection of `scripts/generate-types.ts` still shows bundle output written directly to all three mirrors without a formatter. Regeneration was not run during diagnostic-only finalization, so formatting after regeneration remains unverified rather than a demonstrated current failure. Retain this bounded generator caveat; no generator correction is claimed.
 
 ### bun build --compile skips type checking
 

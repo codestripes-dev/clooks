@@ -31,6 +31,10 @@ The binary is a per-user global tool (like `git` or `node`). Hooks and config ar
 
 ## Fail-Closed Semantics
 
+When configured Clooks receives empty or ASCII JSON-whitespace-only stdin, the engine reports `clooks: received empty stdin; no hook event was supplied.` and `No hook handlers were run.`, followed by conditional guidance: if Claude was launched inside another agent's sandbox, that sandbox may have prevented hook-input delivery; retry the Claude launch with approved permissions outside that sandbox, keeping Clooks enabled. This diagnoses absent input without claiming its cause or repairing transport. Claude module imports can still occur before parsing; Codex retains its existing failure prefix/disposition.
+
+The diagnostic exits 2 with empty stdout. Capture/replay and exit translation are unchanged: replay can turn empty input into a newline, which receives the same diagnostic. Missing-config bypass remains unchanged. This adds no automatic retry, permission change or hook bypass.
+
 Clooks inverts Claude Code's native error handling:
 
 | Scenario | Claude Code native | Clooks entrypoint |

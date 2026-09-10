@@ -2,6 +2,12 @@
 
 How the clooks binary dispatches between hook engine mode and interactive CLI mode, and the patterns used by commands, TUI wrappers, and JSON output.
 
+## Empty Hook Input
+
+The default engine reader in `src/engine/stdin.ts` reads `Bun.stdin.bytes()` once. Zero bytes or only ASCII JSON whitespace (space, tab, LF, CR) raise `EmptyStdinError`; all other bytes go unchanged to `new Blob([bytes]).json()`. BOM, nonbreaking space and malformed UTF-8 are not classified as empty. Injected `RunEngineDeps.readStdin` readers still return parsed `Promise<unknown>` values.
+
+Both stdin catches use `formatStdinError`: only the dedicated error receives the empty-input diagnostic; ordinary failures retain the existing JSON parse prefix and error message. Configured empty input exits 2 with empty stdout and no hook handler execution. Claude still imports modules before its late read; Codex still reads before imports and retains its translated failure prefix/disposition. Final newline ownership is unchanged. Missing configuration still bypasses input validation, including swallowing input failures in the advisory-only cwd-fallback read.
+
 ## Dual-Mode Dispatch
 
 `src/cli.ts` is the compiled binary's entrypoint. It serves two roles from a single executable:
