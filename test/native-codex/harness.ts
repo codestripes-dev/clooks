@@ -37,8 +37,17 @@ export const baselineCases: CaseId[] = [
 ]
 export const packCases = ['PACK-SHELL-READ', 'PACK-PATCH-ALLOW', 'PACK-PATCH-DENY'] as const
 export type PackCaseId = (typeof packCases)[number]
-export const mandatoryCases = [...baselineCases, ...packCases]
-export const expectedUnitTests = 21
+export const hybridCases = [
+  'HYBRID-PATCH',
+  'HYBRID-SHELL-REWRITE-ALLOW',
+  'HYBRID-SHELL-REWRITE-DENY',
+  'HYBRID-PATCH-REWRITE-ALLOW',
+  'HYBRID-PATCH-REWRITE-DENY',
+  'HYBRID-SHELL',
+] as const
+export type HybridCaseId = (typeof hybridCases)[number]
+export const mandatoryCases = [...baselineCases, ...packCases, ...hybridCases]
+export const expectedUnitTests = 26
 
 export function exportSmokeBinary(logs: string, mode: string, binary: string) {
   requireThat(mode === '--smoke', 'Only smoke exports a binary')
@@ -326,14 +335,22 @@ export function assertObservation(id: CaseId, observed: Observation) {
       post.length === 0 && !handlers.some((handler) => handler.event === 'PostToolUse'),
       'Denied tool emitted PostToolUse',
     )
-    const reason =
-      id === 'M1-DENY'
-        ? denyReason
-        : 'clooks: Codex PreToolUse hook "native-m1" capability "result": unsupported result arm ask; result effects refused. Pending call denial requested.'
-    requireThat(
-      feedback[0].output === `Command blocked by PreToolUse hook: ${reason}. Command: ${commandA}`,
-      'Native denial feedback mismatch',
-    )
+    if (id === 'M1-DENY') {
+      requireThat(
+        feedback[0].output ===
+          `Command blocked by PreToolUse hook: ${denyReason}. Command: ${commandA}`,
+        'Native denial feedback mismatch',
+      )
+    } else {
+      requireThat(
+        /^Command blocked by PreToolUse hook: Hook "native-m1": m1-ask-request\nApproval token: ca1_[a-f0-9]{64}\nExpires: /u.test(
+          feedback[0].output,
+        ) &&
+          feedback[0].output.includes('Ask the user and wait for explicit approval.') &&
+          feedback[0].output.endsWith(`. Command: ${commandA}`),
+        'Missing pending approval feedback',
+      )
+    }
   } else {
     requireThat(post.length === 1, 'Missing completed tool capture')
     requireThat(

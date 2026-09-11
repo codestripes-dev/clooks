@@ -44,6 +44,24 @@ import type {
   InvocationTurnPolicy,
 } from '../agents/index.js'
 import { claudeCodePluginDeps } from '../agents/claude-code/adapter.js'
+import { ApprovalStore } from '../agents/codex/approval-store.js'
+import {
+  prepareApprovalAttempt,
+  captureApprovalPipeline,
+  resolveApprovals,
+  validateApprovalOutput,
+  type ApprovalAttempt,
+  type ApprovalPermit,
+} from '../agents/codex/approvals.js'
+
+interface InvocationState {
+  eventName: EventName | null
+  invocation?: NormalizedInvocation
+  rawReadAttempted: boolean
+  rawInput?: unknown
+  rawReadError?: unknown
+  approvalAttempt?: ApprovalAttempt
+}
 
 /**
  * Sentinel keys for config-error circuit breaker.
@@ -100,8 +118,9 @@ export async function runEngineCore(
   adapter: AgentAdapter,
   deps: RunEngineDeps = defaultDeps,
 ): Promise<void> {
-  const state: { eventName: EventName | null; invocation?: NormalizedInvocation } = {
+  const state: InvocationState = {
     eventName: null,
+    rawReadAttempted: false,
   }
   let exitCode: ExitCode | undefined
   try {
@@ -143,13 +162,78 @@ function finishEngine(code: ExitCode): never {
 async function runEngineInvocation(
   adapter: AgentAdapter,
   deps: RunEngineDeps,
-  state: { eventName: EventName | null; invocation?: NormalizedInvocation },
+  state: InvocationState,
 ): Promise<void> {
+  const readRawOnce = async (): Promise<unknown> => {
+    if (!state.rawReadAttempted) {
+      state.rawReadAttempted = true
+      try {
+        state.rawInput = await deps.readStdin()
+      } catch (error) {
+        state.rawReadError = error
+        throw error
+      }
+    }
+    if (Object.hasOwn(state, 'rawReadError')) throw state.rawReadError
+    return state.rawInput
+  }
+  const approvalStore = adapter.id === 'codex' ? new ApprovalStore() : undefined
+  const emitFinalOutput = async (
+    translated: TranslatedAgentOutput,
+    permit?: ApprovalPermit,
+    eligible = true,
+  ): Promise<ExitCode> => {
+    if (
+      approvalStore &&
+      eligible &&
+      translated.exitCode === EXIT_OK &&
+      (state.eventName === null || state.eventName === 'PreToolUse')
+    ) {
+      const output = translated.output ? JSON.parse(translated.output) : {}
+      const denied =
+        output.hookSpecificOutput?.permissionDecision === 'deny' ||
+        output.continue === false ||
+        output.decision === 'block'
+      const identifyEvent = async () => {
+        if (state.eventName === null) {
+          const raw = await readRawOnce()
+          if (raw === null || typeof raw !== 'object' || Array.isArray(raw))
+            throw new Error('Cannot identify invocation for approval retirement')
+          state.eventName = adapter.readEventName(raw as Record<string, unknown>)
+          if (state.eventName === null)
+            throw new Error('Cannot identify event for approval retirement')
+        }
+      }
+      // Check existence before reading otherwise-unused stdin on early success paths.
+      let existing = false
+      if (!denied && !permit) {
+        try {
+          existing = approvalStore.exists()
+        } catch (error) {
+          await identifyEvent()
+          if (state.eventName === 'PreToolUse') throw error
+        }
+      }
+      if (!denied && (permit || existing)) {
+        await identifyEvent()
+        if (state.eventName === 'PreToolUse') {
+          const attempt = state.approvalAttempt ?? prepareApprovalAttempt(await readRawOnce())
+          if (permit) validateApprovalOutput(attempt, permit, translated)
+          approvalStore.finalizePermit(
+            attempt.baseInvocationHash,
+            permit?.expectedDecisionHash ?? null,
+            permit?.requiredTokens ?? [],
+          )
+        }
+      }
+    }
+    return emitTranslatedOutput(translated)
+  }
   const readInvocation = async (): Promise<NormalizedInvocation> => {
     if (state.invocation) return state.invocation
     let input: unknown
     try {
-      input = await deps.readStdin()
+      input = await readRawOnce()
     } catch (error) {
       throw new InvocationPolicyError({
         eventName: null,
@@ -173,7 +257,25 @@ async function runEngineInvocation(
         message: 'clooks: stdin payload missing or unrecognized hook_event_name field',
       })
     }
-    state.invocation = adapter.normalizeInvocation(payload, state.eventName)
+    if (adapter.id === 'codex' && state.eventName === 'PreToolUse') {
+      try {
+        state.approvalAttempt = prepareApprovalAttempt(payload)
+      } catch (error) {
+        // Preserve existing envelope diagnostics; only valid envelopes get carrier errors.
+        adapter.normalizeInvocation(payload, state.eventName)
+        throw new InvocationPolicyError({
+          eventName: state.eventName,
+          capability: 'approval-input',
+          message: `${error instanceof Error ? error.message : String(error)}; hooks were not imported or executed.`,
+        })
+      }
+    }
+    // Normalization clones carrier-free raw input; native execution retains its original
+    // prefix unless the reducer actually emits a replacement.
+    state.invocation = adapter.normalizeInvocation(
+      state.approvalAttempt?.payload ?? payload,
+      state.eventName,
+    )
     return state.invocation
   }
   const discovery = await (deps.discoverProjectRoot ?? discoverProjectRoot)({
@@ -219,7 +321,7 @@ async function runEngineInvocation(
         })
       }
       finishEngine(
-        emitTranslatedOutput(
+        await emitFinalOutput(
           adapter.translateFinalOutput({
             eventName: invocation.eventName,
             invocation,
@@ -240,7 +342,7 @@ async function runEngineInvocation(
     process.stderr.write(
       `clooks: config error (degraded after ${failCount} consecutive failures): ${message}\n`,
     )
-    const exitCode = emitTranslatedOutput(
+    const exitCode = await emitFinalOutput(
       adapter.translateFinalOutput({
         eventName: CONFIG_ERROR_EVENT,
         systemMessages: [
@@ -259,7 +361,7 @@ async function runEngineInvocation(
     if (discovery.signal === 'cwd-fallback') {
       let earlyInput: unknown
       try {
-        earlyInput = await deps.readStdin()
+        earlyInput = await readRawOnce()
       } catch {
         earlyInput = null
       }
@@ -274,7 +376,7 @@ async function runEngineInvocation(
         }
       }
     }
-    finishEngine(EXIT_OK)
+    finishEngine(await emitFinalOutput({ exitCode: EXIT_OK }))
   }
 
   if (adapter.inputStage === 'before-hooks') await readInvocation()
@@ -356,7 +458,7 @@ async function runEngineInvocation(
   if (!invocation) {
     let input: unknown
     try {
-      input = await deps.readStdin()
+      input = await readRawOnce()
     } catch (e) {
       process.stderr.write(`${formatStdinError(e)}\n`)
       finishEngine(EXIT_STDERR)
@@ -466,7 +568,7 @@ async function runEngineInvocation(
 
   if (hooks.length === 0 && loadErrors.length === 0) {
     const earlyMessages = [...pluginSystemMessages, ...danglingWarnings]
-    const exitCode = emitTranslatedOutput(
+    const exitCode = await emitFinalOutput(
       adapter.translateFinalOutput({
         eventName,
         invocation,
@@ -533,7 +635,7 @@ async function runEngineInvocation(
 
   if (matched.length === 0 && loadErrors.length === 0) {
     const earlyMessages = [...pluginSystemMessages, ...danglingWarnings, ...startupWarnings]
-    const exitCode = emitTranslatedOutput(
+    const exitCode = await emitFinalOutput(
       adapter.translateFinalOutput({
         eventName,
         invocation,
@@ -585,14 +687,7 @@ async function runEngineInvocation(
     }
   }
 
-  const {
-    lastResult: initialResult,
-    degradedMessages,
-    debugMessages,
-    traceMessages,
-    systemMessages,
-    policyFailure,
-  } = await executeHooks(
+  const execution = await executeHooks(
     matched,
     eventName,
     normalized,
@@ -604,6 +699,35 @@ async function runEngineInvocation(
     turnTracker,
     policy,
   )
+  const { degradedMessages, debugMessages, traceMessages, systemMessages, policyFailure } =
+    execution
+  let initialResult = execution.lastResult
+  let approvalPermit: ApprovalPermit | undefined
+  if (
+    approvalStore &&
+    state.approvalAttempt &&
+    !policyFailure &&
+    initialResult?.result !== 'block'
+  ) {
+    const hasAsks =
+      execution.preToolUse?.votes.some((vote) => vote.engineResult.result === 'ask') ||
+      initialResult?.result === 'ask'
+    if (hasAsks || state.approvalAttempt.presentedTokens.length > 0) {
+      const pipeline =
+        hasAsks && execution.preToolUse?.completed
+          ? await captureApprovalPipeline(matched, config, disabledNames)
+          : { global: config.global, event: config.events.PreToolUse ?? null, hooks: [] }
+      const resolved = resolveApprovals(
+        state.approvalAttempt,
+        invocation,
+        execution,
+        pipeline,
+        approvalStore,
+      )
+      initialResult = resolved.result
+      approvalPermit = resolved.permit
+    }
+  }
   const composed = adapter.composeDiagnostics({
     eventName,
     result: initialResult,
@@ -640,7 +764,18 @@ async function runEngineInvocation(
         diagnostics: [],
       })
 
-  emitTranslatedOutput(translated)
+  if (
+    state.approvalAttempt &&
+    initialResult?.result === 'block' &&
+    JSON.parse(translated.output ?? '{}').hookSpecificOutput?.permissionDecision !== 'deny'
+  ) {
+    throw new Error('Final output removed a pending Codex denial')
+  }
+  await emitFinalOutput(
+    translated,
+    approvalPermit,
+    !policyFailure && initialResult?.result !== 'block',
+  )
 
   if (translated.exitCode !== EXIT_OK || lastResult === undefined) {
     finishEngine(translated.exitCode)

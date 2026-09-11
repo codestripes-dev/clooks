@@ -20,7 +20,7 @@ The retained `clooks-core-hooks/hooks/tmux-notifications.ts` implementation inst
 
 In `.clooks/vendor/plugin/clooks-core-hooks/no-rm-rf.ts`, `sanitize` removes remaining single-quoted content after its special command/script handling, including literal target arguments. It removes double-quote delimiters while retaining their contents; `extractTargets` then splits on whitespace. Consequently, single-quoted targets can disappear from inspection and double-quoted paths containing spaces can become multiple targets, so classification need not describe the shell's actual target list.
 
-**Disposition:** Existing behavior, unresolved and separately scoped. The approved Codex ask-to-block update changes only the final decision arm and does not fix target parsing. A future correction needs quote-preserving target tests and a bounded parser change. This finding is not native exploit evidence and does not change the trusted-repository model.
+**Disposition:** Existing behavior, unresolved and separately scoped. The historical Codex ask-to-block change and its subsequent replacement with the Clooks hybrid approval fallback change only the final decision arm; neither fixes target parsing. A future correction needs quote-preserving target tests and a bounded parser change. This finding is not native exploit evidence and does not change the trusted-repository model.
 
 ### Local domain-doc size guard skips native patches
 

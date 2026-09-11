@@ -69,7 +69,15 @@ export function startFixture(items: unknown[], logs: string) {
       if (!body || !Array.isArray(body.input) || request.headers.has('content-encoding'))
         return reject('Unexpected body', 400)
       if (consumed >= items.length) return reject('Script exhausted', 409)
-      const wire = sse(`native_m1_response_${consumed + 1}`, items[consumed++])
+      const step = items[consumed]
+      let item: unknown
+      try {
+        item = typeof step === 'function' ? await step(record) : step
+      } catch (error) {
+        return reject(`Fixture assertion: ${String(error)}`, 409)
+      }
+      const wire = sse(`native_m1_response_${consumed + 1}`, item)
+      consumed++
       writeFileSync(join(logs, `response-${consumed}.sse`), wire, { flag: 'wx' })
       return new Response(wire, { headers: { 'content-type': 'text/event-stream' } })
     },

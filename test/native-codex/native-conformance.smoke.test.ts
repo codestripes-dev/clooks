@@ -11,6 +11,7 @@ import {
 import { join } from 'node:path'
 import { startFixture } from './fixture-server'
 import { packScenario } from './pack-scenarios'
+import { hybridScenario } from './hybrid-scenarios'
 import {
   assertObservation,
   binaryPin,
@@ -20,6 +21,7 @@ import {
   commandB,
   denyReason,
   mandatoryCases,
+  hybridCases,
   packCases,
   readCaptures,
   requireSuccess,
@@ -201,7 +203,7 @@ ignore_default_excludes = true
   }
 }
 
-test('nine mandatory native cases, baseline and patch positive controls first', async () => {
+test('mandatory native cases with hybrid retries and rewrite permission controls', async () => {
   requireThat(process.getuid!() !== 0, 'Native tests must run as non-root')
   requireThat(existsSync('/native/bin/codex'), 'Missing explicit native distribution')
   const actual = sha256('/native/bin/codex')
@@ -216,10 +218,11 @@ test('nine mandatory native cases, baseline and patch positive controls first', 
   verifyMetadata(actual)
   for (const id of baselineCases) await scenario(id)
   for (const id of packCases) await packScenario(id, logRoot)
+  for (const id of hybridCases) await hybridScenario(id, logRoot)
   save(join(logRoot, 'completed.json'), {
     mode: '--smoke',
     completed: mandatoryCases.length,
     cases: mandatoryCases,
     evidence: 'native CLI with synthetic model',
   })
-}, 180_000)
+}, 360_000)

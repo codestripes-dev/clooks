@@ -179,10 +179,9 @@ describe('removal classification and provider decision', () => {
     ])(`${provider}: %s`, async (command, config, expected, rule) => {
       const dir = project()
       const result = await removal.PreToolUse(context(dir, command, provider), config)
-      expect(result.result).toBe(expected === 'ask' && provider === 'codex' ? 'block' : expected)
+      expect(result.result).toBe(expected)
       if (rule) expect(result.reason).toContain(`[${rule}]`)
-      if (expected === 'ask' && provider === 'codex')
-        expect(result.reason).toContain('confirmation is unavailable through this hook on Codex')
+      if (expected === 'ask') expect(result.debugMessage).toBe(`no-rm-rf: asking on ${rule}`)
       expect(readFileSync(join(dir, 'sentinel'), 'utf8')).toBe('unchanged')
     })
   }

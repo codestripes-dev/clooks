@@ -81,6 +81,8 @@ export type CheckedResult =
   | { kind: 'rejected'; failure: RuntimePolicyFailure }
 
 export interface InvocationResultPolicy {
+  /** Collect detached, configured-order PreToolUse observations for approval resolution. */
+  collectPreToolUseVotes?: boolean
   /** Audit ordinary crash blocks after configured continuation and failure accounting. */
   deferRuntimeErrorAudit?: boolean
   validateRawResult?(value: unknown): RuntimePolicyFailure | undefined

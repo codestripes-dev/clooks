@@ -33,7 +33,7 @@ The binary is a per-user global tool (like `git` or `node`). Hooks and config ar
 
 When configured Clooks receives empty or ASCII JSON-whitespace-only stdin, the engine reports `clooks: received empty stdin; no hook event was supplied.` and `No hook handlers were run.`, followed by conditional guidance: if Claude was launched inside another agent's sandbox, that sandbox may have prevented hook-input delivery; retry the Claude launch with approved permissions outside that sandbox, keeping Clooks enabled. This diagnoses absent input without claiming its cause or repairing transport. Claude module imports can still occur before parsing; Codex retains its existing failure prefix/disposition.
 
-The diagnostic exits 2 with empty stdout. Capture/replay and exit translation are unchanged: replay can turn empty input into a newline, which receives the same diagnostic. Missing-config bypass remains unchanged. This adds no automatic retry, permission change or hook bypass.
+The diagnostic exits 2 with empty stdout. Capture/replay and exit translation are unchanged: replay can turn empty input into a newline, which receives the same diagnostic. The diagnostic itself adds no automatic retry, permission change or hook bypass. Separately, existing Codex approval storage requires identifying otherwise-bypassed no-config invocations for retirement; an unreadable or unidentifiable input cannot silently skip that work. Without that state, the missing-config bypass remains.
 
 Clooks inverts Claude Code's native error handling:
 
@@ -74,6 +74,12 @@ The entrypoint and the binary react to a small set of environment variables:
 | `$CLAUDE_PROJECT_DIR` | Set by Claude Code itself. Used by clooks as the **primary anchor** for config discovery — the walk-up starts here so an agent that runs `cd /tmp && <action>` cannot bypass project hooks. |
 
 Claude Code registration does not need to set `CLOOKS_AGENT`; the binary defaults to the Claude Code adapter. Codex registration always sets `CLOOKS_AGENT=codex`. Project Codex registration also sets `CLOOKS_PROJECT_ROOT` to the absolute project root so Codex cwd changes do not detach Clooks from the intended project. Global Codex registration intentionally omits `CLOOKS_PROJECT_ROOT`; the shell still forwards inherited `CLOOKS_PROJECT_ROOT` and `CLAUDE_PROJECT_DIR` unchanged. Before discovery, the Codex runtime uses an invocation-local environment copy with `CLAUDE_PROJECT_DIR` removed, retaining the explicit `CLOOKS_PROJECT_ROOT` override without mutating the process environment. Without that override, discovery walks from cwd so global hooks can merge with the current project's `.clooks/clooks.yml`. Shell forwarding and bootstrap behavior are unchanged.
+
+## Approval Token Transport
+
+`CLOOKS_APPROVAL_TOKENS` is reserved syntax in a pending Codex Bash/exec_command tool command, not a launcher environment switch. The runtime controller parses a byte-zero token prefix and strips it before hook inspection and binding; an inherited hook-process variable never acknowledges approval. Without a real input rewrite, the original native command retains its prefix. The launcher still only captures/replays stdin and translates exit codes; it does not parse, register or consume tokens.
+
+Only narrowly recognized direct external commands can carry the prefix. Other shell forms and non-shell tools use `clooks approve <token>` followed by unchanged arguments. An agent shell call to that command still runs through ordinary hooks, with no exemption. See [Codex Approvals](codex-approvals.md) for exact syntax, lifecycle and passing Docker validation. The passing [15-case native suite](testing/codex-native.md#hybrid-approval-case-evidence) covers bounded shell and direct-patch approval workflows, including actual-pack `rm -r`, not forced-removal permission or full conformance.
 
 ## Hook Registration
 

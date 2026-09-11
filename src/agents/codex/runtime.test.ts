@@ -21,6 +21,58 @@ function payload(overrides: Record<string, unknown> = {}) {
 }
 
 describe('Codex PreToolUse runtime policy', () => {
+  test.each(['', '  ', 'confirmation'])(
+    'accepts handler ask reason %j and sequential codec patches without annotations',
+    (reason) => {
+      const policy = codexAdapter.createResultPolicy(
+        codexAdapter.normalizeInvocation(payload(), 'PreToolUse'),
+      )
+      expect(policy.collectPreToolUseVotes).toBe(true)
+      expect(
+        policy.checkResult({
+          value: {
+            result: 'ask',
+            reason,
+            updatedInput: { command: 'new' },
+            injectContext: 'context',
+            debugMessage: 'debug',
+          },
+          origin: 'handler',
+          parallel: false,
+          currentToolInput: { command: 'old' },
+        }),
+      ).toEqual({
+        kind: 'accepted',
+        result: {
+          result: 'ask',
+          reason,
+          updatedInput: { command: 'new' },
+          injectContext: 'context',
+          debugMessage: 'debug',
+        },
+        nextToolInput: { command: 'new' },
+        diagnostics: [],
+      })
+      for (const origin of ['before-hook', 'engine-error'] as const)
+        expect(
+          policy.checkResult({ value: { result: 'ask', reason }, origin, parallel: false }).kind,
+        ).toBe('rejected')
+      expect(
+        policy.checkResult({
+          value: { result: 'ask', reason, updatedInput: {} },
+          origin: 'handler',
+          parallel: true,
+        }).kind,
+      ).toBe('rejected')
+      expect(
+        policy.checkResult({
+          value: { result: 'ask', reason, updatedInput: null },
+          origin: 'handler',
+          parallel: false,
+        }).kind,
+      ).toBe('rejected')
+    },
+  )
   test.each([
     {
       tool: 'Edit',
@@ -361,7 +413,7 @@ describe('Codex PreToolUse runtime policy', () => {
   })
 
   test.each([
-    { result: 'ask', reason: 'ask' },
+    { result: 'ask' },
     { result: 'defer' },
     { result: 'block', reason: ' ' },
     { result: 'allow', updatedInput: { timeout: null } },

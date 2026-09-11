@@ -32,6 +32,7 @@ export function createResultPolicy(invocation: NormalizedInvocation): Invocation
   const metadata = cloneDeep(invocation.private)
   const eventName = invocation.eventName
   return {
+    collectPreToolUseVotes: eventName === 'PreToolUse',
     deferRuntimeErrorAudit: true,
     validateRawResult(value) {
       if (hasLosslessShape(value)) return undefined
@@ -60,8 +61,14 @@ export function createResultPolicy(invocation: NormalizedInvocation): Invocation
       if (!isPlainObject(input.value)) return reject('result', 'result must be a record')
       const value = input.value as Record<string, unknown>
       const tag = value.result
-      if (tag !== 'allow' && tag !== 'block' && tag !== 'skip') {
+      if (tag !== 'allow' && tag !== 'block' && tag !== 'skip' && tag !== 'ask') {
         return reject('result', `unsupported result arm ${String(tag)}`)
+      }
+      if (tag === 'ask' && (eventName !== 'PreToolUse' || input.origin !== 'handler')) {
+        return reject('result', 'ask is supported only by PreToolUse handlers')
+      }
+      if (tag === 'ask' && typeof value.reason !== 'string') {
+        return reject('reason', 'ask reason must be a string')
       }
       if (input.origin === 'before-hook' && tag === 'allow') {
         return reject('before-hook', 'beforeHook may only block or skip')
@@ -89,7 +96,8 @@ export function createResultPolicy(invocation: NormalizedInvocation): Invocation
       if (eventName === 'PostToolUse' && tag === 'allow')
         return reject('result', 'handler only supports block or skip')
       const allowed = new Set(['result', 'debugMessage'])
-      if (tag === 'block' || (eventName === 'PreToolUse' && tag === 'allow')) allowed.add('reason')
+      if (tag === 'block' || (eventName === 'PreToolUse' && (tag === 'allow' || tag === 'ask')))
+        allowed.add('reason')
       if (
         eventName === 'PreToolUse' ||
         eventName === 'UserPromptSubmit' ||
@@ -98,7 +106,8 @@ export function createResultPolicy(invocation: NormalizedInvocation): Invocation
         eventName === 'SubagentStart'
       )
         allowed.add('injectContext')
-      if (eventName === 'PreToolUse' && tag === 'allow') allowed.add('updatedInput')
+      if (eventName === 'PreToolUse' && (tag === 'allow' || tag === 'ask'))
+        allowed.add('updatedInput')
       for (const key of Object.keys(value)) {
         if (value[key] === undefined) continue
         if (!allowed.has(key)) return reject(key, `unsupported field ${key} on ${tag}`)

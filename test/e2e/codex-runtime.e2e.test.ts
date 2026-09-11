@@ -417,10 +417,10 @@ PreToolUse:
 describe('Codex policy audit before effects', () => {
   const invalidResults = [
     {
-      name: 'ask',
-      value: { result: 'ask', reason: 'ask me' },
-      capability: 'result',
-      detail: 'unsupported result arm ask',
+      name: 'ask without reason',
+      value: { result: 'ask' },
+      capability: 'reason',
+      detail: 'ask reason must be a string',
     },
     {
       name: 'defer',

@@ -14,7 +14,12 @@ import { orderHooksForEvent, partitionIntoGroups } from '../ordering.js'
 import type { ExecutionGroup } from '../ordering.js'
 import { runHookLifecycle, LifecycleMetaCache } from '../lifecycle.js'
 import type { LifecycleResult } from '../lifecycle.js'
-import type { EngineResult, ExecutionResult } from './types.js'
+import type {
+  AcceptedPreToolUseVote,
+  EngineResult,
+  ExecutionResult,
+  PreToolUseVote,
+} from './types.js'
 import type { InvocationResultPolicy, ResultOrigin, RuntimePolicyFailure } from '../agents/types.js'
 import { checkDetachedResult, legacyResultPolicy } from './result-policy.js'
 import { applyHandoff } from './handoff.js'
@@ -25,11 +30,6 @@ import type { TurnContext, TurnDecision } from '../types/turn.js'
 import { cloneDeep, omitBy, isNull } from 'lodash-es'
 
 // --- PreToolUse vote collector types and helpers ---
-
-type PreToolUseVote = {
-  engineResult: EngineResult
-  rank: number // deny=3, defer=2, ask=1, allow=0, skip=-1
-}
 
 export function rankPreToolUseResult(r: EngineResult): number {
   switch (r.result) {
@@ -359,6 +359,10 @@ export async function executeHooks(
   let lastResult: EngineResult | undefined
   let policyFailure: RuntimePolicyFailure | undefined
   let effectsOpen = true
+  const collectPreToolUseVotes =
+    eventName === 'PreToolUse' && policy.collectPreToolUseVotes === true
+  const acceptedVotes: AcceptedPreToolUseVote[] = []
+  let executionFailed = loadErrors.length > 0
   const rejectUnreadableResult = (hookName: HookName) => {
     policyFailure ??= {
       eventName,
@@ -370,6 +374,7 @@ export async function executeHooks(
   }
   const recorded = new Set<HookName>()
   const recordRaw = (name: HookName, value: unknown, failed = false) => {
+    if (failed) executionFailed = true
     if (recorded.has(name)) return
     recorded.add(name)
     let decision: TurnDecision = 'error'
@@ -385,6 +390,17 @@ export async function executeHooks(
   }
   const originalToolInput = normalized.toolInput as Record<string, unknown> | undefined
   let currentToolInput = originalToolInput
+  const observationMetadata = (): Pick<ExecutionResult, 'preToolUse'> =>
+    collectPreToolUseVotes
+      ? {
+          preToolUse: {
+            votes: acceptedVotes,
+            finalToolInput: cloneDeep(currentToolInput),
+            inputChanged: currentToolInput !== originalToolInput,
+            completed: !executionFailed && !policyFailure,
+          },
+        }
+      : {}
   const audit = (value: unknown, origin: ResultOrigin, hookName: HookName, parallel: boolean) => {
     if (!effectsOpen) return undefined
     const checked = checkDetachedResult(
@@ -430,6 +446,7 @@ export async function executeHooks(
       lastResult = audit(lastResult, 'load-error', loadError.name, false)?.result
       effectsOpen = false
       return {
+        ...observationMetadata(),
         lastResult,
         policyFailure,
         degradedMessages,
@@ -453,7 +470,14 @@ export async function executeHooks(
     degradedMessages.push(msg)
     audit(undefined, 'load-error', loadError.name, false)
     if (policyFailure)
-      return { policyFailure, degradedMessages, debugMessages, traceMessages, systemMessages }
+      return {
+        ...observationMetadata(),
+        policyFailure,
+        degradedMessages,
+        debugMessages,
+        traceMessages,
+        systemMessages,
+      }
   }
 
   // Clear LOAD_ERROR_EVENT counters for hooks that loaded successfully.
@@ -486,6 +510,29 @@ export async function executeHooks(
     disabledNames,
   )
   const groups = partitionIntoGroups(orderedHooks, eventName)
+  const ordinals = collectPreToolUseVotes
+    ? new Map(orderedHooks.map((hook, ordinal) => [hook.loaded.name, ordinal]))
+    : undefined
+
+  // Capture before handoff can replace author text; insert only at existing vote sites.
+  function voteRecorder(result: EngineResult, hookName: HookName, origin: ResultOrigin) {
+    const acceptedResult = collectPreToolUseVotes ? cloneDeep(result) : undefined
+    const inputBefore = collectPreToolUseVotes ? cloneDeep(currentToolInput ?? {}) : undefined
+    return (engineResult: EngineResult) => {
+      preToolUseVotes.push({ engineResult, rank: rankPreToolUseResult(engineResult) })
+      if (acceptedResult && inputBefore) {
+        acceptedVotes.push({
+          engineResult: acceptedResult,
+          rank: rankPreToolUseResult(acceptedResult),
+          hookName,
+          origin,
+          ordinal: ordinals!.get(hookName)!,
+          inputBefore,
+          inputAfter: cloneDeep(currentToolInput ?? {}),
+        })
+      }
+    }
+  }
 
   // --- Sequential group runner ---
   async function executeSequentialGroup(group: ExecutionGroup): Promise<void> {
@@ -679,6 +726,7 @@ export async function executeHooks(
 
       // Single cast at the boundary where dynamically-imported hook code returns.
       const resultObj = result as EngineResult
+      const addVote = voteRecorder(resultObj, loaded.name, lifecycleResult.origin)
 
       // From the raw result, before handoff. Handoff replaces payload text and
       // never the tag, so either side records the same value today — reading
@@ -718,7 +766,7 @@ export async function executeHooks(
           accumulatedInjectContext.push(hookResult.injectContext)
         }
         if (eventName === 'PreToolUse') {
-          preToolUseVotes.push({ engineResult: hookResult, rank: rankPreToolUseResult(hookResult) })
+          addVote(hookResult)
           continue
         }
         blockResult = hookResult
@@ -735,7 +783,7 @@ export async function executeHooks(
           lastNonSkipResult = hookResult
         }
         if (eventName === 'PreToolUse') {
-          preToolUseVotes.push({ engineResult: hookResult, rank: rankPreToolUseResult(hookResult) })
+          addVote(hookResult)
         }
         continue
       }
@@ -754,7 +802,7 @@ export async function executeHooks(
               unknown
             >
           }
-          preToolUseVotes.push({ engineResult: hookResult, rank: rankPreToolUseResult(hookResult) })
+          addVote(hookResult)
           continue
         }
         // Non-PreToolUse: treat as non-skip (updates lastNonSkipResult below)
@@ -766,7 +814,7 @@ export async function executeHooks(
       // No updatedInput merge: DeferResult forbids the field at the type level.
       if (hookResult.result === 'defer') {
         if (eventName === 'PreToolUse') {
-          preToolUseVotes.push({ engineResult: hookResult, rank: rankPreToolUseResult(hookResult) })
+          addVote(hookResult)
           continue
         }
         // Non-PreToolUse: treat as non-skip (updates lastNonSkipResult below)
@@ -795,7 +843,7 @@ export async function executeHooks(
       }
       lastNonSkipResult = hookResult
       if (eventName === 'PreToolUse') {
-        preToolUseVotes.push({ engineResult: hookResult, rank: rankPreToolUseResult(hookResult) })
+        addVote(hookResult)
       }
     }
   }
@@ -889,6 +937,7 @@ export async function executeHooks(
       const results: (SettledHookResult | undefined)[] = new Array(hookTasks.length)
 
       const abortBatch = () => {
+        executionFailed = true
         resolved = true
         for (let j = 0; j < hookTasks.length; j++) {
           if (!results[j]) recordRaw(hookTasks[j]!.hookName, undefined, true)
@@ -916,6 +965,7 @@ export async function executeHooks(
             ) {
               const message = `clooks: hook "${settled.hookName}" returned updatedInput in parallel mode — this is a contract violation. Parallel hooks cannot modify tool input.`
               settled.contractViolation = message
+              executionFailed = true
               settled.generatedError = audit(
                 { result: 'block', reason: message },
                 'parallel-contract',
@@ -1037,6 +1087,7 @@ export async function executeHooks(
         if (!val) {
           continue
         }
+        const addVote = voteRecorder(val, settled.hookName, lr.origin)
 
         // Handoff applies per hook, before reduction merges text and discards
         // hook identity. The loop is sequential, so writes do not race.
@@ -1059,10 +1110,7 @@ export async function executeHooks(
             lastNonSkipResult = hookResult
           }
           if (eventName === 'PreToolUse') {
-            preToolUseVotes.push({
-              engineResult: hookResult,
-              rank: rankPreToolUseResult(hookResult),
-            })
+            addVote(hookResult)
           }
           continue
         }
@@ -1075,10 +1123,7 @@ export async function executeHooks(
             accumulatedInjectContext.push(hookResult.injectContext)
           }
           if (eventName === 'PreToolUse') {
-            preToolUseVotes.push({
-              engineResult: hookResult,
-              rank: rankPreToolUseResult(hookResult),
-            })
+            addVote(hookResult)
             continue
           }
           blockResult = hookResult
@@ -1089,10 +1134,7 @@ export async function executeHooks(
         // Ask — PreToolUse: push vote and continue; non-PreToolUse: fall through to allow path.
         if (hookResult.result === 'ask') {
           if (eventName === 'PreToolUse') {
-            preToolUseVotes.push({
-              engineResult: hookResult,
-              rank: rankPreToolUseResult(hookResult),
-            })
+            addVote(hookResult)
             continue
           }
           // Non-PreToolUse: treat as non-skip (updates lastNonSkipResult below)
@@ -1103,10 +1145,7 @@ export async function executeHooks(
         // Defer — PreToolUse: push vote and continue; non-PreToolUse: fall through to allow path.
         if (hookResult.result === 'defer') {
           if (eventName === 'PreToolUse') {
-            preToolUseVotes.push({
-              engineResult: hookResult,
-              rank: rankPreToolUseResult(hookResult),
-            })
+            addVote(hookResult)
             continue
           }
           // Non-PreToolUse: treat as non-skip (updates lastNonSkipResult below)
@@ -1125,7 +1164,7 @@ export async function executeHooks(
 
         lastNonSkipResult = hookResult
         if (eventName === 'PreToolUse') {
-          preToolUseVotes.push({ engineResult: hookResult, rank: rankPreToolUseResult(hookResult) })
+          addVote(hookResult)
         }
       }
 
@@ -1338,6 +1377,7 @@ export async function executeHooks(
   await safeCommitTurn(turnTracker)
 
   return {
+    ...observationMetadata(),
     lastResult,
     policyFailure,
     degradedMessages,

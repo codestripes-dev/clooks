@@ -637,6 +637,91 @@ describe('actual patch paths, move inspection and confirmation', () => {
 })
 
 describe('actual removal, script equivalence and tmux hooks', () => {
+  test.each(['inline', 'registered'] as const)(
+    'Codex: actual removal ask supports %s approval and rejects replay',
+    (transport) => {
+      sandbox = createSandbox()
+      configure({ 'no-rm-rf': {} })
+      sandbox.writeFile('src/owned.ts', 'unchanged')
+      const env = {
+        CLOOKS_AGENT: 'codex',
+        CODEX_HOME: join(sandbox.home, '.codex'),
+        CLOOKS_HOME_ROOT: sandbox.home,
+      }
+      let attempt = 0
+      const invoke = (command = 'rm -rf src') => {
+        const result = sandbox.run([], {
+          stdin: JSON.stringify({
+            hook_event_name: 'PreToolUse',
+            session_id: 'actual-removal-approval',
+            turn_id: `turn-${++attempt}`,
+            tool_use_id: `call-${attempt}`,
+            cwd: sandbox.dir,
+            transcript_path: null,
+            model: 'fixture',
+            permission_mode: 'default',
+            tool_name: 'exec_command',
+            tool_input: { command },
+          }),
+          env,
+          timeout: 10_000,
+        })
+        expect(result.rawExitCode, formatDiagnostics(result)).toBe(0)
+        expect(result.signalCode).toBeNull()
+        expect(result.stderr, formatDiagnostics(result)).toBe('')
+        // This suite replays wire input; it never executes the deletion command.
+        expect(sandbox.readFile('src/owned.ts')).toBe('unchanged')
+        return result.stdout ? JSON.parse(result.stdout) : null
+      }
+      const first = invoke()
+      denied(first, '[rm-rf-strict]')
+      const reason = first.hookSpecificOutput.permissionDecisionReason as string
+      const tokens = [...new Set(reason.match(/ca1_[0-9a-f]{64}/g) ?? [])]
+      expect(tokens).toHaveLength(1)
+      const token = tokens[0]!
+      const pending = invoke()
+      denied(pending, token)
+      expect(pending.hookSpecificOutput.permissionDecisionReason).toMatch(
+        /wait for explicit approval/i,
+      )
+      if (transport === 'registered') {
+        const registration = sandbox.run(['--json', 'approve', token], { env, timeout: 10_000 })
+        expect(registration.rawExitCode, formatDiagnostics(registration)).toBe(0)
+        expect(registration.signalCode).toBeNull()
+        expect(registration.stderr).toBe('')
+        expect(JSON.parse(registration.stdout)).toMatchObject({
+          ok: true,
+          command: 'approve',
+          data: { token },
+        })
+      }
+      const retry = `CLOOKS_APPROVAL_TOKENS=${token} rm -rf src`
+      const approved = invoke(transport === 'inline' ? retry : 'rm -rf src')
+      expect(approved.hookSpecificOutput).toBeUndefined()
+      expect(Object.keys(approved)).toEqual(['systemMessage'])
+      expect(approved.systemMessage).toContain('native policy retained')
+      expect(approved.systemMessage).toContain('[rm-rf-strict]')
+      const replay = invoke(retry)
+      expect(replay.hookSpecificOutput.hookEventName).toBe('PreToolUse')
+      expect(replay.hookSpecificOutput.permissionDecision).toBe('deny')
+      expect(replay.hookSpecificOutput.updatedInput).toBeUndefined()
+      expect(replay.hookSpecificOutput.permissionDecisionReason).toContain(
+        'Unknown, expired or consumed approval token',
+      )
+      const fresh = invoke()
+      denied(fresh, '[rm-rf-strict]')
+      const freshTokens = [
+        ...new Set(
+          (fresh.hookSpecificOutput.permissionDecisionReason as string).match(
+            /ca1_[0-9a-f]{64}/g,
+          ) ?? [],
+        ),
+      ]
+      expect(freshTokens).toHaveLength(1)
+      expect(freshTokens[0]).not.toBe(token)
+    },
+  )
+
   for (const provider of ['claude-code', 'codex'] as const) {
     test.each([
       ['rm -rf src', {}, 'ask', 'rm-rf-strict'],
@@ -651,18 +736,20 @@ describe('actual removal, script equivalence and tmux hooks', () => {
       sandbox = createSandbox()
       configure({ 'no-rm-rf': { config } })
       sandbox.writeFile('src/owned.ts', 'unchanged')
-      const decision = expected === 'ask' && provider === 'codex' ? 'block' : expected
-      const output = shell(provider, command, { 'no-rm-rf': decision })
-      if (decision === 'skip') permitted(output, provider)
-      else if (decision === 'ask') {
+      const output = shell(provider, command, { 'no-rm-rf': expected })
+      if (expected === 'skip') permitted(output, provider)
+      else if (expected === 'ask' && provider === 'claude-code') {
         expect(output.hookSpecificOutput.permissionDecision).toBe('ask')
         expect(output.hookSpecificOutput.permissionDecisionReason).toContain(rule)
       } else {
         denied(output, rule)
-        if (expected === 'ask')
-          expect(output.hookSpecificOutput.permissionDecisionReason).toContain(
-            'confirmation is unavailable through this hook on Codex',
-          )
+        const reason = output.hookSpecificOutput.permissionDecisionReason
+        if (expected === 'ask') {
+          expect(reason).toMatch(/ca1_[0-9a-f]{64}/)
+          expect(reason).toContain('clooks approve ')
+          expect(reason).toMatch(/wait for explicit approval/i)
+          expect(reason).not.toContain('confirmation is unavailable')
+        } else expect(reason).not.toMatch(/ca1_[0-9a-f]{64}/)
       }
       expect(sandbox.readFile('src/owned.ts')).toBe('unchanged')
     })

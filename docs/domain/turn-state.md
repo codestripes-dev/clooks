@@ -103,6 +103,8 @@ Hooks in the same invocation do not appear in each other's `prior`. The snapshot
 
 ## Storage
 
+Codex runtime approvals use a separate SQLite database and fixed five-minute lifecycle, not this best-effort history store. Prompt/turn boundaries do not clear approvals; approval binding excludes changing turn/tool-use IDs but retains session and referenced-agent identity. Raw hook asks remain `ask` in history even when the controller emits a pending denial or discharges the final ask after acknowledgement. They do not become history interventions. Successful PreToolUse exits consume required approvals and retire other acknowledged records for the same base invocation, including no-config/no-match/no-ask exits. Approval-storage errors refuse the operation rather than degrading to empty history. See [Codex Approvals](codex-approvals.md). The history semantics below are unchanged.
+
 One JSON document per session at `<homeRoot>/.clooks/turn-state/<hash>.json`, where `hash` is the first 16 hex characters of `sha256(sessionId)`. The directory is 0700, files 0600. The raw session id is never written into a path or into the file.
 
 ### Provider-aware storage helpers

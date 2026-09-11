@@ -366,6 +366,16 @@ Plan B and Plan C remain historically complete. The September reassessment propo
 
 **Relevant research:** all prior plans.
 
+### Hybrid Confirmation Capability
+
+**Status:** Bounded hybrid capability complete. The pinned 15-case native suite, final full regression gate and separate hook-pack coverage passed; final independent code and QA receipt reviews confirmed acceptance. This is a bounded capability addition beyond the earlier adapter work, not completion of all distribution guidance or native conformance.
+
+Existing PreToolUse handlers keep `ctx.ask({ reason })`. Clooks denies pending Codex requests and supplies fixed five-minute, invocation-bound confirmation tokens. After explicit user approval, eligible direct shell retries present tokens inline; other tools use `clooks approve` before unchanged retries. Acknowledgements survive intermediate asks and are consumed on final permission. Claude retains native confirmation, while explicit blocks and native permission checks remain authoritative.
+
+The repository's no-rm-rf confirmation branch now asks on both providers, without changing classification, strict mode, deny precedence, allowlist or escape rules. Quoted-target parsing remains unresolved. No global pack, marketplace or installed binary update is included. The model remains trusted repositories and cooperative agents, not proof of human consent.
+
+The pinned Codex 0.153.4 native suite passed all 15 cases with completion and tested-binary export, including two-ask shell inline and direct-patch CLI workflows, bounded rewrite execution/denial controls and actual-pack `rm -r`. The read-only patch case uses a separate compiled CLI process to simulate user registration outside the native shell sandbox. The actual-pack case preserves the target through two pending asks, removes it only after both inline acknowledgements, and refuses consumed-token replay against a restored target. It is not native `rm -rf` allow proof. These synthetic-model results add no human-consent proof, new PermissionRequest coverage or full conformance claim. README explains the bounded verified workflow; historical adapter and native receipts retain their original scope.
+
 ## Design Decisions
 
 | Decision | Resolution | Source |

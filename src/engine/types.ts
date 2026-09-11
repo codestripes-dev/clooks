@@ -5,11 +5,33 @@ import type { loadAllHooks } from '../loader.js'
 import type { discoverPluginPacks } from '../plugin-discovery.js'
 import type { vendorAndRegisterPack } from '../plugin-vendor.js'
 import type { discoverProjectRoot } from '../config/discovery.js'
-import type { RuntimePolicyFailure } from '../agents/types.js'
+import type { ResultOrigin, RuntimePolicyFailure } from '../agents/types.js'
+import type { HookName } from '../types/branded.js'
+
+export interface PreToolUseVote {
+  engineResult: EngineResult
+  rank: number // deny=3, defer=2, ask=1, allow=0, skip=-1
+}
+
+export interface AcceptedPreToolUseVote extends PreToolUseVote {
+  hookName: HookName
+  origin: ResultOrigin
+  /** Zero-based position in the configured execution order, including non-voting hooks. */
+  ordinal: number
+  inputBefore: Record<string, unknown>
+  inputAfter: Record<string, unknown>
+}
 
 export interface ExecutionResult {
   lastResult?: EngineResult
   policyFailure?: RuntimePolicyFailure
+  preToolUse?: {
+    votes: AcceptedPreToolUseVote[]
+    /** Materialized pipeline input, not necessarily the reducer's emitted updatedInput. */
+    finalToolInput?: Record<string, unknown>
+    inputChanged: boolean
+    completed: boolean
+  }
   degradedMessages: string[]
   debugMessages: string[]
   traceMessages: string[]

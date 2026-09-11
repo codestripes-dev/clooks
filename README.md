@@ -1,9 +1,10 @@
 # Clooks
 
-A TypeScript hook runtime for Claude Code.
+A TypeScript hook runtime for Claude Code and a supported Codex subset.
 Write hooks once, run them safely, share them across projects and teams.
 
-> More agents (Cursor Agent, Codex, OpenCode, OpenClaw) planned.
+> See [Codex usage](#codex-usage) for capabilities and verification limits.
+> More agents (Cursor Agent, OpenCode, OpenClaw) planned.
 > Already works today in any IDE that hosts Claude Code — VS Code, Cursor, Windsurf, JetBrains.
 
 ## Why not native hooks?
@@ -11,7 +12,8 @@ Write hooks once, run them safely, share them across projects and teams.
 Native Claude Code hooks are bash commands wired up in JSON. Every hook
 reinvents argument parsing, stdin handling, and the wire format — no
 types, no composition, no shared infrastructure. Clooks itself registers
-as one `command` hook per event, then dispatches to your TypeScript:
+as one `command` hook per event, then dispatches to your TypeScript.
+This example uses Claude Code's input-patch capabilities:
 
 ```typescript
 export const hook: ClooksHook = {
@@ -68,6 +70,60 @@ Once installed as claude plugins, they'll automatically be sourced by
 `clooks` once any hook runs and added to the corresponding `.clooks/clooks.yml` file (based on scope).
 
 For manual install, see [Other install methods](#other-install-methods).
+
+## Codex Usage
+
+With a Clooks binary containing hybrid approvals on your PATH, register the project:
+
+```bash
+clooks init --agent codex
+```
+
+This writes `.codex/hooks.json`; Codex still requires its own project trust and
+hook review. Re-run init after cloning or moving the checkout because registration
+uses absolute paths. Custom and already-vendored hooks share `.clooks/clooks.yml`;
+Claude marketplace setup is not Codex plugin discovery.
+
+The adapter targets ten events: SessionStart, SubagentStart, PreToolUse,
+PermissionRequest, PostToolUse, PreCompact, PostCompact, UserPromptSubmit,
+SubagentStop and Stop. Tool inputs and result capabilities differ from Claude:
+`exec_command` is exposed as Bash, while `apply_patch` is not a Claude Edit/Write
+payload. See [supported capabilities](docs/domain/cross-agent-hooks.md#current-pretooluse-implementation).
+
+### Confirming Hook Requests
+
+Hook authors keep `ctx.ask({ reason })` in PreToolUse handlers. Claude uses native
+confirmation. Codex uses a Clooks fallback: the pending operation is denied with
+the hook's reason, an opaque token and expiry, not a native Codex ask prompt.
+
+1. The agent asks the user and waits for explicit approval.
+2. For an eligible direct external shell command, it prefixes the unchanged command
+   with `CLOOKS_APPROVAL_TOKENS=<issued-token> `, replacing the placeholder with the
+   actual token. The prefix must begin the command; token values cannot be quoted.
+3. For non-shell tools or other shell syntax, it runs `clooks approve <issued-token>`
+   and retries the original tool with unchanged arguments. Registration itself
+   remains subject to ordinary hooks.
+
+The inline carrier accepts only a narrow literal-command form, not builtins,
+compound commands, redirects, substitutions or arbitrary scripts. Multiple asks
+need separate confirmations; earlier acknowledgements survive intermediate denials.
+Tokens expire five minutes after issuance, without extension on registration or
+retry. They bind the session, child, tool, cwd, input, pipeline and confirmation,
+and are consumed before final permission output. Changed operations require new
+approval; explicit blocks and native policy still apply. This assumes a trusted
+repository and a cooperative agent, not cryptographic proof of human consent.
+
+The repository's `no-rm-rf` hook now returns ask for confirmation classifications
+on both providers. Strict-mode blocks, other denial rules and the allowlist are
+unchanged. Its known quoted-target parsing limitation is not fixed by approval
+support. Updating these repository files does not update installed/global packs.
+
+The pinned Codex 0.153.4 native suite passed 15 cases in offline Docker with a
+synthetic model. It covers two-ask shell and direct-patch workflows, including
+actual-pack `rm -r` denial, approved removal and replay refusal. This is not native
+`rm -rf` allow proof, human-consent proof or full Codex conformance.
+See [approval details](docs/domain/codex-approvals.md) and
+[native evidence limits](docs/domain/testing/codex-native.md#hybrid-approval-case-evidence).
 
 ## Marketplace
 
@@ -221,14 +277,16 @@ clooks test ./.clooks/hooks/no-rm-rf.ts --config-json '{"threshold":7}' --input 
 
 ### Return values
 
-Clooks supports most of the same return values as native Claude Code hooks:
+Clooks supports most of the same return values as native Claude Code hooks.
+The table describes Claude behavior unless noted; [Codex capabilities](#codex-usage)
+are narrower.
 
 | Method                       | Behavior                                                                      | Where it works                                                                                   |
 |------------------------------|-------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------|
 | `ctx.allow()`                | Proceeds; optionally patches input via `updatedInput`¹ or injects context     | Guard events (PreToolUse, UserPromptSubmit, PermissionRequest, Stop, SubagentStop, ConfigChange) |
 | `ctx.block({ reason })`      | Stops the action; `reason` is shown to the agent²                             | Guard events                                                                                     |
 | `ctx.skip()`                 | No opinion; pipeline continues                                                | All events                                                                                       |
-| `ctx.ask({ reason })`        | Surfaces a permission prompt to the user; `reason` becomes the prompt text    | PreToolUse only                                                                                  |
+| `ctx.ask({ reason })`        | Claude: native prompt. Codex: denial/token approval fallback                 | PreToolUse handlers only                                                                         |
 | `ctx.defer()`                | Pauses the turn for `claude -p --resume`³                                     | PreToolUse only                                                                                  |
 | `ctx.continue({ feedback })` | Keeps a teammate working past idle/gate; `feedback` is sent back to the model | Continuation events (TeammateIdle, TaskCreated, TaskCompleted)                                   |
 | `ctx.stop({ reason })`       | Terminates a teammate                                                         | Continuation events (TeammateIdle, TaskCreated, TaskCompleted)                                   |
@@ -478,13 +536,13 @@ fast-logger:
 
 **Sequential hooks** form a pipeline:
 - Each hook sees `toolInput` as modified by the previous hook
-- `block` from any hook stops the pipeline immediately
+- `PreToolUse` collects block/ask votes and continues; a block wins reduction. Other events short-circuit on block. Existing failure and contract checks can still stop execution.
 - `injectContext` values accumulate across all hooks
 - The original `toolInput` is always available as `ctx.originalToolInput`
 
 **Parallel hooks** run concurrently:
 - All see the same `toolInput` (state at group start)
-- `block` from any hook short-circuits the rest of the batch
+- `PreToolUse` collects block votes without cancelling the batch; other events short-circuit on block
 - `updatedInput` is forbidden on parallel `PreToolUse` **and** parallel `PermissionRequest` hooks — returning it from either is a contract violation and blocks the action
 
 ### Lifecycle hooks
@@ -675,6 +733,7 @@ clooks update plugin:clooks-core-hooks
 | Command | Description |
 |---------|-------------|
 | `clooks --version` (or `-v`) | Print version |
+| `clooks approve <token>` | Acknowledge an existing Codex hook confirmation; does not execute the target or extend expiry |
 
 </details>
 
@@ -750,7 +809,8 @@ bun run generate:schema        # Regenerate clooks.schema.json from source
 - **Remaining event parity** — `CwdChanged`, `FileChanged`, `Elicitation`,
   and `ElicitationResult` (the four events called out in the
   [Parity map](#parity-map)).
-- **Cross-agent support** — Cursor Agent, Codex, OpenCode, OpenClaw. Same
+- **More cross-agent support** — Cursor Agent, OpenCode, OpenClaw. Codex has a
+  [supported subset](#codex-usage), not universal Claude parity. Same
   authoring model, runtime adapters per agent. (Today clooks works in any IDE
   that hosts Claude Code — VS Code, Cursor, Windsurf, JetBrains.)
 

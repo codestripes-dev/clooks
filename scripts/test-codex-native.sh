@@ -118,12 +118,12 @@ if [[ "$mode" == --smoke ]]; then cmd+=(--mount "type=bind,src=$vendor,dst=/nati
 cmd+=(--mount "type=bind,src=$attempt/export,dst=/export"
   --env CLOOKS_NATIVE_LOGDIR=/export --env "CLOOKS_NATIVE_MODE=$mode"
   "$image" /app/test/native-codex/container-entrypoint.sh)
-printf '%q ' timeout --signal=TERM --kill-after=15s 300s "${cmd[@]}" > "$attempt/command.sh"
+printf '%q ' timeout --signal=TERM --kill-after=15s 420s "${cmd[@]}" > "$attempt/command.sh"
 printf '\n' >> "$attempt/command.sh"
 created=1
 stage=run
 set +e
-timeout --signal=TERM --kill-after=15s 300s "${cmd[@]}" > "$attempt/attempt.log" 2>&1
+timeout --signal=TERM --kill-after=15s 420s "${cmd[@]}" > "$attempt/attempt.log" 2>&1
 docker_rc=$?
 set -e
 rc=$docker_rc
