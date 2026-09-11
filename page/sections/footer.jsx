@@ -12,7 +12,7 @@ function Footer({ accent }) {
         <div style={{ gridColumn: stack ? '1 / -1' : 'auto' }}>
           <Logo accent={accent}/>
           <p style={{ fontSize: 13, color: COL.fgMute, marginTop: 14, maxWidth: 300, lineHeight: 1.5 }}>
-            A TypeScript hook runtime for Claude Code. Open source under MIT.
+            A TypeScript hook runtime for Claude Code and Codex. Open source under MIT.
           </p>
           <div style={{
             marginTop: 20, fontSize: 11, color: COL.fgFaint,
@@ -25,11 +25,12 @@ function Footer({ accent }) {
           { h: 'Project', links: [
             ['GitHub', 'https://github.com/codestripes-dev/clooks'],
             ['Marketplace', 'https://github.com/codestripes-dev/clooks-marketplace'],
-            ['Core hooks', '#'],
-            ['Project hooks', '#'],
+            ['Core hooks', 'https://github.com/codestripes-dev/clooks-marketplace/tree/master/clooks-core-hooks'],
+            ['Project hooks', 'https://github.com/codestripes-dev/clooks-marketplace/tree/master/clooks-project-hooks'],
           ]},
           { h: 'Docs', links: [
             ['Install', '#install'],
+            ['Agent support', '#support'],
             ['Hook API', '#hook'],
             ['Config', '#config'],
             ['FAQ', '#faq'],

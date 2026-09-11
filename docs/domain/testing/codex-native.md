@@ -75,6 +75,85 @@ The focused run `tmp/codex-native-m1/session-end-Dr8SSybz` passed ten tests acro
 
 This proves one native orderly exec shutdown path through generated registration and Clooks cleanup. It does not prove all exit paths, interruption, observer failure behavior, normal trust/approval setup, live tmux rendering, diagnostic delivery or full conformance. The run uses synthetic project trust, hook-trust bypass, danger-full-access and an offline mock model, with no real home/auth mounts. Native raw captures stay in attempt artifacts; the durable contract fixture is not relabeled as a capture.
 
+## Native Plugin Onboarding
+
+`bash scripts/test-codex-native.sh --onboarding` tests the actual marketplace
+package with pinned Codex CLI 0.154.0, independently of the existing 0.153.4
+conformance modes. The runner requires explicit `CLOOKS_CODEX_DIST` and
+`CLOOKS_MARKETPLACE_ROOT` paths. It copies only `bin/codex` from the supplied
+distribution and requires SHA256
+`3188814c35471432d4123203e0eb38e5bddc60226e3d7ddf0e59e649ea140022`.
+`test/tooling/onboarding-inputs.ts` freezes the sibling's `clooks/` package and
+both catalogs, preserving bytes and modes. The snapshot is mounted read-only at
+`/onboarding-marketplace` and verified again during runner cleanup.
+
+The onboarding container deliberately omits the usual `/usr/local/bin/clooks`
+link. Test sessions exclude `/app/dist` from PATH, create their own HOME and
+CODEX_HOME before installing the plugin, and receive no host home or credentials.
+The real CLI adds the local marketplace, installs `clooks@clooks-marketplace`,
+and lists its enabled state. `onboarding.exp` drives the real hook-review TUI,
+without a hook-trust bypass. Project trust is preconfigured synthetically;
+`danger-full-access` and shell approval mode `never` permit installation into
+the disposable HOME inside network-disabled Docker. These sandbox choices do
+not bypass hook review and are not evidence about restricted-sandbox setup.
+
+`onboarding.smoke.test.ts` runs three native cases. Fresh install accepts hook
+review and sends Hello in that same session; the first model request contains
+the reminder but no full setup skill body and no installation/init effects.
+Explicit `$clooks:setup` includes the full cached Codex skill. A scripted local
+Responses provider then drives the actual bundled installer, resolver, compiled
+CLI init and repeated init through native tool calls. A loopback release fixture
+serves the compiled binary and its real checksum, with release version derived
+from the frozen runtime package metadata. Reinit preserves registration bytes.
+A new session reviews the generated runtime commands and verifies SessionStart
+context plus a native shell effect and one PostToolUse observation.
+
+The decline case chooses continue-without-trusting in the real UI: Hello receives
+no reminder, explicit setup/check remains invocable with its full skill body,
+and check reports the missing runtime without installing it. The reuse/removal
+case uses an existing PATH binary, performs no downloads or managed installation,
+and checks native dispatch. Removing the plugin with the real CLI preserves
+the binary, Clooks config and init-owned registrations; a subsequent session
+still executes the runtime hook. The six native launches are recorded separately
+from their expect-driver processes.
+
+Verified coverage is **9 tests across 2 files, 0 failures, 20 assertions**:
+one orchestration test covering three native cases, plus eight helper tests.
+All three cases passed across six native sessions. Tested Clooks was 0.3.0,
+compiled SHA256
+`1f6d1f1b300462cdf3ec57d4191fd835cd7a183a67beaf9923523d713eb431e2`.
+Final status, container cleanup, completion publication, snapshot verification,
+permission sealing and artifact hash checks all exited zero. The runner retains
+per-attempt requests, TUI transcripts, case receipts, snapshots and final status
+under `tmp/codex-native-m1/onboarding-*/`; individual run IDs and timing belong
+in those artifacts rather than this domain reference.
+
+This is real native CLI/TUI, package, installer and runtime execution with a
+scripted local provider. It proves model-input delivery and the tested explicit
+workflow, not live-model obedience, the invocation policy flag's effect in
+isolation, all native tools/events, remote marketplace publication, a minimum
+supported Codex version, or setup under other approval/sandbox modes. The eight
+helper tests check skill-body evidence, attributed tool results, pending-session
+detection and completion publication. Tool calls yield up to 30 seconds and
+permit at most three 10-second native polling follow-ups; request, TUI and outer
+runner deadlines remain bounded. No real host installation or binary export is
+performed. Onboarding has its own completion publisher and cannot satisfy the
+existing conformance smoke's pass/export contract.
+
+To reproduce using an existing `clooks-e2e` image with expect, curl and python3,
+run from the Clooks repository and supply the retained 0.154.0 distribution:
+
+    CLOOKS_CODEX_DIST=/absolute/path/to/x86_64-unknown-linux-musl \
+      CLOOKS_MARKETPLACE_ROOT=/absolute/path/to/clooks-marketplace \
+      bash scripts/test-codex-native.sh --onboarding
+
+Focused helper tests, using disposable temporary directories, also run with:
+
+    bun test ./test/native-codex/onboarding.test.ts
+
+The ordinary compiled onboarding E2E gate is separate from this native mode;
+neither substitutes for the other.
+
 ## Tested Binary Export
 
 After successful full smoke and completion publication, the container exports /app/dist/clooks to /export/clooks before sealing. Export requires all sixteen mandatory cases for `--smoke`, including `SESSION-END`. Focused `--session-end` publishes a distinct one-case evidence receipt only: it cannot publish full-smoke completion or export a binary. Successful full-smoke case receipts must match the Clooks hash; export also checks a regular executable source, exclusive creation and post-copy hash equality. binary.json records hash, architecture/platform and original/sealed modes. Unit-only, focused or failed native tests are not binary-producing paths. Test, publication, export, sealing, cleanup and manifest failures remain failures; passed.json alone is insufficient for deployment. Rehash the sealed artifact against retained receipts before any separately approved installation. Permission sealing is not immutable storage.

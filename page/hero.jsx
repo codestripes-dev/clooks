@@ -3,35 +3,25 @@
 function InstallBlock({ cmd, accent, autoType = true, lines = [] }) {
   const vp = useViewport();
   const wrap = vp.isMobile;
-  // Three-step install: add marketplace → install+enable plugin → scaffold
+  // Only external Codex CLI commands are combined by the copy action.
   const steps = [
     {
       cmd,
       output: [
-        ['→ Added marketplace ', ['muted', 'codestripes-dev/clooks-marketplace']],
+        ['→ Marketplace available to Codex'],
       ],
       doneLabel: '✓ added.',
       typeSpeed: 12,
       runMs: 500,
     },
     {
-      cmd: 'claude plugin install clooks@clooks-marketplace',
+      cmd: 'codex plugin add clooks@clooks-marketplace',
       output: [
-        ['→ Installed ', ['muted', `clooks@${window.CLOOKS_VERSION}`], ', enabled in this project.'],
+        ['→ Ready to run $clooks:setup in Codex'],
       ],
-      doneLabel: '✓ enabled.',
+      doneLabel: '✓ plugin added.',
       typeSpeed: 12,
       runMs: 500,
-    },
-    {
-      cmd: 'claude /clooks:setup',
-      output: [
-        ['→ Created ', ['code', '.clooks/clooks.yml'], ', ', ['code', '.clooks/hooks/'], ', ', ['code', '.clooks/vendor/']],
-        ['→ Installed ', ['muted', `clooks-core-hooks@${window.CLOOKS_VERSION}`], ' (8 hooks)'],
-      ],
-      doneLabel: '✓ ready.',
-      typeSpeed: 14,
-      runMs: 600,
     },
   ];
 
@@ -107,11 +97,12 @@ function InstallBlock({ cmd, accent, autoType = true, lines = [] }) {
     }}>
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        flexWrap: 'wrap', gap: 8,
         padding: '10px 14px', borderBottom: `1px solid ${COL.line}`,
         fontSize: 11, color: COL.fgDim, letterSpacing: 0.3,
       }}>
-        <span>~/projects/my-repo</span>
-        <button onClick={copy} style={{
+        <span>Codex plugin · terminal</span>
+        <button onClick={copy} title="Copy the two Codex plugin CLI commands" style={{
           background: copied ? accent : 'transparent',
           border: `1px solid ${copied ? accent : COL.line}`,
           color: copied ? COL.bg : COL.fgMute,
@@ -129,7 +120,7 @@ function InstallBlock({ cmd, accent, autoType = true, lines = [] }) {
             <><svg width="11" height="11" viewBox="0 0 12 12" fill="none">
               <rect x="3.5" y="3.5" width="6" height="6" stroke="currentColor" strokeWidth="1" fill="none"/>
               <path d="M2 2 H8 V3" stroke="currentColor" strokeWidth="1" fill="none"/>
-            </svg>copy one-liner</>
+            </svg>Copy Codex commands</>
           )}
         </button>
       </div>
@@ -144,8 +135,8 @@ function InstallBlock({ cmd, accent, autoType = true, lines = [] }) {
             <div key={si} style={{ marginTop: si === 0 ? 0 : 14 }}>
               <div style={{
                 color: COL.fg,
-                whiteSpace: wrap ? 'pre-wrap' : 'pre',
-                overflowWrap: wrap ? 'anywhere' : 'normal',
+                whiteSpace: 'pre-wrap',
+                overflowWrap: 'anywhere',
                 textIndent: wrap ? '-1.4em' : 0,
                 paddingLeft: wrap ? '1.4em' : 0,
               }}>
@@ -183,6 +174,15 @@ function InstallBlock({ cmd, accent, autoType = true, lines = [] }) {
           );
         })}
       </div>
+      <div style={{ padding: '16px 18px', borderTop: `1px solid ${COL.line}` }}>
+        <div style={{ color: COL.fgMute, fontSize: 13, marginBottom: 10 }}>
+          Then run setup in Codex, in your project:
+        </div>
+        <CmdBox accent={accent} cmd="$clooks:setup" slash copyLabel="Copy Codex setup instruction"/>
+        <p style={{ color: COL.fgDim, fontSize: 12, margin: '10px 0 0' }}>
+          Review native hook trust when prompted. Startup only reminds; it never installs the runtime.
+        </p>
+      </div>
     </div>
   );
 }
@@ -191,7 +191,7 @@ function HookSnippet({ compact = false }) {
   // Real ClooksHook object shape (not definePreToolUse)
   const lines = [
     [[TK.com, '// .clooks/hooks/no-rm-rf.ts']],
-    [[TK.kw, 'import type'], [TK.op, ' { '], [TK.ty, 'ClooksHook'], [TK.op, ' } '], [TK.kw, 'from'], [TK.str, " 'clooks'"]],
+    [[TK.kw, 'import type'], [TK.op, ' { '], [TK.ty, 'ClooksHook'], [TK.op, ' } '], [TK.kw, 'from'], [TK.str, " './types'"]],
     '',
     [[TK.kw, 'export const'], [TK.fn, ' hook'], [TK.op, ': '], [TK.ty, 'ClooksHook'], [TK.op, ' = {']],
     ['  ', [TK.prop, 'meta'], [TK.op, ': {']],
@@ -200,9 +200,9 @@ function HookSnippet({ compact = false }) {
     ['  ', [TK.op, '},']],
     '',
     ['  ', [TK.fn, 'PreToolUse'], [TK.op, '('], [TK.ty, 'ctx'], [TK.op, ') {']],
-    ['    ', [TK.kw, 'if'], [TK.op, ' ('], [TK.ty, 'ctx'], [TK.op, '.tool '], [TK.op, '!== '], [TK.str, "'Bash'"], [TK.op, ') '], [TK.kw, 'return'], [TK.op, ' '], [TK.ty, 'ctx'], [TK.op, '.'], [TK.fn, 'skip'], [TK.op, '()']],
+    ['    ', [TK.kw, 'if'], [TK.op, ' ('], [TK.ty, 'ctx'], [TK.op, '.toolName '], [TK.op, '!== '], [TK.str, "'Bash'"], [TK.op, ') '], [TK.kw, 'return'], [TK.op, ' '], [TK.ty, 'ctx'], [TK.op, '.'], [TK.fn, 'skip'], [TK.op, '()']],
     '',
-    ['    ', [TK.kw, 'const'], [TK.fn, ' cmd '], [TK.op, '= '], [TK.ty, 'ctx'], [TK.op, '.input.command '], [TK.op, '?? '], [TK.str, "''"]],
+    ['    ', [TK.kw, 'const'], [TK.fn, ' cmd '], [TK.op, '= '], [TK.ty, 'ctx'], [TK.op, '.toolInput.command '], [TK.op, '?? '], [TK.str, "''"]],
     ['    ', [TK.kw, 'const'], [TK.fn, ' dangerous '], [TK.op, '= /'], [TK.str, 'rm\\s+-rf?\\s+(\\/|~|\\$HOME)'], [TK.op, '/.test(cmd)']],
     '',
     ['    ', [TK.kw, 'return'], [TK.fn, ' dangerous'],],
@@ -331,7 +331,6 @@ function CompatRow({ accent }) {
     whiteSpace: 'nowrap',
     transition: 'border-color 160ms ease, color 160ms ease',
   };
-  const star = { color: COL.fgDim, marginLeft: 1 };
   const iconSize = compact ? 13 : 14;
   return (
     <div style={{ marginBottom: 28 }}>
@@ -340,21 +339,28 @@ function CompatRow({ accent }) {
         gap: compact ? 6 : 8,
         gridTemplateColumns: compact || vp.isTablet
           ? 'repeat(2, minmax(0, 1fr))'
-          : 'repeat(4, max-content)',
+          : 'repeat(3, max-content)',
         maxWidth: compact || vp.isTablet ? 360 : 'none',
         justifyItems: 'stretch',
       }}>
         <span style={chip}><ClaudeMark size={iconSize}/> Claude Code</span>
-        <span style={chip}><CursorMark size={iconSize}/> Cursor<span style={star}>*</span></span>
-        <span style={chip}><WindsurfMark size={iconSize}/> Windsurf<span style={star}>*</span></span>
-        <span style={chip}><JetBrainsMark size={iconSize}/> JetBrains<span style={star}>*</span></span>
+        <span style={chip}>Codex CLI</span>
+        <span style={chip}><img src="codex.svg" alt="" width={iconSize} height={iconSize} style={{ display: 'block', flex: '0 0 auto', objectFit: 'contain', filter: 'invert(1)' }}/> Codex</span>
       </div>
-      <div style={{
-        marginTop: 10, fontSize: 11.5, color: COL.fgDim,
-        fontFamily: 'JetBrains Mono, monospace', letterSpacing: 0.2,
-      }}>
-        * via Claude Code's IDE integration
-      </div>
+    </div>
+  );
+}
+
+function SetupLinks({ accent }) {
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 24 }}>
+      {[
+        ['Install for Claude Code', '#install-claude'],
+        ['Install for Codex', '#install-codex'],
+        ['Direct binary / both', '#install-binary'],
+      ].map(([label, href]) => (
+        <a key={href} href={href} style={{ color: accent, fontSize: 14, padding: '8px 0' }}>{label}</a>
+      ))}
     </div>
   );
 }
@@ -382,19 +388,19 @@ function HeroCode({ tweaks }) {
           fontWeight: 500, margin: '0 0 24px', maxWidth: 980,
         }}>
           TypeScript hooks<br/>
-          <span style={{ color: COL.fgMute }}>for Claude Code.</span>
+          <span style={{ color: COL.fgMute }}>for Claude + Codex.</span>
         </h1>
         <p style={{
           fontSize: vp.isMobile ? 16 : 18, lineHeight: 1.55, color: COL.fgMute,
           maxWidth: 640, margin: '0 0 40px',
         }}>
           Write hooks as small TypeScript files.<br/>
-          Clooks runs them when Claude Code edits files, runs commands, or finishes
-          a session — and blocks the
-          action if a hook{'\u00a0'}crashes.
+          Clooks runs them when your agents use tools or move through a session.
         </p>
 
         <CompatRow accent={tweaks.accent}/>
+
+        <SetupLinks accent={tweaks.accent}/>
 
         <div style={{ maxWidth: 720, marginBottom: vp.isMobile ? 40 : 56 }}>
           {!vp.isMobile && <InstallBlock cmd={tweaks.installCmd} accent={tweaks.accent}/>}
@@ -454,13 +460,14 @@ function HeroSplit({ tweaks }) {
             fontWeight: 500, margin: '0 0 22px',
           }}>
             TypeScript hooks<br/>
-            <span style={{ color: COL.fgMute }}>for Claude Code.</span>
+            <span style={{ color: COL.fgMute }}>for Claude + Codex.</span>
           </h1>
           <p style={{ fontSize: 17, lineHeight: 1.55, color: COL.fgMute, margin: '0 0 32px' }}>
             Write hooks as small TypeScript files.<br/>
-            Clooks runs them when Claude Code edits files or runs commands, and blocks the action if a hook{'\u00a0'}crashes.
+            Clooks runs them when your agents use tools or move through a session.
           </p>
           <CompatRow accent={tweaks.accent}/>
+          <SetupLinks accent={tweaks.accent}/>
           {!vp.isMobile && <InstallBlock cmd={tweaks.installCmd} accent={tweaks.accent}/>}
           <div style={{
             marginTop: vp.isMobile ? 0 : 14, fontSize: 12, color: COL.fgDim,

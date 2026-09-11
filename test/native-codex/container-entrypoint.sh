@@ -3,7 +3,9 @@ set -euo pipefail
 
 if [[ ${1:-} != --inside ]]; then
   # Root setup is limited to this disposable-container login-shell discovery link.
-  ln -s /app/dist/clooks /usr/local/bin/clooks
+  if [[ ${CLOOKS_NATIVE_MODE:-} != --onboarding ]]; then
+    ln -s /app/dist/clooks /usr/local/bin/clooks
+  fi
   exec su -s /bin/bash testuser -c 'exec /bin/bash /app/test/native-codex/container-entrypoint.sh --inside'
 fi
 
@@ -12,6 +14,7 @@ case ${CLOOKS_NATIVE_MODE:-} in
   --unit) selected=(./test/native-codex/harness.test.ts) ;;
   --smoke) selected=(./test/native-codex/native-conformance.smoke.test.ts) ;;
   --session-end) selected=(./test/native-codex/session-end.smoke.test.ts ./test/native-codex/session-end-observation.test.ts) ;;
+  --onboarding) selected=(./test/native-codex/onboarding.smoke.test.ts ./test/native-codex/onboarding.test.ts) ;;
   *) echo 'Missing native test mode' >&2; exit 64 ;;
 esac
 
@@ -22,11 +25,18 @@ test_rc=$?
 printf '%s\n' "$test_rc" > /export/test.rc || exit 74
 status_rc=not-run
 if [[ "$test_rc" == 0 ]]; then
-  CLOOKS_NATIVE_TEST_RC="$test_rc" bun -e '
-    import { publishPassed } from "./test/native-codex/harness.ts";
-    process.exit(publishPassed(process.env.CLOOKS_NATIVE_LOGDIR,
-      process.env.CLOOKS_NATIVE_MODE, Number(process.env.CLOOKS_NATIVE_TEST_RC)));
-  '
+  if [[ "$CLOOKS_NATIVE_MODE" == --onboarding ]]; then
+    CLOOKS_NATIVE_TEST_RC="$test_rc" bun -e '
+      import { publishOnboarding } from "./test/native-codex/onboarding.ts";
+      process.exit(publishOnboarding("/export", Number(process.env.CLOOKS_NATIVE_TEST_RC)));
+    '
+  else
+    CLOOKS_NATIVE_TEST_RC="$test_rc" bun -e '
+      import { publishPassed } from "./test/native-codex/harness.ts";
+      process.exit(publishPassed(process.env.CLOOKS_NATIVE_LOGDIR,
+        process.env.CLOOKS_NATIVE_MODE, Number(process.env.CLOOKS_NATIVE_TEST_RC)));
+    '
+  fi
   status_rc=$?
 fi
 printf '%s\n' "$status_rc" > /export/status.rc || exit 74

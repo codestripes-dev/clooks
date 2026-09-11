@@ -10,6 +10,26 @@ Plugin hooks are NOT executed live from the plugin cache. They are copied to a v
 
 Real-world examples of data-only hook pack plugins: `clooks-example-hooks` (educational hooks demonstrating lifecycle, config, and events), `clooks-core-hooks` (zero-config production hooks for command safety, git protection, tool hygiene, and tmux notifications), and `clooks-project-hooks` (project-configured hooks for package manager enforcement, protected paths, and project script preference). All three live in the `clooks-marketplace` repo.
 
+## Onboarding Is Not Pack Discovery
+
+The marketplace's `clooks/` onboarding package supports both Claude and Codex,
+but pack discovery remains Claude-settings/cache based. Codex's
+`.agents/plugins/marketplace.json` catalog and `.codex-plugin/plugin.json` manifest
+expose explicit `$clooks:setup`, not automatic Clooks pack vendoring. The plugin's
+SessionStart reminder never installs or initializes the runtime; `clooks init`
+owns runtime registrations.
+
+Codex can run compatible custom or already-vendored hooks through shared Clooks
+configuration. For direct downloads, `clooks add` accepts individual GitHub blob
+URLs or a repository with a root `clooks-pack.json`; nested `/tree/.../<pack>`
+URLs do not select marketplace subdirectories. `clooks update plugin:<pack>`
+continues to read the Claude plugin cache, not the Codex catalog.
+
+Runtime updates, native plugin updates and hook-file refresh are distinct
+operations. A plugin version change does not replace the user's runtime or existing
+vendored hooks. Keep plugin release versions aligned with their listings where
+declared; `clooks-pack.json` numeric `version: 1` remains the pack schema version.
+
 ## Plugin Cache Discovery
 
 The `discoverPluginPacks()` function in `src/plugin-discovery.ts` drives discovery from **Claude settings layers**, not from the install registry. A plugin is registered at a given clooks scope if and only if the corresponding Claude settings layer declares `enabledPlugins: { <plugin>@<marketplace>: true }`.

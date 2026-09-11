@@ -3,8 +3,9 @@
 FROM oven/bun:1.3
 
 # git supports repository fixtures; expect drives interactive uninstall PTY tests.
+# curl exercises the actual installer; python3 serves its existing shell-test fixtures.
 # Install early so this layer is cached across source changes.
-RUN apt-get update -qq && apt-get install -y -qq git expect > /dev/null && rm -rf /var/lib/apt/lists/*
+RUN apt-get update -qq && apt-get install -y -qq git expect curl python3 > /dev/null && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user and /app owned by them from the start.
 # E2E tests need a non-root user because root ignores chmod restrictions.

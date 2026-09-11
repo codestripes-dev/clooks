@@ -195,7 +195,7 @@ function TmuxHookSection({ accent }) {
   const tmuxHookLines = [
     [[TK.com, '// .clooks/hooks/tmux-notifications.ts']],
     [[TK.kw, 'import'], [TK.op, ' { '], [TK.fn, 'execSync'], [TK.op, ' } '], [TK.kw, 'from'], [TK.str, " 'child_process'"]],
-    [[TK.kw, 'import type'], [TK.op, ' { '], [TK.ty, 'ClooksHook'], [TK.op, ' } '], [TK.kw, 'from'], [TK.str, " 'clooks'"]],
+    [[TK.kw, 'import type'], [TK.op, ' { '], [TK.ty, 'ClooksHook'], [TK.op, ' } '], [TK.kw, 'from'], [TK.str, " './types'"]],
     '',
     [[TK.kw, 'const'], [TK.fn, ' sleep'], [TK.op, ' = (ms: '], [TK.ty, 'number'], [TK.op, ') => '], [TK.kw, 'new'], [TK.fn, ' Promise'], [TK.op, '(r => '], [TK.fn, 'setTimeout'], [TK.op, '(r, ms))']],
     '',
@@ -264,7 +264,7 @@ function TmuxHookSection({ accent }) {
   // warning. Here we show only the core block flow.
   const pkgHookLines = [
     [[TK.com, '// .clooks/hooks/js-package-manager-guard.ts']],
-    [[TK.kw, 'import type'], [TK.op, ' { '], [TK.ty, 'ClooksHook'], [TK.op, ' } '], [TK.kw, 'from'], [TK.str, " 'clooks'"]],
+    [[TK.kw, 'import type'], [TK.op, ' { '], [TK.ty, 'ClooksHook'], [TK.op, ' } '], [TK.kw, 'from'], [TK.str, " './types'"]],
     '',
     [[TK.kw, 'type'], [TK.ty, ' Config'], [TK.op, ' = { '], [TK.prop, 'allowed'], [TK.op, ': '], [TK.ty, 'string'], [TK.op, '[] }']],
     '',
@@ -368,7 +368,7 @@ function TmuxHookSection({ accent }) {
 
   const mvHookLines = [
     [[TK.com, '// .clooks/hooks/no-bare-mv.ts']],
-    [[TK.kw, 'import type'], [TK.op, ' { '], [TK.ty, 'ClooksHook'], [TK.op, ' } '], [TK.kw, 'from'], [TK.str, " 'clooks'"]],
+    [[TK.kw, 'import type'], [TK.op, ' { '], [TK.ty, 'ClooksHook'], [TK.op, ' } '], [TK.kw, 'from'], [TK.str, " './types'"]],
     '',
     [[TK.kw, 'const'], [TK.fn, ' startsWithMv'], [TK.op, ' = (cmd: '], [TK.ty, 'string'], [TK.op, ') =>']],
     ['  /^\\s*', [TK.str, 'mv'], [TK.op, '(\\s|$)/.test(cmd)']],

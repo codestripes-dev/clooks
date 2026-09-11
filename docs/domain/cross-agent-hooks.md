@@ -159,6 +159,42 @@ Codex ownership recognizes whole generated commands with the explicit agent assi
 
 Absolute Codex project registrations require re-init after clone, move, or worktree creation before hook activation. An old checkout may still receive the copied command until repair. Shell probes cover relocation, nested roots, and inherited environment. Global commands still forward deliberate `CLOOKS_PROJECT_ROOT` and inherited `CLAUDE_PROJECT_DIR`; the saved Codex `discoveryEnvironment()` helper removes the inherited Claude key from an invocation-local copy while retaining explicit overrides. Codex runtime now uses this filtered environment for discovery. Docker integration validation has passed; registration and probe success do not establish native hook review/activation.
 
+#### Explicit Plugin Onboarding
+
+The sibling marketplace's existing `clooks/` package serves both agents with
+separate skill trees: Claude uses `skills/setup/`, Codex uses `codex-skills/setup/`.
+Both use the canonical `skills/setup/scripts/install.sh`. Codex's manifest points
+to `./codex-skills/` and `./codex-hooks/hooks.json`; its catalog is
+`.agents/plugins/marketplace.json` in the marketplace repository.
+
+```bash
+codex plugin marketplace add codestripes-dev/clooks-marketplace
+codex plugin add clooks@clooks-marketplace
+```
+
+Users explicitly invoke `$clooks:setup` in Codex or `/clooks:setup` in Claude.
+Plugin installation/startup never installs, updates or initializes the runtime.
+The only plugin hook is a read-only SessionStart reminder; `clooks init` remains
+the owner of runtime registrations. Codex setup defaults to project
+`init --agent codex`; global or both-agent setup requires an explicit request.
+Claude retains its project init flow and optional global offer.
+
+Installer selection is executable PATH first, managed home binary second. Reuse
+validates `--version` without download/profile writes; broken or mismatched
+binaries fail. Explicit update cannot overwrite or shadow an external selection.
+Absolute-path init does not establish agent PATH readiness or native trust. See
+[installer behavior](cli-architecture.md#plugin-installer) and
+[pack-discovery boundaries](vendoring/plugin-vendoring.md#onboarding-is-not-pack-discovery).
+
+Native onboarding is tested with Codex CLI `0.154.0` across three scenarios and
+six real Codex sessions; this is a tested version, not an established minimum.
+Coverage includes actual TUI hook trust, first-message reminders, ordinary versus
+explicit skill inclusion, installer download/init/runtime dispatch, declined
+trust, PATH reuse without downloads, and plugin removal preserving the runtime.
+The network-disabled Docker tests use synthetic repository trust, a disabled
+sandbox and a scripted local provider, not live-model obedience. See
+[native onboarding evidence](testing/codex-native.md#native-plugin-onboarding).
+
 ### Cursor
 
 Hook system added in beta (v1.7), improved through 2026.

@@ -1,11 +1,11 @@
 function ComparisonSection({ accent }) {
   const rows = [
-    ['Failure mode',           'Lets the action through on anything but exit 2', 'Blocks the action when a hook errors (configurable)'],
-    ['Language',               'Bash strings in JSON',                        'TypeScript, typed end to end'],
-    ['Composition',            'All hooks parallel, no ordering',             'Parallel or sequential with explicit order'],
-    ['Input modification',     'Not supported',                               'Sequential pipeline; hooks see previous updatedInput'],
+    ['Failure mode',           'Provider- and event-defined behavior',        'Configurable error policy; refusal depends on the native event'],
+    ['Language',               'Provider-defined handler contracts',          'TypeScript with typed event contracts'],
+    ['Composition',            'Provider-defined execution and ordering',     'Parallel or sequential with explicit order'],
+    ['Input modification',     'Provider- and tool-specific rewrites',         'Sequential pipeline; validated updates reach later hooks'],
     ['Retries',                'Per invocation only',                         'Circuit breaker auto-disables after N failures'],
-    ['Distribution',           'Copy-paste from gists',                       'Install via marketplace CLI'],
+    ['Distribution',           'Provider-specific packaging and settings',    'Vendor GitHub hook files or root-manifest packs'],
     ['Portability',            'Lives in your settings',                      'Vendored into .clooks/, committed'],
   ];
   const vp = useViewport();
@@ -80,6 +80,12 @@ function ComparisonSection({ accent }) {
               )}
             </div>
           ))}
+        </div>
+        <div id="support" style={{ marginTop: 36, fontSize: 14, lineHeight: 1.65, color: COL.fgMute }}>
+          <h3 style={{ fontSize: 20, color: COL.fg, margin: '0 0 12px' }}>Claude Code + Codex support</h3>
+          <p>Claude Code retains its existing event and decision behavior. Codex supports eleven events: SessionStart, SubagentStart, PreToolUse, PermissionRequest, PostToolUse, PreCompact, PostCompact, UserPromptSubmit, SubagentStop, Stop, and SessionEnd. Interrupt is not supported.</p>
+          <p>Shared configuration and ordering, provider-specific decisions and tool inputs. Codex exec_command maps to Bash, but apply_patch is not Claude Edit/Write. Claude keeps native ctx.ask; Codex PreToolUse handler ask uses a Clooks denial/token fallback, not a native approval prompt. Native trust, approvals, and sandbox policy still apply.</p>
+          <p>Codex startup and post-compaction/session-end handlers are observers. SessionEnd cannot veto closure, and post-tool feedback cannot undo side effects. Event support is not universal enforcement or full parity. See the <a href="https://github.com/codestripes-dev/clooks#readme">README</a> and <a href="https://github.com/codestripes-dev/clooks/blob/master/docs/domain/cross-agent-hooks.md">capability details</a> for exact limits.</p>
         </div>
       </div>
     </section>

@@ -11,7 +11,7 @@ function HookAnatomySection({ accent }) {
     { n: '04', k: 'Event methods', hl: 'events',
       d: 'Subscribe to hooks by event name. Implement PreToolUse, you handle PreToolUse.' },
     { n: '05', k: 'Typed ctx, decision methods', hl: 'result',
-      d: 'Typed input in. Return ctx.allow / block / skip / ask / defer — each method takes only the fields its decision actually accepts.' },
+      d: 'Typed input in. Decisions depend on event and provider: Claude supports native ask/defer on PreToolUse; Codex handler ask uses Clooks confirmations and defer is unsupported.' },
   ];
   // Line indices into anatomyLines below, keyed by item.hl
   const HL = {
@@ -90,7 +90,7 @@ function HookAnatomySection({ accent }) {
   );
   const anatomyLines = [
     [[TK.com, '// .clooks/hooks/no-bare-mv.ts']],
-    [[TK.kw, 'import type'], [TK.op, ' { '], [TK.ty, 'ClooksHook'], [TK.op, ' } '], [TK.kw, 'from'], [TK.str, " 'clooks'"]],
+    [[TK.kw, 'import type'], [TK.op, ' { '], [TK.ty, 'ClooksHook'], [TK.op, ' } '], [TK.kw, 'from'], [TK.str, " './types'"]],
     '',
     [[TK.kw, 'export const'], [TK.fn, ' hook'], [TK.op, ': '], [TK.ty, 'ClooksHook'], [TK.op, ' = {']],
     ['  ', [TK.prop, 'meta'], [TK.op, ': {']],

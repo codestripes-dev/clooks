@@ -1,4 +1,4 @@
-function CmdBox({ accent, cmd, slash, comment }) {
+function CmdBox({ accent, cmd, slash, comment, copyLabel }) {
   const vp = useViewport();
   const wrap = vp.isMobile;
   const [copied, setCopied] = React.useState(false);
@@ -48,7 +48,7 @@ function CmdBox({ accent, cmd, slash, comment }) {
           : <><span style={{ color: accent, marginRight: 10 }}>{slash ? '>' : '$'}</span>{cmd}</>}
       </div>
       {!comment && (
-        <button onClick={copy} title={copied ? 'Copied' : 'Copy'} style={{
+        <button onClick={copy} title={copied ? 'Copied' : (copyLabel || (slash ? 'Copy in-agent instruction' : 'Copy terminal command'))} aria-label={copyLabel || (slash ? 'Copy in-agent instruction' : 'Copy terminal command')} style={{
           flex: '0 0 auto',
           background: copied ? accent : 'transparent',
           border: 'none',

@@ -6,7 +6,7 @@ function HookInActionSection({ accent }) {
     { at: 0,    step: 'idle',     highlight: null },
     { at: 300,  step: 'typing',   highlight: null },
     { at: 2100, step: 'sent',     highlight: null },
-    { at: 2500, step: 'pre-tool', highlight: 'guard' },   // ctx.tool !== 'Bash' check
+    { at: 2500, step: 'pre-tool', highlight: 'guard' },   // ctx.toolName !== 'Bash' check
     { at: 3000, step: 'parse',    highlight: 'regex' },   // dangerous = /rm.../.test
     { at: 3500, step: 'decide',   highlight: 'return' },  // returns block
     { at: 3900, step: 'blocked',  highlight: 'return' },
@@ -84,7 +84,7 @@ function HookInActionSection({ accent }) {
   // Source-code line highlights keyed by scene.highlight
   // Our hook source is 19 lines. Line indices below are 0-based.
   const HL = {
-    guard:  [10],       // if (ctx.tool !== 'Bash') return skip
+    guard:  [10],       // if (ctx.toolName !== 'Bash') return skip
     regex:  [12, 13],   // const cmd / const dangerous = regex
     return: [15, 16, 17], // return dangerous ? block : allow
   };
@@ -92,7 +92,7 @@ function HookInActionSection({ accent }) {
 
   const hookLines = [
     [[TK.com, '// .clooks/hooks/no-rm-rf.ts']],
-    [[TK.kw, 'import type'], [TK.op, ' { '], [TK.ty, 'ClooksHook'], [TK.op, ' } '], [TK.kw, 'from'], [TK.str, " 'clooks'"]],
+    [[TK.kw, 'import type'], [TK.op, ' { '], [TK.ty, 'ClooksHook'], [TK.op, ' } '], [TK.kw, 'from'], [TK.str, " './types'"]],
     '',
     [[TK.kw, 'export const'], [TK.fn, ' hook'], [TK.op, ': '], [TK.ty, 'ClooksHook'], [TK.op, ' = {']],
     ['  ', [TK.prop, 'meta'], [TK.op, ': {']],
@@ -101,9 +101,9 @@ function HookInActionSection({ accent }) {
     ['  ', [TK.op, '},']],
     '',
     ['  ', [TK.fn, 'PreToolUse'], [TK.op, '('], [TK.ty, 'ctx'], [TK.op, ') {']],
-    ['    ', [TK.kw, 'if'], [TK.op, ' ('], [TK.ty, 'ctx'], [TK.op, '.tool '], [TK.op, '!== '], [TK.str, "'Bash'"], [TK.op, ') '], [TK.kw, 'return'], [TK.op, ' '], [TK.ty, 'ctx'], [TK.op, '.'], [TK.fn, 'skip'], [TK.op, '()']],
+    ['    ', [TK.kw, 'if'], [TK.op, ' ('], [TK.ty, 'ctx'], [TK.op, '.toolName '], [TK.op, '!== '], [TK.str, "'Bash'"], [TK.op, ') '], [TK.kw, 'return'], [TK.op, ' '], [TK.ty, 'ctx'], [TK.op, '.'], [TK.fn, 'skip'], [TK.op, '()']],
     '',
-    ['    ', [TK.kw, 'const'], [TK.fn, ' cmd '], [TK.op, '= '], [TK.ty, 'ctx'], [TK.op, '.input.command '], [TK.op, '?? '], [TK.str, "''"]],
+    ['    ', [TK.kw, 'const'], [TK.fn, ' cmd '], [TK.op, '= '], [TK.ty, 'ctx'], [TK.op, '.toolInput.command '], [TK.op, '?? '], [TK.str, "''"]],
     ['    ', [TK.kw, 'const'], [TK.fn, ' dangerous '], [TK.op, '= /'], [TK.str, 'rm\\s+-rf?\\s+(\\/|~|\\$HOME)'], [TK.op, '/.test(cmd)']],
     '',
     ['    ', [TK.kw, 'return'], [TK.fn, ' dangerous'],],
@@ -352,7 +352,7 @@ function HookInActionSection({ accent }) {
             }}>
               <span>
                 {scene.highlight === 'guard' && 'tool gate — not Bash? skip'}
-                {scene.highlight === 'regex' && 'regex match on ctx.input.command'}
+                {scene.highlight === 'regex' && 'regex match on ctx.toolInput.command'}
                 {scene.highlight === 'return' && 'decision: ctx.block({ reason })'}
                 {!scene.highlight && 'waiting for PreToolUse'}
               </span>

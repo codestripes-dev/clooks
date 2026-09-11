@@ -3,7 +3,7 @@
 
 const TWEAKS = /*EDITMODE-BEGIN*/{
   "accent": "#fbbf24",
-  "installCmd": "claude plugin marketplace add codestripes-dev/clooks-marketplace",
+  "installCmd": "codex plugin marketplace add codestripes-dev/clooks-marketplace",
   "heroVariant": "split",
   "viewport": "full"
 }/*EDITMODE-END*/;

@@ -83,6 +83,10 @@ function fixture(fileCount = 2) {
   put('test/tooling/run-validation.ts', '')
   put('test/tooling/fixture.test.ts', '// tooling fixture\n')
   cpSync(join(import.meta.dir, 'run-validation.ts'), join(root, 'test/tooling/run-validation.ts'))
+  cpSync(
+    join(import.meta.dir, 'onboarding-inputs.ts'),
+    join(root, 'test/tooling/onboarding-inputs.ts'),
+  )
   put('bin/docker', `#!${process.execPath}\n${fakeDocker}`)
   chmodSync(join(root, 'bin/docker'), 0o755)
   symlinkSync(process.execPath, join(root, 'bin/bun'))
@@ -107,6 +111,7 @@ const sleep = () => new Promise(() => setInterval(() => {}, 1000))
 if (args[0] === 'run' && scenario.startsWith('direct-')) {
   process.exit(scenario === 'direct-fail' ? 23 : 0)
 } else if (args[0] === 'build') {
+  if (scenario === 'marketplace-source-drift') appendFileSync(join(root, 'marketplace/clooks/install.sh'), '// live change\n')
   if (scenario === 'descendant-hang') {
     process.on('SIGTERM', () => process.exit(0))
     spawn(process.execPath, ['-e', 'process.on("SIGTERM", () => {}); require("node:fs").writeFileSync("grandchild.json", JSON.stringify({ pid: process.pid })); setInterval(() => {}, 1000)'], { stdio: 'inherit' })
@@ -136,6 +141,12 @@ if (args[0] === 'run' && scenario.startsWith('direct-')) {
   let files = create.filter((arg) => arg.startsWith('./test/e2e/') && arg.endsWith('.test.ts'))
   if (create.includes('./test/e2e/')) files = ['./test/e2e/a.e2e.test.ts', './test/e2e/nested/b.e2e.test.ts']
   if (create.includes('./test/tooling/')) files = ['./test/tooling/fixture.test.ts']
+  if (create.includes('./test/plugin-onboarding/')) files = ['./test/plugin-onboarding/plugin-onboarding.e2e.test.ts']
+  if (scenario === 'marketplace-snapshot-drift') {
+    const mount = create.find((arg) => arg.endsWith(',dst=/onboarding-marketplace,readonly'))
+    const snapshot = mount.slice('type=bind,src='.length, -',dst=/onboarding-marketplace,readonly'.length)
+    appendFileSync(join(snapshot, 'clooks/install.sh'), '// snapshot change\n')
+  }
   if (create.includes('--coverage')) files = ['./src/cli.test.ts']
   if (scenario === 'missing-file') files = files.slice(1)
   if (scenario === 'duplicate-file') files = files.map(() => files[0])
@@ -218,6 +229,7 @@ function launch(
   scenario = 'success',
   args = ['e2e', '--workers', '1'],
   script?: string,
+  marketplaceRoot?: string,
 ) {
   const child = Bun.spawn(
     script
@@ -229,6 +241,7 @@ function launch(
         ...process.env,
         PATH: join(root, 'bin'),
         FAKE_SCENARIO: scenario,
+        CLOOKS_MARKETPLACE_ROOT: marketplaceRoot,
       },
       stdout: 'pipe',
       stderr: 'pipe',
@@ -251,6 +264,59 @@ function report(root: string) {
   const attempt = join(base, attempts[0]!)
   return { attempt, data: JSON.parse(readFileSync(join(attempt, 'report.json'), 'utf8')) }
 }
+
+test('ordinary validation has no marketplace dependency or mount', async () => {
+  const { root } = fixture()
+  expect((await finish(launch(root))).code).toBe(0)
+  expect(report(root).data.onboarding).toBeUndefined()
+  const create = events(root).find((event) => event.args[0] === 'create')!
+  expect(create.args.some((arg) => arg.includes('/onboarding-marketplace'))).toBe(false)
+})
+
+test.each(['success', 'marketplace-source-drift', 'marketplace-snapshot-drift'])(
+  'explicit marketplace freezes real inputs and verifies snapshot: %s',
+  async (scenario) => {
+    const { root, put } = fixture()
+    put('marketplace/clooks/install.sh', '#!/bin/bash\n')
+    chmodSync(join(root, 'marketplace/clooks/install.sh'), 0o751)
+    put('marketplace/.claude-plugin/marketplace.json', '{"name":"claude"}\n')
+    put('marketplace/.agents/plugins/marketplace.json', '{"name":"codex"}\n')
+    const result = await finish(
+      launch(root, scenario, ['e2e', './test/plugin-onboarding/'], undefined, './marketplace'),
+    )
+    const { attempt, data } = report(root)
+    expect(result.code, result.stdout + result.stderr).toBe(
+      scenario === 'marketplace-snapshot-drift' ? 1 : 0,
+    )
+    const snapshot = join(attempt, 'onboarding-marketplace')
+    expect(data.onboarding.source).toBe(join(root, 'marketplace'))
+    expect(data.onboarding.snapshot).toBe(snapshot)
+    expect(JSON.parse(readFileSync(join(attempt, 'onboarding-inputs.json'), 'utf8'))).toEqual(
+      data.onboarding.manifest,
+    )
+    expect(lstatSync(join(snapshot, 'clooks/install.sh')).mode & 0o777).toBe(0o751)
+    const create = events(root).find((event) => event.args[0] === 'create')!
+    expect(create.args).toContain(`type=bind,src=${snapshot},dst=/onboarding-marketplace,readonly`)
+    expect(create.args).toContain('CLOOKS_MARKETPLACE_ROOT=/onboarding-marketplace')
+    expect(create.args[create.args.indexOf('--network') + 1]).toBe('none')
+    expect(
+      create.args.some((arg) => arg.startsWith(`type=bind,src=${join(root, 'marketplace')},`)),
+    ).toBe(false)
+    if (scenario === 'marketplace-snapshot-drift')
+      expect(data.error).toContain('Onboarding snapshot verification failed')
+    else expect(readFileSync(join(snapshot, 'clooks/install.sh'), 'utf8')).toBe('#!/bin/bash\n')
+  },
+)
+
+test.each(['', './missing-marketplace'])(
+  'explicit invalid marketplace fails before Docker: %s',
+  async (source) => {
+    const { root } = fixture()
+    expect((await finish(launch(root, 'success', ['e2e'], undefined, source))).code).toBe(1)
+    expect(events(root)).toEqual([])
+    expect(report(root).data.results).toEqual([])
+  },
+)
 
 test('CLI accepts only bounded full-suite worker modes', () => {
   expect(parseArgs(['e2e'])).toEqual({ mode: 'e2e', workers: 4, args: [] })

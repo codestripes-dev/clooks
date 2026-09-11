@@ -8,13 +8,13 @@ function WhyNotPluginSection({ accent }) {
           fontSize: 'clamp(28px, 3vw, 38px)', lineHeight: 1.15,
           letterSpacing: -0.8, fontWeight: 500, margin: '0 0 24px',
         }}>
-          Why isn't Clooks <em style={{ fontStyle: 'italic', color: COL.fgMute }}>just</em> a Claude Code plugin?
+          Why isn't Clooks <em style={{ fontStyle: 'italic', color: COL.fgMute }}>just</em> a plugin?
         </h2>
         <p style={{ fontSize: 16, color: COL.fgMute, lineHeight: 1.65, margin: '0 0 16px' }}>
-          Clooks uses the plugin system for distribution. The runtime itself lives outside the plugin{'\u00a0'}sandbox.
+          Claude Code and Codex plugins help you install and configure Clooks. The runtime is a standalone binary with shared .clooks/ configuration. You can also install it without a plugin.
         </p>
         <p style={{ fontSize: 16, color: COL.fgMute, lineHeight: 1.65, margin: 0 }}>
-          A plugin <em>can</em> quietly download and install binaries on your machine, then wire them into your agent. You shouldn't be surprised by a binary landing on your machine just because you cloned a repo or installed a plugin. Clooks keeps that surface visible — the bash entrypoint sits in <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>.claude/settings.json</code>, the <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>.clooks/</code> directory is committed alongside your code, and pulling the runtime binary is an explicit step, not something the plugin does behind your back.
+          Run /clooks:setup in Claude Code or $clooks:setup in Codex. At startup, the plugin only reminds you if setup is needed. The Codex plugin does not install hook packs; add hooks separately with clooks add.
         </p>
       </div>
     </section>

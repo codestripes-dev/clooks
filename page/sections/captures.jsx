@@ -92,7 +92,7 @@ function CapturesSection({ accent }) {
           Three scenarios.
         </h2>
         <p style={{ fontSize: 15, color: COL.fgMute, maxWidth: 680, margin: '0 0 36px', lineHeight: 1.6 }}>
-          Recorded from a Claude Code session.
+          Recorded from Claude Code. These captures do not demonstrate Codex behavior.
         </p>
 
         {/* Tabs */}

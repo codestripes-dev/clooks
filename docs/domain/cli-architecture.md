@@ -166,6 +166,34 @@ interface JsonEnvelope {
 
 ## Command Reference
 
+### Plugin Installer
+
+The sibling marketplace owns `clooks/skills/setup/scripts/install.sh`, shared by
+Claude `/clooks:setup` and Codex `$clooks:setup`. This is an installer-local helper,
+not a new runtime command or resolver. Plugin startup never invokes it.
+
+| Action | Behavior |
+|--------|----------|
+| `install` | Reuse executable PATH binary first, then managed `~/.local/bin/clooks`; download only when absent |
+| `resolve` | Validate the selection and print only its absolute path to stdout; diagnostics go to stderr |
+| `check` | Report selected binary/version and project config-file presence; missing/broken binaries return nonzero |
+| `update` | Explicit checksum/version-validated managed replacement; refuse external PATH selections and managed symlinks |
+
+Reuse validates `--version` and any explicit `CLOOKS_VERSION` pin without download
+or shell-profile edits. A mismatch requires explicit update; broken selected
+binaries do not silently fall back. Downloaded executables are validated before
+atomic replacement from a temporary file on the destination filesystem, preserving
+the previous binary on download/checksum/version failure. Fresh install retains
+the existing shell-profile PATH setup; update does not edit profiles.
+
+Skills call resolve, then invoke its exact quoted stdout path for version/init in
+separate tool calls, stopping on failure. They do not rely on shell-variable
+persistence or compound-command wrappers. Managed-only off-PATH selection warns:
+absolute-path init may work while generated entrypoints cannot find `clooks`.
+Child-shell exports/profile edits do not repair the running agent's PATH. Check
+does not prove configuration validity or native activation. Global/both-agent
+registration is never inferred from cwd.
+
 ### `clooks approve <token>`
 
 Noninteractive registration of an existing short-lived Codex approval record. `src/commands/approve.ts` uses the standard command factory, OutputContext and JSON envelope; `router.ts` and `KNOWN_COMMANDS` register it for CLI dispatch. It never loads project configuration, issues a token, executes its target, consumes it or extends its fixed five-minute expiry. An agent shell call to this command remains subject to ordinary hooks; no engine bypass is added.

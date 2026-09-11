@@ -7,19 +7,31 @@ function FAQSection({ accent }) {
     },
     {
       q: 'Why Bun?',
-      a: 'Compiled static binaries, fast startup, TypeScript without a build step. The runtime needs to cost nothing on every tool call — and it needs to be a single file that a plugin install can drop onto your PATH. Bun ticks both.',
+      a: 'Bun lets Clooks run TypeScript hooks without a separate build step. Clooks ships as a single executable, so you do not need Bun installed to use it.',
+    },
+    {
+      q: 'Does installing the plugin install the runtime?',
+      a: 'No. The plugin adds a setup command and a reminder. Run /clooks:setup in Claude Code or $clooks:setup in Codex to install Clooks and configure your project. Setup reuses an existing installation. Nothing is installed automatically when a session starts.',
+    },
+    {
+      q: 'Do I need to restart my agent?',
+      a: 'Relaunch if you added Clooks to PATH while your agent was running. Claude Code may also need a reload to load a newly installed plugin. Approving plugin hooks in Codex does not itself require a restart; its setup reminder can appear on your next message.',
     },
     {
       q: 'What happens when a hook crashes?',
-      a: 'Default is onError: "block" — the action is refused and the agent is told why. Configurable per-hook to "continue" (pass through) or "trace" (log and continue). After three consecutive failures the hook is auto-disabled; a success resets the counter.',
+      a: 'By default, Clooks blocks the action when the event supports it. A hook that runs after a tool cannot undo its work, and a session-end hook cannot prevent shutdown. Set onError to "continue" or "trace" to keep going after errors. A hook is disabled after three consecutive failures by default; a successful run resets the counter.',
     },
     {
       q: 'Is there a registry of hooks I can browse?',
-      a: 'We only have two core sets of Claude hooks right now — clooks-core-hooks and clooks-project-hooks, both living in codestripes-dev/clooks-marketplace. However, everyone can create their own clooks-hooks repositories and marketplaces Feel free to open up PRs if you have further hooks you\'d like to see added!',
+      a: 'Yes: browse clooks-core-hooks and clooks-project-hooks in codestripes-dev/clooks-marketplace. Install packs through Claude plugins, or use clooks add with an individual hook URL for either agent. The Codex plugin sets up Clooks but does not install hook packs. Each hook documents its supported tools and configuration.',
     },
     {
-      q: 'What about other agents — Cursor Agent, Codex, OpenCode, OpenClaw?',
-      a: 'Planned. We\'d like clooks to be cross-agent down the line, but we need to research how to fit all APIs under one umbrella first. (If you\'re running Claude Code inside Cursor, Windsurf, or a JetBrains IDE, clooks already works there today.)',
+      q: 'Does ctx.ask show a native Codex approval prompt?',
+      a: 'No. Claude Code shows its own approval prompt. For PreToolUse hooks on Codex, Clooks pauses the operation and tells the agent to ask you. After you approve, the agent retries using a one-time token that expires after five minutes. This relies on the agent waiting for your answer; it cannot override a blocking hook or agent permissions. The README covers the retry commands.',
+    },
+    {
+      q: 'Which agents are supported?',
+      a: 'Claude Code and Codex. Available events, tools, and hook decisions differ between agents; see the README for details. You can also use Claude Code through its IDE integrations. Other agents are not currently supported.',
     },
   ];
   return (
