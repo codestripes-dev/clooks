@@ -160,8 +160,17 @@ describe('actual default hook portability', () => {
           placeholder.UserPromptSubmit(context(provider, { prompt: 'ordinary prompt' })).result,
         ).toBe('skip')
       })
-      test('compound policy unchanged; only guidance differs', () => {
-        for (const command of ['echo a && echo b', 'echo a || echo b', 'echo a; echo b']) {
+      test('compound cd exception requires &&; escape and provider guidance remain', () => {
+        for (const command of [
+          'echo a && echo b',
+          'echo a || echo b',
+          'echo a; echo b',
+          'cd /tmp ; echo a',
+          'cd /tmp;echo a',
+          'cd /tmp;true && echo done',
+          'cd /tmp&&true && echo done',
+          'cd "/path with spaces"; echo a',
+        ]) {
           const result = compound.PreToolUse(shell(provider, command))
           expect(result.result).toBe('block')
           expect(result.reason).toContain(
@@ -171,6 +180,9 @@ describe('actual default hook portability', () => {
         for (const command of [
           'echo a',
           'cd /tmp && echo a',
+          'cd "/path with spaces" && echo a | sort',
+          'cd "/path;literal" && echo a',
+          'ALLOW_COMPOUND=true cd /tmp; echo a',
           'ALLOW_COMPOUND=true echo a && echo b',
           'echo "a && b"',
         ]) {

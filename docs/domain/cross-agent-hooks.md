@@ -262,6 +262,8 @@ The repository's vendored core hooks use that identity for bounded provider diff
 
 ### Agent-Specific Features
 
+For both providers, `no-compound-commands` permits a leading `cd <path> && <one-command>` only with `&&`, not `;`. Quoted paths and a piped remainder remain supported; `ALLOW_COMPOUND=true` still bypasses the check, including semicolon cd commands.
+
 The repository's core `no-rm-rf` hook returns `ctx.ask` for aggregate confirmation classifications on both providers. Claude retains native confirmation; Codex uses the Clooks denial/token fallback. Classification, deny precedence, strict mode, allowlist and escape behavior are unchanged. Strict mode promotes project-root and non-allowlisted project asks to blocks; `ALLOW_DESTRUCTIVE_RM=true` does not discharge these asks or strict-mode blocks. The former Codex-only block branch has been removed locally, not in a global or marketplace installation. The actual-pack native case passed for `rm -r`, with two confirmations, exact target effects and replay refusal; it is not native `rm -rf` allow proof. Quoted-target parsing remains an unresolved, separate limitation.
 
 Native `apply_patch` is not a member of the ten-tool Claude `PreToolUseContext` union. Use the existing [unknown-tool context pattern](./hook-type-system/patterns.md#tool-event-pipeline-fields): `ctx as unknown as UnknownPreToolUseContext`, then check the provider, exact tool name and `typeof toolInput.command === 'string'` at runtime. This authoring pattern neither widens the known-tool union nor proves that a session exposes the tool; it is not evidence of implemented or validated patch protection.

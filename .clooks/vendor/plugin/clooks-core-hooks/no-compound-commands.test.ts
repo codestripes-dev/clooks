@@ -15,6 +15,7 @@ describe('isCompoundCommand', () => {
     ['subshell', 'echo $(date)'],
     ['ALLOW_COMPOUND=true with &&', 'ALLOW_COMPOUND=true cd /tmp && ls'],
     ['ALLOW_COMPOUND=true with ;', 'ALLOW_COMPOUND=true echo a; echo b'],
+    ['ALLOW_COMPOUND=true with cd ;', 'ALLOW_COMPOUND=true cd /tmp; ls'],
     ['ALLOW_COMPOUND=true with ||', 'ALLOW_COMPOUND=true cmd1 || cmd2'],
     ['&& inside single quotes', "echo 'foo && bar'"],
     ['&& inside double quotes', 'echo "foo && bar"'],
@@ -35,9 +36,8 @@ describe('isCompoundCommand', () => {
     ['cd && simple', 'cd /tmp && ls'],
     ['cd && npm install', 'cd /some/project && npm install'],
     ['cd && piped command', 'cd /tmp && ps aux | grep node'],
-    ['cd ; simple', 'cd /tmp; ls'],
-    ['cd ; with space', 'cd /tmp ; ls -la'],
     ['cd quoted path &&', 'cd "/path with spaces" && ls'],
+    ['cd quoted literal semicolon path &&', 'cd "/path;literal" && ls'],
     ['cd single-quoted path &&', "cd '/path with spaces' && ls"],
     ['cd variable &&', 'cd $HOME && ls'],
     ['cd relative &&', 'cd src && bun test'],
@@ -47,13 +47,20 @@ describe('isCompoundCommand', () => {
     expect(isCompoundCommand(command)).toBe(false)
   })
 
-  // cd-first but remainder is still compound — should block
+  // cd-first with semicolon or compound remainder should block
   test.each([
+    ['cd ; simple', 'cd /tmp; ls'],
+    ['cd ; with space', 'cd /tmp ; ls -la'],
+    ['cd ; unspaced', 'cd /tmp;ls'],
+    ['cd ; unspaced before &&', 'cd /tmp;true && echo done'],
+    ['cd && unspaced triple chain', 'cd /tmp&&true && echo done'],
+    ['cd quoted path ;', 'cd "/path with spaces"; ls'],
+    ['cd single-quoted path ;', "cd '/path with spaces'; ls"],
     ['cd && triple chain', 'cd /tmp && ls && echo done'],
     ['cd && with ||', 'cd /tmp && make || echo failed'],
     ['cd ; then &&', 'cd /tmp; ls && echo done'],
     ['cd && then ;', 'cd /tmp && echo a; echo b'],
-  ])('blocks cd-first with compound remainder: %s', (_label, command) => {
+  ])('blocks cd-first with semicolon or compound remainder: %s', (_label, command) => {
     expect(isCompoundCommand(command)).toBe(true)
   })
 

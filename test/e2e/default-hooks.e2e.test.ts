@@ -285,10 +285,19 @@ describe('actual default packs through the compiled binary', () => {
         }
       })
 
-      test('compound classification and escape are unchanged', () => {
+      test('compound cd exception requires &&; escape and provider guidance remain', () => {
         sandbox = createSandbox()
         configure({ 'no-compound-commands': {} })
-        for (const command of ['echo a && echo b', 'echo a || echo b', 'echo a; echo b']) {
+        for (const command of [
+          'echo a && echo b',
+          'echo a || echo b',
+          'echo a; echo b',
+          'cd /tmp ; echo a',
+          'cd /tmp;echo a',
+          'cd /tmp;true && echo done',
+          'cd /tmp&&true && echo done',
+          'cd "/path with spaces"; echo a',
+        ]) {
           denied(
             shell(provider, command, { 'no-compound-commands': 'block' }),
             provider === 'codex' ? 'individual shell tool calls' : 'individual Bash calls',
@@ -297,6 +306,9 @@ describe('actual default packs through the compiled binary', () => {
         for (const command of [
           'echo a',
           'cd /tmp && echo a',
+          'cd "/path with spaces" && echo a | sort',
+          'cd "/path;literal" && echo a',
+          'ALLOW_COMPOUND=true cd /tmp; echo a',
           'ALLOW_COMPOUND=true echo a && echo b',
           'echo "a && b"',
         ]) {

@@ -14,7 +14,7 @@ Blocks compound shell commands (`&&`, `||`, `;`) to encourage single-purpose cal
 
 **Config options:** None.
 
-**Escape hatch:** Prefix a command with `ALLOW_COMPOUND=true` to bypass the check. The hook also allows `cd <path> && <command>` as a safe pattern (single-command remainder only).
+**Escape hatch:** Prefix a command with `ALLOW_COMPOUND=true` to bypass the check. The hook also allows `cd <path> && <command>` as a safe pattern (single-command remainder only). The cd exception requires `&&`; `cd <path>; <command>` is blocked unless explicitly escaped.
 
 ---
 
