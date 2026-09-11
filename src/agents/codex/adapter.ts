@@ -32,6 +32,7 @@ export const codexAdapter: AgentAdapter = {
 
   createResultPolicy,
   resolveTurnPolicy(invocation) {
+    if (invocation.eventName === 'SessionEnd') return null
     const { sessionId, nativeTurnId, referencedAgentId } = invocation.private
     const sessionStart = invocation.eventName === 'SessionStart'
     if (!sessionId || (!sessionStart && !nativeTurnId)) return null
@@ -74,7 +75,7 @@ export const codexAdapter: AgentAdapter = {
     return { result: input.result, systemMessages: [] }
   },
   translateFinalOutput,
-  routeSystemMessage() {
-    return 'stdout-json'
+  routeSystemMessage(eventName) {
+    return eventName === 'SessionEnd' ? 'stderr' : 'stdout-json'
   },
 }

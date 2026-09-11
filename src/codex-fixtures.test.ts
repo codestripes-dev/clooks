@@ -15,6 +15,7 @@ const DOCUMENTED_CODEX_EVENTS = new Set([
   'UserPromptSubmit',
   'SubagentStop',
   'Stop',
+  'SessionEnd',
 ])
 
 const EXPECTED_FIXTURES = new Map([
@@ -24,6 +25,7 @@ const EXPECTED_FIXTURES = new Map([
   ['pre-compact-manual.json', 'PreCompact'],
   ['pre-tool-use-bash.json', 'PreToolUse'],
   ['session-start-startup.json', 'SessionStart'],
+  ['session-end-other.json', 'SessionEnd'],
   ['stop.json', 'Stop'],
   ['subagent-start-reviewer.json', 'SubagentStart'],
   ['subagent-stop-reviewer.json', 'SubagentStop'],
@@ -80,6 +82,11 @@ describe('Codex event fixtures', () => {
       expect(raw.transcript_path === null || typeof raw.transcript_path === 'string').toBe(true)
 
       switch (raw.hook_event_name) {
+        case 'SessionEnd':
+          expect(raw.reason).toBe('other')
+          for (const key of ['model', 'permission_mode', 'turn_id'])
+            expect(raw).not.toHaveProperty(key)
+          break
         case 'SessionStart':
           expect(raw.source).toBe('startup')
           break

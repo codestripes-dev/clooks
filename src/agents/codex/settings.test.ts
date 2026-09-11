@@ -383,7 +383,45 @@ function clooksMatcherGroupsFor(event: string): Record<string, unknown>[] {
 }
 
 describe('Codex registration events', () => {
-  test('exports exactly the ten registration events in stable order', () => {
+  test('SessionEnd upgrades ten-event and old timeout-free registrations without unrelated changes', () => {
+    const command = makeCodexProjectEntrypointCommand(tempDir)
+    const owned = { matcher: '*', hooks: [{ type: 'command', command }] }
+    const unrelated = {
+      matcher: '*',
+      hooks: [{ type: 'command', command: 'echo retained', timeout: 20 }],
+    }
+    for (const existingEnd of [false, true]) {
+      writeHooksFile({
+        hooks: {
+          ...Object.fromEntries(
+            CODEX_REGISTRATION_EVENTS.filter((event) => event !== 'SessionEnd').map((event) => [
+              event,
+              [owned],
+            ]),
+          ),
+          SessionEnd: existingEnd ? [owned, unrelated] : [unrelated],
+        },
+      })
+      const result = registerCodexClooks(codexDir(), command)
+      expect(result.skipped).toHaveLength(10)
+      expect(existingEnd ? result.updated : result.added).toEqual(['SessionEnd'])
+      const bytes = readFileSync(hooksPath(), 'utf8')
+      expect(registerCodexClooks(codexDir(), command).skipped).toHaveLength(11)
+      expect(readFileSync(hooksPath(), 'utf8')).toBe(bytes)
+      const hooks = readHooksFile().hooks as Record<string, unknown>
+      expect(hooks.SessionEnd).toEqual([
+        unrelated,
+        { matcher: '*', hooks: [{ type: 'command', command, timeout: 3 }] },
+      ])
+      for (const event of CODEX_REGISTRATION_EVENTS.filter((event) => event !== 'SessionEnd')) {
+        expect(hooks[event]).toEqual([owned])
+      }
+      expect(unregisterCodexClooks(codexDir()).removed).toHaveLength(11)
+      expect(readHooksFile()).toEqual({ hooks: { SessionEnd: [unrelated] } })
+    }
+  })
+
+  test('exports exactly the eleven registration events in stable order', () => {
     expect(CODEX_REGISTRATION_EVENTS).toEqual([
       'SessionStart',
       'SubagentStart',
@@ -395,6 +433,7 @@ describe('Codex registration events', () => {
       'UserPromptSubmit',
       'SubagentStop',
       'Stop',
+      'SessionEnd',
     ])
   })
 })
@@ -464,7 +503,7 @@ describe('Codex hooks.json registration', () => {
       },
     })
   })
-  test('fresh registration creates hooks.json with ten Clooks events', () => {
+  test('fresh registration creates hooks.json with eleven Clooks events', () => {
     const command = makeCodexProjectEntrypointCommand(tempDir)
 
     const result = registerCodexClooks(codexDir(), command)
@@ -483,8 +522,10 @@ describe('Codex hooks.json registration', () => {
       expect(hooks[event]).toHaveLength(1)
       const matcherGroup = hooks[event]![0] as Record<string, unknown>
       expect(matcherGroup.matcher).toBe('*')
-      const groupHooks = matcherGroup.hooks as Record<string, string>[]
-      expect(groupHooks).toEqual([{ type: 'command', command }])
+      const groupHooks = matcherGroup.hooks as Record<string, unknown>[]
+      expect(groupHooks).toEqual([
+        { type: 'command', command, ...(event === 'SessionEnd' ? { timeout: 3 } : {}) },
+      ])
       expect(matcherGroup.statusMessage).toBeUndefined()
     }
   })
@@ -648,7 +689,7 @@ describe('Codex hooks.json registration', () => {
 
     const result = registerCodexClooks(codexDir(), makeCodexProjectEntrypointCommand(tempDir))
 
-    expect(result.added).toHaveLength(10)
+    expect(result.added).toHaveLength(11)
     expect(result.created).toBe(false)
   })
 

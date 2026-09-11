@@ -84,9 +84,11 @@ hook review. Re-run init after cloning or moving the checkout because registrati
 uses absolute paths. Custom and already-vendored hooks share `.clooks/clooks.yml`;
 Claude marketplace setup is not Codex plugin discovery.
 
-The adapter targets ten events: SessionStart, SubagentStart, PreToolUse,
+The adapter targets eleven events: SessionStart, SubagentStart, PreToolUse,
 PermissionRequest, PostToolUse, PreCompact, PostCompact, UserPromptSubmit,
-SubagentStop and Stop. Tool inputs and result capabilities differ from Claude:
+SubagentStop, Stop and SessionEnd. SessionEnd is observation-only; its three-second
+native timeout covers the whole pipeline, not each hook. Re-run init to refresh
+existing registrations. Tool inputs and result capabilities differ from Claude:
 `exec_command` is exposed as Bash, while `apply_patch` is not a Claude Edit/Write
 payload. See [supported capabilities](docs/domain/cross-agent-hooks.md#current-pretooluse-implementation).
 

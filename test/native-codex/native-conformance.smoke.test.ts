@@ -12,6 +12,7 @@ import { join } from 'node:path'
 import { startFixture } from './fixture-server'
 import { packScenario } from './pack-scenarios'
 import { hybridScenario } from './hybrid-scenarios'
+import { sessionEndScenario } from './session-end-scenario'
 import {
   assertObservation,
   binaryPin,
@@ -219,6 +220,7 @@ test('mandatory native cases with hybrid retries and rewrite permission controls
   for (const id of baselineCases) await scenario(id)
   for (const id of packCases) await packScenario(id, logRoot)
   for (const id of hybridCases) await hybridScenario(id, logRoot)
+  await sessionEndScenario(logRoot)
   save(join(logRoot, 'completed.json'), {
     mode: '--smoke',
     completed: mandatoryCases.length,

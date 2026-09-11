@@ -13,6 +13,7 @@ export const CODEX_REGISTRATION_EVENTS = [
   'UserPromptSubmit',
   'SubagentStop',
   'Stop',
+  'SessionEnd',
 ] as const
 
 export type CodexRegistrationEvent = (typeof CODEX_REGISTRATION_EVENTS)[number]
@@ -147,16 +148,26 @@ function readHooksFile(hooksPath: string): {
   return { hooksFile: settings, fileExisted }
 }
 
-function makeCodexClooksMatcherGroup(entrypointCommand: string): Record<string, unknown> {
+function makeCodexClooksMatcherGroup(
+  entrypointCommand: string,
+  event: CodexRegistrationEvent,
+): Record<string, unknown> {
   return {
     matcher: '*',
-    hooks: [{ type: 'command', command: entrypointCommand }],
+    hooks: [
+      {
+        type: 'command',
+        command: entrypointCommand,
+        ...(event === 'SessionEnd' ? { timeout: 3 } : {}),
+      },
+    ],
   }
 }
 
 function isCanonicalCodexClooksMatcherGroup(
   matcherGroup: unknown,
   entrypointCommand: string,
+  event: CodexRegistrationEvent,
 ): boolean {
   if (!isRecord(matcherGroup)) return false
   if (matcherGroup.matcher !== '*') return false
@@ -167,7 +178,9 @@ function isCanonicalCodexClooksMatcherGroup(
     isRecord(hook) &&
     hook.type === 'command' &&
     hook.command === entrypointCommand &&
-    Object.keys(hook).length === 2 &&
+    (event === 'SessionEnd'
+      ? hook.timeout === 3 && Object.keys(hook).length === 3
+      : Object.keys(hook).length === 2) &&
     Object.keys(matcherGroup).length === 2
   )
 }
@@ -202,7 +215,7 @@ export function registerCodexClooks(
     const isAlreadyCanonical =
       clooksGroupCount === 1 &&
       matcherGroups.some((matcherGroup) =>
-        isCanonicalCodexClooksMatcherGroup(matcherGroup, entrypointCommand),
+        isCanonicalCodexClooksMatcherGroup(matcherGroup, entrypointCommand, event),
       )
 
     if (isAlreadyCanonical) {
@@ -226,7 +239,7 @@ export function registerCodexClooks(
       }
     }
 
-    nextMatcherGroups.push(makeCodexClooksMatcherGroup(entrypointCommand))
+    nextMatcherGroups.push(makeCodexClooksMatcherGroup(entrypointCommand, event))
     hooks[event] = nextMatcherGroups
 
     if (hasAnyClooksHook) {

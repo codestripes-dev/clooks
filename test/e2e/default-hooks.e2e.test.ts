@@ -255,29 +255,39 @@ describe('actual default packs through the compiled binary', () => {
         } else expect(message).toContain('Read, Glob, Grep, Edit, Write')
       })
 
-      test('placeholder provider selection and task-notification compatibility', () => {
+      test('paste placeholder formats block on both providers with task-notification compatibility', () => {
         sandbox = createSandbox()
         configure({ 'no-pasted-placeholder': {} })
         for (const prompt of [
           '[Pasted text #1 +10 lines]',
+          '[Pasted text #6 +1 line]',
+          '[Pasted Content 123 chars]',
+          'review [Pasted Content 123 chars] #2 please',
+          '[Pasted text #1 +10 lines] [Pasted text #1 +10 lines]',
+          '[Pasted Content 123 chars] [Pasted Content 123 chars] #2',
+          '[Pasted text #1 +10 lines] [Pasted Content 123 chars]',
           ' <task-notification>[Pasted text #1 +10 lines]',
+          ' <task-notification>[Pasted Content 123 chars]',
         ]) {
-          const decision = provider === 'codex' ? 'skip' : 'block'
           const output = run(
             provider,
             'UserPromptSubmit',
             { prompt },
-            { 'no-pasted-placeholder': decision },
+            { 'no-pasted-placeholder': 'block' },
           )
-          if (provider === 'codex') expect(output).toBeNull()
-          else {
-            expect(output.decision).toBe('block')
-            expect(output.reason).toContain('unresolved paste placeholder')
-          }
+          expect(output.decision).toBe('block')
+          expect(output.reason).toContain('possible unresolved paste placeholder')
+          expect(output.reason).toContain('[Pasted text #1 +10 lines]')
+          expect(output.reason).toContain('[Pasted Content 123 chars]')
         }
         for (const prompt of [
           'ordinary prompt',
+          '[Pasted text #1 10 lines]',
+          '[Pasted Content 123 char]',
+          '[Pasted content 123 chars]',
           '<task-notification>[Pasted text #1 +10 lines]</task-notification>',
+          '<task-notification>[Pasted Content 123 chars] #2</task-notification>',
+          '<task-notification>[Pasted text #1 +10 lines] [Pasted Content 123 chars]</task-notification>',
         ]) {
           expect(
             run(provider, 'UserPromptSubmit', { prompt }, { 'no-pasted-placeholder': 'skip' }),
@@ -922,6 +932,11 @@ describe('actual removal, script equivalence and tmux hooks', () => {
       ['UserPromptSubmit', {}, true, false],
       ['PostToolUse', {}, true, false],
       ['SessionStart', {}, true, false],
+      ['PermissionRequest', { flashOnPrompt: false }, true, false],
+      ['PermissionRequest', { flashOnPrompt: true }, true, false],
+      ['PermissionRequest', {}, false, false],
+      ['SessionEnd', {}, true, false],
+      ['SessionEnd', {}, false, false],
     ])(`${provider}: tmux %s / %j / available=%s`, (event, config, available, attention) => {
       sandbox = createSandbox()
       configure({ 'tmux-notifications': { config } })
@@ -937,7 +952,9 @@ describe('actual removal, script equivalence and tmux hooks', () => {
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs'
 const args = process.argv.slice(2)
 appendFileSync(process.env.TMUX_TEST_LOG, JSON.stringify(args) + '\\n')
-if (args[0] === 'display-message') console.log('@7')
+if (args[0] === 'display-message') console.log(args.includes('#{session_id}') ? '$2' : args.includes('$2') ? '@9' : '@7')
+if (args[0] === 'list-panes') console.log('%8\\tdefault\\tdefault')
+if (args[0] === 'show-option') console.log('bg=black')
 if (args[0] === 'set-hook') {
   const hooks = JSON.parse(readFileSync(process.env.TMUX_TEST_STATE, 'utf8'))
   hooks[args[2]] = args[3]
@@ -957,8 +974,28 @@ if (args[0] === 'set-hook') {
           tool_name: provider === 'codex' ? 'exec_command' : 'Bash',
           tool_input: { command: 'echo inert' },
           tool_response: { stdout: 'inert', stderr: '', exit_code: 0 },
+          ...(event === 'SessionEnd'
+            ? {
+                reason: 'other',
+                ...(provider === 'codex'
+                  ? {
+                      model: undefined,
+                      permission_mode: undefined,
+                      turn_id: undefined,
+                      tool_use_id: undefined,
+                      tool_name: undefined,
+                      tool_input: undefined,
+                      tool_response: undefined,
+                      stop_hook_active: undefined,
+                      last_assistant_message: undefined,
+                      prompt: undefined,
+                      source: undefined,
+                    }
+                  : {}),
+              }
+            : {}),
         },
-        { 'tmux-notifications': 'skip' },
+        event === 'SessionEnd' && provider === 'codex' ? {} : { 'tmux-notifications': 'skip' },
         {
           TMUX: available ? '/inert/no-socket,1,0' : '',
           TMUX_PANE: available ? '%4' : '',
@@ -992,8 +1029,40 @@ if (args[0] === 'set-hook') {
         expect(install?.[3]).toContain('set-option -wu @clooks-attention')
       } else {
         expect(commands.some((args) => args.includes('fg=colour208'))).toBe(false)
-        if (available && event !== 'Stop')
+        if (available && !['Stop', 'PermissionRequest', 'SessionEnd'].includes(event as string))
           expect(commands).toContainEqual(['set-option', '-wu', '-t', '@7', '@clooks-attention'])
+      }
+      if (available && event === 'PermissionRequest') {
+        if (provider === 'codex') {
+          expect(commands).toContainEqual([
+            'set-window-option',
+            '-t',
+            '@7',
+            'window-status-style',
+            'bg=red,fg=white,bold',
+          ])
+          expect(commands).toContainEqual([
+            'set-window-option',
+            '-t',
+            '@7',
+            'window-status-current-style',
+            'bg=red,fg=white,bold',
+          ])
+          const flash = (config as { flashOnPrompt?: boolean }).flashOnPrompt !== false
+          expect(commands.some((args) => args[0] === 'list-panes' && args[2] === '@9')).toBe(flash)
+          expect(commands.filter((args) => args.includes('bg=colour240'))).toHaveLength(
+            flash ? 2 : 0,
+          )
+          if (flash) expect(commands.filter((args) => args.includes('bg=black'))).toHaveLength(2)
+        } else expect(commands).toEqual([['display-message', '-t', '%4', '-p', '#{window_id}']])
+      }
+      if (available && event === 'SessionEnd') {
+        expect(commands).toEqual([
+          ['display-message', '-t', '%4', '-p', '#{window_id}'],
+          ['set-window-option', '-t', '@7', 'window-status-style', 'default'],
+          ['set-window-option', '-t', '@7', '-u', 'window-status-current-style'],
+          ['set-window-option', '-t', '@7', 'automatic-rename', 'on'],
+        ])
       }
       expect(JSON.parse(sandbox.readFile('tmux-hooks.json'))['session-window-changed[12]']).toBe(
         'user hook',

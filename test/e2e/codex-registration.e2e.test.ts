@@ -227,6 +227,7 @@ const CODEX_EVENTS = [
   'UserPromptSubmit',
   'SubagentStop',
   'Stop',
+  'SessionEnd',
 ]
 
 const CLAUDE_EVENTS = [
@@ -286,7 +287,13 @@ function expectCodexRegistration(
     expect(hooks[event]).toEqual([
       {
         matcher: '*',
-        hooks: [{ type: 'command', command: expectedCommand }],
+        hooks: [
+          {
+            type: 'command',
+            command: expectedCommand,
+            ...(event === 'SessionEnd' ? { timeout: 3 } : {}),
+          },
+        ],
       },
     ])
   }

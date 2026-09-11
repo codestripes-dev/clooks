@@ -1,0 +1,7 @@
+{
+  "hook_event_name": "SessionEnd",
+  "session_id": "session-end-fixture",
+  "cwd": "/fixture/project",
+  "transcript_path": null,
+  "reason": "other"
+}

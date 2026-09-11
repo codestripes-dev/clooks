@@ -86,6 +86,8 @@ PreToolUse:
 
 Event-level `timeout` and `onError` have been removed. Use per-hook `timeout` and per-hook event overrides (`hooks.<name>.events.<event>.onError`) instead.
 
+Codex native registration is a separate timeout layer: SessionEnd alone registers `timeout: 3` seconds for the entire pipeline, including entrypoint startup and all hooks. This does not change the per-hook millisecond cascade below. Existing installations require init refresh to add/canonicalize SessionEnd; other native event timeouts stay unchanged.
+
 ### Global Config
 
 | Field | Type | Default | Description |

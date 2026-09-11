@@ -520,9 +520,15 @@ describe('clooks init', () => {
       expect(matcherGroups).toHaveLength(1)
       const hookEntries = (matcherGroups[0] as Record<string, unknown>).hooks as Record<
         string,
-        string
+        unknown
       >[]
-      expect(hookEntries).toEqual([{ type: 'command', command: expectedCommand }])
+      expect(hookEntries).toEqual([
+        {
+          type: 'command',
+          command: expectedCommand,
+          ...(event === 'SessionEnd' ? { timeout: 3 } : {}),
+        },
+      ])
       expect(expectedCommand).toContain('CLOOKS_PROJECT_ROOT=')
     }
   })
@@ -930,9 +936,15 @@ describe('clooks init --global', () => {
       const matcherGroups = hooks[event]!
       const hookEntries = (matcherGroups[0] as Record<string, unknown>).hooks as Record<
         string,
-        string
+        unknown
       >[]
-      expect(hookEntries).toEqual([{ type: 'command', command: expectedCommand }])
+      expect(hookEntries).toEqual([
+        {
+          type: 'command',
+          command: expectedCommand,
+          ...(event === 'SessionEnd' ? { timeout: 3 } : {}),
+        },
+      ])
     }
   })
 

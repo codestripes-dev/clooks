@@ -1,13 +1,13 @@
 // no-pasted-placeholder — Rejects prompts containing a literal
-// `[Pasted text #N +N lines]` placeholder. If one survives into the submitted
-// prompt, Claude Code failed to expand the paste and the prompt references
-// nothing. No config.
+// `[Pasted text #N +N lines]` or `[Pasted Content N chars]` placeholder.
+// This heuristic flags potentially unexpanded pastes on any provider;
+// literal examples can also match. No config.
 
 import type { ClooksHook } from "./types"
 
-const PLACEHOLDER_PATTERN = /\[Pasted text #\d+ \+\d+ lines?\]/
+const PLACEHOLDER_PATTERN = /\[Pasted text #\d+ \+\d+ lines?\]|\[Pasted Content \d+ chars\]/
 
-const BLOCK_REASON = `Your prompt contains an unresolved paste placeholder (e.g. "[Pasted text #1 +10 lines]"). That literal text means the paste was not expanded into the prompt. Re-paste the actual content, or remove the placeholder, and submit again.`
+const BLOCK_REASON = `Your prompt contains a possible unresolved paste placeholder (e.g. "[Pasted text #1 +10 lines]" or "[Pasted Content 123 chars]"). This may indicate that pasted content was not expanded into the prompt; literal examples also match. Re-paste the actual content, or remove the placeholder, and submit again.`
 
 export function hasPastedPlaceholder(prompt: string): boolean {
   return PLACEHOLDER_PATTERN.test(prompt)
@@ -17,11 +17,10 @@ export const hook: ClooksHook = {
   meta: {
     name: "no-pasted-placeholder",
     description:
-      "Blocks UserPromptSubmit when the prompt still contains a literal `[Pasted text #N +N lines]` placeholder",
+      "Blocks UserPromptSubmit on possible unresolved paste markers: `[Pasted text #N +N lines]` or `[Pasted Content N chars]`",
   },
 
   UserPromptSubmit(ctx) {
-    if (ctx.provider === 'codex') return ctx.skip()
     // Subagent completion notices can legitimately quote an unresolved placeholder.
     if (ctx.prompt.startsWith('<task-notification>')) return ctx.skip()
     if (!hasPastedPlaceholder(ctx.prompt)) return ctx.skip()

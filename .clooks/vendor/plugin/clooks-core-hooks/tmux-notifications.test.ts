@@ -202,7 +202,7 @@ describe('getFocusedWindowId', () => {
     process.env.TMUX_PANE = '%4'
     execSyncImpl = (cmd) => {
       if (cmd.includes(`display-message -t "%4" -p '#{session_id}'`)) return '$2\n'
-      if (cmd.includes(`display-message -t "$2" -p '#{window_id}'`)) return '@9\n'
+      if (cmd.includes(`display-message -t '$2' -p '#{window_id}'`)) return '@9\n'
       return ''
     }
 
@@ -290,7 +290,7 @@ describe('flashFocusedWindow', () => {
     process.env.TMUX_PANE = '%4'
     execSyncImpl = (cmd) => {
       if (cmd.includes(`display-message -t "%4" -p '#{session_id}'`)) return '$2'
-      if (cmd.includes(`display-message -t "$2" -p '#{window_id}'`)) return '@9'
+      if (cmd.includes(`display-message -t '$2' -p '#{window_id}'`)) return '@9'
       if (cmd.includes('list-panes')) return '%1\tdefault\tdefault\n%2\tbg=#111\tdefault'
       if (cmd.includes('show-option -gv status-style')) return 'bg=black'
       return ''
@@ -316,7 +316,7 @@ describe('flashFocusedWindow', () => {
     process.env.TMUX_PANE = '%4'
     execSyncImpl = (cmd) => {
       if (cmd.includes(`display-message -t "%4" -p '#{session_id}'`)) return '$2'
-      if (cmd.includes(`display-message -t "$2" -p '#{window_id}'`)) return '@9'
+      if (cmd.includes(`display-message -t '$2' -p '#{window_id}'`)) return '@9'
       if (cmd.includes('list-panes')) return '%1\tdefault\tdefault\n%2\tbg=#111\tbg=#222'
       if (cmd.includes('show-option -gv status-style')) return 'bg=black'
       return ''
@@ -338,7 +338,7 @@ describe('flashFocusedWindow', () => {
     process.env.TMUX_PANE = '%4'
     execSyncImpl = (cmd) => {
       if (cmd.includes(`display-message -t "%4" -p '#{session_id}'`)) return '$2'
-      if (cmd.includes(`display-message -t "$2" -p '#{window_id}'`)) return '@9'
+      if (cmd.includes(`display-message -t '$2' -p '#{window_id}'`)) return '@9'
       if (cmd.includes('list-panes')) return '%1\tdefault\tdefault'
       if (cmd.includes('show-option -gv status-style')) return ''
       return ''
@@ -509,7 +509,7 @@ describe('hook.Notification', () => {
     setupTmuxEnv('@7')
     execSyncImpl = (cmd) => {
       if (cmd.includes(`display-message -t "%4" -p '#{session_id}'`)) return '$2'
-      if (cmd.includes(`display-message -t "$2" -p '#{window_id}'`)) return '@9'
+      if (cmd.includes(`display-message -t '$2' -p '#{window_id}'`)) return '@9'
       if (cmd.includes('list-panes')) return ''
       return ''
     }

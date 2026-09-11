@@ -9,14 +9,15 @@ fi
 
 [[ $(id -u) != 0 && ${CLOOKS_NATIVE_LOGDIR:-} == /export ]]
 case ${CLOOKS_NATIVE_MODE:-} in
-  --unit) selected=./test/native-codex/harness.test.ts ;;
-  --smoke) selected=./test/native-codex/native-conformance.smoke.test.ts ;;
+  --unit) selected=(./test/native-codex/harness.test.ts) ;;
+  --smoke) selected=(./test/native-codex/native-conformance.smoke.test.ts) ;;
+  --session-end) selected=(./test/native-codex/session-end.smoke.test.ts ./test/native-codex/session-end-observation.test.ts) ;;
   *) echo 'Missing native test mode' >&2; exit 64 ;;
 esac
 
 bun --version > /export/bun-version
 set +e
-/bin/bash test/docker-entrypoint.sh "$selected"
+/bin/bash test/docker-entrypoint.sh "${selected[@]}"
 test_rc=$?
 printf '%s\n' "$test_rc" > /export/test.rc || exit 74
 status_rc=not-run

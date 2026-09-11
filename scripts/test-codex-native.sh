@@ -2,14 +2,14 @@
 set -euo pipefail
 umask 022
 
-if [[ $# != 1 || ( $1 != --unit && $1 != --smoke ) ]]; then
-  echo 'Usage: bash scripts/test-codex-native.sh --unit|--smoke' >&2
+if [[ $# != 1 || ( $1 != --unit && $1 != --smoke && $1 != --session-end ) ]]; then
+  echo 'Usage: bash scripts/test-codex-native.sh --unit|--smoke|--session-end' >&2
   exit 64
 fi
 mode=$1
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
 vendor=
-if [[ "$mode" == --smoke ]]; then
+if [[ "$mode" == --smoke || "$mode" == --session-end ]]; then
   : "${CLOOKS_CODEX_DIST:?Set CLOOKS_CODEX_DIST to the explicit retained native distribution directory}"
   vendor=$(cd -- "$CLOOKS_CODEX_DIST" && pwd -P)
   [[ -f "$vendor/bin/codex" && -x "$vendor/bin/codex" ]] || {
@@ -114,7 +114,7 @@ cmd=(docker run --pull never --name "$name" --network none --init
 for path in src test schemas scripts tsconfig.json bunfig.toml package.json .clooks/vendor/plugin; do
   cmd+=(--mount "type=bind,src=$attempt/input/$path,dst=/app/$path,readonly")
 done
-if [[ "$mode" == --smoke ]]; then cmd+=(--mount "type=bind,src=$vendor,dst=/native,readonly"); fi
+if [[ "$mode" == --smoke || "$mode" == --session-end ]]; then cmd+=(--mount "type=bind,src=$vendor,dst=/native,readonly"); fi
 cmd+=(--mount "type=bind,src=$attempt/export,dst=/export"
   --env CLOOKS_NATIVE_LOGDIR=/export --env "CLOOKS_NATIVE_MODE=$mode"
   "$image" /app/test/native-codex/container-entrypoint.sh)

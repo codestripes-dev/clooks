@@ -67,13 +67,15 @@ The entrypoint and the binary react to a small set of environment variables:
 | `CLOOKS_DEBUG=true` | Enable debug logging — stderr output + JSON request dumps to `CLOOKS_LOGDIR`. |
 | `CLOOKS_LOGDIR=/path` | Directory for `CLOOKS_DEBUG` JSON dumps (default `/tmp/clooks-debug`). |
 | `CLOOKS_AGENT=claude-code` | Optional explicit selector for the current Claude Code adapter. Unset or empty means the same thing for backward compatibility. |
-| `CLOOKS_AGENT=codex` | Explicit selector used by generated Codex registrations. Enables the ten-event target through event-specific normalization and result policy before hook imports; expanded Docker runtime validation has passed. Emitted controls do not establish native enforcement. |
+| `CLOOKS_AGENT=codex` | Explicit selector used by generated Codex registrations. Enables eleven events through event-specific normalization and result policy before hook imports, including observation-only SessionEnd. Earlier ten-event Docker evidence does not establish SessionEnd native enforcement. |
 | `CLOOKS_HOME_ROOT=/path` | Override the home directory used for config resolution (mostly for tests). |
 | `CODEX_HOME=/absolute/path` | Select the Codex global registration directory; unset or empty uses `$HOME/.codex`. Does not relocate the shared Clooks launcher or project `.codex/hooks.json`. |
 | `CLOOKS_PROJECT_ROOT=/path` | Skip discovery and treat `/path` as the project root unconditionally. Highest-priority override (wins over `$CLAUDE_PROJECT_DIR` and the cwd walk). Mirrors `prettier --config` / `tsc --project` / `GIT_DIR`. |
 | `$CLAUDE_PROJECT_DIR` | Set by Claude Code itself. Used by clooks as the **primary anchor** for config discovery — the walk-up starts here so an agent that runs `cd /tmp && <action>` cannot bypass project hooks. |
 
 Claude Code registration does not need to set `CLOOKS_AGENT`; the binary defaults to the Claude Code adapter. Codex registration always sets `CLOOKS_AGENT=codex`. Project Codex registration also sets `CLOOKS_PROJECT_ROOT` to the absolute project root so Codex cwd changes do not detach Clooks from the intended project. Global Codex registration intentionally omits `CLOOKS_PROJECT_ROOT`; the shell still forwards inherited `CLOOKS_PROJECT_ROOT` and `CLAUDE_PROJECT_DIR` unchanged. Before discovery, the Codex runtime uses an invocation-local environment copy with `CLAUDE_PROJECT_DIR` removed, retaining the explicit `CLOOKS_PROJECT_ROOT` override without mutating the process environment. Without that override, discovery walks from cwd so global hooks can merge with the current project's `.clooks/clooks.yml`. Shell forwarding and bootstrap behavior are unchanged.
+
+SessionEnd alone registers `timeout: 3` seconds, budgeting the entire entrypoint/runtime/hook pipeline. Other event registrations retain their existing timeouts. Re-run init for existing installations: migration adds the eleventh event and repairs owned SessionEnd entries without the timeout; repeated canonical init does not rewrite the file. SessionEnd success produces no stdout. Its diagnostics are local stderr only, discarded by native Codex on successful hooks; failures do not veto closure.
 
 ## Approval Token Transport
 

@@ -140,11 +140,17 @@ describe('actual default hook portability', () => {
           ),
         ).toEqual({ result: 'skip' })
       })
-      test('placeholder is Claude-only, preserving exact task-notification prefix skip', () => {
-        for (const prompt of ['[Pasted text #1 +10 lines]', 'explain [Pasted text #2 +1 line]']) {
-          expect(placeholder.UserPromptSubmit(context(provider, { prompt })).result).toBe(
-            provider === 'codex' ? 'skip' : 'block',
-          )
+      test('paste placeholder formats block on every provider, preserving exact notification skip', () => {
+        for (const prompt of [
+          '[Pasted text #1 +10 lines]',
+          'explain [Pasted text #2 +1 line]',
+          '[Pasted Content 123 chars]',
+          'explain [Pasted Content 123 chars] #2',
+          '[Pasted text #1 +10 lines] [Pasted text #1 +10 lines]',
+          '[Pasted Content 123 chars] [Pasted Content 123 chars] #2',
+          '[Pasted text #1 +10 lines] [Pasted Content 123 chars]',
+        ]) {
+          expect(placeholder.UserPromptSubmit(context(provider, { prompt })).result).toBe('block')
           expect(
             placeholder.UserPromptSubmit(
               context(provider, { prompt: `<task-notification>${prompt}</task-notification>` }),
@@ -154,11 +160,19 @@ describe('actual default hook portability', () => {
             placeholder.UserPromptSubmit(
               context(provider, { prompt: ` <task-notification>${prompt}` }),
             ).result,
-          ).toBe(provider === 'codex' ? 'skip' : 'block')
+          ).toBe('block')
         }
-        expect(
-          placeholder.UserPromptSubmit(context(provider, { prompt: 'ordinary prompt' })).result,
-        ).toBe('skip')
+        for (const prompt of [
+          '',
+          'ordinary prompt',
+          '[Pasted text #1 10 lines]',
+          '[Pasted Content 123 char]',
+          '[Pasted content 123 chars]',
+          'Pasted Content 123 chars',
+          '[Pasted Content abc chars]',
+        ]) {
+          expect(placeholder.UserPromptSubmit(context(provider, { prompt })).result).toBe('skip')
+        }
       })
       test('compound cd exception requires &&; escape and provider guidance remain', () => {
         for (const command of [
