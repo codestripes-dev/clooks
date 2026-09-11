@@ -1,4 +1,4 @@
-function CapturesSection({ accent }) {
+function CapturesSection({ accent, content }) {
   const vp = useViewport();
   const stack = vp.isMobile || vp.isTablet;
   const [active, setActive] = React.useState(0);
@@ -84,15 +84,15 @@ function CapturesSection({ accent }) {
   return (
     <section id="captures" className="section section--elev">
       <div style={{ maxWidth: 1120, margin: '0 auto' }}>
-        <SectionLabel accent={accent}>Captures</SectionLabel>
+        <SectionLabel accent={accent}>{content.label}</SectionLabel>
         <h2 style={{
           fontSize: 'clamp(32px, 3.6vw, 46px)', lineHeight: 1.1,
           letterSpacing: -1, fontWeight: 500, margin: '0 0 20px', maxWidth: 820,
         }}>
-          Three scenarios.
+          <Copy text={content.title} heading/>
         </h2>
         <p style={{ fontSize: 15, color: COL.fgMute, maxWidth: 680, margin: '0 0 36px', lineHeight: 1.6 }}>
-          Recorded from Claude Code. These captures do not demonstrate Codex behavior.
+          <Copy text={content.intro}/>
         </p>
 
         {/* Tabs */}

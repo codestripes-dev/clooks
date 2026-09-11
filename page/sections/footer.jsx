@@ -1,4 +1,4 @@
-function Footer({ accent }) {
+function Footer({ accent, content }) {
   const vp = useViewport();
   const stack = vp.isMobile;
   return (
@@ -12,36 +12,22 @@ function Footer({ accent }) {
         <div style={{ gridColumn: stack ? '1 / -1' : 'auto' }}>
           <Logo accent={accent}/>
           <p style={{ fontSize: 13, color: COL.fgMute, marginTop: 14, maxWidth: 300, lineHeight: 1.5 }}>
-            A TypeScript hook runtime for Claude Code and Codex. Open source under MIT.
+            <Copy text={content.intro}/>
           </p>
           <div style={{
             marginTop: 20, fontSize: 11, color: COL.fgFaint,
             fontFamily: 'JetBrains Mono, monospace',
           }}>
-            clooks v{window.CLOOKS_VERSION} · built with bun
+            clooks v{window.CLOOKS_VERSION} · {content.builtWith}
           </div>
         </div>
-        {[
-          { h: 'Project', links: [
-            ['GitHub', 'https://github.com/codestripes-dev/clooks'],
-            ['Marketplace', 'https://github.com/codestripes-dev/clooks-marketplace'],
-            ['Core hooks', 'https://github.com/codestripes-dev/clooks-marketplace/tree/master/clooks-core-hooks'],
-            ['Project hooks', 'https://github.com/codestripes-dev/clooks-marketplace/tree/master/clooks-project-hooks'],
-          ]},
-          { h: 'Docs', links: [
-            ['Install', '#install'],
-            ['Agent support', '#support'],
-            ['Hook API', '#hook'],
-            ['Config', '#config'],
-            ['FAQ', '#faq'],
-          ]},
-        ].map(col => (
-          <div key={col.h}>
+        {content.columns.map((col, i) => (
+          <div key={i}>
             <div style={{
               fontSize: 11, letterSpacing: 1.5, textTransform: 'uppercase',
               color: COL.fgDim, marginBottom: 14,
-            }}>{col.h}</div>
-            {col.links.map(([label, href]) => (
+            }}>{col.label}</div>
+            {col.links.map(({label, href}) => (
               <a key={label} href={href} style={{
                 display: 'block', fontSize: 13, color: COL.fg,
                 textDecoration: 'none', padding: '4px 0',
@@ -57,8 +43,8 @@ function Footer({ accent }) {
         fontSize: 12, color: COL.fgDim, fontFamily: 'JetBrains Mono, monospace',
         gap: 16, flexWrap: 'wrap',
       }}>
-        <span>MIT License · joe@clooks.cc</span>
-        <span>© {new Date().getFullYear()} Codestripes</span>
+        <span>{content.license}</span>
+        <span>© {new Date().getFullYear()} {content.copyright}</span>
       </div>
     </footer>
   );

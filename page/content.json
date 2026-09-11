@@ -1,0 +1,405 @@
+{
+  "root": {
+    "props": {
+      "accent": "#fbbf24",
+      "heroVariant": "split",
+      "metadata": {
+        "title": "Clooks — TypeScript hooks for Claude Code and Codex",
+        "description": "TypeScript hooks for your agents. Set up Clooks explicitly with a Claude Code or Codex plugin, or install the standalone binary for both.",
+        "canonical": "https://clooks.cc/",
+        "image": "https://clooks.cc/og-image.png"
+      }
+    }
+  },
+  "content": [
+    {
+      "type": "Hero",
+      "props": {
+        "id": "hero",
+        "visible": true,
+        "title": "TypeScript hooks",
+        "subtitle": "for your agents.",
+        "intro": "Write hooks as small TypeScript files.\nClooks runs them in Claude and Codex for you",
+        "links": [
+          {
+            "label": "Install for Claude Code",
+            "href": "#install-claude"
+          },
+          {
+            "label": "Install for Codex",
+            "href": "#install-codex"
+          }
+        ],
+        "terminalTitle": "Codex plugin · terminal",
+        "copyLabel": "Copy Codex commands",
+        "commands": [
+          {
+            "cmd": "codex plugin marketplace add codestripes-dev/clooks-marketplace",
+            "output": "→ Marketplace available to Codex",
+            "doneLabel": "✓ added."
+          },
+          {
+            "cmd": "codex plugin add clooks@clooks-marketplace",
+            "output": "→ Ready to run $clooks:setup in Codex",
+            "doneLabel": "✓ plugin added."
+          }
+        ],
+        "setupIntro": "Then run setup in Codex, in your project:",
+        "setupCommand": "$clooks:setup",
+        "setupNote": "Review native hook trust when prompted. Startup only reminds; it never installs the runtime.",
+        "badges": [
+          {
+            "text": "macOS · Linux"
+          },
+          {
+            "text": "MIT license"
+          }
+        ],
+        "snippetLabel": "A real hook:"
+      }
+    },
+    {
+      "type": "Problem",
+      "props": {
+        "id": "problem",
+        "visible": true,
+        "label": "Problem",
+        "title": "The hook that was supposed\nto stop `rm -rf ~/` crashed.",
+        "intro": "An agent ran `rm -rf tests/ patches/ plan/ ~/` and the trailing `~/` wiped the Mac. A guard hook was meant to catch it, but threw an exception and exited with a error code. Some agents read errors as success, so the command ran.\nIn Clooks, a crashed hook blocks the action by default.",
+        "pains": [
+          {
+            "n": "01",
+            "k": "Silent failures",
+            "d": "Claude Code only blocks on exit code 2. A guard hook that crashes - a typo, a missing dep - doesn't prevent the action. The action runs as if the hook never ran."
+          },
+          {
+            "n": "02",
+            "k": "Bash inside JSON",
+            "d": "Native hooks are bash strings inside your hook.json. Every hook is a one-liner you quote by hand or write a new bash script for."
+          },
+          {
+            "n": "03",
+            "k": "No composition",
+            "d": "All agents run native hooks differently, some in parallel, some sequentially. There's no standard way for ordering, no pipeline, no way for one hook to modify input before another sees it."
+          },
+          {
+            "n": "04",
+            "k": "Tricky portability",
+            "d": "A hook you wrote for one repo lives in that repo's settings file. Copying it to the next project means repasting bash strings and recommitting script files. And you might not want every hook enabled."
+          },
+          {
+            "n": "05",
+            "k": "No discoverability",
+            "d": "The best hooks are gists linked in Discord threads. Sharing only works through Claude or Codex Marketplaces, which can open up update injection vectors."
+          }
+        ]
+      }
+    },
+    {
+      "type": "HookInAction",
+      "props": {
+        "id": "hook-in-action",
+        "visible": true,
+        "label": "Hooks in action",
+        "title": "See how a hook prevents a disaster.\n[muted]You gave the agent a bad instruction.[/muted]",
+        "intro": "On the left, a Claude Code session. On the right, the hook file."
+      }
+    },
+    {
+      "type": "HookAnatomy",
+      "props": {
+        "id": "hook-anatomy",
+        "visible": true,
+        "label": "Hook API",
+        "title": "Hooks are just simple TS code.\n[muted]Reuse them as needed.[/muted]",
+        "intro": "Each file exports one `ClooksHook` object, which can handle one or more events. Every event you handle is a method with a typed context and a typed return. Hover a row below to see where it lives in the source."
+      }
+    },
+    {
+      "type": "Captures",
+      "props": {
+        "id": "captures",
+        "visible": true,
+        "label": "Captures",
+        "title": "Demos from real sessions.",
+        "intro": "Recorded from actual Claude Code transcripts."
+      }
+    },
+    {
+      "type": "Config",
+      "props": {
+        "id": "config",
+        "visible": true,
+        "label": "Config",
+        "title": "Everything lives in `.clooks/`\n[muted]Your team benefits, too.[/muted]",
+        "intro": "`clooks init` writes a self-contained folder. Only the entrypoint script is registered into ` .claude/settings.json`. A teammate cloning the repo gets the same hooks as they're checked in."
+      }
+    },
+    {
+      "type": "Ordering",
+      "props": {
+        "id": "ordering",
+        "visible": true,
+        "label": "Ordering",
+        "title": "Short-circuit complex hooks if other conditions aren't being met."
+      }
+    },
+    {
+      "type": "ScopedConfig",
+      "props": {
+        "id": "scoped-config",
+        "visible": true,
+        "label": "Scoped config",
+        "title": "Global, project and local configuration.\n[muted]Customize as needed.[/muted]",
+        "intro": "Each layer adds its own hooks and can override the ones beneath. Personal defaults in home, team rules in the repo, and a gitignored local file for the exceptions only you need."
+      }
+    },
+    {
+      "type": "TmuxHook",
+      "props": {
+        "id": "tmux-hook",
+        "visible": true,
+        "label": "Hook demos",
+        "pkg": {
+          "title": "Tell your agent they're wrong,\n[muted]let them retry.[/muted]",
+          "intro": "`js-package-manager-guard` stops agents from reaching for the wrong package manager. The block reason tells agents what to do instead — it self-corrects on the next tool call."
+        },
+        "mv": {
+          "title": "Rewrite the tool call\n[muted]instead of blocking.[/muted]",
+          "intro": "`no-bare-mv` catches a plain `mv` and swaps it for `git mv` in flight. The tool call runs once with the rewritten command; the agent doesn't see a block."
+        },
+        "tmux": {
+          "title": "Show agent state\n[muted]in your terminal.[/muted]",
+          "intro": "`tmux-notifications` restyles the current tmux window when agents change state - idle, asking for permission, or back to work."
+        }
+      }
+    },
+    {
+      "type": "Comparison",
+      "props": {
+        "id": "comparison",
+        "visible": true,
+        "label": "vs. native hooks",
+        "title": "Clooks vs. native hooks."
+      }
+    },
+    {
+      "type": "Install",
+      "props": {
+        "id": "install",
+        "visible": true,
+        "label": "Install",
+        "title": "Installing clooks is easy.",
+        "intro": "",
+        "paths": [
+          {
+            "id": "claude",
+            "label": "Claude",
+            "blurb": "Add the plugin from your terminal, then run setup inside Claude Code to install Clooks and configure your project.",
+            "steps": [
+              {
+                "t": "Add the marketplace",
+                "cmd": "claude plugin marketplace add codestripes-dev/clooks-marketplace",
+                "d": "Adds the Clooks marketplace to Claude Code.",
+                "slash": false
+              },
+              {
+                "t": "Install the clooks plugin",
+                "cmd": "claude plugin install clooks@clooks-marketplace",
+                "d": "Adds the setup skill and a reminder if Clooks needs setup. Reload Claude Code if the skill is not available yet.",
+                "slash": false
+              },
+              {
+                "t": "In Claude Code: run setup",
+                "cmd": "/clooks:setup",
+                "d": "Reuses or installs Clooks, then configures hooks for Claude Code in your project. Setup also offers user-wide hooks.",
+                "slash": true
+              },
+              {
+                "t": "Optional — install a hook pack",
+                "cmd": "claude plugin install clooks-core-hooks@clooks-marketplace --scope user",
+                "d": "Adds ready-made hooks, including no-rm-rf, to your Claude Code setup.",
+                "slash": false
+              }
+            ]
+          },
+          {
+            "id": "codex",
+            "label": "Codex",
+            "blurb": "Add the plugin from your terminal, then run setup inside Codex to install Clooks and configure your project.",
+            "steps": [
+              {
+                "t": "Add the marketplace",
+                "cmd": "codex plugin marketplace add codestripes-dev/clooks-marketplace",
+                "d": "Adds the Clooks marketplace to Codex.",
+                "slash": false
+              },
+              {
+                "t": "Install the Clooks plugin",
+                "cmd": "codex plugin add clooks@clooks-marketplace",
+                "d": "Adds $clooks:setup and a startup reminder. Review the plugin hooks when Codex prompts you.",
+                "slash": false
+              },
+              {
+                "t": "In Codex: run setup",
+                "cmd": "$clooks:setup",
+                "d": "Send this as a Codex message, not a shell command. Setup reuses or installs Clooks and configures your project. Review the generated hooks when prompted. You can also ask setup to configure both agents or user-wide hooks.",
+                "slash": true
+              },
+              {
+                "t": "Optional: add a hook from your terminal",
+                "cmd": "clooks add https://github.com/codestripes-dev/clooks-marketplace/blob/master/clooks-core-hooks/hooks/no-rm-rf.ts",
+                "d": "Downloads and registers one hook. The Codex plugin does not install hook packs for you. Review hook code before running it.",
+                "slash": false
+              }
+            ]
+          },
+          {
+            "id": "binary",
+            "label": "Direct",
+            "blurb": "No plugin required. Download Clooks, then configure your project for Codex, Claude Code, or both. Review hooks when your agent prompts you.",
+            "steps": [
+              {
+                "t": "Download the binary",
+                "cmd": "chmod +x clooks-linux-x64\nmkdir -p \"$HOME/.local/bin\"\ncp clooks-linux-x64 \"$HOME/.local/bin/clooks\"\nexport PATH=\"$HOME/.local/bin:$PATH\"\nclooks --version",
+                "d": "Download from [GitHub releases](https://github.com/codestripes-dev/clooks/releases/latest) first. These commands use the linux-x64 asset in your current directory; substitute clooks-darwin-arm64, clooks-darwin-x64, clooks-linux-x64-baseline, or clooks-linux-arm64 for your platform. Keep ~/.local/bin on PATH in your shell profile.",
+                "slash": false
+              },
+              {
+                "t": "Initialize Codex in your repo",
+                "cmd": "clooks init --agent codex",
+                "d": "Writes shared .clooks/ files and registers eleven events in .codex/hooks.json. Native project trust and hook review still apply. Re-run init to refresh an existing installation, including SessionEnd registration.",
+                "slash": false
+              },
+              {
+                "t": "Or register both agents",
+                "cmd": "clooks init --agent all",
+                "d": "Registers Claude Code in .claude/settings.json and Codex in .codex/hooks.json using the same .clooks/clooks.yml. Plain clooks init (or --agent claude-code) registers only Claude Code.",
+                "slash": false
+              },
+              {
+                "t": "Install a hook",
+                "cmd": "clooks add https://github.com/codestripes-dev/clooks-marketplace/blob/master/clooks-core-hooks/hooks/no-rm-rf.ts",
+                "d": "Downloads and registers this single TypeScript hook. Repository pack installs require clooks-pack.json at the repository root; a marketplace tree/pack URL does not select a nested pack. Review hook code before running it.",
+                "slash": false
+              },
+              {
+                "t": "Share the project setup",
+                "cmd": "git add .clooks .codex/hooks.json",
+                "d": "Review and commit the configuration and vendored hooks. For both agents, include .claude/settings.json too. Codex registrations contain absolute checkout paths: each teammate must re-run init in their own checkout.",
+                "slash": false
+              }
+            ]
+          }
+        ],
+        "notesLabel": "Heads up",
+        "notes": [
+          {
+            "text": "Global mode: run `clooks init --global --agent all` to use hooks from `~/.clooks/` across Claude Code and Codex projects."
+          }
+        ]
+      }
+    },
+    {
+      "type": "WhyNotPlugin",
+      "props": {
+        "id": "why-not-plugin",
+        "visible": true,
+        "label": "On the plugin system",
+        "title": "Why isn't Clooks *just* a plugin?",
+        "intro": "Claude Code and Codex plugins help you install and configure Clooks. The runtime is a standalone binary with shared configuration.",
+        "setup": "At startup, the plugin only reminds you if setup is needed. The Codex plugin does not install hook packs; add hooks separately with clooks add, although installation through plugins for additional hooks is also supported."
+      }
+    },
+    {
+      "type": "FAQ",
+      "props": {
+        "id": "faq",
+        "visible": true,
+        "label": "FAQ",
+        "title": "Common questions.",
+        "faqs": [
+          {
+            "q": "Why not just write bash?",
+            "a": "Bash is great for 3 lines. Past that you want imports, types, and tests — and you want them to keep working when the agent does something surprising. Clooks gives you TypeScript with typed event contracts; you can still shell out from inside a hook."
+          },
+          {
+            "q": "Why Bun?",
+            "a": "Bun lets Clooks run TypeScript hooks without a separate build step. Clooks ships as a single executable, so you do not need Bun installed to use it."
+          },
+          {
+            "q": "What happens when a hook crashes?",
+            "a": "By default, Clooks blocks the action when the event supports it. A hook that runs after a tool cannot undo its work, and a session-end hook cannot prevent shutdown. Set onError to \"continue\" or \"trace\" to keep going after errors. A hook is disabled after three consecutive failures by default; a successful run resets the counter."
+          },
+          {
+            "q": "Is there a registry of hooks I can browse?",
+            "a": "Yes: browse clooks-core-hooks and clooks-project-hooks in codestripes-dev/clooks-marketplace. Install packs through Claude plugins, or use clooks add with an individual hook URL for either agent. The Codex plugin sets up Clooks but does not install hook packs. Each hook documents its supported tools and configuration."
+          },
+          {
+            "q": "Which agents are supported?",
+            "a": "Claude Code and Codex. Available events, tools, and hook decisions differ between agents; see the README for details. Other agents are not currently supported."
+          }
+        ]
+      }
+    },
+    {
+      "type": "Footer",
+      "props": {
+        "id": "footer",
+        "visible": true,
+        "intro": "A TypeScript hook runtime for Claude Code and Codex. Open source under MIT.",
+        "builtWith": "built with bun",
+        "license": "MIT License · joe@clooks.cc",
+        "copyright": "Codestripes",
+        "columns": [
+          {
+            "label": "Project",
+            "links": [
+              {
+                "label": "GitHub",
+                "href": "https://github.com/codestripes-dev/clooks"
+              },
+              {
+                "label": "Marketplace",
+                "href": "https://github.com/codestripes-dev/clooks-marketplace"
+              },
+              {
+                "label": "Core hooks",
+                "href": "https://github.com/codestripes-dev/clooks-marketplace/tree/master/clooks-core-hooks"
+              },
+              {
+                "label": "Project hooks",
+                "href": "https://github.com/codestripes-dev/clooks-marketplace/tree/master/clooks-project-hooks"
+              }
+            ]
+          },
+          {
+            "label": "Docs",
+            "links": [
+              {
+                "label": "Install",
+                "href": "#install"
+              },
+              {
+                "label": "Agent support",
+                "href": "#support"
+              },
+              {
+                "label": "Hook API",
+                "href": "#hook"
+              },
+              {
+                "label": "Config",
+                "href": "#config"
+              },
+              {
+                "label": "FAQ",
+                "href": "#faq"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

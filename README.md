@@ -955,6 +955,42 @@ bun run generate:schema        # Regenerate clooks.schema.json from source
 
 </details>
 
+## Website development
+
+The local Puck editor edits the existing website sections and saves their copy,
+order, visibility, accent, hero layout, and search/social metadata in
+`page/content.json`. Code examples and demo transcripts stay in `page/*.jsx`.
+
+```sh
+CF_PAGES=1 bun install          # Skip the optional Git-hook prepare step
+bun run dev:page                # Prints an editor URL on a free localhost port
+bun run typecheck:page          # Isolated website TypeScript check
+bun run test:page               # Focused server and Puppeteer browser checks
+bun run build:page              # Prerender the saved website into dist/
+```
+
+Open the printed `/editor` URL, select a section, edit its fields, and click
+**Save**. The preview updates while you type; **Saved website** opens the
+saved result. Desktop/Mobile buttons let you check both layouts.
+
+Changes stay local and are not published automatically. If another tab or text
+editor changed the file, use **Export draft** before reloading to keep your edits.
+The server binds only to `127.0.0.1`; set
+`PAGE_EDITOR_PORT` if you need a fixed port. Restart it after changing JSX or
+editor source; content saves are read immediately.
+
+Copy fields support line breaks, backtick code, `*emphasis*`,
+`[label](https://example.com)` links, and `[muted]muted text[/muted]`.
+Literal paths such as `~/.clooks/` remain unchanged.
+
+Browser tests launch the installed Puppeteer Chrome and use a disposable
+content store with shared read-only website assets. They never save to live
+`page/content.json`.
+The website tests/configuration are separate from the engine test suite and
+its coverage requirements. Production contains the static website and saved
+content, with no Puck bundle, editor assets, or editor server. The page build
+preserves unrelated files in `dist/`, including release binaries and signatures.
+
 ## Roadmap
 
 - **Remaining event parity** — `CwdChanged`, `FileChanged`, `Elicitation`,

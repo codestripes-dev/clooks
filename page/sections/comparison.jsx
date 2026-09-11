@@ -1,4 +1,4 @@
-function ComparisonSection({ accent }) {
+function ComparisonSection({ accent, content }) {
   const rows = [
     ['Failure mode',           'Provider- and event-defined behavior',        'Configurable error policy; refusal depends on the native event'],
     ['Language',               'Provider-defined handler contracts',          'TypeScript with typed event contracts'],
@@ -13,12 +13,12 @@ function ComparisonSection({ accent }) {
   return (
     <section className="section">
       <div style={{ maxWidth: 1120, margin: '0 auto' }}>
-        <SectionLabel accent={accent}>vs. native hooks</SectionLabel>
+        <SectionLabel accent={accent}>{content.label}</SectionLabel>
         <h2 style={{
           fontSize: 'clamp(28px, 3vw, 38px)', lineHeight: 1.15,
           letterSpacing: -0.8, fontWeight: 500, margin: '0 0 40px', maxWidth: 640,
         }}>
-          Clooks vs. native hooks.
+          <Copy text={content.title} heading/>
         </h2>
         <div style={{ border: `1px solid ${COL.line}` }}>
           {!stack && (
@@ -80,12 +80,6 @@ function ComparisonSection({ accent }) {
               )}
             </div>
           ))}
-        </div>
-        <div id="support" style={{ marginTop: 36, fontSize: 14, lineHeight: 1.65, color: COL.fgMute }}>
-          <h3 style={{ fontSize: 20, color: COL.fg, margin: '0 0 12px' }}>Claude Code + Codex support</h3>
-          <p>Claude Code retains its existing event and decision behavior. Codex supports eleven events: SessionStart, SubagentStart, PreToolUse, PermissionRequest, PostToolUse, PreCompact, PostCompact, UserPromptSubmit, SubagentStop, Stop, and SessionEnd. Interrupt is not supported.</p>
-          <p>Shared configuration and ordering, provider-specific decisions and tool inputs. Codex exec_command maps to Bash, but apply_patch is not Claude Edit/Write. Claude keeps native ctx.ask; Codex PreToolUse handler ask uses a Clooks denial/token fallback, not a native approval prompt. Native trust, approvals, and sandbox policy still apply.</p>
-          <p>Codex startup and post-compaction/session-end handlers are observers. SessionEnd cannot veto closure, and post-tool feedback cannot undo side effects. Event support is not universal enforcement or full parity. See the <a href="https://github.com/codestripes-dev/clooks#readme">README</a> and <a href="https://github.com/codestripes-dev/clooks/blob/master/docs/domain/cross-agent-hooks.md">capability details</a> for exact limits.</p>
         </div>
       </div>
     </section>

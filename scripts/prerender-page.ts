@@ -4,19 +4,22 @@
 // the runtime), serves dist/ locally, loads it in headless Chrome, waits for
 // React to mount, and writes the settled DOM back as dist/index.html.
 //
-// Local dev (`open page/index.html`) still uses Babel Standalone in-browser;
-// only the deployed dist/ drops it.
+// Local development uses bun run dev:page; the deployed site has no editor code.
 
 import puppeteer from 'puppeteer'
-import { cpSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { validateContent } from '../website-editor/content-schema'
+import { sourceScripts } from '../website-editor/page-assets'
 
-const SRC = 'page'
-const OUT = 'dist'
+const SRC = process.env.PAGE_SOURCE_DIR ?? 'page'
+const OUT = process.env.PAGE_OUTPUT_DIR ?? 'dist'
 const RENDER_TIMEOUT_MS = 15_000
 
 function copyPageToDist(): void {
-  rmSync(OUT, { recursive: true, force: true })
+  // dist/ is shared with release/checksum/signing artifacts. Overwrite only
+  // page-owned paths; never clear the output directory or unrelated files.
+  mkdirSync(OUT, { recursive: true })
   cpSync(SRC, OUT, { recursive: true })
 }
 
@@ -33,16 +36,8 @@ function transpileJsxFiles(): void {
       },
     }),
   })
-  const walk = (dir: string): string[] => {
-    const out: string[] = []
-    for (const entry of readdirSync(dir)) {
-      const full = join(dir, entry)
-      if (statSync(full).isDirectory()) out.push(...walk(full))
-      else if (entry.endsWith('.jsx')) out.push(full)
-    }
-    return out
-  }
-  for (const src of walk(OUT)) {
+  for (const relative of [...sourceScripts, 'app.jsx']) {
+    const src = join(OUT, relative)
     const out = src.replace(/\.jsx$/, '.js')
     const code = transpiler.transformSync(readFileSync(src, 'utf8'))
     writeFileSync(out, code)
@@ -62,7 +57,7 @@ function inlineFontsCss(html: string): string {
     throw new Error(`Expected index.html to contain ${linkTag}`)
   }
   rmSync(cssPath)
-  return html.replace(linkTag, `<style>${css}</style>`)
+  return html.replace(linkTag, () => `<style>${css}</style>`)
 }
 
 // Rewrite dist/index.html to drop Babel Standalone, swap .jsx refs to .js,
@@ -109,6 +104,7 @@ function transformIndexHtml(): void {
 
 async function serveDist(): Promise<{ port: number; stop: () => void }> {
   const server = Bun.serve({
+    hostname: '127.0.0.1',
     port: 0,
     async fetch(req) {
       const url = new URL(req.url)
@@ -118,27 +114,30 @@ async function serveDist(): Promise<{ port: number; stop: () => void }> {
       return new Response(file)
     },
   })
-  return { port: server.port, stop: () => void server.stop(true) }
+  return { port: server.port!, stop: () => void server.stop(true) }
 }
 
 // Capture only the rendered #root markup. We splice it back into the
 // transformed dist/index.html so all the (now plain) <script> tags stay in
 // their original order and scope.
-async function prerenderRoot(port: number): Promise<string> {
+async function prerenderRoot(port: number): Promise<{ root: string; metadata: string }> {
   const browser = await puppeteer.launch({
     headless: true,
     args: ['--no-sandbox', '--disable-setuid-sandbox'],
   })
   try {
     const page = await browser.newPage()
+    await page.evaluateOnNewDocument(() => {
+      Object.assign(window, { __CLOOKS_PRERENDER__: true })
+    })
     await page.setViewport({ width: 1280, height: 900 })
     const pageErrors: string[] = []
-    page.on('pageerror', (err) => pageErrors.push(err.message))
-    await page.goto(`http://localhost:${port}/`, { waitUntil: 'networkidle0' })
+    page.on('pageerror', (err) => pageErrors.push(String(err)))
+    await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'networkidle0' })
     await page.waitForFunction(
       () => {
         const root = document.getElementById('root')
-        return root !== null && root.children.length > 0
+        return root?.dataset.contentReady === 'true'
       },
       { timeout: RENDER_TIMEOUT_MS },
     )
@@ -147,33 +146,44 @@ async function prerenderRoot(port: number): Promise<string> {
     }
     return await page.evaluate(() => {
       const root = document.getElementById('root')
-      return root ? root.innerHTML : ''
+      return {
+        root: root ? root.innerHTML : '',
+        metadata:
+          '<title>' +
+          document.title.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') +
+          '</title>' +
+          [...document.querySelectorAll('[data-page-meta]')].map((el) => el.outerHTML).join('\n'),
+      }
     })
   } finally {
     await browser.close()
   }
 }
 
-function spliceIntoTemplate(template: string, rootHtml: string): string {
+export function spliceIntoTemplate(template: string, rootHtml: string): string {
   const marker = '<div id="root"></div>'
   if (!template.includes(marker)) {
     throw new Error(`Expected template to contain ${marker}`)
   }
-  return template.replace(marker, `<div id="root">${rootHtml}</div>`)
+  return template.replace(marker, () => `<div id="root">${rootHtml}</div>`)
 }
 
 async function main(): Promise<void> {
   const t0 = performance.now()
+  validateContent(JSON.parse(readFileSync(join(SRC, 'content.json'), 'utf8')))
   copyPageToDist()
   transpileJsxFiles()
   transformIndexHtml()
   const server = await serveDist()
   try {
-    const rootHtml = await prerenderRoot(server.port)
+    const { root: rootHtml, metadata } = await prerenderRoot(server.port)
     if (rootHtml.length < 1000)
       throw new Error(`Rendered #root suspiciously small: ${rootHtml.length} bytes`)
     const template = readFileSync(join(OUT, 'index.html'), 'utf8')
-    writeFileSync(join(OUT, 'index.html'), spliceIntoTemplate(template, rootHtml))
+    writeFileSync(
+      join(OUT, 'index.html'),
+      spliceIntoTemplate(template, rootHtml).replace('<!-- page:metadata -->', () => metadata),
+    )
     const bytes = statSync(join(OUT, 'index.html')).size
     const ms = Math.round(performance.now() - t0)
     console.log(`Prerendered dist/index.html — ${bytes.toLocaleString()} bytes in ${ms}ms`)
@@ -182,4 +192,4 @@ async function main(): Promise<void> {
   }
 }
 
-await main()
+if (import.meta.main) await main()

@@ -1,64 +1,41 @@
 // Hero + install block + real ClooksHook snippet
 
-function InstallBlock({ cmd, accent, autoType = true, lines = [] }) {
+function InstallBlock({ accent, content, autoType = true }) {
   const vp = useViewport();
   const wrap = vp.isMobile;
   // Only external Codex CLI commands are combined by the copy action.
-  const steps = [
-    {
-      cmd,
-      output: [
-        ['→ Marketplace available to Codex'],
-      ],
-      doneLabel: '✓ added.',
-      typeSpeed: 12,
-      runMs: 500,
-    },
-    {
-      cmd: 'codex plugin add clooks@clooks-marketplace',
-      output: [
-        ['→ Ready to run $clooks:setup in Codex'],
-      ],
-      doneLabel: '✓ plugin added.',
-      typeSpeed: 12,
-      runMs: 500,
-    },
-  ];
+  const steps = content.commands.map(s => ({ ...s, output: [[s.output]], typeSpeed: 12, runMs: 500 }));
 
   const [copied, setCopied] = React.useState(false);
   // For each step: { typed: string, phase: 'idle'|'typing'|'running'|'done' }
-  const [state, setState] = React.useState(
-    steps.map((s, i) => ({ typed: autoType ? '' : s.cmd, phase: autoType ? (i === 0 ? 'typing' : 'idle') : 'done' }))
-  );
+  const [state, setState] = React.useState([]);
+  const copyTimer = React.useRef(null);
+  React.useEffect(() => () => clearTimeout(copyTimer.current), []);
 
   const setStep = React.useCallback((i, patch) => {
     setState(prev => prev.map((s, idx) => idx === i ? { ...s, ...patch } : s));
   }, []);
 
-  // Drive each step's typing + running
+  // One cancellable animation per command snapshot; editor renders props directly.
   React.useEffect(() => {
     if (!autoType) return;
-    const active = state.findIndex(s => s.phase === 'typing');
-    if (active === -1) return;
-    const { cmd: c, typeSpeed, runMs } = steps[active];
-    let i = state[active].typed.length;
-    const iv = setInterval(() => {
-      i++;
-      setStep(active, { typed: c.slice(0, i) });
-      if (i >= c.length) {
-        clearInterval(iv);
-        setTimeout(() => setStep(active, { phase: 'running' }), 300);
-        setTimeout(() => {
+    let timer;
+    setState(steps.map(() => ({ typed: '', phase: 'idle' })));
+    const type = (active, length = 0) => {
+      const step = steps[active];
+      setStep(active, { typed: step.cmd.slice(0, length), phase: 'typing' });
+      if (length < step.cmd.length) timer = setTimeout(() => type(active, length + 1), step.typeSpeed);
+      else timer = setTimeout(() => {
+        setStep(active, { phase: 'running' });
+        timer = setTimeout(() => {
           setStep(active, { phase: 'done' });
-          if (active + 1 < steps.length) {
-            setTimeout(() => setStep(active + 1, { phase: 'typing' }), 500);
-          }
-        }, 300 + runMs);
-      }
-    }, typeSpeed);
-    return () => clearInterval(iv);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.map(s => s.phase).join(',')]);
+          if (active + 1 < steps.length) timer = setTimeout(() => type(active + 1), 500);
+        }, step.runMs);
+      }, 300);
+    };
+    if (steps.length) type(0);
+    return () => clearTimeout(timer);
+  }, [autoType, JSON.stringify(content.commands), setStep]);
 
   const copy = async () => {
     const parts = steps.map(s => s.cmd);
@@ -86,7 +63,8 @@ function InstallBlock({ cmd, accent, autoType = true, lines = [] }) {
     }
     if (ok) {
       setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
+      clearTimeout(copyTimer.current);
+      copyTimer.current = setTimeout(() => setCopied(false), 1800);
     }
   };
 
@@ -101,8 +79,8 @@ function InstallBlock({ cmd, accent, autoType = true, lines = [] }) {
         padding: '10px 14px', borderBottom: `1px solid ${COL.line}`,
         fontSize: 11, color: COL.fgDim, letterSpacing: 0.3,
       }}>
-        <span>Codex plugin · terminal</span>
-        <button onClick={copy} title="Copy the two Codex plugin CLI commands" style={{
+        <span>{content.terminalTitle}</span>
+        <button onClick={copy} title={content.copyLabel} style={{
           background: copied ? accent : 'transparent',
           border: `1px solid ${copied ? accent : COL.line}`,
           color: copied ? COL.bg : COL.fgMute,
@@ -120,13 +98,13 @@ function InstallBlock({ cmd, accent, autoType = true, lines = [] }) {
             <><svg width="11" height="11" viewBox="0 0 12 12" fill="none">
               <rect x="3.5" y="3.5" width="6" height="6" stroke="currentColor" strokeWidth="1" fill="none"/>
               <path d="M2 2 H8 V3" stroke="currentColor" strokeWidth="1" fill="none"/>
-            </svg>Copy Codex commands</>
+            </svg>{content.copyLabel}</>
           )}
         </button>
       </div>
       <div style={{ padding: '16px 18px', overflowX: wrap ? 'visible' : 'auto' }}>
         {steps.map((step, si) => {
-          const s = state[si];
+          const s = autoType ? (state[si] || { typed: '', phase: 'idle' }) : { typed: step.cmd, phase: 'done' };
           if (s.phase === 'idle') return null;
           const showCaret = s.phase === 'typing';
           const showOutput = s.phase === 'running' || s.phase === 'done';
@@ -176,11 +154,11 @@ function InstallBlock({ cmd, accent, autoType = true, lines = [] }) {
       </div>
       <div style={{ padding: '16px 18px', borderTop: `1px solid ${COL.line}` }}>
         <div style={{ color: COL.fgMute, fontSize: 13, marginBottom: 10 }}>
-          Then run setup in Codex, in your project:
+          {content.setupIntro}
         </div>
-        <CmdBox accent={accent} cmd="$clooks:setup" slash copyLabel="Copy Codex setup instruction"/>
+        <CmdBox accent={accent} cmd={content.setupCommand} slash copyLabel="Copy Codex setup instruction"/>
         <p style={{ color: COL.fgDim, fontSize: 12, margin: '10px 0 0' }}>
-          Review native hook trust when prompted. Startup only reminds; it never installs the runtime.
+          {content.setupNote}
         </p>
       </div>
     </div>
@@ -351,21 +329,18 @@ function CompatRow({ accent }) {
   );
 }
 
-function SetupLinks({ accent }) {
+function SetupLinks({ accent, content }) {
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 24 }}>
-      {[
-        ['Install for Claude Code', '#install-claude'],
-        ['Install for Codex', '#install-codex'],
-        ['Direct binary / both', '#install-binary'],
-      ].map(([label, href]) => (
+      {content.links.map(({label, href}) => (
         <a key={href} href={href} style={{ color: accent, fontSize: 14, padding: '8px 0' }}>{label}</a>
       ))}
     </div>
   );
 }
 
-function HeroCode({ tweaks }) {
+function HeroCode({ tweaks, content }) {
+  const { editing } = usePageEnvironment();
   const vp = useViewport();
   return (
     <section style={{
@@ -387,31 +362,28 @@ function HeroCode({ tweaks }) {
           letterSpacing: vp.isMobile ? -1 : -2,
           fontWeight: 500, margin: '0 0 24px', maxWidth: 980,
         }}>
-          TypeScript hooks<br/>
-          <span style={{ color: COL.fgMute }}>for Claude + Codex.</span>
+          {content.title}<br/>
+          <span style={{ color: COL.fgMute }}>{content.subtitle}</span>
         </h1>
         <p style={{
           fontSize: vp.isMobile ? 16 : 18, lineHeight: 1.55, color: COL.fgMute,
           maxWidth: 640, margin: '0 0 40px',
         }}>
-          Write hooks as small TypeScript files.<br/>
-          Clooks runs them when your agents use tools or move through a session.
+          <Copy text={content.intro}/>
         </p>
 
         <CompatRow accent={tweaks.accent}/>
 
-        <SetupLinks accent={tweaks.accent}/>
+        <SetupLinks accent={tweaks.accent} content={content}/>
 
         <div style={{ maxWidth: 720, marginBottom: vp.isMobile ? 40 : 56 }}>
-          {!vp.isMobile && <InstallBlock cmd={tweaks.installCmd} accent={tweaks.accent}/>}
+          {!vp.isMobile && <InstallBlock key={JSON.stringify(content.commands)} content={content} accent={tweaks.accent} autoType={!editing}/>}
           <div style={{
             marginTop: vp.isMobile ? 0 : 14, fontSize: 12, color: COL.fgDim,
             fontFamily: 'JetBrains Mono, monospace',
             display: 'flex', gap: 20, flexWrap: 'wrap',
           }}>
-            <span>macOS · Linux</span>
-            <span>Compiled Bun binary</span>
-            <span>MIT license</span>
+            {content.badges.map((badge, i) => <span key={i}>{badge.text}</span>)}
           </div>
         </div>
 
@@ -421,7 +393,7 @@ function HeroCode({ tweaks }) {
             fontFamily: 'JetBrains Mono, monospace', letterSpacing: 1,
             textTransform: 'uppercase',
           }}>
-            A real hook:
+            {content.snippetLabel}
           </div>
           <HookSnippet/>
         </div>
@@ -430,7 +402,8 @@ function HeroCode({ tweaks }) {
   );
 }
 
-function HeroSplit({ tweaks }) {
+function HeroSplit({ tweaks, content }) {
+  const { editing } = usePageEnvironment();
   const vp = useViewport();
   const stack = vp.isMobile || vp.isTablet;
   return (
@@ -459,24 +432,21 @@ function HeroSplit({ tweaks }) {
             letterSpacing: vp.isMobile ? -1 : -1.6,
             fontWeight: 500, margin: '0 0 22px',
           }}>
-            TypeScript hooks<br/>
-            <span style={{ color: COL.fgMute }}>for Claude + Codex.</span>
+            {content.title}<br/>
+            <span style={{ color: COL.fgMute }}>{content.subtitle}</span>
           </h1>
           <p style={{ fontSize: 17, lineHeight: 1.55, color: COL.fgMute, margin: '0 0 32px' }}>
-            Write hooks as small TypeScript files.<br/>
-            Clooks runs them when your agents use tools or move through a session.
+            <Copy text={content.intro}/>
           </p>
           <CompatRow accent={tweaks.accent}/>
-          <SetupLinks accent={tweaks.accent}/>
-          {!vp.isMobile && <InstallBlock cmd={tweaks.installCmd} accent={tweaks.accent}/>}
+          <SetupLinks accent={tweaks.accent} content={content}/>
+          {!vp.isMobile && <InstallBlock key={JSON.stringify(content.commands)} content={content} accent={tweaks.accent} autoType={!editing}/>}
           <div style={{
             marginTop: vp.isMobile ? 0 : 14, fontSize: 12, color: COL.fgDim,
             fontFamily: 'JetBrains Mono, monospace',
             display: 'flex', gap: 20, flexWrap: 'wrap',
           }}>
-            <span>macOS · Linux</span>
-            <span>Compiled Bun binary</span>
-            <span>MIT license</span>
+            {content.badges.map((badge, i) => <span key={i}>{badge.text}</span>)}
           </div>
         </div>
         <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', gap: 16 }}>

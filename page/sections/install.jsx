@@ -1,80 +1,22 @@
-function InstallSection({ accent, tweaks }) {
+function InstallSection({ accent, tweaks, content }) {
   const vp = useViewport();
+  const { targetWindow } = usePageEnvironment();
+  const win = targetWindow || window;
   const stack = vp.isMobile;
   const [path, setPath] = React.useState(() => {
-    const route = window.location.hash.replace('#install-', '');
+    const route = win.location.hash.replace('#install-', '');
     return ['claude', 'codex', 'binary'].includes(route) ? route : 'codex';
   });
   React.useEffect(() => {
     const selectRoute = () => {
-      const route = window.location.hash.replace('#install-', '');
+      const route = win.location.hash.replace('#install-', '');
       if (['claude', 'codex', 'binary'].includes(route)) setPath(route);
     };
-    window.addEventListener('hashchange', selectRoute);
-    return () => window.removeEventListener('hashchange', selectRoute);
-  }, []);
+    win.addEventListener('hashchange', selectRoute);
+    return () => win.removeEventListener('hashchange', selectRoute);
+  }, [win]);
 
-  const paths = {
-    claude: {
-      label: 'Claude plugin',
-      blurb: 'Add the plugin from your terminal, then run setup inside Claude Code to install Clooks and configure your project.',
-      steps: [
-        { t: 'Add the marketplace',
-          cmd: 'claude plugin marketplace add codestripes-dev/clooks-marketplace',
-          d: 'Adds the Clooks marketplace to Claude Code.' },
-        { t: 'Install the clooks plugin',
-          cmd: 'claude plugin install clooks@clooks-marketplace',
-          d: 'Adds the setup skill and a reminder if Clooks needs setup. Reload Claude Code if the skill is not available yet.' },
-        { t: 'In Claude Code: run setup',
-          cmd: '/clooks:setup',
-          d: 'Reuses or installs Clooks, then configures hooks for Claude Code in your project. Setup also offers user-wide hooks.',
-          slash: true },
-        { t: 'Optional — install a hook pack',
-          cmd: 'claude plugin install clooks-core-hooks@clooks-marketplace --scope user',
-          d: 'Adds ready-made hooks, including no-rm-rf, to your Claude Code setup.' },
-      ],
-    },
-    codex: {
-      label: 'Codex plugin',
-      blurb: 'Add the plugin from your terminal, then run setup inside Codex to install Clooks and configure your project.',
-      steps: [
-        { t: 'Add the marketplace',
-          cmd: 'codex plugin marketplace add codestripes-dev/clooks-marketplace',
-          d: 'Adds the Clooks marketplace to Codex.' },
-        { t: 'Install the Clooks plugin',
-          cmd: 'codex plugin add clooks@clooks-marketplace',
-          d: 'Adds $clooks:setup and a startup reminder. Review the plugin hooks when Codex prompts you.' },
-        { t: 'In Codex: run setup',
-          cmd: '$clooks:setup',
-          slash: true,
-          d: 'Send this as a Codex message, not a shell command. Setup reuses or installs Clooks and configures your project. Review the generated hooks when prompted. You can also ask setup to configure both agents or user-wide hooks.' },
-        { t: 'Optional: add a hook from your terminal',
-          cmd: 'clooks add https://github.com/codestripes-dev/clooks-marketplace/blob/master/clooks-core-hooks/hooks/no-rm-rf.ts',
-          d: 'Downloads and registers one hook. The Codex plugin does not install hook packs for you. Review hook code before running it.' },
-      ],
-    },
-    binary: {
-      label: 'Direct binary',
-      blurb: 'No plugin required. Download Clooks, then configure your project for Codex, Claude Code, or both. Review hooks when your agent prompts you.',
-      steps: [
-        { t: 'Download the binary',
-          cmd: 'chmod +x clooks-linux-x64\nmkdir -p "$HOME/.local/bin"\ncp clooks-linux-x64 "$HOME/.local/bin/clooks"\nexport PATH="$HOME/.local/bin:$PATH"\nclooks --version',
-          d: <>Download from <a href="https://github.com/codestripes-dev/clooks/releases/latest">GitHub releases</a> first. These commands use the linux-x64 asset in your current directory; substitute clooks-darwin-arm64, clooks-darwin-x64, clooks-linux-x64-baseline, or clooks-linux-arm64 for your platform. Keep ~/.local/bin on PATH in your shell profile.</> },
-        { t: 'Initialize Codex in your repo',
-          cmd: 'clooks init --agent codex',
-          d: 'Writes shared .clooks/ files and registers eleven events in .codex/hooks.json. Native project trust and hook review still apply. Re-run init to refresh an existing installation, including SessionEnd registration.' },
-        { t: 'Or register both agents',
-          cmd: 'clooks init --agent all',
-          d: 'Registers Claude Code in .claude/settings.json and Codex in .codex/hooks.json using the same .clooks/clooks.yml. Plain clooks init (or --agent claude-code) registers only Claude Code.' },
-        { t: 'Install a hook',
-          cmd: 'clooks add https://github.com/codestripes-dev/clooks-marketplace/blob/master/clooks-core-hooks/hooks/no-rm-rf.ts',
-          d: 'Downloads and registers this single TypeScript hook. Repository pack installs require clooks-pack.json at the repository root; a marketplace tree/pack URL does not select a nested pack. Review hook code before running it.' },
-        { t: 'Share the project setup',
-          cmd: 'git add .clooks .codex/hooks.json',
-          d: 'Review and commit the configuration and vendored hooks. For both agents, include .claude/settings.json too. Codex registrations contain absolute checkout paths: each teammate must re-run init in their own checkout.' },
-      ],
-    },
-  };
+  const paths = Object.fromEntries(content.paths.map(p => [p.id, p]));
 
   const active = paths[path];
 
@@ -82,15 +24,15 @@ function InstallSection({ accent, tweaks }) {
     <section id="install" className="section section--elev">
       <span id="install-claude"/><span id="install-codex"/><span id="install-binary"/>
       <div style={{ maxWidth: 1120, margin: '0 auto' }}>
-        <SectionLabel accent={accent}>Install</SectionLabel>
+        <SectionLabel accent={accent}>{content.label}</SectionLabel>
         <h2 style={{
           fontSize: 'clamp(32px, 3.6vw, 46px)', lineHeight: 1.1,
           letterSpacing: -1, fontWeight: 500, margin: '0 0 20px', maxWidth: 780,
         }}>
-          Three ways to install.
+          <Copy text={content.title} heading/>
         </h2>
         <p style={{ fontSize: 15, color: COL.fgMute, maxWidth: 640, margin: '0 0 28px', lineHeight: 1.6 }}>
-          Choose your setup path. Plugins add the setup command; Clooks is installed when you run it.
+          <Copy text={content.intro}/>
         </p>
 
         <div style={{
@@ -100,7 +42,11 @@ function InstallSection({ accent, tweaks }) {
           {Object.entries(paths).map(([key, p]) => (
             <button key={key} onClick={() => {
               setPath(key);
-              window.history.replaceState(null, '', `#install-${key}`);
+              // srcdoc inherits the editor's base URL. Resolve against the
+              // preview's own URL so its hash never targets the editor page.
+              const url = new URL(win.location.href);
+              url.hash = `install-${key}`;
+              win.history.replaceState(null, '', url.href);
             }} aria-pressed={path === key} style={{
               background: 'transparent', border: 'none', cursor: 'pointer',
               padding: vp.isMobile ? '10px 8px 12px' : '12px 20px 14px',
@@ -141,7 +87,7 @@ function InstallSection({ accent, tweaks }) {
                   {s.t}
                 </div>
                 <div style={{ fontSize: 14, color: COL.fgMute, lineHeight: 1.55, maxWidth: 440 }}>
-                  {s.d}
+                  <Copy text={s.d}/>
                 </div>
                 {(stack || vp.isTablet) && (
                   <div style={{ marginTop: 14 }}>
@@ -170,12 +116,9 @@ function InstallSection({ accent, tweaks }) {
             color: accent, fontFamily: 'JetBrains Mono, monospace',
             fontSize: 11, letterSpacing: 1, textTransform: 'uppercase', paddingTop: 2,
             whiteSpace: 'nowrap',
-          }}>Heads up</span>
+          }}>{content.notesLabel}</span>
           <div style={{ fontSize: 14, color: COL.fgMute, lineHeight: 1.65 }}>
-            <p style={{ margin: '0 0 12px' }}>Already have Clooks? Setup reuses it. To update, run the setup command with update, or use your original installation method.</p>
-            <p style={{ margin: '0 0 12px' }}>Your agent must be able to find clooks on PATH. After adding it, relaunch the agent if needed. Approve hooks when your agent prompts you.</p>
-            <p style={{ margin: '0 0 12px' }}>After cloning, moving, or creating a worktree, re-run init for your agent before using Codex hooks: project registrations contain absolute paths.</p>
-            For user-wide hooks, run <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>clooks init --global --agent codex</code>. Use --agent all for both agents. Shared hooks live in ~/.clooks/; Codex settings go under CODEX_HOME (default ~/.codex).
+            {content.notes.map((note, i) => <p key={i} style={{ margin: i === content.notes.length - 1 ? 0 : '0 0 12px' }}><Copy text={note.text}/></p>)}
           </div>
         </div>
       </div>

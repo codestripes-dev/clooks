@@ -1,4 +1,4 @@
-function HookInActionSection({ accent }) {
+function HookInActionSection({ accent, content }) {
   const vp = useViewport();
   const stack = vp.isMobile || vp.isTablet;
   // Timeline (ms) of a single loop. Each tick advances the scene.
@@ -144,16 +144,15 @@ function HookInActionSection({ accent }) {
   return (
     <section ref={sectionRef} className="section section--elev">
       <div style={{ maxWidth: 1200, margin: '0 auto' }}>
-        <SectionLabel accent={accent}>Hook in action</SectionLabel>
+        <SectionLabel accent={accent}>{content.label}</SectionLabel>
         <h2 style={{
           fontSize: 'clamp(32px, 3.6vw, 46px)', lineHeight: 1.1,
           letterSpacing: -1, fontWeight: 500, margin: '0 0 20px', maxWidth: 820,
         }}>
-          A hook decides.<br/>
-          <span style={{ color: COL.fgMute }}>Step by step.</span>
+          <Copy text={content.title} heading/>
         </h2>
         <p style={{ fontSize: 15, color: COL.fgMute, maxWidth: 680, margin: '0 0 28px', lineHeight: 1.6 }}>
-          On the left, a Claude Code session. On the right, the hook file.
+          <Copy text={content.intro}/>
         </p>
 
         {/* Step ribbon — clickable */}

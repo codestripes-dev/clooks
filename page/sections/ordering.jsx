@@ -1,4 +1,4 @@
-function OrderingSection({ accent }) {
+function OrderingSection({ accent, content }) {
   const vp = useViewport();
   const stack = vp.isMobile || vp.isTablet;
 
@@ -32,12 +32,12 @@ function OrderingSection({ accent }) {
   return (
     <section id="ordering" className="section section--elev">
       <div style={{ maxWidth: 1120, margin: '0 auto' }}>
-        <SectionLabel accent={accent}>Ordering</SectionLabel>
+        <SectionLabel accent={accent}>{content.label}</SectionLabel>
         <h2 style={{
           fontSize: 'clamp(32px, 3.6vw, 46px)', lineHeight: 1.1,
           letterSpacing: -1, fontWeight: 500, margin: '0 0 56px', maxWidth: 780,
         }}>
-          Slow hooks shouldn't fire for{'\u00a0'}nothing.
+          <Copy text={content.title} heading/>
         </h2>
 
         {/* Sub-block 1: problem */}

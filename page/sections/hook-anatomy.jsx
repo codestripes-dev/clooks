@@ -1,4 +1,4 @@
-function HookAnatomySection({ accent }) {
+function HookAnatomySection({ accent, content }) {
   const vp = useViewport();
   const stack = vp.isMobile || vp.isTablet;
   const items = [
@@ -130,18 +130,15 @@ function HookAnatomySection({ accent }) {
   return (
     <section id="hook" className="section">
       <div style={{ maxWidth: 1120, margin: '0 auto' }}>
-        <SectionLabel accent={accent}>Hook API</SectionLabel>
+        <SectionLabel accent={accent}>{content.label}</SectionLabel>
         <h2 style={{
           fontSize: 'clamp(32px, 3.6vw, 46px)', lineHeight: 1.1,
           letterSpacing: -1, fontWeight: 500, margin: '0 0 20px', maxWidth: 780,
         }}>
-          A hook is an object.<br/>
-          <span style={{ color: COL.fgMute }}>One file. One hook. Many{'\u00a0'}events.</span>
+          <Copy text={content.title} heading/>
         </h2>
         <p style={{ fontSize: 15, color: COL.fgMute, maxWidth: 640, margin: '0 0 56px', lineHeight: 1.6 }}>
-          Each file exports one <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>ClooksHook</code> object, which can handle one or more events.
-          Every event you handle is a method with a typed context and a typed return.
-          Hover a row below to see where it lives in the{'\u00a0'}source.
+          <Copy text={content.intro}/>
         </p>
 
         <div style={{

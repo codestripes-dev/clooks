@@ -53,7 +53,7 @@ function TmuxWindowBar({ windows, flash = 0, paneDim = false, paneContent, accen
   );
 }
 
-function TmuxHookSection({ accent }) {
+function TmuxHookSection({ accent, content }) {
   const vp = useViewport();
   const stack = vp.isMobile || vp.isTablet;
 
@@ -450,8 +450,8 @@ function TmuxHookSection({ accent }) {
       hookLines: pkgHookLines,
       scenes: pkgScenes,
       elided: <>Simplified for display.</>,
-      heading: <>Block with a reason,<br/><span style={{ color: COL.fgMute }}>let Claude retry.</span></>,
-      lead: <><code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>js-package-manager-guard</code> stops Claude from reaching for the wrong package manager. The block reason tells Claude what to do instead — it self-corrects on the next tool call.</>,
+      heading: <Copy text={content.pkg.title} heading/>,
+      lead: <Copy text={content.pkg.intro}/>,
     },
     {
       id: 'mv',
@@ -462,8 +462,8 @@ function TmuxHookSection({ accent }) {
       hookLines: mvHookLines,
       scenes: mvScenes,
       elided: <>Simplified for display.</>,
-      heading: <>Rewrite the tool call<br/><span style={{ color: COL.fgMute }}>instead of blocking.</span></>,
-      lead: <><code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>no-bare-mv</code> catches a plain <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>mv</code> and swaps it for <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>git mv</code> in flight. The tool call runs once with the rewritten command; the agent doesn't see a block.</>,
+      heading: <Copy text={content.mv.title} heading/>,
+      lead: <Copy text={content.mv.intro}/>,
     },
     {
       id: 'tmux',
@@ -474,8 +474,8 @@ function TmuxHookSection({ accent }) {
       hookLines: tmuxHookLines,
       scenes: tmuxScenes,
       elided: <>Simplified for display.</>,
-      heading: <>Show agent state<br/><span style={{ color: COL.fgMute }}>in your terminal.</span></>,
-      lead: <><code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>tmux-notifications</code> restyles the current tmux window when Claude changes state — idle, asking for permission, or back to work. The status bar carries the signal.</>,
+      heading: <Copy text={content.tmux.title} heading/>,
+      lead: <Copy text={content.tmux.intro}/>,
     },
   ];
   const demo = demos[active];
@@ -489,7 +489,7 @@ function TmuxHookSection({ accent }) {
     onPointerLeave={(e) => { if (e.pointerType === 'mouse') setPaused(false); }}
     >
       <div style={{ maxWidth: 1200, margin: '0 auto' }}>
-        <SectionLabel accent={accent}>Hook demos</SectionLabel>
+        <SectionLabel accent={accent}>{content.label}</SectionLabel>
 
         {/* Tab bar — above the heading so each demo can set its own framing */}
         <div style={{
