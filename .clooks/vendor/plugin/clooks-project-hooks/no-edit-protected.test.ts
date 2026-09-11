@@ -1,6 +1,98 @@
 import { describe, expect, test } from 'bun:test'
 import type { PreToolUseContext } from "./types"
-import { hook, globToRegex, normalizePath } from "./no-edit-protected"
+import { hook, globToRegex, normalizePath, patchPaths } from "./no-edit-protected"
+
+describe('native patch and nested lock protection', () => {
+  const patch = (...lines: string[]) => ['*** Begin Patch', ...lines, '*** End Patch'].join('\n')
+  function inspect(command: unknown, overrides = {}, config = hook.meta.config!) {
+    const ctx = {
+      ...makeCtx(),
+      provider: 'codex',
+      toolName: 'apply_patch',
+      toolInput: { command },
+      ...overrides,
+    }
+    return hook.PreToolUse!(ctx as unknown as PreToolUseContext, config)
+  }
+
+  test.each([
+    'package-lock.json',
+    'yarn.lock',
+    'pnpm-lock.yaml',
+    'bun.lock',
+    'bun.lockb',
+    'Gemfile.lock',
+    'poetry.lock',
+    'Pipfile.lock',
+    'composer.lock',
+    'Cargo.lock',
+    'go.sum',
+    'flake.lock',
+    'pubspec.lock',
+  ])('%s remains protected at root and nested paths', (name) => {
+    for (const prefix of ['', 'packages/widget/']) {
+      const filePath = `/home/user/project/${prefix}${name}`
+      for (const provider of [undefined, 'claude-code', 'codex']) {
+        for (const toolName of ['Write', 'Edit', 'MultiEdit']) {
+          const ctx = { ...makeCtx(), provider, toolName, toolInput: { filePath } }
+          expect(hook.PreToolUse!(ctx as PreToolUseContext, DEFAULT_CONFIG)).toMatchObject({ result: 'block' })
+        }
+      }
+      expect(inspect(patch(`*** Delete File: ${prefix}${name}`))).toMatchObject({ result: 'block' })
+      expect(inspect(patch(`*** Delete File: ${prefix}${name}.backup`))).toMatchObject({ result: 'skip' })
+    }
+  })
+
+  test.each(['Add', 'Delete', 'Update'])('%s checks normalized native paths and group disable', (kind) => {
+    const command = patch(`*** ${kind} File: pkg/../bun.lock`, ...(kind === 'Add' ? ['+x'] : kind === 'Update' ? ['@@', '-x', '+y'] : []))
+    expect(inspect(command)).toMatchObject({ result: 'block', reason: expect.stringContaining('lock-files') })
+    expect(inspect(command, {}, { ...DEFAULT_CONFIG, 'lock-files': false })).toMatchObject({ result: 'skip' })
+  })
+
+  test.each([
+    ['bun.lock', 'safe.ts'],
+    ['safe.ts', 'nested/bun.lock'],
+    ['/home/user/project/vendor/old.ts', 'safe.ts'],
+    ['safe.ts', '/home/user/project/vendor/new.ts'],
+  ])('checks both move paths: %s to %s', (source, target) => {
+    const command = patch(`*** Update File: ${source}`, `*** Move to: ${target}`, '@@', '-x', '+y')
+    expect(patchPaths(command)).toEqual([source, target])
+    expect(inspect(command)).toMatchObject({ result: 'block' })
+  })
+
+  test('supported envelopes, later protected files and inert body headers', () => {
+    const command = patch('*** Environment ID: local', '*** Add File: safe.ts', '+*** Delete File: bun.lock', '*** Delete File: nested/bun.lock')
+    expect(patchPaths(command)).toEqual(['safe.ts', 'nested/bun.lock'])
+    for (const body of [command, command.replaceAll('\n', '\r\n')]) {
+      for (const wrapper of ['<<EOF', "<<'EOF'", '<<"EOF"']) {
+        expect(inspect(`${wrapper}\n${body}\nEOF`)).toMatchObject({ result: 'block' })
+      }
+    }
+    expect(inspect(patch('*** Add File: safe.ts', '+*** Delete File: bun.lock'))).toMatchObject({ result: 'skip' })
+  })
+
+  test('explicit provider, exact tool and string payload boundaries', () => {
+    const command = patch('*** Delete File: bun.lock')
+    for (const provider of [undefined, 'claude-code']) {
+      expect(inspect(command, { provider })).toMatchObject({ result: 'skip' })
+    }
+    for (const toolName of ['Bash', 'Read', 'NotebookEdit', 'mcp__apply_patch']) {
+      expect(inspect(command, { toolName })).toMatchObject({ result: 'skip' })
+    }
+    for (const value of [undefined, null, 2, {}]) {
+      expect(inspect(value)).toMatchObject({ result: 'skip' })
+    }
+    expect(inspect(command, { cwd: '' })).toMatchObject({ result: 'skip' })
+    expect(inspect('*** Delete File: bun.lock')).toMatchObject({ result: 'skip' })
+    expect(inspect(patch('*** Delete File: /outside/bun.lock'))).toMatchObject({ result: 'skip' })
+  })
+
+  test('custom rules and exceptions apply after disabled built-ins', () => {
+    const config = { ...DEFAULT_CONFIG, 'lock-files': false, rules: [{ pattern: '**/*.lock', message: 'Custom lock policy', except: ['safe/**'] }] }
+    expect(inspect(patch('*** Delete File: safe/bun.lock'), {}, config)).toMatchObject({ result: 'skip' })
+    expect(inspect(patch('*** Delete File: safe/bun.lock', '*** Delete File: pkg/bun.lock'), {}, config)).toMatchObject({ result: 'block', reason: expect.stringContaining('Custom lock policy') })
+  })
+})
 
 function makeCtx(overrides: Partial<PreToolUseContext> = {}): PreToolUseContext {
   return {
