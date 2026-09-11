@@ -20,7 +20,6 @@ const packs: Record<string, string> = {
 }
 const originals: Record<string, string> = {
   'no-destructive-git': '663aa80fa98f8db926fda0c5c292710092696313a89430a5a18de9bb3abe8e00',
-  'js-package-manager-guard': '7482fb75d6ba43f0675d102238d9a61b34c812f354de0fdc0abceb53c4805268',
 }
 const root = join(import.meta.dir, '../../.clooks/vendor/plugin')
 const digest = (bytes: string | Buffer) => createHash('sha256').update(bytes).digest('hex')
@@ -405,6 +404,55 @@ describe('actual default packs through the compiled binary', () => {
           )
         }
         expect(sandbox.readFile('sentinel.txt')).toBe('unchanged')
+      })
+
+      test('package-manager quoted executables, multiline boundaries and announcement', () => {
+        sandbox = createSandbox()
+        configure({
+          'js-package-manager-guard': {
+            config: {
+              allowed: ['bun'],
+              additionalBlocked: [{ tool: 'fruity', message: 'Use the configured toolchain.' }],
+            },
+          },
+        })
+        for (const command of [
+          '"npm" install',
+          "'npm' install",
+          'bun install\nnpm publish',
+          'CI=true TOKEN="two words" "npm" install',
+          'echo "# inert" # comment\nnpm install',
+          'n\\\npm install',
+          'bun install &&\n"npm" publish',
+          'echo x | cat\nnpm install',
+          '"fruity" deploy',
+          'bun install\nTOKEN="two words" fruity deploy',
+        ]) {
+          denied(
+            shell(provider, command, { 'js-package-manager-guard': 'block' }),
+            'js-package-manager-guard',
+          )
+        }
+        for (const command of [
+          '"bun" install',
+          "'bunx' tool",
+          'echo "npm install"',
+          "echo 'ok\nnpm install'",
+          'echo ok # npm install',
+          'echo ok \\\nnpm install',
+          'echo x |\n npm install',
+          'echo x | # comment\n "npm" install',
+          'echo x |\n fruity deploy',
+          'echo "fruity deploy"',
+          '"/usr/bin/npm" install',
+          './fruity deploy',
+          'cargo build',
+        ]) {
+          permitted(shell(provider, command, { 'js-package-manager-guard': 'skip' }), provider)
+        }
+        const announcement = run(provider, 'SessionStart', { source: 'startup' }, {})
+        expect(announcement.hookSpecificOutput.additionalContext).toContain('shell tools')
+        expect(JSON.stringify(announcement)).not.toContain('The Bash tool')
       })
 
       test('git and package guards retain blocking and permissive decisions', () => {

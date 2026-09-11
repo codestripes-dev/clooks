@@ -9,6 +9,70 @@ import {
   isAdditionalBlocked,
 } from './js-package-manager-guard'
 
+describe('quoted executables and multiline commands', () => {
+  for (const tool of ['npm', 'fruity']) {
+    const entry = { tool, message: 'Use the configured toolchain.' }
+    test.each([
+      [`"${tool}" install`, true],
+      [`'${tool}' install`, true],
+      [`${tool.slice(0, 1)}"${tool.slice(1)}" install`, true],
+      [`\\${tool} install`, true],
+      [`bun install\n${tool} publish`, true],
+      [`bun install\r\n${tool} publish`, true],
+      [`bun install; '${tool}' publish`, true],
+      [`bun install &&\n"${tool}" publish`, true],
+      [`bun install ||\n${tool} publish`, true],
+      [`TOKEN='two words' CI=true "${tool}" install`, true],
+      [`TOKEN="a; b # c" ${tool} install`, true],
+      [`TOKEN=value \\\n'${tool}' install`, true],
+      [`${tool.slice(0, 1)}\\\n${tool.slice(1)} install`, true],
+      [`echo ok # comment\n${tool} install`, true],
+      [`echo "# literal"; ${tool} install`, true],
+      [`echo x | cat\n${tool} install`, true],
+      [`echo x > out\n${tool} install`, true],
+      [`echo x |\n${tool} install; ${tool} publish`, true],
+      [`echo "${tool} install"`, false],
+      [`echo '${tool} install'`, false],
+      [`echo "ok\n${tool} install"`, false],
+      [`echo 'ok; ${tool} install'`, false],
+      [`echo "escaped \\"; ${tool} install"`, false],
+      [`echo ${tool}`, false],
+      [`echo ok # ${tool} install`, false],
+      [`echo ok # \\\n${tool} install`, true],
+      [`echo ok \\\n${tool} install`, false],
+      [`echo x | ${tool} install`, false],
+      [`echo x |\n ${tool} install`, false],
+      [`echo x | # comment\n\n '${tool}' install`, false],
+      [`echo x |&\n "${tool}" install`, false],
+      [`echo x | cat |\n ${tool} install`, false],
+      [`"/usr/bin/${tool}" install`, false],
+      [`./${tool} install`, false],
+      [`${tool}-other install`, false],
+      [`${tool}#suffix install`, false],
+      [`'TOKEN=value' ${tool} install`, false],
+      [`'' ${tool} install`, false],
+      [`echo "unterminated\n${tool} install`, false],
+      ['"bunx" tool', false],
+      ['cargo build', false],
+    ] as [string, boolean][])('%s', (command, blocked) => {
+      if (tool === 'npm') {
+        expect(detectBlockedTool(command, expandAllowed(['bun']))).toBe(blocked ? tool : null)
+      } else {
+        expect(isAdditionalBlocked(command, [entry])).toEqual(blocked ? entry : null)
+      }
+    })
+  }
+
+  test('SessionStart uses provider-neutral shell tools wording', () => {
+    const result = hook.SessionStart!(makeSessionStartCtx(), { allowed: ['bun'] })
+    expect(result).toMatchObject({
+      result: 'skip',
+      injectContext: expect.stringContaining('shell tools'),
+    })
+    expect(JSON.stringify(result)).not.toContain('The Bash tool')
+  })
+})
+
 // --- Helpers ---
 
 type Config = {
