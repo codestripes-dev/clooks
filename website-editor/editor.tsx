@@ -13,6 +13,8 @@ const labels: Record<string, string> = { visible: 'Visible on website', title: '
 
 // Field structure must survive saving an empty optional array and restarting.
 const arrayTemplates: Record<string, Record<string, unknown>> = {
+  claude: { cmd: 'claude /clooks:setup', output: '', doneLabel: 'Done' },
+  codex: { cmd: "codex '$clooks:setup'", output: '', doneLabel: 'Done' },
   links: { label: 'Link', href: '#install' },
   commands: { cmd: 'clooks --version', output: '', doneLabel: 'Done' },
   badges: { text: 'Badge' }, pains: { n: '01', k: 'Heading', d: '' },
@@ -30,7 +32,7 @@ function fieldsFor(values: Record<string, unknown>): Record<string, Field> {
     if (key === 'accent') field = { type: 'custom', label, render: ({ value, onChange, id, readOnly }) => <label htmlFor={id}>{label}<input id={id} type="color" value={value} disabled={readOnly} onChange={event => onChange(event.target.value)}/></label> }
     else if (key === 'heroVariant') field = { type: 'select', label, options: [{ label: 'Split', value: 'split' }, { label: 'Stacked', value: 'code' }] }
     else if (typeof value === 'boolean') field = { type: 'custom', label, render: ({ value, onChange, id, readOnly }) => <label htmlFor={id}><input id={id} type="checkbox" checked={value} disabled={readOnly} onChange={event => onChange(event.target.checked)}/> {label}</label> }
-    else if (Array.isArray(value)) field = { type: 'array', label, arrayFields: fieldsFor(arrayTemplates[key]), defaultItemProps: arrayTemplates[key], min: ['commands', 'steps', 'faqs'].includes(key) ? 1 : key === 'paths' ? 3 : 0, max: key === 'paths' ? 3 : key === 'faqs' ? 40 : key === 'steps' ? 20 : key === 'columns' ? 4 : ['commands', 'links', 'badges'].includes(key) ? 8 : 12, getItemSummary: item => String(item.label ?? item.q ?? item.t ?? item.k ?? item.cmd ?? item.text ?? 'Item').slice(0, 70) }
+    else if (Array.isArray(value)) field = { type: 'array', label, arrayFields: fieldsFor(arrayTemplates[key]), defaultItemProps: arrayTemplates[key], min: ['claude', 'codex', 'commands', 'steps', 'faqs'].includes(key) ? 1 : key === 'paths' ? 3 : 0, max: key === 'paths' ? 3 : key === 'faqs' ? 40 : key === 'steps' ? 20 : key === 'columns' ? 4 : ['claude', 'codex', 'commands', 'links', 'badges'].includes(key) ? 8 : 12, getItemSummary: item => String(item.label ?? item.q ?? item.t ?? item.k ?? item.cmd ?? item.text ?? 'Item').slice(0, 70) }
     else if (value !== null && typeof value === 'object') field = { type: 'object', label, objectFields: fieldsFor(value as Record<string, unknown>) }
     else field = { type: ['intro', 'title', 'blurb', 'd', 'a', 'cmd', 'setup', 'setupNote', 'setupIntro', 'description', 'text'].includes(key) ? 'textarea' : 'text', label }
     return [key, field]

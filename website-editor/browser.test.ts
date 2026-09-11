@@ -20,6 +20,9 @@ test('edit copy, preview, undo, save and reopen the website', async () => {
     page.on('dialog', (dialog) => void dialog.accept())
     await page.setViewport({ width: 1600, height: 1000 })
     const origin = `http://127.0.0.1:${server.port}`
+    await browser
+      .defaultBrowserContext()
+      .overridePermissions(origin, ['clipboard-read', 'clipboard-write'])
     await page.goto(origin + '/editor', { waitUntil: 'networkidle0' })
     async function click(label: string) {
       await page.evaluate((label) => {
@@ -81,6 +84,82 @@ test('edit copy, preview, undo, save and reopen the website', async () => {
     )
     await page.goto(origin, { waitUntil: 'networkidle0' })
     await page.waitForSelector('#root[data-content-ready="true"]')
+    const installSteps = defaults.content.find((item) => item.type === 'Hero')!.props.installSteps!
+    const chips = await page.$$eval('h1 + p + div span', (elements) =>
+      elements.map((el) => el.textContent).join(' '),
+    )
+    for (const label of ['Claude Code', 'Codex', 'Cursor', 'Windsurf', 'JetBrains'])
+      expect(chips).toContain(label)
+    expect(chips).not.toContain('Codex CLI')
+    for (const width of [1600, 390]) {
+      await page.setViewport({ width, height: 1000 })
+      for (const agent of ['claude', 'codex'] as const) {
+        const label = agent === 'claude' ? 'Claude' : 'Codex'
+        await page.evaluate((label) => {
+          const button = [
+            ...document.querySelectorAll<HTMLButtonElement>('[data-install-one-liner] button'),
+          ].find((el) => el.textContent === label)!
+          button.click()
+        }, label)
+        await page.waitForFunction(
+          (command) =>
+            document.querySelector('[data-install-one-liner]')?.textContent?.includes(command),
+          {},
+          installSteps[agent].at(-1)!.cmd,
+        )
+        await page.click(`[aria-label="Copy ${label} one-liner"]`)
+        expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+          installSteps[agent].map((step) => step.cmd).join(' && '),
+        )
+        expect(
+          await page.$eval(
+            '[data-install-one-liner] [aria-pressed="true"]',
+            (el) => el.textContent,
+          ),
+        ).toBe(label)
+      }
+      await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth)
+      for (const agent of ['claude', 'codex'] as const) {
+        const label = defaults.content
+          .find((item) => item.type === 'Install')!
+          .props.paths!.find((path) => path.id === agent)!.label
+        await page.evaluate((label) => {
+          ;[...document.querySelectorAll<HTMLButtonElement>('#install button')]
+            .find((button) => button.textContent === label)!
+            .click()
+        }, label)
+        await page.click(`#install [aria-label="Copy ${label} one-liner"]`)
+        expect(
+          await page.$$eval('#install [data-shell-token="command"]', (tokens) =>
+            tokens.map((token) => token.textContent),
+          ),
+        ).toContain(agent)
+        expect(
+          await page.$$eval('#install [data-shell-token="operator"]', (tokens) =>
+            tokens.map((token) => token.textContent),
+          ),
+        ).toContain('&&')
+        expect(
+          await page.$eval('#install [data-shell-token="string"]', (token) => token.textContent),
+        ).toBe(agent === 'claude' ? "'/clooks:setup'" : "'$clooks:setup'")
+        const expected = installSteps[agent].map((step) => step.cmd)
+        if (agent === 'claude') expected[2] = "claude '/clooks:setup'"
+        expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+          expected.join(' && '),
+        )
+      }
+      await page.evaluate(() => {
+        ;[...document.querySelectorAll<HTMLButtonElement>('#install button')]
+          .find((button) => button.textContent === 'Direct')!
+          .click()
+      })
+      expect(await page.$('#install [aria-label$="one-liner"]')).toBeNull()
+      await page.evaluate(() => window.scrollTo(0, 0))
+      await mkdir(join(import.meta.dir, '../tmp/website-editor-validation'), { recursive: true })
+      await page.screenshot({
+        path: join(import.meta.dir, `../tmp/website-editor-validation/one-liner-${width}.png`),
+      })
+    }
     expect(await page.$eval('h1', (el) => el.textContent)).toStartWith(title)
     expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe(
       'rgb(10, 10, 10)',
@@ -93,4 +172,4 @@ test('edit copy, preview, undo, save and reopen the website', async () => {
     server.stop(true)
     await rm(root, { recursive: true, force: true })
   }
-}, 30_000)
+}, 60_000)

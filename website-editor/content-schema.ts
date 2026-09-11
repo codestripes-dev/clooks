@@ -25,6 +25,10 @@ const heading = { ...base, label: short, title: text }
 const intro = { ...heading, intro: text }
 const demo = z.strictObject({ title: text, intro: text })
 const note = z.strictObject({ text })
+const installSteps = z
+  .array(z.strictObject({ cmd: text.min(1), output: text, doneLabel: short }))
+  .min(1)
+  .max(8)
 const step = z.strictObject({ t: short, cmd: text, d: text, slash: z.boolean() })
 const path = z.strictObject({
   id: z.enum(['claude', 'codex', 'binary']),
@@ -37,6 +41,7 @@ export const propsSchemas = {
     ...base,
     title: short,
     subtitle: short,
+    installSteps: z.strictObject({ claude: installSteps, codex: installSteps }),
     intro: text,
     links: z.array(z.strictObject({ label: short, href })).max(8),
     terminalTitle: short,

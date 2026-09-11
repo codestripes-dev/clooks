@@ -19,6 +19,42 @@
         "visible": true,
         "title": "TypeScript hooks",
         "subtitle": "for your agents.",
+        "installSteps": {
+          "claude": [
+            {
+              "cmd": "claude plugin marketplace add codestripes-dev/clooks-marketplace",
+              "output": "→ Added marketplace codestripes-dev/clooks-marketplace",
+              "doneLabel": "✓ added."
+            },
+            {
+              "cmd": "claude plugin install clooks@clooks-marketplace",
+              "output": "→ Installed clooks@clooks-marketplace",
+              "doneLabel": "✓ enabled."
+            },
+            {
+              "cmd": "claude /clooks:setup",
+              "output": "→ Set up Clooks in this project",
+              "doneLabel": "✓ ready."
+            }
+          ],
+          "codex": [
+            {
+              "cmd": "codex plugin marketplace add codestripes-dev/clooks-marketplace",
+              "output": "→ Added marketplace codestripes-dev/clooks-marketplace",
+              "doneLabel": "✓ added."
+            },
+            {
+              "cmd": "codex plugin add clooks@clooks-marketplace",
+              "output": "→ Installed clooks@clooks-marketplace",
+              "doneLabel": "✓ enabled."
+            },
+            {
+              "cmd": "codex '$clooks:setup'",
+              "output": "→ Set up Clooks in this project",
+              "doneLabel": "✓ ready."
+            }
+          ]
+        },
         "intro": "Write hooks as small TypeScript files.\nClooks runs them in Claude and Codex for you",
         "links": [
           {
@@ -195,7 +231,7 @@
           {
             "id": "claude",
             "label": "Claude",
-            "blurb": "Add the plugin from your terminal, then run setup inside Claude Code to install Clooks and configure your project.",
+            "blurb": "Add the plugin, then run setup inside Claude Code to install Clooks and configure your project.",
             "steps": [
               {
                 "t": "Add the marketplace",
@@ -226,7 +262,7 @@
           {
             "id": "codex",
             "label": "Codex",
-            "blurb": "Add the plugin from your terminal, then run setup inside Codex to install Clooks and configure your project.",
+            "blurb": "Add the plugin, then run setup inside Codex to install Clooks and configure your project.",
             "steps": [
               {
                 "t": "Add the marketplace",
@@ -257,7 +293,7 @@
           {
             "id": "binary",
             "label": "Direct",
-            "blurb": "No plugin required. Download Clooks, then configure your project for Codex, Claude Code, or both. Review hooks when your agent prompts you.",
+            "blurb": "Install Clooks without a plugin. Use it with Claude Code, Codex, or both.",
             "steps": [
               {
                 "t": "Download the binary",
@@ -266,27 +302,21 @@
                 "slash": false
               },
               {
-                "t": "Initialize Codex in your repo",
-                "cmd": "clooks init --agent codex",
-                "d": "Writes shared .clooks/ files and registers eleven events in .codex/hooks.json. Native project trust and hook review still apply. Re-run init to refresh an existing installation, including SessionEnd registration.",
-                "slash": false
-              },
-              {
-                "t": "Or register both agents",
+                "t": "Initialize your project",
                 "cmd": "clooks init --agent all",
-                "d": "Registers Claude Code in .claude/settings.json and Codex in .codex/hooks.json using the same .clooks/clooks.yml. Plain clooks init (or --agent claude-code) registers only Claude Code.",
+                "d": "Sets up both agents. For just one, use `--agent claude-code` or `--agent codex` instead of `--agent all`.",
                 "slash": false
               },
               {
                 "t": "Install a hook",
                 "cmd": "clooks add https://github.com/codestripes-dev/clooks-marketplace/blob/master/clooks-core-hooks/hooks/no-rm-rf.ts",
-                "d": "Downloads and registers this single TypeScript hook. Repository pack installs require clooks-pack.json at the repository root; a marketplace tree/pack URL does not select a nested pack. Review hook code before running it.",
+                "d": "Add the no-rm-rf hook to guard against destructive shell commands in either agent.",
                 "slash": false
               },
               {
                 "t": "Share the project setup",
-                "cmd": "git add .clooks .codex/hooks.json",
-                "d": "Review and commit the configuration and vendored hooks. For both agents, include .claude/settings.json too. Codex registrations contain absolute checkout paths: each teammate must re-run init in their own checkout.",
+                "cmd": "git add .clooks",
+                "d": "Commit your hooks and configuration, along with the settings for your chosen agents: `.claude/settings.json` and/or `.codex/hooks.json`. Teammates using Codex should run init in their own checkout.",
                 "slash": false
               }
             ]

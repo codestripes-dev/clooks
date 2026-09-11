@@ -1,10 +1,10 @@
 // Hero + install block + real ClooksHook snippet
 
-function InstallBlock({ accent, content, autoType = true }) {
+function InstallBlock({ accent, content, agent, onAgentChange, autoType = true }) {
   const vp = useViewport();
   const wrap = vp.isMobile;
-  // Only external Codex CLI commands are combined by the copy action.
-  const steps = content.commands.map(s => ({ ...s, output: [[s.output]], typeSpeed: 12, runMs: 500 }));
+  const commands = content.installSteps[agent];
+  const steps = commands.map(s => ({ ...s, output: [[s.output]], typeSpeed: 12, runMs: 500 }));
 
   const [copied, setCopied] = React.useState(false);
   // For each step: { typed: string, phase: 'idle'|'typing'|'running'|'done' }
@@ -35,7 +35,7 @@ function InstallBlock({ accent, content, autoType = true }) {
     };
     if (steps.length) type(0);
     return () => clearTimeout(timer);
-  }, [autoType, JSON.stringify(content.commands), setStep]);
+  }, [autoType, JSON.stringify(commands), setStep]);
 
   const copy = async () => {
     const parts = steps.map(s => s.cmd);
@@ -69,7 +69,7 @@ function InstallBlock({ accent, content, autoType = true }) {
   };
 
   return (
-    <div style={{
+    <div data-install-one-liner style={{
       background: COL.bgCode, border: `1px solid ${COL.line}`,
       fontFamily: 'JetBrains Mono, monospace', fontSize: wrap ? 9 : 13, lineHeight: 1.6,
     }}>
@@ -79,8 +79,17 @@ function InstallBlock({ accent, content, autoType = true }) {
         padding: '10px 14px', borderBottom: `1px solid ${COL.line}`,
         fontSize: 11, color: COL.fgDim, letterSpacing: 0.3,
       }}>
-        <span>{content.terminalTitle}</span>
-        <button onClick={copy} title={content.copyLabel} style={{
+        <span>~/projects/my-repo</span>
+        <div role="group" aria-label="Install agent" style={{ display: 'flex', gap: 2 }}>
+          {['claude', 'codex'].map(value => (
+            <button key={value} type="button" aria-pressed={agent === value} onClick={() => onAgentChange(value)} style={{
+              padding: '4px 8px', border: `1px solid ${agent === value ? COL.line : 'transparent'}`,
+              fontFamily: 'inherit', fontSize: 11, cursor: 'pointer',
+              background: agent === value ? COL.bgSoft : 'transparent', color: agent === value ? accent : COL.fgDim,
+            }}>{value === 'claude' ? 'Claude' : 'Codex'}</button>
+          ))}
+        </div>
+        <button onClick={copy} title={`Copy ${agent === 'claude' ? 'Claude' : 'Codex'} one-liner`} aria-label={`Copy ${agent === 'claude' ? 'Claude' : 'Codex'} one-liner`} style={{
           background: copied ? accent : 'transparent',
           border: `1px solid ${copied ? accent : COL.line}`,
           color: copied ? COL.bg : COL.fgMute,
@@ -98,7 +107,7 @@ function InstallBlock({ accent, content, autoType = true }) {
             <><svg width="11" height="11" viewBox="0 0 12 12" fill="none">
               <rect x="3.5" y="3.5" width="6" height="6" stroke="currentColor" strokeWidth="1" fill="none"/>
               <path d="M2 2 H8 V3" stroke="currentColor" strokeWidth="1" fill="none"/>
-            </svg>{content.copyLabel}</>
+            </svg>copy one-liner</>
           )}
         </button>
       </div>
@@ -119,7 +128,7 @@ function InstallBlock({ accent, content, autoType = true }) {
                 paddingLeft: wrap ? '1.4em' : 0,
               }}>
                 <span style={{ color: accent, marginRight: 10 }}>$</span>
-                <span>{s.typed}</span>
+                <ShellCommand command={s.typed}/>
                 {showCaret && (
                   <span style={{
                     display: 'inline-block', width: 7, height: 15,
@@ -151,15 +160,6 @@ function InstallBlock({ accent, content, autoType = true }) {
             </div>
           );
         })}
-      </div>
-      <div style={{ padding: '16px 18px', borderTop: `1px solid ${COL.line}` }}>
-        <div style={{ color: COL.fgMute, fontSize: 13, marginBottom: 10 }}>
-          {content.setupIntro}
-        </div>
-        <CmdBox accent={accent} cmd={content.setupCommand} slash copyLabel="Copy Codex setup instruction"/>
-        <p style={{ color: COL.fgDim, fontSize: 12, margin: '10px 0 0' }}>
-          {content.setupNote}
-        </p>
       </div>
     </div>
   );
@@ -309,6 +309,7 @@ function CompatRow({ accent }) {
     whiteSpace: 'nowrap',
     transition: 'border-color 160ms ease, color 160ms ease',
   };
+  const star = { color: COL.fgDim, marginLeft: 1 };
   const iconSize = compact ? 13 : 14;
   return (
     <div style={{ marginBottom: 28 }}>
@@ -322,25 +323,27 @@ function CompatRow({ accent }) {
         justifyItems: 'stretch',
       }}>
         <span style={chip}><ClaudeMark size={iconSize}/> Claude Code</span>
-        <span style={chip}>Codex CLI</span>
         <span style={chip}><img src="codex.svg" alt="" width={iconSize} height={iconSize} style={{ display: 'block', flex: '0 0 auto', objectFit: 'contain', filter: 'invert(1)' }}/> Codex</span>
+        <span style={chip}><CursorMark size={iconSize}/> Cursor<span style={star}>*</span></span>
+        <span style={chip}><WindsurfMark size={iconSize}/> Windsurf<span style={star}>*</span></span>
+        <span style={chip}><JetBrainsMark size={iconSize}/> JetBrains<span style={star}>*</span></span>
+      </div>
+      <div style={{ marginTop: 10, fontSize: 11.5, color: COL.fgDim, fontFamily: 'JetBrains Mono, monospace' }}>
+        * via Claude Code or Codex IDE integrations
       </div>
     </div>
   );
 }
 
-function SetupLinks({ accent, content }) {
+function InstallOneLiner({ accent, content }) {
+  const [agent, setAgent] = React.useState('claude');
+  const { editing } = usePageEnvironment();
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 24 }}>
-      {content.links.map(({label, href}) => (
-        <a key={href} href={href} style={{ color: accent, fontSize: 14, padding: '8px 0' }}>{label}</a>
-      ))}
-    </div>
+    <InstallBlock key={agent} accent={accent} content={content} agent={agent} onAgentChange={setAgent} autoType={!editing}/>
   );
 }
 
 function HeroCode({ tweaks, content }) {
-  const { editing } = usePageEnvironment();
   const vp = useViewport();
   return (
     <section style={{
@@ -374,10 +377,9 @@ function HeroCode({ tweaks, content }) {
 
         <CompatRow accent={tweaks.accent}/>
 
-        <SetupLinks accent={tweaks.accent} content={content}/>
+        <InstallOneLiner accent={tweaks.accent} content={content}/>
 
         <div style={{ maxWidth: 720, marginBottom: vp.isMobile ? 40 : 56 }}>
-          {!vp.isMobile && <InstallBlock key={JSON.stringify(content.commands)} content={content} accent={tweaks.accent} autoType={!editing}/>}
           <div style={{
             marginTop: vp.isMobile ? 0 : 14, fontSize: 12, color: COL.fgDim,
             fontFamily: 'JetBrains Mono, monospace',
@@ -403,7 +405,6 @@ function HeroCode({ tweaks, content }) {
 }
 
 function HeroSplit({ tweaks, content }) {
-  const { editing } = usePageEnvironment();
   const vp = useViewport();
   const stack = vp.isMobile || vp.isTablet;
   return (
@@ -439,8 +440,7 @@ function HeroSplit({ tweaks, content }) {
             <Copy text={content.intro}/>
           </p>
           <CompatRow accent={tweaks.accent}/>
-          <SetupLinks accent={tweaks.accent} content={content}/>
-          {!vp.isMobile && <InstallBlock key={JSON.stringify(content.commands)} content={content} accent={tweaks.accent} autoType={!editing}/>}
+          <InstallOneLiner accent={tweaks.accent} content={content}/>
           <div style={{
             marginTop: vp.isMobile ? 0 : 14, fontSize: 12, color: COL.fgDim,
             fontFamily: 'JetBrains Mono, monospace',

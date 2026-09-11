@@ -19,6 +19,9 @@ function InstallSection({ accent, tweaks, content }) {
   const paths = Object.fromEntries(content.paths.map(p => [p.id, p]));
 
   const active = paths[path];
+  const oneLiner = path === 'binary' ? null : active.steps.slice(0, 3).map(step =>
+    step.slash ? `${path} '${step.cmd.replace(/'/g, "'\\''")}'` : step.cmd
+  ).join(' && ');
 
   return (
     <section id="install" className="section section--elev">
@@ -66,6 +69,11 @@ function InstallSection({ accent, tweaks, content }) {
           fontSize: 14, color: COL.fgMute, lineHeight: 1.6, maxWidth: 720,
           margin: '28px 0 28px',
         }}>{active.blurb}</p>
+
+        {oneLiner && <div style={{ marginBottom: 28, minWidth: 0 }}>
+          <div style={{ color: accent, fontFamily: 'JetBrains Mono, monospace', fontSize: 11, textTransform: 'uppercase', marginBottom: 10 }}>One liner</div>
+          <CmdBox key={path} accent={accent} cmd={oneLiner} copyLabel={`Copy ${active.label} one-liner`}/>
+        </div>}
 
         <div style={{ display: 'grid', gap: 0 }}>
           {active.steps.map((s, i) => (
