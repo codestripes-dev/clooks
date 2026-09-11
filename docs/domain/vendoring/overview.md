@@ -30,6 +30,8 @@ Plugin-delivered hooks use a separate prefix: `.clooks/vendor/plugin/<pack-name>
 
 For local trials, maintain reviewed changes in the repository's actual vendor files, not only scratch or home-library copies. Compare marketplace, repository and home preimages before promotion so local customizations survive. Record source identity and local file hashes separately; do not fabricate a marketplace release hash or rewrite provenance to imply upstream equivalence. Plugin refresh can replace a local override. Source changes alone do not establish successful tests or deployment.
 
+`no-destructive-git` recognizes Git global options before the operation while preserving rule-specific blocks, safe-operation skips, per-rule disables, and the escape prefix's exclusion of broad adds and custom rules. Custom rules match the original quote/comment-sanitized command, not normalized Git arguments. `test/e2e/default-hooks.e2e.test.ts` replays Claude and Codex hook JSON through the compiled binary, checks rule tags and recorded decisions, and verifies unchanged sentinels without executing Git commands.
+
 The vendored project pack's `no-edit-protected` lock defaults include `bun.lock` and `**/` patterns for root and nested workspace lockfiles, retaining the existing rule-group toggle. Native patch-path inspection uses the existing rules as described below. Core provider differences are described in [Cross-Agent Hook Systems](../cross-agent-hooks.md).
 
 ### Hook Inspection Boundaries

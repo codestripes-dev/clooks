@@ -7,6 +7,7 @@ import type { BaseContext as ProjectContext } from '../../.clooks/vendor/plugin/
 import '../../.clooks/vendor/plugin/clooks-core-hooks/prefer-builtin-tools'
 import '../../.clooks/vendor/plugin/clooks-core-hooks/no-pasted-placeholder'
 import '../../.clooks/vendor/plugin/clooks-core-hooks/no-compound-commands'
+import '../../.clooks/vendor/plugin/clooks-core-hooks/no-destructive-git'
 import '../../.clooks/vendor/plugin/clooks-project-hooks/no-edit-protected'
 import '../../.clooks/vendor/plugin/clooks-project-hooks/js-package-manager-guard'
 

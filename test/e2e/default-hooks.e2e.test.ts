@@ -19,7 +19,7 @@ const packs: Record<string, string> = {
   'tmux-notifications': 'clooks-core-hooks',
 }
 const originals: Record<string, string> = {
-  'no-destructive-git': '4278f695615bb43e9516cf02a948a07dd6805d98dd9f1849c765fbbdc5f85ff8',
+  'no-destructive-git': '663aa80fa98f8db926fda0c5c292710092696313a89430a5a18de9bb3abe8e00',
   'js-package-manager-guard': '7482fb75d6ba43f0675d102238d9a61b34c812f354de0fdc0abceb53c4805268',
 }
 const root = join(import.meta.dir, '../../.clooks/vendor/plugin')
@@ -304,7 +304,88 @@ describe('actual default packs through the compiled binary', () => {
         }
       })
 
-      test('unchanged git and package guards retain blocking and permissive decisions', () => {
+      test.each([
+        ["git -C '/tmp/repo with spaces' reset --hard", 'reset-hard'],
+        ["git -c core.sshCommand='ssh -o BatchMode=yes' push --force", 'force-push'],
+        ['git --git-dir=/tmp/inert-repo.git add -A', 'broad-add'],
+        ['git -C . --config-env core.pager=PATH commit --no-verify', 'no-verify'],
+        ['git -C"" . reset --hard', 'reset-hard'],
+      ])('git globals preserve %s classification and rule disable', (command, rule) => {
+        sandbox = createSandbox()
+        sandbox.writeFile('sentinel.txt', 'unchanged')
+        configure({ 'no-destructive-git': {} })
+        denied(shell(provider, command, { 'no-destructive-git': 'block' }), `[${rule}]`)
+        configure({ 'no-destructive-git': { config: { [rule]: false } } })
+        permitted(shell(provider, command, { 'no-destructive-git': 'skip' }), provider)
+        expect(sandbox.readFile('sentinel.txt')).toBe('unchanged')
+      })
+
+      test.each([
+        "git -C '/tmp/repo with spaces' reset --soft",
+        'git -c push.default=current push --force-with-lease',
+        'git --git-dir=/tmp/inert-repo.git add sentinel.txt',
+        "ALLOW_DESTRUCTIVE_GIT=true git -C '/tmp/repo with spaces' reset --hard",
+      ])('git globals preserve safe and escaped skips: %s', (command) => {
+        sandbox = createSandbox()
+        sandbox.writeFile('sentinel.txt', 'unchanged')
+        configure({ 'no-destructive-git': {} })
+        permitted(shell(provider, command, { 'no-destructive-git': 'skip' }), provider)
+        expect(sandbox.readFile('sentinel.txt')).toBe('unchanged')
+      })
+
+      test('git globals preserve escape boundaries and independent rules', () => {
+        sandbox = createSandbox()
+        sandbox.writeFile('sentinel.txt', 'unchanged')
+        configure({ 'no-destructive-git': { config: { 'reset-hard': false } } })
+        for (const prefix of ['', 'ALLOW_DESTRUCTIVE_GIT=true ']) {
+          denied(
+            shell(provider, `${prefix}git --git-dir=/tmp/inert-repo.git add -A`, {
+              'no-destructive-git': 'block',
+            }),
+            '[broad-add]',
+          )
+        }
+        denied(
+          shell(provider, 'git -c push.default=current push --force', {
+            'no-destructive-git': 'block',
+          }),
+          '[force-push]',
+        )
+        expect(sandbox.readFile('sentinel.txt')).toBe('unchanged')
+      })
+
+      test('git globals retain original sanitized input for custom rules', () => {
+        sandbox = createSandbox()
+        sandbox.writeFile('sentinel.txt', 'unchanged')
+        configure({
+          'no-destructive-git': {
+            config: {
+              'reset-hard': false,
+              additionalRules: [
+                { match: '\\bgit\\s+reset\\b', message: '[custom-normalized] must not match' },
+                { match: '\\bcore\\.pager=cat\\b', message: '[custom-global] pager restricted' },
+              ],
+            },
+          },
+        })
+        for (const prefix of ['', 'ALLOW_DESTRUCTIVE_GIT=true ']) {
+          denied(
+            shell(provider, `${prefix}git -c core.pager=cat reset --hard`, {
+              'no-destructive-git': 'block',
+            }),
+            '[custom-global]',
+          )
+          permitted(
+            shell(provider, `${prefix}git -c 'core.pager=cat' reset --hard`, {
+              'no-destructive-git': 'skip',
+            }),
+            provider,
+          )
+        }
+        expect(sandbox.readFile('sentinel.txt')).toBe('unchanged')
+      })
+
+      test('git and package guards retain blocking and permissive decisions', () => {
         sandbox = createSandbox()
         configure({
           'no-destructive-git': {},

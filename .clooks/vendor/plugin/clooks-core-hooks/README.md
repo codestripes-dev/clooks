@@ -36,6 +36,8 @@ Blocks dangerous git operations on the Bash tool: `git reset --hard`, `git clean
 
 **When to enable:** Always. Each rule corresponds to a concrete way an agent can lose committed work, lose uncommitted work, or rewrite shared history.
 
+Built-in checks also recognize Git global options before the operation (for example, `git -C repo reset --hard`), including quoted operands. Global help/version/path queries are skipped. Custom `additionalRules` still match the original command after the existing quote/comment sanitization, not a normalized command.
+
 **Config options:**
 
 Every rule is enabled by default. Set the rule ID to `false` in `clooks.yml` to skip instead of block:
