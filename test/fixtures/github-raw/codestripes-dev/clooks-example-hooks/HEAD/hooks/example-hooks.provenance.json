@@ -1,0 +1,8 @@
+{
+  "source": "clooks-marketplace/clooks-example-hooks/hooks/",
+  "sha256": {
+    "lifecycle-example": "b1fed1b0a274d94807ba5ccf43d0488bc1896add9b5194ad50fe06b2b1869a8c",
+    "kitchen-sink": "cbd38b983954f0fc32128e694e1f69839cf6730df3223c64636f3c62c1d79d5c"
+  },
+  "provenance": "Exact corrected marketplace example source snapshots for compiled synthetic replay; no native-agent evidence. Update source and hashes together."
+}

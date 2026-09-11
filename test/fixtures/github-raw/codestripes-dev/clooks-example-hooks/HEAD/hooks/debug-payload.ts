@@ -1,12 +1,10 @@
-// Echoes the entire hook payload back into the conversation context.
+// Dumps the JSON-serializable portion of normalized handler context, not raw wire input.
 // Only active when CLOOKS_DEBUG=true — otherwise skips via beforeHook.
+// Unredacted: prompts, tool data, paths and history may contain sensitive information.
 
 import type { ClooksHook, BaseContext } from './types'
 import { appendFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-
-const LOG_DIR = process.env.CLOOKS_LOGDIR || '/tmp/clooks-debug'
-const LOG_FILE = join(LOG_DIR, 'debug-events.log')
 
 function dump(ctx: BaseContext): string {
   const { signal: _, ...rest } = ctx
@@ -17,19 +15,20 @@ function logToFile(ctx: BaseContext): void {
   const ts = new Date().toISOString()
   const line = `[${ts}] ${ctx.event}: ${dump(ctx)}\n`
   try {
-    mkdirSync(LOG_DIR, { recursive: true })
-    appendFileSync(LOG_FILE, line)
+    const logDir = process.env.CLOOKS_LOGDIR || '/tmp/clooks-debug'
+    mkdirSync(logDir, { recursive: true })
+    appendFileSync(join(logDir, 'debug-events.log'), line)
   } catch {
     // best-effort — don't crash the hook
   }
 }
 
-/** For events that support injectContext. */
+/** Only events whose skip helper and adapter support context injection. */
 function injectOpts(ctx: BaseContext): { injectContext: string; debugMessage: string } {
   logToFile(ctx)
   return {
     injectContext: dump(ctx),
-    debugMessage: `debug-payload: injected ${ctx.event} payload`,
+    debugMessage: `debug-payload: injecting ${ctx.event} normalized context`,
   }
 }
 
@@ -44,7 +43,7 @@ function debugOpts(ctx: BaseContext): { debugMessage: string } {
 export const hook: ClooksHook = {
   meta: {
     name: 'debug-payload',
-    description: 'Echoes hook payload into conversation context when CLOOKS_DEBUG=true',
+    description: 'Inspects serializable normalized context with skip-only debug logging when CLOOKS_DEBUG=true',
   },
 
   beforeHook(event) {
@@ -53,8 +52,8 @@ export const hook: ClooksHook = {
     }
   },
 
-  // --- Guard events (injectContext supported on PreToolUse, UserPromptSubmit) ---
-  PreToolUse: (ctx) => ctx.skip(injectOpts(ctx)),
+  // PreToolUse.skip cannot inject context; debugging must not grant permission.
+  PreToolUse: (ctx) => ctx.skip(debugOpts(ctx)),
   UserPromptSubmit: (ctx) => ctx.skip(injectOpts(ctx)),
   PermissionRequest: (ctx) => ctx.skip(debugOpts(ctx)),
   Stop: (ctx) => ctx.skip(debugOpts(ctx)),
@@ -73,6 +72,7 @@ export const hook: ClooksHook = {
   InstructionsLoaded: (ctx) => ctx.skip(debugOpts(ctx)),
   WorktreeRemove: (ctx) => ctx.skip(debugOpts(ctx)),
   PreCompact: (ctx) => ctx.skip(debugOpts(ctx)),
+  PostCompact: (ctx) => ctx.skip(debugOpts(ctx)),
 
   // --- Continuation events (debugMessage only) ---
   // WorktreeCreate is intentionally excluded: its result type is

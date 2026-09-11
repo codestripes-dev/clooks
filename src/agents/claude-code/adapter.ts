@@ -287,7 +287,7 @@ export const claudeCodeAdapter: AgentAdapter = {
       else for (const message of input.degradedMessages) stderr.push(`clooks: warning: ${message}`)
     }
     for (const line of input.debugMessages) stderr.push(`[clooks:debug] ${line}`)
-    if (input.debugMessages.length > 0)
+    if (input.debugMessages.length > 0 && INJECTABLE_EVENTS.has(input.eventName))
       append(input.debugMessages.map((line) => `[clooks:debug] ${line}`).join('\n'))
     return { result, stderr, systemMessages: [] }
   },

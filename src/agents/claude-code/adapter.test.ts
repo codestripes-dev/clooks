@@ -57,6 +57,63 @@ describe('claudeCodeAdapter', () => {
     ).toEqual({ result: undefined, stderr: ['clooks: warning: degraded'], systemMessages: [] })
   })
 
+  test.each(['TeammateIdle', 'TaskCreated', 'TaskCompleted', 'PostCompact', 'SessionEnd'] as const)(
+    '%s debug diagnostics preserve empty and skip aggregates',
+    (eventName) => {
+      for (const result of [undefined, { result: 'skip' as const }]) {
+        const composed = claudeCodeAdapter.composeDiagnostics({
+          eventName,
+          result,
+          traceMessages: [],
+          degradedMessages: [],
+          debugMessages: ['debug'],
+        })
+        expect(composed).toEqual({
+          result,
+          stderr: ['[clooks:debug] debug'],
+          systemMessages: [],
+        })
+        expect(
+          claudeCodeAdapter.translateFinalOutput({
+            eventName,
+            result: composed.result,
+            systemMessages: [],
+            diagnostics: [],
+          }),
+        ).toEqual({ exitCode: 0 })
+      }
+    },
+  )
+
+  test.each(['TeammateIdle', 'TaskCreated', 'TaskCompleted'] as const)(
+    '%s debug diagnostics preserve continuation controls',
+    (eventName) => {
+      for (const result of [
+        { result: 'block', reason: 'blocked' },
+        { result: 'continue', feedback: 'retry' },
+        { result: 'stop', reason: 'finished' },
+      ] as const) {
+        const composed = claudeCodeAdapter.composeDiagnostics({
+          eventName,
+          result,
+          traceMessages: [],
+          degradedMessages: [],
+          debugMessages: ['debug'],
+        })
+        expect(composed.result).toEqual(result)
+        expect(composed.stderr).toEqual(['[clooks:debug] debug'])
+        const output = (value: typeof composed.result) =>
+          claudeCodeAdapter.translateFinalOutput({
+            eventName,
+            result: value,
+            systemMessages: [],
+            diagnostics: [],
+          })
+        expect(output(composed.result)).toEqual(output(result))
+      }
+    },
+  )
+
   test('a latched failure dominates an internally composed allow result', () => {
     const output = claudeCodeAdapter.translateFinalOutput({
       eventName: 'SessionStart',
