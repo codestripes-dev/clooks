@@ -26,6 +26,8 @@ This layout avoids name collisions, mirrors the source provenance, and matches t
 
 Plugin-delivered hooks use a separate prefix: `.clooks/vendor/plugin/<pack-name>/<hook-name>.ts`. See `vendoring/plugin-vendoring.md` for details.
 
+An initialized runtime discovers data-only packs through its selected agent adapter: independent Claude settings activations or Codex's persisted, overlaid plugin tables and selected cache version. Both share additive vendoring and retain user-owned copies when native plugins change or disappear. Codex discovery does not initialize Clooks or run a native agent process. Explicit plugin updates discover both sources independently of runtime agent selection, preflight content conflicts before writing, and support `--agent claude-code|codex` for deliberate source selection. Equivalent sources share vendor writes while retaining distinct config destinations.
+
 ### Local Pack Updates
 
 For local trials, maintain reviewed changes in the repository's actual vendor files, not only scratch or home-library copies. Compare marketplace, repository and home preimages before promotion so local customizations survive. Record source identity and local file hashes separately; do not fabricate a marketplace release hash or rewrite provenance to imply upstream equivalence. Plugin refresh can replace a local override. Source changes alone do not establish successful tests or deployment.
@@ -137,6 +139,8 @@ Vendored files in `.clooks/vendor/` are committed to git. Clooks has no install 
 - `src/github-url.ts` — `parseGitHubBlobUrl()`, `toRawUrl()`, `isGitHubRepoUrl()`, `GitHubBlobInfo` interface
 - `src/manifest.ts` — `validateManifest()`, `loadManifestFromFile()`, `fetchManifest()` — manifest validation and loading (local disk and HTTP)
 - `src/plugin-discovery.ts` — `discoverPluginPacks()` — scans Claude Code plugin cache for installed hook packs
+- `src/agents/codex/plugin-discovery.ts` — discovers configured Codex packs at their effective activation scope
+- `src/agents/prepare-plugin-packs.ts` — shared preparation and config/metadata reload
 - `src/plugin-vendor.ts` — `vendorAndRegisterPack()` — copies hook files from plugin cache to vendor directory and registers in config
 - `src/commands/add.ts` — `createAddCommand()` — full `clooks add` pipeline (both blob URL and repo URL flows)
 - `src/config/resolve.ts` — `isPathLike()`, `isShortAddress()` — format detectors for `uses:` values

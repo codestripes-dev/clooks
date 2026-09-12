@@ -283,6 +283,10 @@ Refuses to overwrite an existing file (safe by default). Does NOT auto-register 
 
 Re-vendors hooks from the plugin cache for a specific pack. Overwrites existing vendor files with updated content from the cache. New hooks (added in the plugin update) are validated and registered. Existing config entries are never modified — only new entries are appended.
 
+Discovery queries both Claude and Codex by default, independently of `CLOOKS_AGENT`; `--agent claude-code|codex` filters the source provider. Every matching manifest and referenced file is preflighted before writes/imports. Equivalent sources coalesce by physical vendor destination, including aliases and missing descendants of existing prefixes. Project/local config destinations remain separate. Manifest or byte disagreement and missing source files fail without modifying any destination. Filtering does not resolve conflicting marketplaces within one provider; those must be disabled explicitly.
+
+The existing fourth discovery-function argument to `updatePluginPack()` remains an isolated Claude-only injection. The options form accepts optional discovery functions and explicit Codex home; missing injected dependencies never fall back to defaults. `createUpdateCommand()` accepts optional discovery dependencies alongside its existing root resolver. No provenance database or agent-process lookup is involved.
+
 Exits with code 1 when all hooks fail (errors only, no successes). Supports `--json` for structured output.
 
 See `docs/domain/vendoring/plugin-vendoring.md` for the full update algorithm.

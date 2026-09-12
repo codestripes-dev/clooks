@@ -1,5 +1,5 @@
 import { describe, test, expect, afterEach, beforeAll, afterAll } from 'bun:test'
-import { createSandbox, type Sandbox } from './helpers/sandbox'
+import { createSandbox, formatDiagnostics, type Sandbox } from './helpers/sandbox'
 import { startFixtureServer, type FixtureServer } from './helpers/fixture-server'
 
 const REPO_URL = 'https://github.com/codestripes-dev/clooks-example-hooks'
@@ -293,7 +293,7 @@ describe('clooks add — smoke test against real GitHub', () => {
     const result = sandbox.run(['add', '--all', '--project', REPO_URL], {
       timeout: NETWORK_TIMEOUT,
     })
-    expect(result.exitCode).toBe(0)
+    expect(result.exitCode, formatDiagnostics(result)).toBe(0)
 
     for (const name of HOOK_NAMES) {
       expect(sandbox.fileExists(`${VENDOR_BASE}/${name}.ts`)).toBe(true)

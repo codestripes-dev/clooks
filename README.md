@@ -63,15 +63,15 @@ claude plugin install clooks
 claude /clooks:setup
 ```
 
-Install any of the [production packs](#marketplace) from the
+Optionally install any of the [production packs](#marketplace) from the
 [clooks-marketplace](https://github.com/codestripes-dev/clooks-marketplace)
 repo:
 ```
 claude plugin install clooks-core-hooks --scope user  # If you want general-purpose global hooks and installed clooks globally
 claude plugin install clooks-project-hooks --scope project  # If you want general-purpose project hooks
 ```
-Once installed as claude plugins, they'll automatically be sourced by
-`clooks` once any hook runs and added to the corresponding `.clooks/clooks.yml` file (based on scope).
+After setup, the next hook event copies installed packs into the shared
+Clooks vendor directory and registers them in the configuration for their scope.
 
 For Codex, follow [Codex usage](#codex-usage). Both agents also support
 [manual binary installation](#other-install-methods).
@@ -197,12 +197,21 @@ See [approval details](docs/domain/codex-approvals.md).
 
 Two production packs (`clooks-core-hooks`, `clooks-project-hooks`) plus `clooks-example-hooks` (a learning/reference pack — **not for productive use**).
 
-### Installing Without Claude Plugins
+### Installing packs
 
-Codex runs custom and already-vendored hooks from the same `.clooks/clooks.yml`.
-The `clooks` Codex plugin provides onboarding, not hook-pack auto-vendoring.
-It does not discover Codex plugins as Clooks hook packs. To install individual
-marketplace hooks directly, use their GitHub **blob URLs** with an explicit scope:
+Both agents install the same packs. For Claude Code, use the commands in
+[Quick Start](#quick-start). For Codex, after setup:
+
+```bash
+codex plugin add clooks-core-hooks@clooks-marketplace
+codex plugin add clooks-project-hooks@clooks-marketplace
+```
+
+Codex installs packs at user scope by default, including `clooks-project-hooks`.
+Clooks picks them up on the next hook event.
+
+To install individual hooks directly instead, use their GitHub **blob URLs**
+with an explicit scope:
 
 ```bash
 clooks add https://github.com/codestripes-dev/clooks-marketplace/blob/HEAD/clooks-core-hooks/hooks/no-rm-rf.ts --project
@@ -215,7 +224,7 @@ SHA for reproducible downloads, and commit the resulting vendor files and config
 
 Repository URLs work only for packs with a root `clooks-pack.json`. The marketplace
 is a monorepo with nested packs: a `/tree/<ref>/<pack>` URL does **not** select that
-pack. Use blob URLs above or the Claude plugin installation path in Quick Start.
+pack. Use blob URLs above or install packs through your agent's plugin manager.
 Direct installs do not inherit plugin-manifest `autoEnable` settings; review config
 before running hooks, especially notification and example hooks.
 
@@ -252,11 +261,11 @@ claude plugin install <pack-name> --scope project
 
 ### Vendoring & updates
 
-Claude plugin packs are vendored under `.clooks/vendor/plugin/` for project scope
+Plugin packs are vendored under `.clooks/vendor/plugin/` for project scope
 or `~/.clooks/vendor/plugin/` for user scope. Commit project copies. Existing hooks
-are never updated silently.
+are never updated or deleted automatically, even if the plugin is disabled or removed.
 
-To update hooks after a Claude marketplace plugin updates:
+To update hooks after a marketplace plugin updates:
 
 ```bash
 clooks update plugin:<pack-name>   # e.g., plugin:clooks-core-hooks
@@ -264,8 +273,10 @@ clooks update plugin:<pack-name>   # e.g., plugin:clooks-core-hooks
 
 > New hooks added to the pack since your last vendor are pulled in and registered automatically. They are enabled by default unless the pack marks them `autoEnable: false`.
 
-That update command reads the Claude plugin cache; it is not an updater for blob
-URL installs. For direct installs, review and preserve local changes, remove the
+The update command checks both agents' plugin caches by default. If they contain
+different copies of the same pack, select a source with `--agent claude-code` or
+`--agent codex`. It does not update blob URL installs.
+For direct installs, review and preserve local changes, remove the
 old vendor file and its config entry, then re-run `clooks add` with the new blob URL.
 
 ## Other install methods
@@ -861,7 +872,7 @@ A hook that exceeds its timeout is treated like any other crash — the
 | `clooks add <url> --all` | Install all hooks from a pack without prompting |
 | `clooks add <url> --global` | Install hooks globally to `~/.clooks/` |
 | `clooks add <url> --project` | Explicitly install to project `.clooks/`; without a scope flag, prompts when project config exists, otherwise defaults to global |
-| `clooks update plugin:<pack>` | Re-vendor an installed plugin pack from the plugin cache |
+| `clooks update plugin:<pack>` | Re-vendor from either agent's plugin cache; optionally select a source with `--agent claude-code` or `--agent codex` |
 
 Examples:
 

@@ -3,6 +3,7 @@ import type { HookName } from '../types/branded.js'
 import type { ClooksConfig } from '../config/schema.js'
 import type { loadConfig } from '../config/index.js'
 import type { discoverPluginPacks } from '../plugin-discovery.js'
+import type { discoverCodexPluginPacks } from './codex/plugin-discovery.js'
 import type { vendorAndRegisterPack } from '../plugin-vendor.js'
 import type { EngineResult, ExitCode } from '../engine/types.js'
 import type { Provider } from '../types/contexts.js'
@@ -151,14 +152,18 @@ export interface AdjustedFinalResult {
 export interface PrepareConfigAfterLoadInput {
   projectRoot: string
   homeRoot: string
+  codexHome?: string
+  hasProjectConfig?: boolean
   config: ClooksConfig
   shadows: HookName[]
   loadConfig: typeof loadConfig
   discoverPluginPacks?: typeof discoverPluginPacks
+  discoverCodexPluginPacks?: typeof discoverCodexPluginPacks
   vendorAndRegisterPack?: typeof vendorAndRegisterPack
 }
 
 export interface PrepareConfigAfterLoadResult {
+  hasProjectConfig?: boolean
   config: ClooksConfig
   shadows: HookName[]
   systemMessages: string[]
@@ -167,6 +172,8 @@ export interface PrepareConfigAfterLoadResult {
 export interface CollectSessionStartAdvisoriesInput {
   projectRoot: string
   homeRoot: string
+  codexHome?: string
+  discoverCodexPluginPacks?: typeof discoverCodexPluginPacks
 }
 
 export interface AgentAdapter {

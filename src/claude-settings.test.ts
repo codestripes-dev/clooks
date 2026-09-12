@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach, spyOn } from 'bun:test'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'fs'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import {
@@ -461,6 +461,79 @@ describe('detectStaleAdvisories', () => {
     expect(out).toEqual([])
   })
 
+  test.each(['no entries', 'unknown identity', 'enabled Claude', 'silenced'])(
+    'does not request Codex discovery for %s',
+    (scenario) => {
+      const previous = process.env.CLOOKS_SILENCE_STALE_PLUGIN_ADVISORIES
+      let discoveries = 0
+      try {
+        if (scenario === 'silenced') process.env.CLOOKS_SILENCE_STALE_PLUGIN_ADVISORIES = 'true'
+        const out = detectStaleAdvisories({
+          installedPluginsFile: null,
+          layers: { ...emptyLayers, project: { 'known@mp': scenario === 'enabled Claude' } },
+          discoverCodexPacks: () => {
+            discoveries++
+            throw new Error('unexpected Codex IO')
+          },
+          clooksYmlReaders: {
+            ...emptyReaders,
+            project: () =>
+              scenario === 'no entries'
+                ? []
+                : [
+                    {
+                      hookName: 'kept',
+                      packName: scenario === 'unknown identity' ? 'unknown' : 'known',
+                      usesPath: './.clooks/vendor/plugin/known/kept.ts',
+                    },
+                  ],
+          },
+        })
+        expect(out).toEqual([])
+        expect(discoveries).toBe(0)
+      } finally {
+        if (previous === undefined) delete process.env.CLOOKS_SILENCE_STALE_PLUGIN_ADVISORIES
+        else process.env.CLOOKS_SILENCE_STALE_PLUGIN_ADVISORIES = previous
+      }
+    },
+  )
+
+  test.each([false, true])(
+    'lazy Codex lookup is cached across hooks/scopes, matching=%s',
+    (matching) => {
+      let discoveries = 0
+      const entries = ['first', 'second'].map((hookName) => ({
+        hookName,
+        packName: 'known',
+        usesPath: `./.clooks/vendor/plugin/known/${hookName}.ts`,
+      }))
+      const input = {
+        installedPluginsFile: null,
+        layers: { ...emptyLayers, project: { 'known@mp': false } },
+        clooksYmlReaders: { ...emptyReaders, project: () => entries, local: () => entries },
+        discoverCodexPacks: () => {
+          discoveries++
+          return matching
+            ? [
+                {
+                  pluginName: 'known@codex',
+                  scope: 'project' as const,
+                  installPath: dfx.cacheRoot,
+                  manifest: { version: 1, name: 'known', hooks: {} },
+                },
+              ]
+            : []
+        },
+      }
+      expect(detectStaleAdvisories(input)).toHaveLength(matching ? 0 : 4)
+      expect(discoveries).toBe(1)
+      expect(detectStaleAdvisories(input)).toHaveLength(matching ? 0 : 4)
+      expect(discoveries).toBe(2)
+      expect(detectStaleAdvisories({ ...input, codexPacks: [] })).toHaveLength(4)
+      expect(discoveries).toBe(2)
+    },
+  )
+
   test('Env-var silencer set -> returns [] regardless', () => {
     // Isolated with try/finally (not afterEach) because this is the only test
     // in the file that manipulates process.env. Restoring in finally keeps the
@@ -542,7 +615,7 @@ describe('detectStaleAdvisories', () => {
     const installedPluginsFile: InstalledPluginsFile = { version: 2, plugins: {} }
     const out = detectStaleAdvisories({
       installedPluginsFile,
-      layers: { managed: {}, user: {}, project: {}, local: {} },
+      layers: { managed: {}, user: {}, project: {}, local: { 'loc@mp': false } },
       clooksYmlReaders: {
         user: () => [],
         project: () => [],
@@ -560,7 +633,7 @@ describe('detectStaleAdvisories', () => {
       kind: 'stale-registration',
       scope: 'local',
       hookName: 'loc-hook',
-      pluginKey: 'loc',
+      pluginKey: 'loc@mp',
       vendorPackDir: './.clooks/vendor/plugin/loc/',
     })
   })
@@ -703,7 +776,7 @@ describe('detectStaleAdvisories', () => {
     expect(out).toEqual([])
   })
 
-  test('when packName cannot be resolved to a pluginKey, falls back to packName as pluginKey', () => {
+  test('unknown-origin vendor copies do not establish Claude ownership', () => {
     // installed_plugins has no record for this pack.
     const installedPluginsFile: InstalledPluginsFile = { version: 2, plugins: {} }
     const out = detectStaleAdvisories({
@@ -720,15 +793,172 @@ describe('detectStaleAdvisories', () => {
         ],
       },
     })
+    expect(out).toEqual([])
+  })
+
+  test('settings identity identifies a removed pack without inventing a plugin key', () => {
+    const entry = {
+      hookName: 'kept',
+      packName: 'known-pack',
+      usesPath: './.clooks/vendor/plugin/known-pack/kept.ts',
+    }
+    const out = detectStaleAdvisories({
+      installedPluginsFile: null,
+      layers: { ...emptyLayers, user: { 'known-pack@mp': false } },
+      clooksYmlReaders: { ...emptyReaders, user: () => [entry] },
+    })
     expect(out).toEqual([
       {
         kind: 'stale-registration',
         scope: 'user',
-        pluginKey: 'orphan-pack',
-        hookName: 'orphan-hook',
-        vendorPackDir: './.clooks/vendor/plugin/orphan-pack/',
+        pluginKey: 'known-pack@mp',
+        hookName: 'kept',
+        vendorPackDir: './.clooks/vendor/plugin/known-pack/',
       },
     ])
+    expect(
+      detectStaleAdvisories({
+        installedPluginsFile: null,
+        layers: emptyLayers,
+        clooksYmlReaders: { ...emptyReaders, user: () => [entry] },
+      }),
+    ).toEqual([])
+  })
+
+  test('a retained install identity identifies a removed cache but not a differently named pack', () => {
+    const entry = {
+      hookName: 'kept',
+      packName: 'known',
+      usesPath: './.clooks/vendor/plugin/known/kept.ts',
+    }
+    const out = detectStaleAdvisories({
+      installedPluginsFile: {
+        version: 2,
+        plugins: { 'known@mp': [{ scope: 'user', installPath: join(dfx.cacheRoot, 'gone') }] },
+      },
+      layers: emptyLayers,
+      clooksYmlReaders: { ...emptyReaders, user: () => [entry, { ...entry, packName: 'unknown' }] },
+    })
+    expect(out).toHaveLength(1)
+    expect(out[0]!.pluginKey).toBe('known@mp')
+  })
+
+  for (const scope of ['user', 'project', 'local'] as const) {
+    for (const codexScope of ['user', 'project'] as const) {
+      test(`Codex ${codexScope} suppresses only same-destination Claude ${scope} stale ownership`, () => {
+        const installPath = dfx.writePack('different-native-name@mp', 'shared')
+        const entry = {
+          hookName: 'kept',
+          packName: 'shared',
+          usesPath: './.clooks/vendor/plugin/shared/kept.ts',
+        }
+        const input = {
+          installedPluginsFile: {
+            version: 2,
+            plugins: { 'different-native-name@mp': [{ scope: 'user' as const, installPath }] },
+          },
+          layers: emptyLayers,
+          clooksYmlReaders: { ...emptyReaders, [scope]: () => [entry] },
+        }
+        expect(detectStaleAdvisories(input)).toHaveLength(1)
+        const codexPacks = [
+          {
+            pluginName: 'codex@mp',
+            scope: codexScope,
+            installPath,
+            manifest: {
+              version: 1,
+              name: 'shared',
+              hooks: { kept: { path: 'kept.ts', description: 'Kept' } },
+            },
+          },
+        ]
+        const matching = (scope === 'user') === (codexScope === 'user')
+        expect(detectStaleAdvisories({ ...input, codexPacks })).toHaveLength(matching ? 0 : 1)
+        expect(
+          detectStaleAdvisories({
+            ...input,
+            codexPacks: [
+              { ...codexPacks[0]!, manifest: { ...codexPacks[0]!.manifest, name: 'other' } },
+            ],
+          }),
+        ).toHaveLength(1)
+      })
+    }
+  }
+
+  test('any matching Claude identity enabled at the same scope suppresses the stale warning', () => {
+    const first = dfx.writePack('a@mp', 'shared')
+    const second = dfx.writePack('b@mp', 'shared')
+    const input = {
+      installedPluginsFile: {
+        version: 2,
+        plugins: {
+          'a@mp': [{ scope: 'user' as const, installPath: first }],
+          'b@mp': [{ scope: 'user' as const, installPath: second }],
+        },
+      },
+      layers: { ...emptyLayers, user: { 'a@mp': false, 'b@mp': true } },
+      clooksYmlReaders: {
+        ...emptyReaders,
+        user: () => [
+          {
+            hookName: 'kept',
+            packName: 'shared',
+            usesPath: './.clooks/vendor/plugin/shared/kept.ts',
+          },
+        ],
+      },
+    }
+    expect(detectStaleAdvisories(input)).toEqual([])
+    expect(detectStaleAdvisories({ ...input, layers: emptyLayers })[0]!.pluginKey).toBe('a@mp')
+  })
+
+  test('Codex advisory suppression compares physical vendor destinations, not scope labels', () => {
+    const homeRoot = join(dfx.cacheRoot, 'home')
+    const projectRoot = join(dfx.cacheRoot, 'project')
+    const pack = {
+      pluginName: 'known@codex',
+      scope: 'user' as const,
+      installPath: dfx.cacheRoot,
+      manifest: {
+        version: 1,
+        name: 'known',
+        hooks: { kept: { path: 'kept.ts', description: 'Kept' } },
+      },
+    }
+    const opts = {
+      installedPluginsFile: null,
+      layers: { ...emptyLayers, project: { 'known@claude': false } },
+      clooksYmlReaders: {
+        ...emptyReaders,
+        project: () => [
+          {
+            hookName: 'kept',
+            packName: 'known',
+            usesPath: './.clooks/vendor/plugin/known/kept.ts',
+          },
+        ],
+      },
+      codexPacks: [pack],
+    }
+    mkdirSync(join(homeRoot, '.clooks/vendor/plugin/known'), { recursive: true })
+    mkdirSync(join(projectRoot, '.clooks/vendor/plugin'), { recursive: true })
+    expect(detectStaleAdvisories({ ...opts, roots: { homeRoot, projectRoot } })).toHaveLength(1)
+    expect(detectStaleAdvisories({ ...opts, roots: { homeRoot, projectRoot: homeRoot } })).toEqual(
+      [],
+    )
+    symlinkSync(
+      join(homeRoot, '.clooks/vendor/plugin/known'),
+      join(projectRoot, '.clooks/vendor/plugin/known'),
+    )
+    expect(detectStaleAdvisories({ ...opts, roots: { homeRoot, projectRoot } })).toEqual([])
+    expect(
+      detectStaleAdvisories({ ...opts, codexPacks: [], roots: { homeRoot, projectRoot } }),
+    ).toHaveLength(1)
+    rmSync(join(projectRoot, '.clooks/vendor/plugin/known'))
+    writeFileSync(join(projectRoot, '.clooks/vendor/plugin/known'), 'not a directory')
+    expect(detectStaleAdvisories({ ...opts, roots: { homeRoot, projectRoot } })).toHaveLength(1)
   })
 
   test('deterministic scope ordering user -> project -> local', () => {

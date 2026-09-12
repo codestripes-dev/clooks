@@ -128,7 +128,7 @@ function statePath(session = 'shared-session') {
 
 async function waitReady(path = ready) {
   const deadline = Date.now() + 5000
-  while (!sandbox.fileExists(path)) {
+  while (!sandbox.fileExists(path) || sandbox.readFile(path) !== 'ready') {
     if (Date.now() > deadline) throw new Error('ready deadline exceeded')
     await new Promise((resolve) => setTimeout(resolve, 10))
   }

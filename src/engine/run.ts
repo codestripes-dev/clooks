@@ -44,6 +44,7 @@ import type {
   InvocationTurnPolicy,
 } from '../agents/index.js'
 import { claudeCodePluginDeps } from '../agents/claude-code/adapter.js'
+import { discoverCodexPluginPacks } from '../agents/codex/plugin-discovery.js'
 import { ApprovalStore } from '../agents/codex/approval-store.js'
 import {
   prepareApprovalAttempt,
@@ -76,6 +77,7 @@ export const defaultDeps: RunEngineDeps = {
   loadAllHooks,
   readStdin: readStdinJson,
   discoverPluginPacks: claudeCodePluginDeps.discoverPluginPacks,
+  discoverCodexPluginPacks,
   vendorAndRegisterPack: claudeCodePluginDeps.vendorAndRegisterPack,
   discoverProjectRoot,
 }
@@ -389,23 +391,26 @@ async function runEngineInvocation(
 
   let config = result!.config
   let shadows = result!.shadows
-  const hasProjectConfig = result!.hasProjectConfig
-
-  const failurePath = getFailureLocation(projectRoot, homeRoot, hasProjectConfig, adapter.id)
+  let hasProjectConfig = result!.hasProjectConfig
 
   const pluginSystemMessages: string[] = []
   const danglingWarnings: string[] = []
   const prepared = await adapter.prepareConfigAfterLoad({
     projectRoot,
     homeRoot,
+    codexHome: process.env.CODEX_HOME,
+    hasProjectConfig,
     config,
     shadows,
     loadConfig: deps.loadConfig,
     discoverPluginPacks: deps.discoverPluginPacks,
+    discoverCodexPluginPacks: deps.discoverCodexPluginPacks,
     vendorAndRegisterPack: deps.vendorAndRegisterPack,
   })
   config = prepared.config
   shadows = prepared.shadows
+  hasProjectConfig = prepared.hasProjectConfig ?? hasProjectConfig
+  const failurePath = getFailureLocation(projectRoot, homeRoot, hasProjectConfig, adapter.id)
   pluginSystemMessages.push(...prepared.systemMessages)
 
   const debug = process.env.CLOOKS_DEBUG === 'true'
@@ -545,11 +550,7 @@ async function runEngineInvocation(
 
   // Gate the cwd-fallback warning to SessionStart so it appears once per session,
   // not once per tool call.
-  if (
-    eventName === 'SessionStart' &&
-    discovery.signal === 'cwd-fallback' &&
-    !result.hasProjectConfig
-  ) {
+  if (eventName === 'SessionStart' && discovery.signal === 'cwd-fallback' && !hasProjectConfig) {
     const boundary = discovery.boundary ?? 'fs-root'
     const boundaryPath = discovery.boundaryPath ?? '/'
     process.stderr.write(
@@ -562,6 +563,8 @@ async function runEngineInvocation(
       ...adapter.collectSessionStartAdvisories({
         homeRoot,
         projectRoot,
+        codexHome: process.env.CODEX_HOME,
+        discoverCodexPluginPacks: deps.discoverCodexPluginPacks,
       }),
     )
   }

@@ -6,6 +6,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from 'node:fs'
@@ -15,6 +16,7 @@ import {
   assertSkill,
   onboardingCases,
   onboardingPin,
+  onboardingPacks,
   onboardingProvider,
   type OnboardingTurn,
 } from './onboarding'
@@ -107,6 +109,15 @@ ignore_default_excludes = true
     return result.stdout
   }
   let sessions = 0
+  let packs:
+    | {
+        installed: string[]
+        denial: boolean
+        idempotent: boolean
+        cachePreserved: boolean
+        explicitUpdate: boolean
+      }
+    | undefined
   const tui = async (review: 'accept' | 'decline' | 'none', selected: OnboardingTurn[]) => {
     const session = join(logs, `session-${++sessions}`)
     mkdirSync(session)
@@ -342,6 +353,221 @@ export const hook = {meta:{name:'onboarding-observer'}, SessionStart:record, Pos
             after[3].event === 'PostToolUse',
           'Removal disabled or duplicated runtime',
         )
+
+        // Keep every setup/removal baseline assertion above independent of pack discovery.
+        const installs: Record<string, { cache: string; manifest: any }> = {}
+        const files = (root: string, prefix = ''): Record<string, string> => {
+          const hashes: Record<string, string> = {}
+          for (const entry of readdirSync(join(root, prefix), { withFileTypes: true }).sort(
+            (a, b) => a.name.localeCompare(b.name),
+          )) {
+            const path = join(prefix, entry.name)
+            requireThat(entry.isDirectory() || entry.isFile(), `Unexpected package entry: ${path}`)
+            if (entry.isDirectory()) Object.assign(hashes, files(root, path))
+            else hashes[path] = sha256(join(root, path))
+          }
+          return hashes
+        }
+        for (const pack of onboardingPacks) {
+          const result = JSON.parse(
+            await cli(['plugin', 'add', `${pack}@clooks-marketplace`, '--json']),
+          )
+          const source = join('/onboarding-marketplace', pack)
+          const manifest = JSON.parse(readFileSync(join(source, 'clooks-pack.json'), 'utf8'))
+          const pluginManifest = JSON.parse(
+            readFileSync(join(source, '.claude-plugin/plugin.json'), 'utf8'),
+          )
+          requireThat(
+            result.name === pack &&
+              result.version === pluginManifest.version &&
+              result.installedPath ===
+                join(codexHome, 'plugins/cache/clooks-marketplace', pack, result.version),
+            'Wrong pack install identity',
+          )
+          const cache = result.installedPath as string
+          requireThat(
+            !existsSync(join(source, '.codex-plugin')) && !existsSync(join(cache, '.codex-plugin')),
+            'Duplicate Codex pack manifest',
+          )
+          const sourceFiles = files(source)
+          requireThat(
+            JSON.stringify(files(cache)) === JSON.stringify(sourceFiles),
+            'Actual pack install changed bytes',
+          )
+          requireThat(
+            sha256(join(cache, 'hooks/types.d.ts')) ===
+              sha256('/app/src/generated/clooks-types.d.ts.txt'),
+            'Pack declarations differ from runtime',
+          )
+          installs[pack] = { cache, manifest }
+          save(join(logs, `pack-${pack}.json`), { result, sourceFiles, manifest })
+        }
+        const packList = JSON.parse(await cli(['plugin', 'list', '--json']))
+        for (const pack of onboardingPacks)
+          requireThat(
+            packList.installed.some((item: any) => item.name === pack && item.enabled),
+            'Installed pack disabled',
+          )
+        requireThat(
+          !existsSync(join(home, '.clooks/vendor/plugin')) &&
+            !existsSync(join(home, '.clooks/clooks.yml')),
+          'CLI install implicitly vendored packs',
+        )
+        const vendor = join(home, '.clooks/vendor/plugin')
+        const userYml = join(home, '.clooks/clooks.yml')
+        const sentinel = join(project, 'compound-first-effect')
+        const secondSentinel = join(project, 'compound-second-effect')
+        const compound = `touch ${quote(sentinel)} && touch ${quote(secondSentinel)}`
+        const reason = `Compound command detected. Instead:
+  - Use apply_patch for file edits when available
+  - Run commands separately in individual shell tool calls
+  - Write a dedicated bash script in tmp/ for multi-step sequences
+  - If both commands MUST run together and a script is overkill, prefix with ALLOW_COMPOUND=true`
+        const deny = (label: string): OnboardingTurn => ({
+          prompt: `Run compound fixture ONBOARDING_PACK_${label}`,
+          done: `ONBOARDING_PACK_${label}_DONE`,
+          commands: [compound],
+          denialReason: reason,
+          inspect(body) {
+            requireThat(
+              modelReadableText(body.input).some((part) =>
+                part.includes('The no-compound-commands clooks hook is active'),
+              ),
+              'Actual core SessionStart context missing',
+            )
+          },
+          complete() {
+            requireThat(
+              !existsSync(sentinel) && !existsSync(secondSentinel),
+              'Denied compound command created a sentinel',
+            )
+          },
+        })
+        const discover = deny('DISCOVER')
+        turns.push(discover)
+        await tui('none', [discover])
+        const registered = Bun.YAML.parse(readFileSync(userYml, 'utf8')) as Record<string, any>
+        const hookNames: string[] = []
+        for (const [pack, installedPack] of Object.entries(installs)) {
+          for (const [hook, definition] of Object.entries(installedPack.manifest.hooks) as Array<
+            [string, any]
+          >) {
+            hookNames.push(hook)
+            requireThat(
+              sha256(join(vendor, pack, `${hook}.ts`)) ===
+                sha256(join(installedPack.cache, definition.path)),
+              `Native discovery bytes differ: ${hook}`,
+            )
+            requireThat(
+              registered[hook]?.uses === `./.clooks/vendor/plugin/${pack}/${hook}.ts`,
+              `Missing user registration: ${hook}`,
+            )
+            requireThat(
+              registered[hook]?.enabled === (definition.autoEnable === false ? false : undefined),
+              `Wrong default enablement: ${hook}`,
+            )
+          }
+        }
+        requireThat(
+          JSON.stringify(
+            Object.keys(registered)
+              .filter((key) => key !== 'version')
+              .sort(),
+          ) === JSON.stringify(hookNames.sort()),
+          'Missing or duplicate pack registrations',
+        )
+        requireThat(
+          !existsSync(join(project, '.clooks/vendor/plugin')),
+          'User activation vendored into project',
+        )
+        const snapshot = () => ({
+          user: readFileSync(userYml, 'utf8'),
+          project: readFileSync(join(project, '.clooks/clooks.yml'), 'utf8'),
+          registration: readFileSync(registration, 'utf8'),
+          vendor: files(vendor),
+        })
+        const firstPackState = snapshot()
+        save(join(logs, 'packs-discovered.json'), firstPackState)
+        const repeat = deny('REPEAT')
+        turns.push(repeat)
+        await tui('none', [repeat])
+        requireThat(
+          JSON.stringify(snapshot()) === JSON.stringify(firstPackState),
+          'Repeated session changed vendor/config bytes',
+        )
+        save(join(logs, 'packs-repeated.json'), snapshot())
+
+        const core = installs['clooks-core-hooks']!
+        const sourceHook = join(core.cache, 'hooks/no-compound-commands.ts')
+        const vendorHook = join(vendor, 'clooks-core-hooks/no-compound-commands.ts')
+        writeFileSync(
+          sourceHook,
+          readFileSync(sourceHook, 'utf8') + '\n// Native pack cache update fixture.\n',
+        )
+        writeFileSync(
+          vendorHook,
+          readFileSync(vendorHook, 'utf8') + '\n// User-owned vendor customization fixture.\n',
+        )
+        registered['no-bare-mv'].enabled = false
+        writeFileSync(userYml, Bun.YAML.stringify(registered))
+        const customized = snapshot()
+        const cached = deny('CACHE_CHANGED')
+        turns.push(cached)
+        await tui('none', [cached])
+        requireThat(
+          JSON.stringify(snapshot()) === JSON.stringify(customized),
+          'Cache refresh silently replaced user copies or settings',
+        )
+        save(join(logs, 'packs-cache-preserved.json'), {
+          ...snapshot(),
+          cacheHook: sha256(sourceHook),
+        })
+
+        const updated = await run(
+          [binary, 'update', 'plugin:clooks-core-hooks', '--json'],
+          project,
+          env,
+          join(logs, 'pack-explicit-update'),
+          20_000,
+        )
+        requireSuccess(updated)
+        const updateResult = JSON.parse(updated.stdout)
+        requireThat(
+          updateResult.ok === true &&
+            updateResult.data.errors.length === 0 &&
+            updateResult.data.updated.includes('no-compound-commands'),
+          'Compiled update did not report core update',
+        )
+        requireThat(
+          sha256(vendorHook) === sha256(sourceHook),
+          'Explicit update did not copy changed cache bytes',
+        )
+        const updatedState = snapshot()
+        requireThat(
+          updatedState.user === customized.user &&
+            updatedState.project === customized.project &&
+            updatedState.registration === customized.registration,
+          'Explicit update changed settings or registrations',
+        )
+        for (const [pack, installedPack] of Object.entries(installs)) {
+          for (const [hook, definition] of Object.entries(installedPack.manifest.hooks) as Array<
+            [string, any]
+          >) {
+            requireThat(
+              sha256(join(vendor, pack, `${hook}.ts`)) ===
+                sha256(join(installedPack.cache, definition.path)),
+              `Post-update bytes differ: ${hook}`,
+            )
+          }
+        }
+        save(join(logs, 'packs-updated.json'), { ...updatedState, updateResult })
+        packs = {
+          installed: onboardingPacks,
+          denial: true,
+          idempotent: true,
+          cachePreserved: true,
+          explicitUpdate: true,
+        }
       }
     }
     save(join(logs, 'passed.json'), {
@@ -351,6 +577,7 @@ export const hook = {meta:{name:'onboarding-observer'}, SessionStart:record, Pos
       clooksSha256,
       sessions,
       downloads: provider.downloads,
+      ...(packs ? { packs } : {}),
       evidence: 'real native TUI and tools, scripted local provider',
       limitations: [
         'synthetic project trust',

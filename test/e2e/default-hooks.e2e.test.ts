@@ -1052,11 +1052,7 @@ if (args[0] === 'set-hook') {
           PATH: `${join(sandbox.dir, 'stub-bin')}:${process.env.PATH}`,
         },
       )
-      if (provider === 'claude-code' && event === 'SessionStart') {
-        expect(output).toEqual({
-          systemMessage: expect.stringContaining('plugin is not enabled at project scope'),
-        })
-      } else permitted(output, provider)
+      permitted(output, provider)
       const commands: string[][] = existsSync(log)
         ? readFileSync(log, 'utf8')
             .trim()

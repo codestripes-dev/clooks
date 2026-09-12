@@ -48,12 +48,26 @@ function inspect(root: string): OnboardingInputs {
       }
     }
   }
-  visit('clooks', 'directory', true)
   visit('.claude-plugin', 'directory')
   visit('.claude-plugin/marketplace.json', 'file')
   visit('.agents', 'directory')
   visit('.agents/plugins', 'directory')
   visit('.agents/plugins/marketplace.json', 'file')
+  const catalog = JSON.parse(readFileSync(join(root, '.agents/plugins/marketplace.json'), 'utf8'))
+  if (!Array.isArray(catalog.plugins)) throw new Error('Onboarding catalog requires plugins')
+  const packages = new Set(['clooks'])
+  for (const plugin of catalog.plugins) {
+    const source = plugin?.source
+    if (
+      source?.source !== 'local' ||
+      typeof source.path !== 'string' ||
+      !/^\.\/[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(source.path)
+    ) {
+      throw new Error('Onboarding catalog requires local top-level package directories')
+    }
+    packages.add(source.path.slice(2))
+  }
+  for (const path of [...packages].sort()) visit(path, 'directory', true)
   entries.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
   return { entries, sha256: createHash('sha256').update(JSON.stringify(entries)).digest('hex') }
 }

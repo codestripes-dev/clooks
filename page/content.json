@@ -254,7 +254,7 @@
               {
                 "t": "Optional — install a hook pack",
                 "cmd": "claude plugin install clooks-core-hooks@clooks-marketplace --scope user",
-                "d": "Adds ready-made hooks, including no-rm-rf, to your Claude Code setup.",
+                "d": "Adds ready-made hooks, including no-rm-rf, to your setup.",
                 "slash": false
               }
             ]
@@ -283,9 +283,9 @@
                 "slash": true
               },
               {
-                "t": "Optional: add a hook from your terminal",
-                "cmd": "clooks add https://github.com/codestripes-dev/clooks-marketplace/blob/master/clooks-core-hooks/hooks/no-rm-rf.ts",
-                "d": "Downloads and registers one hook. The Codex plugin does not install hook packs for you. Review hook code before running it.",
+                "t": "Optional — install a hook pack",
+                "cmd": "codex plugin add clooks-core-hooks@clooks-marketplace",
+                "d": "Adds ready-made hooks, including no-rm-rf, to your setup.",
                 "slash": false
               }
             ]
@@ -338,7 +338,7 @@
         "label": "On the plugin system",
         "title": "Why isn't Clooks *just* a plugin?",
         "intro": "Claude Code and Codex plugins help you install and configure Clooks. The runtime is a standalone binary with shared configuration.",
-        "setup": "At startup, the plugin only reminds you if setup is needed. The Codex plugin does not install hook packs; add hooks separately with clooks add, although installation through plugins for additional hooks is also supported."
+        "setup": "At startup, the plugin reminds you if setup is needed. Install optional hook packs through your agent's plugin manager; update their hooks with clooks update."
       }
     },
     {
@@ -363,7 +363,7 @@
           },
           {
             "q": "Is there a registry of hooks I can browse?",
-            "a": "Yes: browse clooks-core-hooks and clooks-project-hooks in codestripes-dev/clooks-marketplace. Install packs through Claude plugins, or use clooks add with an individual hook URL for either agent. The Codex plugin sets up Clooks but does not install hook packs. Each hook documents its supported tools and configuration."
+            "a": "Yes: browse clooks-core-hooks and clooks-project-hooks in codestripes-dev/clooks-marketplace. Install packs through your agent's plugin manager, or use clooks add with an individual hook URL. Both agents use the same vendored hooks and configuration. Each hook documents its supported tools and configuration."
           },
           {
             "q": "Which agents are supported?",

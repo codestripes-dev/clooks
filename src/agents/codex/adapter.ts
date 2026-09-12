@@ -1,4 +1,5 @@
 import type { AgentAdapter } from '../types.js'
+import { preparePluginPacks } from '../prepare-plugin-packs.js'
 import { normalizeInvocation, readEventName } from './normalize.js'
 import { createResultPolicy } from './policy.js'
 import { translateFailure, translateFinalOutput } from './translate.js'
@@ -11,11 +12,23 @@ export const codexAdapter: AgentAdapter = {
   readEventName,
 
   async prepareConfigAfterLoad(input) {
-    return {
-      config: input.config,
-      shadows: input.shadows,
-      systemMessages: [],
+    if (!input.discoverCodexPluginPacks || !input.vendorAndRegisterPack) {
+      return {
+        config: input.config,
+        shadows: input.shadows,
+        hasProjectConfig: input.hasProjectConfig,
+        systemMessages: [],
+      }
     }
+    return preparePluginPacks(
+      input,
+      input.discoverCodexPluginPacks({
+        homeRoot: input.homeRoot,
+        projectRoot: input.projectRoot,
+        codexHome: input.codexHome,
+      }),
+      input.vendorAndRegisterPack,
+    )
   },
 
   collectSessionStartAdvisories() {

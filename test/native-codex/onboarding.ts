@@ -9,6 +9,7 @@ export const onboardingCases = [
   'ONBOARDING-DECLINE',
   'ONBOARDING-REUSE-REMOVE',
 ]
+export const onboardingPacks = ['clooks-core-hooks', 'clooks-project-hooks', 'clooks-example-hooks']
 
 export function assertSkill(body: any, skill: string, explicit: boolean) {
   const text = modelReadableText(body.input)
@@ -41,6 +42,21 @@ export function toolOutput(body: any, callId: string, exitCode = 0): string {
   return output
 }
 
+export function deniedToolOutput(
+  body: any,
+  callId: string,
+  reason: string,
+  command: string,
+): string {
+  const output = rawToolOutput(body, callId)
+  requireThat(reason.trim().length > 0 && command.trim().length > 0, 'Missing expected denial')
+  requireThat(
+    output === `Command blocked by PreToolUse hook: ${reason}. Command: ${command}`,
+    `Unexpected denial output: ${output}`,
+  )
+  return output
+}
+
 export function pendingSession(output: string): number | undefined {
   const session = /Process running with session ID (\d+)/.exec(output)
   return session ? Number(session[1]) : undefined
@@ -51,6 +67,7 @@ export interface OnboardingTurn {
   done: string
   commands: Array<string | ((previousOutput: string) => string)>
   exitCode?: number
+  denialReason?: string
   inspect(body: any): void
   complete(): void
 }
@@ -71,6 +88,7 @@ export function onboardingProvider(
   let call: string | undefined
   let polls = 0
   let sequence = 0
+  let issuedCommand = ''
   const binary = readFileSync('/app/dist/clooks')
   const checksum = new Bun.CryptoHasher('sha256').update(binary).digest('hex')
   const server = Bun.serve({
@@ -125,7 +143,14 @@ export function onboardingProvider(
           )
           current.inspect(body)
           const output = call ? rawToolOutput(body, call) : ''
+          if (call && current.denialReason !== undefined) {
+            deniedToolOutput(body, call, current.denialReason, issuedCommand)
+          }
           const session = pendingSession(output)
+          const assertOutput = () =>
+            current.denialReason === undefined
+              ? toolOutput(body, call!, current.exitCode)
+              : deniedToolOutput(body, call!, current.denialReason, issuedCommand)
           if (session !== undefined) {
             requireThat(++polls <= 3, 'Native tool exceeded bounded polling allowance')
             requireThat(
@@ -145,7 +170,7 @@ export function onboardingProvider(
               }),
             }
           } else if (command < current.commands.length) {
-            if (call) toolOutput(body, call, current.exitCode)
+            if (call) assertOutput()
             polls = 0
             requireThat(
               body.tools?.some((tool: any) => tool.name === 'exec_command'),
@@ -154,6 +179,7 @@ export function onboardingProvider(
             call = `onboarding_${turn}_${command}`
             const next = current.commands[command++]!
             const cmd = typeof next === 'function' ? next(output) : next
+            issuedCommand = cmd
             item = {
               type: 'function_call',
               call_id: call,
@@ -167,7 +193,7 @@ export function onboardingProvider(
               }),
             }
           } else {
-            if (call) toolOutput(body, call, current.exitCode)
+            if (call) assertOutput()
             current.complete()
             item = message(current.done)
             turn++
@@ -223,6 +249,16 @@ export function publishOnboarding(logs: string, testExitCode: number): number {
       receipt.id === id && receipt.codexSha256 === onboardingPin && receipt.status === 'passed',
       `Invalid onboarding receipt: ${id}`,
     )
+    if (id === 'ONBOARDING-REUSE-REMOVE') {
+      requireThat(
+        JSON.stringify(receipt.packs?.installed) === JSON.stringify(onboardingPacks) &&
+          receipt.packs?.denial === true &&
+          receipt.packs?.idempotent === true &&
+          receipt.packs?.cachePreserved === true &&
+          receipt.packs?.explicitUpdate === true,
+        'Missing native pack receipt',
+      )
+    }
     requireThat(
       existsSync(join(logs, id, 'cleanup.json')) &&
         JSON.parse(readFileSync(join(logs, id, 'cleanup.json'), 'utf8')).removed === true,

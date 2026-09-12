@@ -280,7 +280,7 @@ test.each(['success', 'marketplace-source-drift', 'marketplace-snapshot-drift'])
     put('marketplace/clooks/install.sh', '#!/bin/bash\n')
     chmodSync(join(root, 'marketplace/clooks/install.sh'), 0o751)
     put('marketplace/.claude-plugin/marketplace.json', '{"name":"claude"}\n')
-    put('marketplace/.agents/plugins/marketplace.json', '{"name":"codex"}\n')
+    put('marketplace/.agents/plugins/marketplace.json', '{"name":"codex","plugins":[]}\n')
     const result = await finish(
       launch(root, scenario, ['e2e', './test/plugin-onboarding/'], undefined, './marketplace'),
     )

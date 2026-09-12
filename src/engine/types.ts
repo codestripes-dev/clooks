@@ -3,6 +3,7 @@ import type { PermissionUpdateEntry } from '../types/permissions.js'
 import type { loadConfig } from '../config/index.js'
 import type { loadAllHooks } from '../loader.js'
 import type { discoverPluginPacks } from '../plugin-discovery.js'
+import type { discoverCodexPluginPacks } from '../agents/codex/plugin-discovery.js'
 import type { vendorAndRegisterPack } from '../plugin-vendor.js'
 import type { discoverProjectRoot } from '../config/discovery.js'
 import type { ResultOrigin, RuntimePolicyFailure } from '../agents/types.js'
@@ -82,6 +83,7 @@ export interface RunEngineDeps {
   loadAllHooks: typeof loadAllHooks
   readStdin: () => Promise<unknown>
   discoverPluginPacks?: typeof discoverPluginPacks
+  discoverCodexPluginPacks?: typeof discoverCodexPluginPacks
   vendorAndRegisterPack?: typeof vendorAndRegisterPack
   discoverProjectRoot?: typeof discoverProjectRoot
 }

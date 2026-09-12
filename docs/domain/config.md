@@ -135,6 +135,8 @@ Both formats skip `meta.name` validation (routed through `isShortAddress` or `is
 
 **Plugin-delivered hooks** use path-like `uses` values (e.g., `uses: ./.clooks/vendor/plugin/<pack>/<hook>.ts`). They resolve through the same `isPathLike` path as manually vendored hooks. See `docs/domain/vendoring/plugin-vendoring.md` for discovery, vendoring, and scope-based routing.
 
+Both agents use these same entries and vendor paths; changing the runtime agent does not create a second hook identity. Native activation governs new discovery, while existing Clooks entries govern execution after native disable/removal. Explicit updates preserve existing YAML overrides, including `enabled: false`; new disabled-by-default hooks retain that setting. Equivalent update sources sharing a project/local vendor directory still register new hooks in each distinct config destination. The ordinary narrower-scope merge deduplicates execution; no new config merge model or provenance field is introduced.
+
 ## Hook Aliases
 
 A hook alias is a YAML entry whose `uses` field references a different hook implementation. This allows the same `.ts` file to run multiple times with different configs.
