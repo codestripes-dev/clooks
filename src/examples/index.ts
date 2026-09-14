@@ -121,6 +121,7 @@ export const TOOL_KEYED_EVENTS = new Set<EventName>([
 
 /** In-binary example payloads (text-imported), one per event. */
 export const EXAMPLES: Record<EventName, string> = {
+  Interrupt: JSON.stringify({ event: 'Interrupt', model: 'gpt-5', permissionMode: 'default' }),
   PreToolUse: EXAMPLE_PRE_TOOL_USE,
   PostToolUse: EXAMPLE_POST_TOOL_USE,
   PostToolUseFailure: EXAMPLE_POST_TOOL_USE_FAILURE,
@@ -147,6 +148,17 @@ export const EXAMPLES: Record<EventName, string> = {
 
 /** Per-event required-fields metadata, used by the example renderer. */
 export const META: Record<EventName, EventMeta> = {
+  Interrupt: {
+    required: [
+      { name: 'event', type: 'string', description: 'Must be "Interrupt" (Codex only).' },
+      { name: 'model', type: 'string', description: 'Model on the interrupted root turn.' },
+      {
+        name: 'permissionMode',
+        type: 'string',
+        description: 'Permission mode on the interrupted turn.',
+      },
+    ],
+  },
   PreToolUse: META_PRE_TOOL_USE,
   PostToolUse: META_POST_TOOL_USE,
   PostToolUseFailure: META_POST_TOOL_USE_FAILURE,

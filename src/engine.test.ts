@@ -2582,7 +2582,7 @@ describe('parallel batch', () => {
     expect(result.traceMessages[0]).toContain('par-trace-err')
   })
 
-  it('parallel hook skip with injectContext — M3: skip losers context not propagated when allow wins', async () => {
+  it('parallel hook skip context is preserved when allow wins', async () => {
     const dir = makeTempDir()
     const hook = makeLoadedHook('skip-inject', {
       PreToolUse: () => ({ result: 'skip', injectContext: 'skipped-context' }),
@@ -2596,10 +2596,8 @@ describe('parallel batch', () => {
     })
 
     const result = await executeHooks([hook, hookB], 'PreToolUse', {}, config, fp(dir))
-    // M3: allow reducer only accumulates context from allow-result hooks, not skip losers.
-    // Skip's injectContext is not propagated when an allow wins.
     expect(result.lastResult?.result).toBe('allow')
-    expect(result.lastResult?.injectContext).toBeUndefined()
+    expect(result.lastResult?.injectContext).toBe('skipped-context')
   })
 
   it('parallel hook skip with updatedMCPToolOutput promotes to lastNonSkipResult', async () => {
@@ -3128,7 +3126,7 @@ describe('assertCategoryCompleteness', () => {
       ['SET_2', new Set<EventName>(['B' as EventName])],
     ]
     expect(() => assertCategoryCompleteness(allEvents, categories)).toThrow(
-      'event "C" is in CLAUDE_CODE_EVENTS but not categorized',
+      'event "C" is in ALL_SUPPORTED_EVENTS but not categorized',
     )
   })
 
@@ -3139,7 +3137,7 @@ describe('assertCategoryCompleteness', () => {
       ['SET_2', new Set<EventName>(['B' as EventName])],
     ]
     expect(() => assertCategoryCompleteness(allEvents, categories)).toThrow(
-      'event "B" is categorized in engine.ts but not in CLAUDE_CODE_EVENTS',
+      'event "B" is categorized in engine.ts but not in ALL_SUPPORTED_EVENTS',
     )
   })
 
@@ -3204,14 +3202,15 @@ describe('reducePreToolUseVotes', () => {
     expect(warnings).toEqual([])
   })
 
-  it('all-skip → skip winner returned, warnings empty', () => {
-    const skipA = { result: 'skip' as const }
-    const skipB = { result: 'skip' as const }
+  it('all-skip preserves context and last-winner metadata, warnings empty', () => {
+    const skipA = { result: 'skip' as const, injectContext: 'first' }
+    const skipB = { result: 'skip' as const, debugMessage: 'last' }
     const { result, warnings } = reducePreToolUseVotes([
       { engineResult: skipA, rank: -1 },
       { engineResult: skipB, rank: -1 },
     ])
-    expect(result?.result).toBe('skip')
+    expect(result).toEqual({ result: 'skip', injectContext: 'first', debugMessage: 'last' })
+    expect(skipB).toEqual({ result: 'skip', debugMessage: 'last' })
     expect(warnings).toEqual([])
   })
 
@@ -3476,18 +3475,18 @@ describe('reducePreToolUseVotes', () => {
     expect(warnings).toEqual([])
   })
 
-  it('skip sandwich: skip + allow + skip → allow wins; injectContext from allow preserved', () => {
+  it('skip sandwich: allow wins and all eligible context retains vote order', () => {
     // The >= tie-break must not promote a later skip over a genuine allow winner.
-    const skipA = { result: 'skip' as const }
+    const skipA = { result: 'skip' as const, injectContext: 'first' }
     const allow = { result: 'allow' as const, injectContext: 'middle' }
-    const skipB = { result: 'skip' as const }
+    const skipB = { result: 'skip' as const, injectContext: 'last' }
     const { result, warnings } = reducePreToolUseVotes([
       { engineResult: skipA, rank: -1 },
       { engineResult: allow, rank: 0 },
       { engineResult: skipB, rank: -1 },
     ])
     expect(result?.result).toBe('allow')
-    expect(result?.injectContext).toBe('middle')
+    expect(result?.injectContext).toBe('first\nmiddle\nlast')
     expect(warnings).toEqual([])
   })
 

@@ -529,6 +529,7 @@ describe('METHOD_SETS exhaustive wiring', () => {
     PermissionDenied: ['retry', 'skip'],
     SessionStart: ['skip'],
     SessionEnd: ['skip'],
+    Interrupt: ['skip'],
     InstructionsLoaded: ['skip'],
     PostToolUseFailure: ['skip'],
     Notification: ['skip'],
@@ -626,6 +627,11 @@ describe('METHOD_SETS exhaustive wiring', () => {
           string,
           unknown
         >
+      case 'Interrupt':
+        return createContext('Interrupt', {
+          model: 'gpt-5',
+          permissionMode: 'default',
+        }) as unknown as Record<string, unknown>
       case 'PreCompact':
         return createContext('PreCompact', {
           trigger: 'auto',

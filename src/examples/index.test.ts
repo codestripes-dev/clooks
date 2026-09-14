@@ -4,11 +4,11 @@
 // friendlier message than tsc's structural-error wall.
 
 import { describe, test, expect } from 'bun:test'
-import { CLAUDE_CODE_EVENTS } from '../config/constants.js'
+import { ALL_SUPPORTED_EVENTS } from '../config/constants.js'
 import type { EventName } from '../types/branded.js'
 import { EXAMPLES, META, TOOL_KEYED_EVENTS } from './index.js'
 
-const ALL_EVENTS = Array.from(CLAUDE_CODE_EVENTS).sort()
+const ALL_EVENTS = Array.from(ALL_SUPPORTED_EVENTS).sort()
 
 describe('examples corpus — coverage of every EventName', () => {
   test('every EventName has an EXAMPLES entry', () => {
@@ -22,12 +22,12 @@ describe('examples corpus — coverage of every EventName', () => {
   })
 
   test('EXAMPLES has no extra keys beyond EventName', () => {
-    const extra = (Object.keys(EXAMPLES) as EventName[]).filter((k) => !CLAUDE_CODE_EVENTS.has(k))
+    const extra = (Object.keys(EXAMPLES) as EventName[]).filter((k) => !ALL_SUPPORTED_EVENTS.has(k))
     expect(extra).toEqual([])
   })
 
   test('META has no extra keys beyond EventName', () => {
-    const extra = (Object.keys(META) as EventName[]).filter((k) => !CLAUDE_CODE_EVENTS.has(k))
+    const extra = (Object.keys(META) as EventName[]).filter((k) => !ALL_SUPPORTED_EVENTS.has(k))
     expect(extra).toEqual([])
   })
 })
@@ -90,7 +90,7 @@ describe('TOOL_KEYED_EVENTS', () => {
 
   test('every TOOL_KEYED_EVENTS member is itself a valid EventName', () => {
     for (const e of TOOL_KEYED_EVENTS) {
-      expect(CLAUDE_CODE_EVENTS.has(e)).toBe(true)
+      expect(ALL_SUPPORTED_EVENTS.has(e)).toBe(true)
     }
   })
 })

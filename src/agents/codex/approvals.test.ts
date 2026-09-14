@@ -9,6 +9,7 @@ import type { LoadedHook } from '../../loader.js'
 import type { AcceptedPreToolUseVote, ExecutionResult } from '../../engine/types.js'
 import { ApprovalStore } from './approval-store.js'
 import { codexAdapter } from './adapter.js'
+import { jsonRecord } from './tool-codecs.js'
 import {
   canonicalHash,
   inlineEligible,
@@ -73,7 +74,7 @@ const pipeline: ApprovalPipeline = {
   event: null,
   hooks: [],
 }
-function resolve(ex = execution(), input = raw(), identity = pipeline) {
+function resolve(ex = execution(), input: Record<string, unknown> = raw(), identity = pipeline) {
   const attempt = prepareApprovalAttempt(input)
   const invocation = codexAdapter.normalizeInvocation(attempt.payload, 'PreToolUse')
   return resolveApprovals(attempt, invocation, ex, identity, store)
@@ -360,10 +361,60 @@ describe('approval resolution', () => {
     ).toThrow('does not match')
     const ex = execution([vote('a', 0)])
     ex.lastResult!.updatedInput = { filePath: '/new' }
-    expect(() => resolve(ex, raw({ tool_name: 'Read', tool_input: { filePath: '/old' } }))).toThrow(
-      'codec',
-    )
+    expect(() =>
+      resolve(ex, raw({ tool_name: 'write_stdin', tool_input: { session_id: 123 } })),
+    ).toThrow('codec')
   })
+  test.each(['update_plan', 'localtools.inspect', 'spawn_agent'])(
+    '%s approval binds the encoded full candidate and invalidates changed rewrites',
+    (tool_name) => {
+      const tool_input = { keep_null: null, opaque_key: [{ snake_key: 'original' }] }
+      const input = { ...raw(), tool_name, tool_input }
+      const attempt = prepareApprovalAttempt(input)
+      const invocation = codexAdapter.normalizeInvocation(attempt.payload, 'PreToolUse')
+      const candidate = invocation.private.tool!.applyPatch(tool_input, { added_key: [false] })
+      const ex = execution([
+        {
+          ...vote('a', 0),
+          engineResult: { result: 'ask', reason: 'confirm', updatedInput: candidate },
+          inputBefore: tool_input,
+          inputAfter: candidate,
+        },
+      ])
+      ex.preToolUse!.inputChanged = true
+      ex.preToolUse!.finalToolInput = candidate
+      const id = token(resolve(ex, input))
+      store.acknowledge(id)
+      const allowed = resolve(ex, input)
+      expect(allowed.permit!.expectedInputHash).toBe(canonicalHash(candidate))
+      const output = codexAdapter.translateFinalOutput({
+        eventName: 'PreToolUse',
+        invocation,
+        result: allowed.result,
+        systemMessages: [],
+        diagnostics: [],
+      })
+      expect(JSON.parse(output.output!).hookSpecificOutput.updatedInput).toEqual(candidate)
+      validateApprovalOutput(attempt, allowed.permit!, output)
+      expect(() =>
+        validateApprovalOutput(attempt, allowed.permit!, {
+          exitCode: 0,
+          output: JSON.stringify({
+            hookSpecificOutput: {
+              hookEventName: 'PreToolUse',
+              permissionDecision: 'allow',
+              updatedInput: tool_input,
+            },
+          }),
+        }),
+      ).toThrow('differs')
+      ex.lastResult!.updatedInput = { ...candidate, added_key: [true] }
+      expect(token(resolve(ex, input))).not.toBe(id)
+      expect(input.tool_input).toEqual(tool_input)
+      expect(attempt.originalInput).toEqual(tool_input)
+      expect(invocation.context.toolInput).toEqual(tool_input)
+    },
+  )
   test('store errors never turn pending asks into permission', () => {
     const id = token(resolve())
     writeFileSync(store.path, 'corrupt')
@@ -383,9 +434,9 @@ describe('approval resolution', () => {
     const attempt = prepareApprovalAttempt(raw())
     validateApprovalOutput(attempt, permit, { exitCode: 0 })
     const mutated = cloneDeep(attempt)
-    mutated.originalInput.command = 'changed inspection input'
+    jsonRecord(mutated.originalInput).command = 'changed inspection input'
     validateApprovalOutput(mutated, permit, { exitCode: 0 })
-    mutated.nativeInput.command = 'different actual command'
+    jsonRecord(mutated.nativeInput).command = 'different actual command'
     expect(() => validateApprovalOutput(mutated, permit, { exitCode: 0 })).toThrow('differs')
     const replacement = (
       updatedInput: unknown,

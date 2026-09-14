@@ -25,6 +25,7 @@ import type {
   PermissionDeniedResult,
   SessionStartResult,
   SessionEndResult,
+  InterruptResult,
   InstructionsLoadedResult,
   NotificationResult,
   SubagentStartResult,
@@ -80,6 +81,7 @@ export type PermissionDeniedDecisionMethods = Retry<DebugMessage, PermissionDeni
 export type SessionStartDecisionMethods = Skip<EventSkipOptsMap['SessionStart'], SessionStartResult>
 
 export type SessionEndDecisionMethods = Skip<EventSkipOptsMap['SessionEnd'], SessionEndResult>
+export type InterruptDecisionMethods = Skip<EventSkipOptsMap['Interrupt'], InterruptResult>
 
 export type InstructionsLoadedDecisionMethods = Skip<
   EventSkipOptsMap['InstructionsLoaded'],

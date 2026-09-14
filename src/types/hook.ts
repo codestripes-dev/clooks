@@ -8,6 +8,7 @@ import type {
   ConfigChangeContext,
   SessionStartContext,
   SessionEndContext,
+  InterruptContext,
   InstructionsLoadedContext,
   PostToolUseContext,
   PostToolUseFailureContext,
@@ -33,6 +34,7 @@ import type {
   ConfigChangeResult,
   SessionStartResult,
   SessionEndResult,
+  InterruptResult,
   InstructionsLoadedResult,
   PostToolUseResult,
   PostToolUseFailureResult,
@@ -115,6 +117,7 @@ export interface ClooksHook<C extends Record<string, unknown> = Record<string, u
   // Observe events
   SessionStart?: (ctx: SessionStartContext, config: C) => MaybeAsync<SessionStartResult>
   SessionEnd?: (ctx: SessionEndContext, config: C) => MaybeAsync<SessionEndResult>
+  Interrupt?: (ctx: InterruptContext, config: C) => MaybeAsync<InterruptResult>
   InstructionsLoaded?: (
     ctx: InstructionsLoadedContext,
     config: C,

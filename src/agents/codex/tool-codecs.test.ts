@@ -26,8 +26,8 @@ describe('Codex tool input codecs', () => {
     expect(original.nested_key).toEqual({ old_key: true })
   })
 
-  test('opaque tools are observable records without an approved rewrite codec', () => {
-    expect(toolCodec('unknown_tool')).toBeNull()
+  test('local tools retain the object-only input gate; write_stdin has no PreToolUse codec', () => {
+    expect(toolCodec('write_stdin')).toBeNull()
     expect(jsonRecord({ opaque_key: [null, { nested_key: false }] })).toEqual({
       opaque_key: [null, { nested_key: false }],
     })
@@ -48,23 +48,27 @@ describe('Codex tool input codecs', () => {
     expect(next.__proto__).toEqual({ opaque_key: true })
   })
 
-  test('MCP full replacement preserves opaque own keys and detaches nested values', () => {
-    const codec = toolCodec('mcp__server__call')!
-    const raw = JSON.parse(
-      '{"__proto__":{"snake_key":null},"constructor":{"keep_key":false},"keep_null":null,"keep_value":1,"delete_value":2}',
-    )
-    const input = codec.decode(raw)
-    const patch = { keep_value: undefined, delete_value: null, added_key: [{ child_key: true }] }
-    const candidate = codec.applyPatch(input, patch)
-    const encoded = codec.encode(candidate)
-    patch.added_key[0]!.child_key = false
-    raw.__proto__.snake_key = 'changed'
-    expect(JSON.parse(JSON.stringify(encoded))).toEqual(
-      JSON.parse(
-        '{"__proto__":{"snake_key":null},"constructor":{"keep_key":false},"keep_null":null,"keep_value":1,"added_key":[{"child_key":true}]}',
-      ),
-    )
-    expect(Object.getPrototypeOf(candidate)).toBe(Object.prototype)
-    expect(input.delete_value).toBe(2)
-  })
+  test.each(['mcp__server__call', 'update_plan', 'localtools.inspect', '__proto__', 'constructor'])(
+    '%s full replacement preserves opaque own keys and detaches nested values',
+    (name) => {
+      const codec = toolCodec(name)!
+      expect(codec.canonicalName).toBe(name)
+      const raw = JSON.parse(
+        '{"__proto__":{"snake_key":null},"constructor":{"keep_key":false},"keep_null":null,"keep_value":1,"delete_value":2}',
+      )
+      const input = codec.decode(raw)
+      const patch = { keep_value: undefined, delete_value: null, added_key: [{ child_key: true }] }
+      const candidate = codec.applyPatch(input, patch)
+      const encoded = codec.encode(candidate)
+      patch.added_key[0]!.child_key = false
+      raw.__proto__.snake_key = 'changed'
+      expect(JSON.parse(JSON.stringify(encoded))).toEqual(
+        JSON.parse(
+          '{"__proto__":{"snake_key":null},"constructor":{"keep_key":false},"keep_null":null,"keep_value":1,"added_key":[{"child_key":true}]}',
+        ),
+      )
+      expect(Object.getPrototypeOf(candidate)).toBe(Object.prototype)
+      expect(input.delete_value).toBe(2)
+    },
+  )
 })

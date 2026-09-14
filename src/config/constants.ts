@@ -32,13 +32,20 @@ export const CLAUDE_CODE_EVENTS: Set<EventName> = new Set<EventName>([
   'TaskCompleted',
 ])
 
-/** Type guard: narrows a runtime string to EventName. */
-export function isEventName(s: string): s is EventName {
+/** Claude-only recognition must not use the shared configuration catalog. */
+export function isClaudeCodeEventName(s: string): s is EventName {
   return CLAUDE_CODE_EVENTS.has(s as EventName)
 }
 
+export const ALL_SUPPORTED_EVENTS: Set<EventName> = new Set([...CLAUDE_CODE_EVENTS, 'Interrupt'])
+
+/** Type guard for shared configuration and hook exports. */
+export function isEventName(s: string): s is EventName {
+  return ALL_SUPPORTED_EVENTS.has(s as EventName)
+}
+
 // Top-level keys that are not hook entries and not event entries.
-export const RESERVED_CONFIG_KEYS = new Set(['version', 'config', ...CLAUDE_CODE_EVENTS])
+export const RESERVED_CONFIG_KEYS = new Set(['version', 'config', ...ALL_SUPPORTED_EVENTS])
 
 // Events that support injectContext → additionalContext
 export const INJECTABLE_EVENTS: Set<EventName> = new Set<EventName>([

@@ -14,6 +14,17 @@ An agent's shell call to `clooks approve` remains subject to ordinary hooks. If 
 
 ## Inline Transport
 
+MCP (`mcp__`) inputs are bound as their actual JSON value, including null, scalars,
+arrays, and raw argument strings emitted by Codex when JSON parsing fails. Pre/post
+hooks can observe those shapes without a fabricated record. Only record inputs
+receive the existing partial-patch codec; non-record observation does not enable
+arbitrary replacement. Non-shell approval retries use `clooks approve` and unchanged
+arguments, never the shell carrier. Compiled replay coverage is not evidence that
+an MCP server accepts non-object arguments. Separate [native MCP evidence](testing/codex-native.md#native-handoff-interrupt-and-mcp)
+verifies six non-record shapes denied before server execution and one record
+rewrite reaching the server and PostToolUse; non-record approval retries remain
+compiled replay evidence.
+
 The controller recognizes only a byte-zero `CLOOKS_APPROVAL_TOKENS=<token>[,<token>...] ` prefix in the pending native `Bash` or `exec_command` command. This is tool-input syntax, not acknowledgement from the hook process's inherited environment. Tokens cannot be quoted or contain shell syntax; the prefix carries at most 64 IDs. Registered and inline acknowledgements use the same exact records and can be combined across retries.
 
 Inline eligibility is deliberately narrow: an unquoted external executable word using letters, digits, underscore, dot, slash or hyphen, followed by supported literal arguments, including simple quoted literals. Shell builtins/reserved words, control operators, redirects, newlines, escapes, substitutions and parameter expansions are refused. Uncertain commands and non-shell tools use `clooks approve` followed by unchanged tool arguments; do not wrap a command in `eval` or `sh -c` to manufacture eligibility.
@@ -37,6 +48,8 @@ Approval resolution runs after ordinary execution and reduction, before diagnost
 The first unresolved ask in configured order is shown. Issuance does not acknowledge it. Earlier acknowledgements survive intermediate denied retries while subsequent asks are confirmed. Once every current ask is acknowledged, only the reduced final `ask` tag changes to `allow`; reason, context, debug and replacement fields remain those of the original reducer. Votes are not remapped and reduced again; losing-ask context is not newly aggregated. Turn history still records raw asks.
 
 Partial patches retain existing semantics: undefined fields are no-ops, null explicitly unsets, and untouched values survive codec validation. If ask A patches X to Y and the winning ask B supplies no patch, later hooks see Y but the reducer can omit replacement entirely when no contributing allow patch exists. The native operation then remains X. A winning ask patch or contributing allow patch can instead cause the materialized input to be emitted. Approval binds that actual emitted operation and each ask's observations separately.
+
+This also applies to ordinary local function object arguments such as `update_plan` and namespaced local tools. The generic codec emits the full replacement without renaming keys or names; command-only and MCP contracts are unchanged. Known public discriminators retain required/optional field validation before a candidate reaches later hooks or approval issuance. Changing the encoded candidate invalidates an acknowledged confirmation even if hook bytes/configuration are unchanged. Local tools use CLI acknowledgement, not shell inline carriers. `write_stdin`, parallel rewrites and non-PreToolUse mutations remain unsupported. Non-record local inputs remain unsupported.
 
 ## Lifecycle
 

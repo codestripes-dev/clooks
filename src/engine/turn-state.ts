@@ -20,7 +20,7 @@ import type { Dirent } from 'node:fs'
 import { lstat, mkdir, open, readdir, realpath, rename, unlink, writeFile } from 'node:fs/promises'
 import { basename, dirname, join, resolve, sep } from 'node:path'
 import { isPlainObject } from 'lodash-es'
-import { CLAUDE_CODE_EVENTS } from '../config/constants.js'
+import { ALL_SUPPORTED_EVENTS } from '../config/constants.js'
 import type { EventName, HookName } from '../types/branded.js'
 import type { TurnContext, TurnDecision, TurnRecord } from '../types/turn.js'
 import type { AgentId } from '../agents/types.js'
@@ -126,7 +126,7 @@ export function isTurnDecision(value: unknown): value is TurnDecision {
 }
 
 function isKnownEvent(value: unknown): value is EventName {
-  return typeof value === 'string' && CLAUDE_CODE_EVENTS.has(value as EventName)
+  return typeof value === 'string' && ALL_SUPPORTED_EVENTS.has(value as EventName)
 }
 
 /**

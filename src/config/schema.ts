@@ -7,7 +7,7 @@
  */
 import { z } from 'zod'
 import {
-  CLAUDE_CODE_EVENTS,
+  ALL_SUPPORTED_EVENTS,
   HANDOFF_ELIGIBLE_EVENTS,
   INJECTABLE_EVENTS,
   type HandoffSetting,
@@ -61,7 +61,7 @@ const HookEventOverrideSchema = z
 
 // Build events sub-map with all 20 event names as known properties
 const hookEventsMapProps = Object.fromEntries(
-  [...CLAUDE_CODE_EVENTS].map((e) => [e, HookEventOverrideSchema.optional()]),
+  [...ALL_SUPPORTED_EVENTS].map((e) => [e, HookEventOverrideSchema.optional()]),
 ) as Record<EventName, z.ZodOptional<typeof HookEventOverrideSchema>>
 
 const HookEventsMapSchema = z.object(hookEventsMapProps).strict()
@@ -98,7 +98,7 @@ export const EventEntrySchema = z
 
 // Known event properties (for JSON Schema autocomplete)
 const eventProperties = Object.fromEntries(
-  [...CLAUDE_CODE_EVENTS].map((e) => [e, EventEntrySchema.optional()]),
+  [...ALL_SUPPORTED_EVENTS].map((e) => [e, EventEntrySchema.optional()]),
 ) as Record<EventName, z.ZodOptional<typeof EventEntrySchema>>
 
 /**
@@ -119,7 +119,7 @@ export const ClooksConfigStructuralSchema = z
  * Use this for runtime validation.
  */
 export const ClooksConfigSchema = ClooksConfigStructuralSchema.superRefine((val, ctx) => {
-  const reservedKeys = new Set<string>(['version', 'config', ...CLAUDE_CODE_EVENTS])
+  const reservedKeys = new Set<string>(['version', 'config', ...ALL_SUPPORTED_EVENTS])
 
   // Collect hook names (everything that's not a reserved key)
   const hookNames = new Set<string>()
@@ -132,7 +132,7 @@ export const ClooksConfigSchema = ClooksConfigStructuralSchema.superRefine((val,
   // ── 1. Event entry validation ──
   const KNOWN_EVENT_KEYS = new Set(['order'])
 
-  for (const eventName of CLAUDE_CODE_EVENTS) {
+  for (const eventName of ALL_SUPPORTED_EVENTS) {
     const eventEntry = val[eventName]
     if (!eventEntry) continue
 

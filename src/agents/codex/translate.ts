@@ -20,6 +20,7 @@ export function translateFailure(input: TranslateFailureInput): TranslatedAgentO
     PostCompact: 'Local hook failure after compaction; no rollback or native veto is requested.',
     SessionEnd:
       'Local hook failure only; no session closure veto is available and native stderr delivery is not guaranteed.',
+    Interrupt: 'Local observer failure only; no cancellation veto or continuation is requested.',
   }
   const disposition =
     input.eventName && Object.hasOwn(dispositions, input.eventName)
@@ -30,6 +31,8 @@ export function translateFailure(input: TranslateFailureInput): TranslatedAgentO
   const reason = `${message.startsWith(prefix) ? message : prefix + message} ${disposition}`
   const output: Record<string, unknown> = { systemMessage: reason }
   switch (input.eventName) {
+    case 'Interrupt':
+      return { output: JSON.stringify(output), exitCode: 0 }
     case 'PreToolUse':
       output.hookSpecificOutput = {
         hookEventName: input.eventName,
@@ -67,6 +70,13 @@ export function translateFinalOutput(input: TranslateFinalOutputInput): Translat
   const output: Record<string, unknown> = {}
   const specific: Record<string, unknown> = { hookEventName: input.eventName }
   const messages = [...input.systemMessages, ...input.diagnostics]
+  if (input.eventName === 'Interrupt') {
+    return {
+      output:
+        messages.length > 0 ? JSON.stringify({ systemMessage: messages.join('\n') }) : undefined,
+      exitCode: 0,
+    }
+  }
   if (input.eventName === 'SessionEnd') {
     return { stderr: messages.length > 0 ? messages.join('\n') : undefined, exitCode: 0 }
   }

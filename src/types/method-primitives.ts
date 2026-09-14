@@ -95,6 +95,7 @@ export type ToolVariantWithOriginal<N extends string, I> = ToolVariant<N, I> & {
  * the ctx-side `*DecisionMethods` types; lifecycle uses its own narrower maps.
  */
 export interface EventBlockOptsMap extends Record<EventName, unknown> {
+  Interrupt: Reason & DebugMessage
   PreToolUse: Reason & DebugMessage & InjectContext
   PostToolUse: Reason & DebugMessage & InjectContext & UpdatedMcpToolOutput
   UserPromptSubmit: Reason & DebugMessage & InjectContext & SessionTitle
@@ -127,7 +128,8 @@ export interface EventBlockOptsMap extends Record<EventName, unknown> {
  * primitives and the exhaustiveness guarantee.
  */
 export interface EventSkipOptsMap extends Record<EventName, unknown> {
-  PreToolUse: DebugMessage // InjectContext dropped — translator silently drops on PreToolUse.skip (src/engine/translate.ts:50-51)
+  Interrupt: DebugMessage
+  PreToolUse: DebugMessage & InjectContext
   PostToolUse: DebugMessage & InjectContext & UpdatedMcpToolOutput
   UserPromptSubmit: DebugMessage & InjectContext & SessionTitle
   SessionStart: DebugMessage & InjectContext
@@ -162,10 +164,6 @@ export interface EventSkipOptsMap extends Record<EventName, unknown> {
  * decision is co-located with the mutation. The ctx-side `EventBlockOptsMap`
  * carries the wire-faithful primitives.
  *
- * Distinct from the `PreToolUse.skip` exclusion of `injectContext` (in
- * `EventSkipOptsMap` / `LifecycleSkipOptsMap`), which is *by wire reality* —
- * the runtime translator silently drops the field on that arm.
- *
  * `Interrupt` on `PermissionRequest.block` is kept here because it modifies
  * how the block decision is delivered (control flow), not the content.
  *
@@ -174,6 +172,7 @@ export interface EventSkipOptsMap extends Record<EventName, unknown> {
  * JSDoc and `docs/CODE_QUALITY_BACKLOG.md` for the open exhaustiveness item.
  */
 export interface LifecycleBlockOptsMap extends Record<EventName, unknown> {
+  Interrupt: Reason & DebugMessage
   PreToolUse: Reason & DebugMessage & InjectContext
   PostToolUse: Reason & DebugMessage & InjectContext // UpdatedMcpToolOutput dropped
   UserPromptSubmit: Reason & DebugMessage & InjectContext // SessionTitle dropped
@@ -204,7 +203,8 @@ export interface LifecycleBlockOptsMap extends Record<EventName, unknown> {
  * surface split.
  */
 export interface LifecycleSkipOptsMap extends Record<EventName, unknown> {
-  PreToolUse: DebugMessage // InjectContext dropped (translator silently drops on PreToolUse.skip — see src/engine/translate.ts:50-51)
+  Interrupt: DebugMessage
+  PreToolUse: DebugMessage & InjectContext
   PostToolUse: DebugMessage & InjectContext // UpdatedMcpToolOutput dropped
   UserPromptSubmit: DebugMessage & InjectContext // SessionTitle dropped
   SessionStart: DebugMessage & InjectContext

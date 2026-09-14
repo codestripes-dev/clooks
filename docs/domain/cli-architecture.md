@@ -12,7 +12,7 @@ Both stdin catches use `formatStdinError`: only the dedicated error receives the
 
 `src/cli.ts` is the compiled binary's entrypoint. It serves two roles from a single executable:
 
-1. **Engine mode** — An agent hook system pipes a JSON event on stdin with no arguments. The selected adapter writes provider-specific output. Claude has its existing runtime; Codex implements eleven events, including observation-only SessionEnd. Earlier expanded Docker validation covered the ten-event target.
+1. **Engine mode** — An agent hook system pipes a JSON event on stdin with no arguments. The selected adapter writes provider-specific output. Claude has its existing runtime; Codex implements twelve events, including observation-only SessionEnd and Codex-only Interrupt.
 2. **CLI mode** — A developer types a subcommand (e.g., `clooks config`). Commander.js parses arguments and runs the command's action handler.
 
 ### Dispatch logic
@@ -32,10 +32,10 @@ The dispatch reads `process.argv.slice(2)` and applies these rules in order:
 
 - unset or empty `CLOOKS_AGENT` -> `claude-code`
 - `CLOOKS_AGENT=claude-code` -> explicit Claude Code adapter
-- `CLOOKS_AGENT=codex` -> Codex adapter with `supportsRuntime: true`, handling all ten target events through event-specific normalization, capability policy and translation
+- `CLOOKS_AGENT=codex` -> Codex adapter with `supportsRuntime: true`, handling all twelve target events through event-specific normalization, capability policy and translation
 - any other value -> exit code 2 with a diagnostic before runtime execution
 
-These exits establish Clooks refusal, not universal upstream blocking. Codex's handling is event-specific and has not been verified live.
+These exits establish Clooks refusal, not universal upstream blocking. Codex's handling is event-specific; native evidence is scoped by event and capability in [Codex Native Testing](testing/codex-native.md).
 
 The selector does not inspect stdin. Registration owns agent identity because Claude and Codex share event names such as `SessionStart`, `PreToolUse`, `PostToolUse`, and `Stop`.
 
@@ -49,7 +49,7 @@ An invocation-specific result policy reaches the executor as its optional tenth 
 
 Codex PreToolUse prepares carrier-free input before normalization, including private raw metadata. After execution, the approval controller uses detached, configured-order accepted votes and pipeline identity to issue the first pending confirmation or discharge the final reduced ask. Diagnostic composition and final adjustment follow resolution. The final-output helper validates serialized input against an approval permit before atomic consumption and output; every successful PreToolUse exit also retires existing acknowledgements by base invocation, including config-degraded and no-config exits. Blocks retain approvals. Absent-store no-ask paths avoid opening/creating the database, and no-config keeps its otherwise-unused-input fast path. Identity/storage/serialization failures cannot count as acknowledgement; output failure after consumption loses the tokens. Claude never accesses approval storage. Runtime integration passed full frozen-source Docker validation. The passing [15-case native suite](testing/codex-native.md#hybrid-approval-case-evidence) covers bounded shell and direct-patch approval workflows, rewrite execution/denial controls and actual-pack `rm -r`; it does not establish forced-removal permission or full conformance.
 
-For `before-hooks` adapters, `runEngineCore()` catches invocation/runtime errors using the retained event and private invocation and calls `translateFailure()`. Internal `EngineCompletion` carries intentional exits so they are not mistaken for runtime failures; the selected exit code reaches the process after the catch boundary. Codex now normalizes eleven events before imports. Invalid input or unsupported result capabilities use event-specific denial/block/termination requests where supported and local stderr/exit 2 otherwise. SessionEnd requires no model, permission mode or turn ID; it has no turn-state policy, emits no stdout on success and routes diagnostics locally to stderr. Its failure cannot veto closure. Provider-specific hook/load/config failure paths and private `resolveTurnPolicy()` are connected. The earlier PreToolUse integration and expanded ten-event boundary passed Docker validation; generated-error accounting uses `deferRuntimeErrorAudit`. This is not a full native-capability or enforcement claim. See [Cross-Agent Hooks](cross-agent-hooks.md#current-pretooluse-implementation).
+For `before-hooks` adapters, `runEngineCore()` catches invocation/runtime errors using the retained event and private invocation and calls `translateFailure()`. Internal `EngineCompletion` carries intentional exits so they are not mistaken for runtime failures; the selected exit code reaches the process after the catch boundary. Codex normalizes twelve events before imports. Invalid input or unsupported result capabilities use event-specific denial/block/termination requests where supported and local stderr/exit 2 otherwise. SessionEnd requires no model, permission mode or turn ID; it has no turn-state policy, emits no stdout on success and routes diagnostics locally to stderr. Its failure cannot veto closure. Interrupt requires model, permission mode and native turn ID, preserves the existing turn boundary and exposes no child identity. It emits only optional stdout `systemMessage` diagnostics, with no decision, context or cancellation veto. Both observers register a three-second total pipeline timeout. Provider-specific hook/load/config failure paths and private `resolveTurnPolicy()` are connected. The earlier PreToolUse integration and expanded ten-event boundary passed Docker validation; generated-error accounting uses `deferRuntimeErrorAudit`. This is not a full native-capability or enforcement claim. See [Cross-Agent Hooks](cross-agent-hooks.md#current-runtime-capabilities).
 
 ### KNOWN_COMMANDS
 

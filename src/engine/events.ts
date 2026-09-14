@@ -1,5 +1,5 @@
 import type { EventName } from '../types/branded.js'
-import { CLAUDE_CODE_EVENTS, NOTIFY_ONLY_EVENTS } from '../config/constants.js'
+import { ALL_SUPPORTED_EVENTS, NOTIFY_ONLY_EVENTS } from '../config/constants.js'
 
 // Event categories for result translation.
 // Completeness is enforced by assertCategoryCompleteness() below — adding
@@ -17,6 +17,7 @@ export const GUARD_EVENTS: Set<EventName> = new Set<EventName>([
 export const OBSERVE_EVENTS: Set<EventName> = new Set<EventName>([
   'SessionStart',
   'SessionEnd',
+  'Interrupt',
   'InstructionsLoaded',
   'PostToolUse',
   'PostToolUseFailure',
@@ -61,7 +62,7 @@ export function assertCategoryCompleteness(
   for (const event of allEvents) {
     if (!seen.has(event)) {
       throw new Error(
-        `clooks: event "${event}" is in CLAUDE_CODE_EVENTS but not categorized in ` +
+        `clooks: event "${event}" is in ALL_SUPPORTED_EVENTS but not categorized in ` +
           `GUARD_EVENTS, OBSERVE_EVENTS, CONTINUATION_EVENTS, NOTIFY_ONLY_EVENTS, or WorktreeCreate. ` +
           `Add it to the appropriate category set in src/engine.ts.`,
       )
@@ -72,8 +73,8 @@ export function assertCategoryCompleteness(
   for (const event of seen.keys()) {
     if (!allEvents.has(event)) {
       throw new Error(
-        `clooks: event "${event}" is categorized in engine.ts but not in CLAUDE_CODE_EVENTS. ` +
-          `Either add it to CLAUDE_CODE_EVENTS in src/config/constants.ts or remove it from the category set.`,
+        `clooks: event "${event}" is categorized in engine.ts but not in ALL_SUPPORTED_EVENTS. ` +
+          `Either add it to ALL_SUPPORTED_EVENTS in src/config/constants.ts or remove it from the category set.`,
       )
     }
   }
@@ -82,7 +83,7 @@ export function assertCategoryCompleteness(
 // NOTIFY_ONLY_EVENTS is declared in src/config/constants.ts (alongside INJECTABLE_EVENTS)
 // and imported here for completeness-checking — do not redeclare the set here.
 // Example member: StopFailure (upstream drops stdout + exit code).
-assertCategoryCompleteness(CLAUDE_CODE_EVENTS, [
+assertCategoryCompleteness(ALL_SUPPORTED_EVENTS, [
   ['GUARD_EVENTS', GUARD_EVENTS],
   ['OBSERVE_EVENTS', OBSERVE_EVENTS],
   ['CONTINUATION_EVENTS', CONTINUATION_EVENTS],

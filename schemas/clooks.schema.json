@@ -327,6 +327,19 @@
         }
       },
       "additionalProperties": {}
+    },
+    "Interrupt": {
+      "type": "object",
+      "properties": {
+        "order": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "additionalProperties": {}
     }
   },
   "required": ["version"],
@@ -907,6 +920,31 @@
             "additionalProperties": false
           },
           "TaskCompleted": {
+            "type": "object",
+            "properties": {
+              "onError": {
+                "type": "string",
+                "enum": ["block", "continue", "trace"]
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "handoff": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                ]
+              }
+            },
+            "additionalProperties": false
+          },
+          "Interrupt": {
             "type": "object",
             "properties": {
               "onError": {

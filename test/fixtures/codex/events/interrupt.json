@@ -1,0 +1,9 @@
+{
+  "session_id": "codex-fixture-session",
+  "turn_id": "codex-fixture-turn",
+  "transcript_path": null,
+  "cwd": "/workspace/project",
+  "hook_event_name": "Interrupt",
+  "model": "gpt-5.1-codex",
+  "permission_mode": "default"
+}

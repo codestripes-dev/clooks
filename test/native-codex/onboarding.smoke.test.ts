@@ -14,6 +14,7 @@ import { join } from 'node:path'
 import { modelReadableText, requireSuccess, requireThat, run, save, sha256 } from './harness'
 import {
   assertSkill,
+  assertRuntimeRegistration,
   onboardingCases,
   onboardingPin,
   onboardingPacks,
@@ -243,13 +244,7 @@ ignore_default_excludes = true
           'Wrong agent/scope setup',
         )
         const hooks = JSON.parse(beforeReinit).hooks
-        requireThat(
-          Object.keys(hooks).length === 11 &&
-            Object.values(hooks).every(
-              (groups: any) => groups.length === 1 && groups[0].hooks.length === 1,
-            ),
-          'Duplicate or incomplete runtime registration',
-        )
+        assertRuntimeRegistration(hooks)
         if (reuse) {
           requireThat(
             !existsSync(managed) &&

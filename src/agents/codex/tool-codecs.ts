@@ -37,6 +37,11 @@ export function isJsonValue(value: unknown, ancestors = new Set<object>()): valu
   return valid
 }
 
+export function jsonInput(value: unknown): JsonValue {
+  if (!isJsonValue(value)) throw new Error('tool input must be lossless JSON')
+  return cloneDeep(value)
+}
+
 export function jsonRecord(value: unknown): Record<string, JsonValue> {
   if (!isPlainObject(value) || !isJsonValue(value)) {
     throw new Error(
@@ -78,22 +83,86 @@ function commandRecord(value: unknown): Record<string, JsonValue> {
   return input
 }
 
+export function validatePublicToolInput(publicToolName: string, toolInput: unknown): void {
+  // These discriminators promise Claude input shapes, not merely an arbitrary record.
+  const knownRequired: Record<string, string[]> = {
+    Bash: ['command'],
+    Write: ['filePath', 'content'],
+    Edit: ['filePath', 'oldString', 'newString'],
+    Read: ['filePath'],
+    Glob: ['pattern'],
+    Grep: ['pattern'],
+    WebFetch: ['url', 'prompt'],
+    WebSearch: ['query'],
+    Agent: ['prompt', 'description', 'subagentType'],
+  }
+  const fields = Object.hasOwn(knownRequired, publicToolName) ? knownRequired[publicToolName] : []
+  if (
+    fields?.some((key) => typeof jsonRecord(toolInput)[key] !== 'string') ||
+    publicToolName === 'AskUserQuestion'
+  ) {
+    throw new Error(`no compatible public input shape for ${publicToolName}`)
+  }
+  const optionalFields: Record<string, Record<string, (value: unknown) => boolean>> = {
+    Bash: {
+      description: (value) => typeof value === 'string',
+      timeout: (value) => typeof value === 'number',
+      runInBackground: (value) => typeof value === 'boolean',
+    },
+    Edit: { replaceAll: (value) => typeof value === 'boolean' },
+    Read: {
+      offset: (value) => typeof value === 'number',
+      limit: (value) => typeof value === 'number',
+    },
+    Glob: { path: (value) => typeof value === 'string' },
+    Grep: {
+      path: (value) => typeof value === 'string',
+      glob: (value) => typeof value === 'string',
+      outputMode: (value) => typeof value === 'string',
+      '-i': (value) => typeof value === 'boolean',
+      multiline: (value) => typeof value === 'boolean',
+    },
+    WebSearch: {
+      allowedDomains: (value) =>
+        Array.isArray(value) && value.every((item) => typeof item === 'string'),
+      blockedDomains: (value) =>
+        Array.isArray(value) && value.every((item) => typeof item === 'string'),
+    },
+    Agent: { model: (value) => typeof value === 'string' },
+  }
+  const optional = Object.hasOwn(optionalFields, publicToolName)
+    ? optionalFields[publicToolName]
+    : undefined
+  for (const [key, validate] of Object.entries(optional ?? {})) {
+    const value = jsonRecord(toolInput)[key]
+    if (value !== undefined && !validate(value)) {
+      throw new Error(`${publicToolName}.${key} has an incompatible public input type`)
+    }
+  }
+}
+
 export function toolCodec(toolName: string): ToolCodec | null {
-  if (toolName.startsWith('mcp__')) {
+  // The native handler opts out of PreToolUse, so it has no replacement contract.
+  if (toolName === 'write_stdin') return null
+  if (toolName !== 'Bash' && toolName !== 'exec_command' && toolName !== 'apply_patch') {
+    const record = (input: unknown) => {
+      const value = jsonRecord(input)
+      validatePublicToolInput(toolName, value)
+      return cloneDeep(value)
+    }
     return {
       canonicalName: toolName,
       decode(input) {
-        return cloneDeep(jsonRecord(input))
+        return record(input)
       },
       applyPatch(current, patch) {
-        return cloneDeep(jsonRecord(materializePatch(current, patch)))
+        return record(materializePatch(record(current), patch))
       },
       encode(input) {
-        return cloneDeep(jsonRecord(input))
+        return record(input)
       },
     }
   }
-  if (toolName !== 'Bash' && toolName !== 'exec_command' && toolName !== 'apply_patch') return null
   return {
     canonicalName: toolName === 'exec_command' ? 'Bash' : toolName,
     decode(input) {
@@ -105,7 +174,7 @@ export function toolCodec(toolName: string): ToolCodec | null {
           'command-only updates cannot contain additional keys, including null deletions',
         )
       }
-      return cloneDeep(commandRecord(materializePatch(current, patch)))
+      return cloneDeep(commandRecord(materializePatch(commandRecord(current), patch)))
     },
     encode(input) {
       return cloneDeep(commandRecord(input))

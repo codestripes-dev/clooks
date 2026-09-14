@@ -109,7 +109,7 @@ The same DU narrowing flows through the **decision methods**: `ctx.allow({ updat
 
 The same gating applies on the lifecycle-wrapper side via `LifecycleBlockOptsMap[K]` and `LifecycleSkipOptsMap[K]` (in `src/types/method-primitives.ts`). A `beforeHook` author cannot return `event.block({ reason, injectContext })` or `event.skip({ injectContext })` on a non-injectable event — TypeScript rejects the call at the field level. The seven `INJECTABLE_EVENTS` (in `src/config/constants.ts`) are the only events whose lifecycle opts and result types both carry `InjectContext`.
 
-One specific exception: `PreToolUse.skip` does NOT accept `injectContext` on either surface — `LifecycleSkipOptsMap['PreToolUse']` and `EventSkipOptsMap['PreToolUse']` carry only `DebugMessage`. The runtime translator at `src/engine/translate.ts` returns early on `PreToolUse.skip` (empty stdout), so `injectContext` is silently dropped on the wire regardless. The type system enforces this gap on both surfaces.
+`PreToolUse.skip` accepts `injectContext` on both surfaces without making a permission decision. Both agents emit nonempty context as standalone `additionalContext`. Accepted skip contexts accumulate with eligible decision contexts in configured order, including when every hook skips; defer drops context.
 
 The runtime defensive drop in `src/engine/translate.ts` stays as belt-and-suspenders for JS callers and engine-internal injection paths.
 

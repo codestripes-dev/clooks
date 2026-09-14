@@ -255,7 +255,7 @@ describe('Codex PreToolUse runtime policy', () => {
 
   test('rewrite refusal distinguishes parallel execution from a missing codec', () => {
     const invocation = codexAdapter.normalizeInvocation(
-      payload({ tool_name: 'Read', tool_input: { filePath: '/file' } }),
+      payload({ tool_name: 'write_stdin', tool_input: { session_id: 123, chars: '' } }),
       'PreToolUse',
     )
     const policy = codexAdapter.createResultPolicy(invocation)

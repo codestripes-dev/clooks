@@ -11,6 +11,55 @@ export const onboardingCases = [
 ]
 export const onboardingPacks = ['clooks-core-hooks', 'clooks-project-hooks', 'clooks-example-hooks']
 
+export function assertRuntimeRegistration(hooks: unknown) {
+  const events = [
+    'SessionStart',
+    'SubagentStart',
+    'PreToolUse',
+    'PermissionRequest',
+    'PostToolUse',
+    'PreCompact',
+    'PostCompact',
+    'UserPromptSubmit',
+    'SubagentStop',
+    'Stop',
+    'SessionEnd',
+    'Interrupt',
+  ]
+  const record = (value: unknown): value is Record<string, unknown> =>
+    value !== null && typeof value === 'object' && !Array.isArray(value)
+  requireThat(
+    record(hooks) &&
+      Object.keys(hooks).length === events.length &&
+      events.every((event) => Object.hasOwn(hooks, event)),
+    'Duplicate or incomplete runtime registration: expected exact twelve-event inventory',
+  )
+  if (!record(hooks)) return
+  for (const event of events) {
+    const groups = hooks[event]
+    requireThat(
+      Array.isArray(groups) &&
+        groups.length === 1 &&
+        record(groups[0]) &&
+        groups[0].matcher === '*' &&
+        Array.isArray(groups[0].hooks) &&
+        groups[0].hooks.length === 1,
+      `Duplicate or malformed runtime registration: ${event}`,
+    )
+    const command = (groups as Array<{ hooks: unknown[] }>)[0]!.hooks[0]
+    requireThat(
+      record(command) &&
+        command.type === 'command' &&
+        typeof command.command === 'string' &&
+        command.command.length > 0 &&
+        (event === 'SessionEnd' || event === 'Interrupt'
+          ? command.timeout === 3
+          : !Object.hasOwn(command, 'timeout')),
+      `Invalid runtime command or timeout: ${event}`,
+    )
+  }
+}
+
 export function assertSkill(body: any, skill: string, explicit: boolean) {
   const text = modelReadableText(body.input)
   const blocks = text.filter((part) => part.includes('<skill>'))

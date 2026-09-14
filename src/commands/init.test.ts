@@ -528,7 +528,7 @@ describe('clooks init', () => {
         {
           type: 'command',
           command: expectedCommand,
-          ...(event === 'SessionEnd' ? { timeout: 3 } : {}),
+          ...(event === 'SessionEnd' || event === 'Interrupt' ? { timeout: 3 } : {}),
         },
       ])
       expect(expectedCommand).toContain('CLOOKS_PROJECT_ROOT=')
@@ -944,7 +944,7 @@ describe('clooks init --global', () => {
         {
           type: 'command',
           command: expectedCommand,
-          ...(event === 'SessionEnd' ? { timeout: 3 } : {}),
+          ...(event === 'SessionEnd' || event === 'Interrupt' ? { timeout: 3 } : {}),
         },
       ])
     }

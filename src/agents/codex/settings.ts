@@ -15,6 +15,7 @@ export const CODEX_REGISTRATION_EVENTS = [
   'SubagentStop',
   'Stop',
   'SessionEnd',
+  'Interrupt',
 ] as const
 
 export type CodexRegistrationEvent = (typeof CODEX_REGISTRATION_EVENTS)[number]
@@ -150,7 +151,7 @@ function makeCodexClooksMatcherGroup(
       {
         type: 'command',
         command: entrypointCommand,
-        ...(event === 'SessionEnd' ? { timeout: 3 } : {}),
+        ...(event === 'SessionEnd' || event === 'Interrupt' ? { timeout: 3 } : {}),
       },
     ],
   }
@@ -170,7 +171,7 @@ function isCanonicalCodexClooksMatcherGroup(
     isRecord(hook) &&
     hook.type === 'command' &&
     hook.command === entrypointCommand &&
-    (event === 'SessionEnd'
+    (event === 'SessionEnd' || event === 'Interrupt'
       ? hook.timeout === 3 && Object.keys(hook).length === 3
       : Object.keys(hook).length === 2) &&
     Object.keys(matcherGroup).length === 2

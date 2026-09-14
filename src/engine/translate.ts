@@ -48,6 +48,15 @@ export function translateResult(
       return { output: JSON.stringify(output), exitCode: EXIT_OK }
     }
     if (resultType === 'skip') {
+      if (typeof result.injectContext === 'string' && result.injectContext.length > 0) {
+        const output: ClaudeCodeOutput = {
+          hookSpecificOutput: {
+            hookEventName: 'PreToolUse',
+            additionalContext: result.injectContext,
+          },
+        }
+        return { output: JSON.stringify(output), exitCode: EXIT_OK }
+      }
       return { exitCode: EXIT_OK }
     }
     if (resultType === 'allow') {

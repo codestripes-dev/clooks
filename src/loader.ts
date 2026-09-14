@@ -1,7 +1,7 @@
 import type { HookName } from './types/branded.js'
 import type { ClooksHook } from './types/hook.js'
 import type { HookEntry, HookOrigin, ClooksConfig } from './config/schema.js'
-import { CLAUDE_CODE_EVENTS } from './config/constants.js'
+import { ALL_SUPPORTED_EVENTS } from './config/constants.js'
 import { isPathLike, isShortAddress, shortAddressHookName } from './config/resolve.js'
 import { existsSync } from 'fs'
 import { resolve } from 'path'
@@ -39,7 +39,7 @@ export function validateHookExport(mod: Record<string, unknown>, hookPath: strin
     'meta',
     'beforeHook',
     'afterHook',
-    ...CLAUDE_CODE_EVENTS,
+    ...ALL_SUPPORTED_EVENTS,
   ])
 
   for (const key of Object.keys(hookObj)) {

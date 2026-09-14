@@ -1,7 +1,7 @@
 import { join } from 'path'
 import { preparePluginPacks } from '../prepare-plugin-packs.js'
 import {
-  isEventName as isClaudeCodeEventName,
+  isClaudeCodeEventName,
   NOTIFY_ONLY_EVENTS,
   INJECTABLE_EVENTS,
 } from '../../config/constants.js'

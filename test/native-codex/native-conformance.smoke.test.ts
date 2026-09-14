@@ -13,6 +13,11 @@ import { startFixture } from './fixture-server'
 import { packScenario } from './pack-scenarios'
 import { hybridScenario } from './hybrid-scenarios'
 import { sessionEndScenario } from './session-end-scenario'
+import { handoffScenario } from './handoff-scenarios'
+import { handoffChildScenario } from './handoff-child-scenarios'
+import { interruptScenario } from './interrupt-scenario'
+import { mcpObservationScenario } from './mcp-observation-scenario'
+import { localToolRewriteScenario } from './local-tool-rewrite-scenario'
 import {
   assertObservation,
   binaryPin,
@@ -23,6 +28,8 @@ import {
   denyReason,
   mandatoryCases,
   hybridCases,
+  handoffCases,
+  localToolCases,
   packCases,
   readCaptures,
   requireSuccess,
@@ -221,6 +228,11 @@ test('mandatory native cases with hybrid retries and rewrite permission controls
   for (const id of packCases) await packScenario(id, logRoot)
   for (const id of hybridCases) await hybridScenario(id, logRoot)
   await sessionEndScenario(logRoot)
+  for (const scenario of handoffCases) await handoffScenario(scenario, logRoot)
+  await handoffChildScenario(logRoot)
+  await interruptScenario(logRoot)
+  await mcpObservationScenario(logRoot)
+  for (const id of localToolCases) await localToolRewriteScenario(id, logRoot)
   save(join(logRoot, 'completed.json'), {
     mode: '--smoke',
     completed: mandatoryCases.length,

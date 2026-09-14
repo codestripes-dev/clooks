@@ -20,6 +20,7 @@ import type {
   ConfigChangeContext,
   SessionStartContext,
   SessionEndContext,
+  InterruptContext,
   InstructionsLoadedContext,
   PostToolUseContext,
   PostToolUseFailureContext,
@@ -46,6 +47,7 @@ export interface CreateContextEventMap {
   UserPromptSubmit: UserPromptSubmitContext
   SessionStart: SessionStartContext
   SessionEnd: SessionEndContext
+  Interrupt: InterruptContext
   Stop: StopContext
   StopFailure: StopFailureContext
   SubagentStop: SubagentStopContext

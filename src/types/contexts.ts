@@ -45,6 +45,7 @@ import type {
   PermissionDeniedDecisionMethods,
   SessionStartDecisionMethods,
   SessionEndDecisionMethods,
+  InterruptDecisionMethods,
   InstructionsLoadedDecisionMethods,
   NotificationDecisionMethods,
   SubagentStartDecisionMethods,
@@ -224,7 +225,7 @@ export type PreToolUseContext = {
 
 /**
  * `PreToolUse` context for tools outside `ToolInputMap` (MCP, `ExitPlanMode`).
- * `toolInput` is `Record<string, unknown>` — not narrowed. Cast from raw ctx.
+ * `toolInput` is `unknown`; narrow its shape before accessing fields.
  *
  * @example
  * const ctx = rawCtx as unknown as UnknownPreToolUseContext
@@ -234,7 +235,7 @@ export type UnknownPreToolUseContext = Prettify<
   BaseContext & {
     event: 'PreToolUse'
     toolUseId: string
-  } & ToolVariantWithOriginal<string, Record<string, unknown>> &
+  } & ToolVariantWithOriginal<string, unknown> &
     PreToolUseDecisionMethods<Record<string, unknown>>
 >
 
@@ -290,7 +291,7 @@ export type UnknownPermissionRequestContext = Prettify<
   BaseContext &
     PermissionSuggestions & {
       event: 'PermissionRequest'
-    } & ToolVariant<string, Record<string, unknown>> &
+    } & ToolVariant<string, unknown> &
     PermissionRequestDecisionMethods<Record<string, unknown>>
 >
 
@@ -357,6 +358,13 @@ export type SessionEndContext = BaseContext & {
   reason: SessionEndReason
 } & SessionEndDecisionMethods
 
+/** Codex-only root-turn interruption observer. Does not begin or close a turn. */
+export type InterruptContext = BaseContext & {
+  event: 'Interrupt'
+  model: string
+  permissionMode: PermissionMode
+} & InterruptDecisionMethods
+
 /** Fires when a CLAUDE.md or rules file is loaded into context. */
 export type InstructionsLoadedContext = BaseContext & {
   event: 'InstructionsLoaded'
@@ -406,7 +414,7 @@ export type UnknownPostToolUseContext = Prettify<
     event: 'PostToolUse'
     toolUseId: string
     toolResponse: unknown
-  } & ToolVariant<string, Record<string, unknown>> &
+  } & ToolVariant<string, unknown> &
     PostToolUseDecisionMethods<Record<string, unknown>>
 >
 
@@ -445,7 +453,7 @@ export type UnknownPostToolUseFailureContext = Prettify<
     toolUseId: string
     error: string
     isInterrupt?: boolean
-  } & ToolVariant<string, Record<string, unknown>> &
+  } & ToolVariant<string, unknown> &
     PostToolUseFailureDecisionMethods<Record<string, unknown>>
 >
 

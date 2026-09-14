@@ -47,7 +47,28 @@ export const hybridCases = [
 ] as const
 export type HybridCaseId = (typeof hybridCases)[number]
 export const sessionEndCases = ['SESSION-END'] as const
-export const mandatoryCases = [...baselineCases, ...packCases, ...hybridCases, ...sessionEndCases]
+export const localToolCases = ['LOCAL-REWRITE', 'LOCAL-DENY'] as const
+export type LocalToolCaseId = (typeof localToolCases)[number]
+export const handoffCases = [
+  ['HANDOFF-SESSION-START', 'SessionStart', 'context'],
+  ['HANDOFF-PROMPT', 'UserPromptSubmit', 'context'],
+  ['HANDOFF-PRE-CONTEXT', 'PreToolUse', 'context'],
+  ['HANDOFF-POST-CONTEXT', 'PostToolUse', 'context'],
+  ['HANDOFF-PRE-BLOCK', 'PreToolUse', 'block'],
+  ['HANDOFF-POST-BLOCK', 'PostToolUse', 'block'],
+  ['HANDOFF-STOP', 'Stop', 'block'],
+] as const
+export const mandatoryCases = [
+  ...baselineCases,
+  ...packCases,
+  ...hybridCases,
+  ...sessionEndCases,
+  ...handoffCases.map(([id]) => id),
+  'HANDOFF-CHILD',
+  'INTERRUPT',
+  'MCP-OBSERVATION',
+  ...localToolCases,
+]
 export const expectedUnitTests = 26
 
 export function exportSmokeBinary(logs: string, mode: string, binary: string) {

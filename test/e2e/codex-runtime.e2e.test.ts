@@ -333,6 +333,9 @@ const reductions: { name: string; votes: Record<string, unknown>[]; expected?: u
   {
     name: 'skip loses to allow',
     votes: [{ result: 'skip', injectContext: 'A' }, { result: 'allow' }],
+    expected: {
+      hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: 'A' },
+    },
   },
   {
     name: 'skip loses to deny',
@@ -345,21 +348,25 @@ const reductions: { name: string; votes: Record<string, unknown>[]; expected?: u
         hookEventName: 'PreToolUse',
         permissionDecision: 'deny',
         permissionDecisionReason: 'R',
+        additionalContext: 'A',
       },
     },
   },
   {
     name: 'last empty skip wins',
     votes: [{ result: 'skip', injectContext: 'A' }, { result: 'skip' }],
+    expected: {
+      hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: 'A' },
+    },
   },
   {
-    name: 'last skip context wins',
+    name: 'all skip contexts accumulate',
     votes: [
       { result: 'skip', injectContext: 'A' },
       { result: 'skip', injectContext: 'B' },
     ],
     expected: {
-      hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: 'B' },
+      hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: 'A\nB' },
     },
   },
 ]
@@ -573,7 +580,7 @@ PreToolUse:
   })
 
   for (const requested of [false, true]) {
-    test(`eligible context stays inline with handoff requested=${requested}`, () => {
+    test(`eligible context uses shared delivery with handoff requested=${requested}`, () => {
       sandbox = createSandbox()
       const text = 'inline model context\n'.repeat(100)
       hook(
@@ -583,17 +590,23 @@ PreToolUse:
       sandbox.writeConfig(
         `version: "1.0.0"\nagent-codex-runtime-inline: { handoff: ${requested} }\n`,
       )
+      const digest = createHash('sha256').update(text).digest('hex').slice(0, 12)
+      const path = join(
+        sandbox.dir,
+        '.clooks/tmp',
+        `handoff-agent-codex-runtime-inline-${digest}.md`,
+      )
       output(replay(), {
-        hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: text },
-        ...(requested
-          ? {
-              systemMessage:
-                'clooks: requested Codex handoff remains inline; recipient file readability is unverified.',
-            }
-          : {}),
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          additionalContext: requested
+            ? `[clooks] Hook "agent-codex-runtime-inline": read ${path} and follow its instructions.`
+            : text,
+        },
       })
       expect(calls()).toEqual(['agent-codex-runtime-inline'])
-      noHandoff()
+      if (requested) expect(readFileSync(path, 'utf8')).toBe(text)
+      else noHandoff()
     })
   }
 })
@@ -698,14 +711,14 @@ PreToolUse:
   order: [agent-codex-runtime-shared]
 `)
     output(replay(), {
-      hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: 'home' },
+      hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: 'project\nhome' },
     })
     expect(calls()).toEqual(['agent-codex-runtime-shared', 'agent-codex-runtime-home'])
     sandbox.writeLocalConfig(
       'version: "1.0.0"\nPreToolUse:\n  order: [agent-codex-runtime-home, agent-codex-runtime-shared]\n',
     )
     output(replay(), {
-      hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: 'project' },
+      hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: 'home\nproject' },
     })
     expect(calls()).toEqual(['agent-codex-runtime-home', 'agent-codex-runtime-shared'])
     expect(

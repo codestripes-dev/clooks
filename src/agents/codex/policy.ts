@@ -42,11 +42,6 @@ export function createResultPolicy(invocation: NormalizedInvocation): Invocation
         message: 'result cannot be represented losslessly as JSON; result effects refused.',
       }
     },
-    handoff: {
-      isEligible: () => false,
-      inlineDiagnostic:
-        'clooks: requested Codex handoff remains inline; recipient file readability is unverified.',
-    },
     checkResult(input) {
       const reject = (capability: string, detail: string) => ({
         kind: 'rejected' as const,
@@ -87,7 +82,8 @@ export function createResultPolicy(invocation: NormalizedInvocation): Invocation
         eventName === 'SessionStart' ||
         eventName === 'SubagentStart' ||
         eventName === 'PostCompact' ||
-        eventName === 'SessionEnd'
+        eventName === 'SessionEnd' ||
+        eventName === 'Interrupt'
       if (observer && tag !== 'skip') {
         return reject(
           input.origin === 'before-hook' ? 'before-hook' : 'result',
@@ -113,6 +109,14 @@ export function createResultPolicy(invocation: NormalizedInvocation): Invocation
         allowed.add('updatedInput')
       for (const key of Object.keys(value)) {
         if (value[key] === undefined) continue
+        // Explicit false is the native default for an ordinary approval denial.
+        if (
+          key === 'interrupt' &&
+          eventName === 'PermissionRequest' &&
+          tag === 'block' &&
+          value[key] === false
+        )
+          continue
         if (!allowed.has(key)) return reject(key, `unsupported field ${key} on ${tag}`)
         if (key !== 'result' && key !== 'updatedInput' && typeof value[key] !== 'string') {
           return reject(key, `${key} must be a string`)
@@ -138,7 +142,7 @@ export function createResultPolicy(invocation: NormalizedInvocation): Invocation
         if (!metadata.tool) return reject('updatedInput', 'tool has no approved replacement codec')
         try {
           nextToolInput = metadata.tool.applyPatch(
-            input.currentToolInput ?? {},
+            input.currentToolInput,
             value.updatedInput as Record<string, unknown>,
           )
           accepted.updatedInput = cloneDeep(nextToolInput)

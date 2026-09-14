@@ -75,14 +75,14 @@ export function reducePreToolUseVotes(
   )
 
   if (winner.engineResult.result === 'block') {
-    // Deny: keep accumulated context from the winner itself + allow/ask losers only.
+    // Deny: keep context from the winner and allow/ask/skip losers.
     // Block-result losers must NOT contribute context.
     // Iterate in vote (execution) order to preserve context ordering.
     for (const v of votes) {
       const isWinner = v === winner
       const isAllowOrAskLoser =
         !isWinner && (v.engineResult.result === 'allow' || v.engineResult.result === 'ask')
-      if (isWinner || isAllowOrAskLoser) {
+      if (isWinner || isAllowOrAskLoser || v.engineResult.result === 'skip') {
         if (
           typeof v.engineResult.injectContext === 'string' &&
           v.engineResult.injectContext.length > 0
@@ -125,7 +125,7 @@ export function reducePreToolUseVotes(
   }
 
   if (winner.engineResult.result === 'ask') {
-    // Ask: keep context from winner + allow losers. The `mergedToolInput`
+    // Ask: keep context from winner + allow/skip losers. The `mergedToolInput`
     // argument carries the authoritative full-shape merged input; the raw
     // `updatedInput` fields on votes are partial patches and must not be
     // emitted directly.
@@ -134,12 +134,12 @@ export function reducePreToolUseVotes(
       losers.some(
         (l) => l.engineResult.result === 'allow' && l.engineResult.updatedInput !== undefined,
       )
-    // Iterate in vote (execution) order: collect context from winner and allow losers only.
+    // Collect context in configured vote order.
     // Ask-loser context must NOT contribute.
     for (const v of votes) {
       const isWinner = v === winner
       const isAllowLoser = !isWinner && v.engineResult.result === 'allow'
-      if (isWinner || isAllowLoser) {
+      if (isWinner || isAllowLoser || v.engineResult.result === 'skip') {
         if (
           typeof v.engineResult.injectContext === 'string' &&
           v.engineResult.injectContext.length > 0
@@ -161,10 +161,9 @@ export function reducePreToolUseVotes(
   }
 
   if (winner.engineResult.result === 'allow') {
-    // Allow: accumulate context from all allow hooks in vote (execution) order.
-    // Iterate votes in order to preserve execution-order context sequencing.
+    // Allow: accumulate allow and skip context in configured vote order.
     for (const v of votes) {
-      if (v.engineResult.result === 'allow') {
+      if (v.engineResult.result === 'allow' || v.engineResult.result === 'skip') {
         if (
           typeof v.engineResult.injectContext === 'string' &&
           v.engineResult.injectContext.length > 0
@@ -193,7 +192,17 @@ export function reducePreToolUseVotes(
   }
 
   // skip — only reached when every hook skipped
-  return { result: winner.engineResult, warnings }
+  for (const v of votes) {
+    if (
+      typeof v.engineResult.injectContext === 'string' &&
+      v.engineResult.injectContext.length > 0
+    ) {
+      accumulatedContext.push(v.engineResult.injectContext)
+    }
+  }
+  const merged: EngineResult = { ...winner.engineResult }
+  if (accumulatedContext.length > 0) merged.injectContext = accumulatedContext.join('\n')
+  return { result: merged, warnings }
 }
 
 // Bookkeeping failures must not change hook decisions or interrupt execution.
@@ -379,7 +388,7 @@ export async function executeHooks(
     }
     safeRecordTurn(turnTracker, name, eventName, decision)
   }
-  const originalToolInput = normalized.toolInput as Record<string, unknown> | undefined
+  const originalToolInput = normalized.toolInput
   let currentToolInput = originalToolInput
   const observationMetadata = (): Pick<ExecutionResult, 'preToolUse'> =>
     collectPreToolUseVotes
@@ -508,10 +517,10 @@ export async function executeHooks(
   // Capture before handoff can replace author text; insert only at existing vote sites.
   function voteRecorder(result: EngineResult, hookName: HookName, origin: ResultOrigin) {
     const acceptedResult = collectPreToolUseVotes ? cloneDeep(result) : undefined
-    const inputBefore = collectPreToolUseVotes ? cloneDeep(currentToolInput ?? {}) : undefined
+    const inputBefore = collectPreToolUseVotes ? cloneDeep(currentToolInput) : undefined
     return (engineResult: EngineResult) => {
       preToolUseVotes.push({ engineResult, rank: rankPreToolUseResult(engineResult) })
-      if (acceptedResult && inputBefore) {
+      if (acceptedResult && collectPreToolUseVotes) {
         acceptedVotes.push({
           engineResult: acceptedResult,
           rank: rankPreToolUseResult(acceptedResult),
@@ -519,7 +528,7 @@ export async function executeHooks(
           origin,
           ordinal: ordinals!.get(hookName)!,
           inputBefore,
-          inputAfter: cloneDeep(currentToolInput ?? {}),
+          inputAfter: cloneDeep(currentToolInput),
         })
       }
     }
@@ -1301,7 +1310,9 @@ export async function executeHooks(
       // Each patch allocates a new object, even when its contents are unchanged.
       const { result: reduced, warnings } = reducePreToolUseVotes(
         preToolUseVotes,
-        currentToolInput !== originalToolInput ? currentToolInput : undefined,
+        currentToolInput !== originalToolInput
+          ? (currentToolInput as Record<string, unknown>)
+          : undefined,
       )
       if (warnings.length > 0) systemMessages.push(...warnings)
       if (reduced) {
@@ -1324,7 +1335,7 @@ export async function executeHooks(
       }
       // If any hook returned updatedInput (reference comparison)
       if (currentToolInput !== originalToolInput) {
-        lastResult.updatedInput = currentToolInput
+        lastResult.updatedInput = currentToolInput as Record<string, unknown>
       }
     } else if (accumulatedInjectContext.length > 0) {
       // All hooks skipped but accumulated injectContext exists (e.g., from trace errors)

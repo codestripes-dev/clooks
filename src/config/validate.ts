@@ -13,7 +13,7 @@ import {
 import type { EventName, HookName, Milliseconds } from '../types/branded.js'
 import { resolveHookPath } from './resolve.js'
 import {
-  CLAUDE_CODE_EVENTS,
+  ALL_SUPPORTED_EVENTS,
   DEFAULT_TIMEOUT,
   DEFAULT_ON_ERROR,
   DEFAULT_MAX_FAILURES,
@@ -33,7 +33,7 @@ export function validateConfig(raw: Record<string, unknown>): ClooksConfig {
 }
 
 function transformToConfig(validated: z.output<typeof ClooksConfigSchema>): ClooksConfig {
-  const reservedKeys = new Set<string>(['version', 'config', ...CLAUDE_CODE_EVENTS])
+  const reservedKeys = new Set<string>(['version', 'config', ...ALL_SUPPORTED_EVENTS])
 
   // Global config with defaults
   const rawGlobal = validated.config
@@ -90,7 +90,7 @@ function transformToConfig(validated: z.output<typeof ClooksConfigSchema>): Cloo
   }
 
   // Event entries
-  for (const eventName of CLAUDE_CODE_EVENTS) {
+  for (const eventName of ALL_SUPPORTED_EVENTS) {
     const eventVal = validated[eventName]
     if (eventVal) {
       const entry: EventEntry = {}
@@ -115,7 +115,7 @@ function formatZodError(issues: z.ZodIssue[], raw: Record<string, unknown>): str
   }
 
   const topKey = String(path[0])
-  const eventNames = new Set<string>([...CLAUDE_CODE_EVENTS])
+  const eventNames = new Set<string>([...ALL_SUPPORTED_EVENTS])
 
   // Version field errors
   if (topKey === 'version') {

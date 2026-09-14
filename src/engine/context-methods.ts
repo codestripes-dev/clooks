@@ -137,6 +137,7 @@ const METHOD_SETS: Record<EventName, Record<string, unknown>> = {
   PermissionDenied: { retry, skip },
   SessionStart: { skip },
   SessionEnd: { skip },
+  Interrupt: { skip },
   InstructionsLoaded: { skip },
   PostToolUseFailure: { skip },
   Notification: { skip },

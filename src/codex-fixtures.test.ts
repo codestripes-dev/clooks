@@ -16,9 +16,11 @@ const DOCUMENTED_CODEX_EVENTS = new Set([
   'SubagentStop',
   'Stop',
   'SessionEnd',
+  'Interrupt',
 ])
 
 const EXPECTED_FIXTURES = new Map([
+  ['interrupt.json', 'Interrupt'],
   ['permission-request-bash.json', 'PermissionRequest'],
   ['post-compact-auto.json', 'PostCompact'],
   ['post-tool-use-bash.json', 'PostToolUse'],
@@ -82,6 +84,14 @@ describe('Codex event fixtures', () => {
       expect(raw.transcript_path === null || typeof raw.transcript_path === 'string').toBe(true)
 
       switch (raw.hook_event_name) {
+        case 'Interrupt':
+          for (const key of ['turn_id', 'model', 'permission_mode']) {
+            expectStringField(raw, key)
+            expect((raw[key] as string).length).toBeGreaterThan(0)
+          }
+          for (const key of ['agent_id', 'agent_type', 'reason'])
+            expect(raw).not.toHaveProperty(key)
+          break
         case 'SessionEnd':
           expect(raw.reason).toBe('other')
           for (const key of ['model', 'permission_mode', 'turn_id'])
