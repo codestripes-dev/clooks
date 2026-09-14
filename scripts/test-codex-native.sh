@@ -85,6 +85,7 @@ cleanup() {
   hash_roots=(input export)
   if [[ -d "$attempt/onboarding-marketplace" ]]; then hash_roots+=(onboarding-marketplace); fi
   if [[ -d "$attempt/native" ]]; then hash_roots+=(native); fi
+  if [[ -d "$attempt/prebuilt" ]]; then hash_roots+=(prebuilt); fi
   (cd "$attempt" && find "${hash_roots[@]}" -type f -print0 | sort -z | xargs -0 sha256sum &&
     sha256sum runner.sh command.sh attempt.log image-id revision tracked-source.diff) > "$attempt/artifacts.sha256"
   hash_rc=$?
@@ -138,6 +139,18 @@ if [[ "$mode" == --onboarding ]]; then
   vendor="$attempt/native"
 fi
 chmod -R a-w "$attempt/input"
+if [[ -n ${CLOOKS_TEST_BINARY:-} ]]; then
+  : "${CLOOKS_TEST_BINARY_SHA256:?Set the expected external test binary SHA-256}"
+  [[ -f "$CLOOKS_TEST_BINARY" && ! -L "$CLOOKS_TEST_BINARY" ]]
+  mkdir "$attempt/prebuilt"
+  cp "$CLOOKS_TEST_BINARY" "$attempt/prebuilt/clooks"
+  actual=$(sha256sum "$attempt/prebuilt/clooks")
+  [[ ${actual%% *} == "$CLOOKS_TEST_BINARY_SHA256" ]] || {
+    echo 'External test binary checksum mismatch' >&2
+    exit 66
+  }
+  chmod -R a-w "$attempt/prebuilt"
+fi
 (cd "$attempt/input" && find . -type f -print0 | sort -z | xargs -0 sha256sum) > "$attempt/source.sha256"
 
 cmd=(docker run --pull never --name "$name" --network none --init
@@ -146,6 +159,11 @@ for path in src test schemas scripts tsconfig.json bunfig.toml package.json .clo
   cmd+=(--mount "type=bind,src=$attempt/input/$path,dst=/app/$path,readonly")
 done
 if [[ "$mode" != --unit ]]; then cmd+=(--mount "type=bind,src=$vendor,dst=/native,readonly"); fi
+if [[ -n ${CLOOKS_TEST_BINARY:-} ]]; then
+  cmd+=(--mount "type=bind,src=$attempt/prebuilt,dst=/prebuilt,readonly"
+    --env CLOOKS_TEST_BINARY=/prebuilt/clooks
+    --env "CLOOKS_TEST_BINARY_SHA256=$CLOOKS_TEST_BINARY_SHA256")
+fi
 if [[ "$mode" == --onboarding ]]; then
   cmd+=(--mount "type=bind,src=$attempt/onboarding-marketplace,dst=/onboarding-marketplace,readonly"
     --env CLOOKS_MARKETPLACE_ROOT=/onboarding-marketplace)

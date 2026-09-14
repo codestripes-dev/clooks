@@ -186,6 +186,13 @@ using disposable temporary directories:
 
     bun test ./test/tooling/onboarding-inputs.test.ts ./test/native-codex/onboarding.test.ts
 
+To smoke-test a downloaded release artifact instead of recompiling Clooks, also
+set `CLOOKS_TEST_BINARY` to its absolute path and `CLOOKS_TEST_BINARY_SHA256` to
+the hash from its checksums file. The runner snapshots the artifact read-only;
+the container verifies its hash before copying it to `dist/clooks`. No build
+replaces it. Missing hashes, mismatches, and symlink inputs are rejected. The
+normal source-build path is unchanged when the binary variable is absent.
+
 The ordinary compiled onboarding E2E gate is separate from this native mode;
 neither substitutes for the other.
 

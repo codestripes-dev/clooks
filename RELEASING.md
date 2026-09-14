@@ -99,6 +99,9 @@ Intentionally minimal. This release workflow does NOT provide:
 - SLSA / build provenance attestations
 - `.tar.gz` archives
 - Homebrew tap / Scoop / `curl | sh` installer (planned)
-- E2E tests as a release gate (the workflow only runs unit tests + lint + typecheck)
 
 Each of these will be added when there is a concrete reason (user report, distribution push, security requirement).
+
+The build job runs `bun run test:validation` in Docker, including unit coverage,
+tooling checks, and the full compiled-binary E2E suite. Native Codex smoke remains
+a separate pre-publication check.

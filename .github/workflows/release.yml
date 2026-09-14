@@ -77,10 +77,8 @@ jobs:
       - name: Lint
         run: bun run lint
 
-      - name: Unit tests
-        run: bun test src/
-        env:
-          CLAUDECODE: "1"
+      - name: Docker validation
+        run: bun run test:validation
 
       - name: Inject version
         if: github.event_name == 'push'
