@@ -514,7 +514,9 @@ describe('clooks init', () => {
     const hooks = hooksFile.hooks as Record<string, unknown[]>
     expect(Object.keys(hooks)).toEqual([...CODEX_REGISTRATION_EVENTS])
 
-    const expectedCommand = makeCodexProjectEntrypointCommand(tempDir)
+    const expectedCommand = makeCodexProjectEntrypointCommand(
+      readFileSync(join(tempDir, '.clooks/bin/codex-project-id'), 'utf8').trim(),
+    )
     for (const event of CODEX_REGISTRATION_EVENTS) {
       const matcherGroups = hooks[event]!
       expect(matcherGroups).toHaveLength(1)

@@ -316,7 +316,7 @@
               {
                 "t": "Share the project setup",
                 "cmd": "git add .clooks",
-                "d": "Commit your hooks and configuration, along with the settings for your chosen agents: `.claude/settings.json` and/or `.codex/hooks.json`. Teammates using Codex should run init in their own checkout.",
+                "d": "Commit your hooks and configuration, along with the settings for your chosen agents: `.claude/settings.json` and/or `.codex/hooks.json`.",
                 "slash": false
               }
             ]

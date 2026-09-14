@@ -28,6 +28,7 @@ import {
   publishCodexReceipt,
 } from '../registration-state.js'
 import { ENTRYPOINT_SCRIPT, GLOBAL_ENTRYPOINT_SCRIPT } from './init-entrypoint.js'
+import { CODEX_PROJECT_MARKER, ensureCodexProjectId } from '../agents/codex/project-launcher.js'
 import EMBEDDED_TYPES_DTS from '../generated/clooks-types.d.ts.txt' with { type: 'text' }
 import _EMBEDDED_SCHEMA from '../../schemas/clooks.schema.json' with { type: 'text' }
 const EMBEDDED_SCHEMA = _EMBEDDED_SCHEMA as unknown as string
@@ -475,7 +476,9 @@ async function initProject(cmd: Command, agent: InitAgent): Promise<void> {
     }
 
     if (includesAgent(agent, 'codex')) {
-      const codexEntrypointCommand = makeCodexProjectEntrypointCommand(projectRoot)
+      const projectId = ensureCodexProjectId(projectRoot)
+      ;(projectId.created ? created : skipped).push(CODEX_PROJECT_MARKER)
+      const codexEntrypointCommand = makeCodexProjectEntrypointCommand(projectId.id)
       const regResult = registerCodexClooks(join(projectRoot, '.codex'), codexEntrypointCommand)
       const totalEvents =
         regResult.added.length + regResult.updated.length + regResult.skipped.length

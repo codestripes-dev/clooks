@@ -39,9 +39,15 @@ afterEach(() => {
 
 type Scope = 'project' | 'global'
 type Agent = 'claude-code' | 'codex'
-type Reply = 'yes' | 'no' | 'cancel'
+type Reply = 'yes' | 'no' | 'cancel' | 'first' | 'second' | 'third'
 const registrationPaths = { 'claude-code': '.claude/settings.json', codex: '.codex/hooks.json' }
 const customHook = 'export default { sentinel: "retain until deletion succeeds" }\n'
+const foreignRegistration =
+  JSON.stringify(
+    { hooks: { PreToolUse: [{ hooks: [{ type: 'command', command: 'echo foreign-hook' }] }] } },
+    null,
+    2,
+  ) + '\n'
 
 function root(scope: Scope): string {
   return scope === 'project' ? sandbox.dir : sandbox.home
@@ -112,10 +118,11 @@ function globalCleanupPrompt(codexHomes = [join(sandbox.home, '.codex')]): strin
 }
 
 async function interactive(
-  scope: Scope,
-  agent: Agent,
+  scope: Scope | 'pick',
+  agent: Agent | 'auto',
   steps: [string, Reply][],
   env: Record<string, string> = {},
+  action = 'none',
 ): Promise<string> {
   const proc = Bun.spawn(
     [
@@ -124,6 +131,7 @@ async function interactive(
       join(import.meta.dir, '../../dist/clooks'),
       scope,
       agent,
+      action,
       ...steps
         .map(([prompt, reply]) => [
           scope === 'global' && prompt === projectCleanupPrompt ? globalCleanupPrompt() : prompt,
@@ -179,6 +187,248 @@ async function interactive(
     }
   }
 }
+
+describe('automatic uninstall agent selection', () => {
+  for (const scope of ['project', 'global'] as const) {
+    for (const agent of ['claude-code', 'codex'] as const) {
+      test(`${scope}: sole ${agent} is detected without an explicit selector`, () => {
+        initialize(scope, agent)
+        const other = agent === 'codex' ? 'claude-code' : 'codex'
+        const otherPath = join(root(scope), registrationPaths[other])
+        mkdirSync(join(otherPath, '..'), { recursive: true })
+        writeFileSync(otherPath, foreignRegistration)
+        const registeredEvents = Object.keys(JSON.parse(bytes(scope, agent)).hooks)
+        const result = sandbox.run(['uninstall', `--${scope}`, '--unhook', '--force', '--json'], {
+          env: { CLOOKS_AGENT: agent === 'codex' ? 'claude-code' : 'codex' },
+        })
+        expect(result.exitCode).toBe(0)
+        const data = JSON.parse(result.stdout).data
+        expect(data).toMatchObject({ agent, agents: [agent], unhooked: true, deleted: false })
+        expect(data[agent === 'codex' ? 'codexEventsRemoved' : 'claudeEventsRemoved']).toEqual(
+          registeredEvents,
+        )
+        expectUnregistered(scope, agent)
+        expect(bytes(scope, other)).toBe(foreignRegistration)
+        expectRuntimeRetained(scope)
+      })
+    }
+
+    for (const action of ['--unhook', '--full']) {
+      test(`${scope}: dual registrations require explicit agent under force ${action}`, () => {
+        initialize(scope)
+        const before = [bytes(scope, 'claude-code'), bytes(scope, 'codex')]
+        const flags = globalFlags()
+        const result = sandbox.run(['uninstall', `--${scope}`, action, '--force', '--json'])
+        expect(result.exitCode).toBe(1)
+        expect(JSON.parse(result.stdout)).toMatchObject({
+          ok: false,
+          command: 'uninstall',
+          error: `Both Claude Code and Codex Clooks registrations found in ${scope} scope. Specify --agent claude-code, --agent codex, or --agent all; --force does not select an agent.`,
+        })
+        expect([bytes(scope, 'claude-code'), bytes(scope, 'codex')]).toEqual(before)
+        expect(globalFlags()).toEqual(flags)
+        expectRuntimeRetained(scope)
+      })
+    }
+
+    for (const [agent, reply] of [
+      ['claude-code', 'first'],
+      ['codex', 'second'],
+      ['all', 'third'],
+    ] as const) {
+      test(`${scope}: interactive picker selects ${agent} and unhook never offers deletion`, async () => {
+        initialize(scope)
+        const before = { 'claude-code': bytes(scope, 'claude-code'), codex: bytes(scope, 'codex') }
+        const label =
+          agent === 'all' ? 'Claude Code and Codex' : agent === 'codex' ? 'Codex' : 'Claude Code'
+        const output = await interactive(
+          scope,
+          'auto',
+          [
+            [`Which agent registrations do you want to remove in ${scope} scope?`, reply],
+            [
+              `Remove ${label}${scope === 'global' ? ' global' : ''} Clooks hook registrations?`,
+              'yes',
+            ],
+          ],
+          {},
+          '--unhook',
+        )
+        expect(output).not.toContain('Delete ')
+        for (const provider of ['claude-code', 'codex'] as const) {
+          if (agent === 'all' || agent === provider) expectUnregistered(scope, provider)
+          else expect(bytes(scope, provider)).toBe(before[provider])
+        }
+        expectRuntimeRetained(scope)
+      })
+    }
+
+    test(`${scope}: cancelled picker leaves registrations, runtime and flags intact`, async () => {
+      initialize(scope)
+      const before = [bytes(scope, 'claude-code'), bytes(scope, 'codex')]
+      const flags = globalFlags()
+      const output = await interactive(
+        scope,
+        'auto',
+        [[`Which agent registrations do you want to remove in ${scope} scope?`, 'cancel']],
+        {},
+        '--unhook',
+      )
+      expect(output).toContain('Operation cancelled')
+      expect(output).not.toContain('Delete ')
+      expect([bytes(scope, 'claude-code'), bytes(scope, 'codex')]).toEqual(before)
+      expect(globalFlags()).toEqual(flags)
+      expectRuntimeRetained(scope)
+    })
+
+    for (const reply of ['no', 'cancel'] as const) {
+      test(`${scope}: picker choice then ${reply} to unhook keeps both registrations and files`, async () => {
+        initialize(scope)
+        const before = [bytes(scope, 'claude-code'), bytes(scope, 'codex')]
+        const flags = globalFlags()
+        const output = await interactive(
+          scope,
+          'auto',
+          [
+            [`Which agent registrations do you want to remove in ${scope} scope?`, 'second'],
+            [
+              `Remove Codex${scope === 'global' ? ' global' : ''} Clooks hook registrations?`,
+              reply,
+            ],
+          ],
+          {},
+          '--unhook',
+        )
+        expect(output).not.toContain('Delete ')
+        expect(output).toContain(
+          reply === 'cancel' ? 'Operation cancelled' : `Nothing changed in ${scope} scope.`,
+        )
+        expect([bytes(scope, 'claude-code'), bytes(scope, 'codex')]).toEqual(before)
+        expect(globalFlags()).toEqual(flags)
+        expectRuntimeRetained(scope)
+      })
+    }
+
+    test(`${scope}: no registrations preserve orphan files until explicit full`, async () => {
+      initialize(scope)
+      for (const agent of ['claude-code', 'codex'] as const) {
+        writeFileSync(join(root(scope), registrationPaths[agent]), foreignRegistration)
+      }
+      const flags = globalFlags()
+      const output = await interactive(scope, 'auto', [])
+      expect(output).toContain(`No Clooks hook registrations found in ${scope} scope`)
+      expect(output).not.toContain('Delete ')
+      expectRuntimeRetained(scope)
+      expect(globalFlags()).toEqual(flags)
+      expect([bytes(scope, 'claude-code'), bytes(scope, 'codex')]).toEqual([
+        foreignRegistration,
+        foreignRegistration,
+      ])
+      const noop = sandbox.run(['uninstall', `--${scope}`, '--unhook', '--force', '--json'])
+      expect(noop.exitCode).toBe(0)
+      expect(JSON.parse(noop.stdout).data).toMatchObject({
+        agent: null,
+        agents: [],
+        unhooked: false,
+        deleted: false,
+      })
+      expectRuntimeRetained(scope)
+      expect(globalFlags()).toEqual(flags)
+      const removed = sandbox.run(['uninstall', `--${scope}`, '--full', '--force', '--json'])
+      expect(removed.exitCode).toBe(0)
+      expect(JSON.parse(removed.stdout).data).toMatchObject({
+        agent: null,
+        agents: [],
+        deleted: true,
+      })
+      expect(existsSync(join(root(scope), '.clooks'))).toBe(false)
+      for (const agent of ['claude-code', 'codex'] as const) {
+        expect(bytes(scope, agent)).toBe(foreignRegistration)
+      }
+    })
+  }
+
+  test('global automatic detection uses effective CODEX_HOME and ignores malformed default home', () => {
+    sandbox = createSandbox()
+    const codexHome = join(sandbox.home, 'selected codex home')
+    const env = { CODEX_HOME: codexHome }
+    expect(sandbox.run(['init', '--global', '--agent', 'codex'], { env }).exitCode).toBe(0)
+    mkdirSync(join(sandbox.home, '.codex'), { recursive: true })
+    writeFileSync(join(sandbox.home, '.codex/hooks.json'), '{broken default')
+    const result = sandbox.run(['uninstall', '--global', '--unhook', '--force', '--json'], { env })
+    expect(result.exitCode).toBe(0)
+    expect(JSON.parse(result.stdout).data).toMatchObject({
+      agent: 'codex',
+      agents: ['codex'],
+      unhooked: true,
+      deleted: false,
+    })
+    expect(JSON.parse(readFileSync(join(codexHome, 'hooks.json'), 'utf8')).hooks).toBeUndefined()
+    expect(readFileSync(join(sandbox.home, '.codex/hooks.json'), 'utf8')).toBe('{broken default')
+    expect(existsSync(join(sandbox.home, '.clooks/bin/entrypoint.sh'))).toBe(true)
+  })
+
+  test('explicit Claude global unhook ignores invalid CODEX_HOME', () => {
+    initialize('global', 'claude-code')
+    const result = sandbox.run(
+      ['uninstall', '--global', '--agent', 'claude-code', '--unhook', '--force', '--json'],
+      { env: { CODEX_HOME: 'invalid-relative-home' } },
+    )
+    expect(result.exitCode).toBe(0)
+    expectUnregistered('global', 'claude-code')
+    expectRuntimeRetained('global')
+  })
+
+  test('scope picker both independently selects different sole providers', async () => {
+    sandbox = createSandbox()
+    expect(sandbox.run(['init', '--agent', 'codex']).exitCode).toBe(0)
+    expect(sandbox.run(['init', '--global', '--agent', 'claude-code']).exitCode).toBe(0)
+    const output = await interactive(
+      'pick',
+      'auto',
+      [
+        ['What do you want to uninstall?', 'third'],
+        ['Remove Codex Clooks hook registrations?', 'yes'],
+        ['Remove Claude Code global Clooks hook registrations?', 'yes'],
+      ],
+      {},
+      '--unhook',
+    )
+    expect(output).not.toContain('Which agent registrations')
+    expect(output).not.toContain('Delete ')
+    expectUnregistered('project', 'codex')
+    expectUnregistered('global', 'claude-code')
+    expect(existsSync(join(sandbox.dir, '.clooks/bin/entrypoint.sh'))).toBe(true)
+    expect(existsSync(join(sandbox.home, '.clooks/bin/entrypoint.sh'))).toBe(true)
+  })
+
+  test('scope picker both offers independent choices for dual-provider scopes', async () => {
+    sandbox = createSandbox()
+    expect(sandbox.run(['init', '--agent', 'all']).exitCode).toBe(0)
+    expect(sandbox.run(['init', '--global', '--agent', 'all']).exitCode).toBe(0)
+    const projectClaude = bytes('project', 'claude-code')
+    const globalCodex = bytes('global', 'codex')
+    await interactive(
+      'pick',
+      'auto',
+      [
+        ['What do you want to uninstall?', 'third'],
+        ['Which agent registrations do you want to remove in project scope?', 'second'],
+        ['Remove Codex Clooks hook registrations?', 'yes'],
+        ['Which agent registrations do you want to remove in global scope?', 'first'],
+        ['Remove Claude Code global Clooks hook registrations?', 'yes'],
+      ],
+      {},
+      '--unhook',
+    )
+    expectUnregistered('project', 'codex')
+    expectUnregistered('global', 'claude-code')
+    expect(bytes('project', 'claude-code')).toBe(projectClaude)
+    expect(bytes('global', 'codex')).toBe(globalCodex)
+    expect(existsSync(join(sandbox.dir, '.clooks/bin/entrypoint.sh'))).toBe(true)
+    expect(existsSync(join(sandbox.home, '.clooks/bin/entrypoint.sh'))).toBe(true)
+  })
+})
 
 describe('shared runtime cleanup', () => {
   for (const scope of ['project', 'global'] as const) {

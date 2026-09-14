@@ -3,17 +3,15 @@
 A TypeScript hook runtime for Claude Code and Codex.
 Write hooks once, run them safely, share them across projects and teams.
 
-> See [Codex usage](#codex-usage) for capabilities and verification limits.
 > More agents (Cursor Agent, OpenCode, OpenClaw) planned.
 > Already works today in any IDE that hosts Claude Code — VS Code, Cursor, Windsurf, JetBrains.
 
 ## Why not native hooks?
 
-Native Claude Code hooks are bash commands wired up in JSON. Every hook
+Native hooks are commands wired up in configuration. Every hook
 reinvents argument parsing, stdin handling, and the wire format — no
 types, no composition, no shared infrastructure. Clooks itself registers
-as one `command` hook per event, then dispatches to your TypeScript.
-This example uses Claude Code's input-patch capabilities:
+as one `command` hook per event, then dispatches to your TypeScript:
 
 ```typescript
 export const hook: ClooksHook = {
@@ -27,6 +25,8 @@ export const hook: ClooksHook = {
   },
 }
 ```
+
+(Updating `timeout` via `updatedInput` is currently unsupported in Codex.)
 
 Typed contexts, structured results, multi-hook composition, and
 safe defaults — all built in.
@@ -42,16 +42,14 @@ safe defaults — all built in.
 - **Multi-layer config** — Layer hooks at user-wide, project, and personal-local
   scopes. Each layer can shadow, extend, or disable the others.
 
-- **Team-shareable** — Hooks live in your repo (`.clooks/`). Teammates reuse
-  the committed hooks after installing the runtime and registering their agent.
+- **Team-shareable** — Hooks live in your repo (`.clooks/`). Clone the repo,
+  hooks come with it.
 
-- **Vendored third-party hooks** — Installed hooks are copied locally and
-  committed for review. Existing copies are not silently updated; GitHub URL
-  installs do not yet have a lockfile or automatic SHA pinning.
+- **Vendored third-party hooks** — Installed marketplace hooks are vendored and
+  committed. No silent updates.
 
-- **Defensive error handling** — Fail-closed controls where the agent event
-  supports them, with configurable per-hook error handling. Post-tool feedback
-  cannot undo execution, and observation-only shutdown hooks cannot veto closure.
+- **Errors block by default** — A crashed hook blocks the action, never silently
+  passes through. Configurable per hook.
 
 ## Quick Start
 
@@ -63,144 +61,26 @@ claude plugin install clooks
 claude /clooks:setup
 ```
 
-Optionally install any of the [production packs](#marketplace) from the
-[clooks-marketplace](https://github.com/codestripes-dev/clooks-marketplace)
-repo:
-```
-claude plugin install clooks-core-hooks --scope user  # If you want general-purpose global hooks and installed clooks globally
-claude plugin install clooks-project-hooks --scope project  # If you want general-purpose project hooks
-```
-After setup, the next hook event copies installed packs into the shared
-Clooks vendor directory and registers them in the configuration for their scope.
-
-For Codex, follow [Codex usage](#codex-usage). Both agents also support
-[manual binary installation](#other-install-methods).
-
-## Codex Usage
-
-### Plugin Setup
-
-Add the marketplace and Clooks plugin from your terminal:
+For Codex:
 
 ```bash
 codex plugin marketplace add codestripes-dev/clooks-marketplace
 codex plugin add clooks@clooks-marketplace
+codex '$clooks:setup'
 ```
 
-Then run `$clooks:setup` in Codex. Use `$clooks:setup check` to check your
-installation or `$clooks:setup update` to update it. The plugin adds the setup
-command and a reminder; it does not install or configure Clooks automatically.
-In Claude Code, use `/clooks:setup` with the same actions.
+Optionally install any of the [production packs](#marketplace) from the
+[clooks-marketplace](https://github.com/codestripes-dev/clooks-marketplace)
+repo:
 
-Setup validates and reuses an executable `clooks` on PATH first, then
-`~/.local/bin/clooks`, without downloading or editing shell profiles on reuse.
-Only when neither exists does install download a checksum-verified binary.
-A broken binary or `CLOOKS_VERSION` mismatch fails rather than silently replacing
-it. Explicit update replaces only the managed installation; an external PATH
-installation must be updated through its own installation method.
+Claude Code:
 
-Setup uses the actual resolved absolute path for init. If the managed binary is
-off the agent's PATH, initialization can succeed while runtime hooks still cannot
-find it. Correct the agent launch PATH and relaunch if needed; a child-shell export
-or shell-profile edit cannot repair the running agent's environment. Installation,
-registration and native hook trust are separate requirements.
-
-Plugin setup is tested with Codex CLI `0.154.0`; a minimum version has not been
-established. See [test coverage and limitations](docs/domain/testing/codex-native.md#native-plugin-onboarding)
-for the isolated, scripted test setup.
-
-### Manual Registration
-
-With the runtime on your PATH, choose project or user-wide registration:
-
-```bash
-clooks init --agent codex
-clooks init --global --agent codex
-
-# For both Claude Code and Codex instead:
-clooks init --agent all
-clooks init --global --agent all
+```
+claude plugin install clooks-core-hooks --scope user  # If you want general-purpose global hooks and installed clooks globally
+claude plugin install clooks-project-hooks --scope project  # If you want general-purpose project hooks
 ```
 
-Project init writes `.codex/hooks.json`. Global init writes `hooks.json` under
-`CODEX_HOME` when set, otherwise `~/.codex/`; the shared user configuration remains
-`~/.clooks/clooks.yml`. `CODEX_HOME` must be an absolute path and does not change
-project registration. Omitting `--agent` selects Claude Code.
-
-Codex project trust and hook review still apply. Registration does not prove that
-hooks are enabled, reviewed or firing. Review the generated commands in Codex,
-including global hooks when using both scopes. Re-run init after cloning, moving
-the checkout or upgrading from an older registration: project commands use absolute
-paths, and older registrations need the added SessionEnd entry.
-
-### Supported Events
-
-Clooks supports these **11 Codex events**. Available decisions differ by event:
-
-| Event | Supported Clooks behavior |
-|-------|---------------------------|
-| `SessionStart`, `SubagentStart` | Observe with `skip`; optional context and debug output |
-| `PreToolUse` | Allow, block, skip or handler `ask`; sequential allow/ask can rewrite supported tool inputs |
-| `PermissionRequest` | Allow, block or skip; no allow reason, input/permission updates, interrupt or context |
-| `PostToolUse` | Skip or block with optional context; block is feedback after execution, never rollback |
-| `UserPromptSubmit` | Allow, block or skip with optional context; no session title |
-| `PreCompact` | Allow, block or skip; block stops before compaction; no context |
-| `PostCompact` | Observe with skip/debug only; no context or rollback |
-| `Stop`, `SubagentStop` | Allow, block or skip; block requests continuation, not termination; no context |
-| `SessionEnd` | Observe with skip/debug only; no context, decisions or closure veto |
-
-SessionEnd has a **three-second total native timeout** for the entire pipeline,
-not each hook. Its diagnostics are local, not a native delivery channel. `Interrupt`
-is not supported. Context handoff stays inline on Codex.
-
-`exec_command` is exposed as `Bash`; `apply_patch` retains its native command
-payload, not Claude's structured Edit/Write fields. Shell and patch rewrites are
-command-only; MCP rewrites use an opaque argument-record codec. Other observable
-tools do not automatically support rewrites. Plain allow preserves ordinary native
-approval and sandbox policy. Unsupported result fields are refused at runtime even
-when the shared authoring types can express them; `defer` is not supported.
-
-The integration is source-audited against Codex 0.153.4 with bounded native
-verification, not full conformance across tools, event variants or trust settings.
-See [capability details](docs/domain/cross-agent-hooks.md#current-pretooluse-implementation)
-and [verification boundaries](docs/domain/testing/codex-native.md).
-
-### Confirming Hook Requests
-
-Hook authors keep `ctx.ask({ reason })` in PreToolUse handlers. Claude uses native
-confirmation. Codex uses a Clooks fallback: the pending operation is denied with
-the hook's reason, an opaque token and expiry, not a native Codex ask prompt.
-
-1. The agent asks the user and waits for explicit approval.
-2. For an eligible direct external shell command, it prefixes the unchanged command
-   with `CLOOKS_APPROVAL_TOKENS=<issued-token> `, replacing the placeholder with the
-   actual token. The prefix must begin the command; token values cannot be quoted.
-3. For non-shell tools or other shell syntax, it runs `clooks approve <issued-token>`
-   and retries the original tool with unchanged arguments. Registration itself
-   remains subject to ordinary hooks.
-
-The inline carrier accepts only a narrow literal-command form, not builtins,
-compound commands, redirects, substitutions or arbitrary scripts. Multiple asks
-need separate confirmations; earlier acknowledgements survive intermediate denials.
-Tokens expire five minutes after issuance, without extension on registration or
-retry. They bind the session, child, tool, cwd, input, pipeline and confirmation,
-and are consumed before final permission output. Changed operations require new
-approval; explicit blocks and native policy still apply. This assumes a trusted
-repository and a cooperative agent, not cryptographic proof of human consent.
-
-The reviewed `no-rm-rf` hook uses this workflow for confirmation classifications
-on both providers. Strict-mode blocks, other denial rules and the allowlist remain
-in effect. Approval support does not fix its known quoted-target parsing limits.
-See [approval details](docs/domain/codex-approvals.md).
-
-## Marketplace
-
-Two production packs (`clooks-core-hooks`, `clooks-project-hooks`) plus `clooks-example-hooks` (a learning/reference pack — **not for productive use**).
-
-### Installing packs
-
-Both agents install the same packs. For Claude Code, use the commands in
-[Quick Start](#quick-start). For Codex, after setup:
+Codex:
 
 ```bash
 codex plugin add clooks-core-hooks@clooks-marketplace
@@ -208,62 +88,41 @@ codex plugin add clooks-project-hooks@clooks-marketplace
 ```
 
 Codex installs packs at user scope by default, including `clooks-project-hooks`.
-Clooks picks them up on the next hook event.
 
-To install individual hooks directly instead, use their GitHub **blob URLs**
-with an explicit scope:
+After setup, the next hook event copies installed packs into the shared
+Clooks vendor directory and registers them in the configuration for their scope.
 
-```bash
-clooks add https://github.com/codestripes-dev/clooks-marketplace/blob/HEAD/clooks-core-hooks/hooks/no-rm-rf.ts --project
-clooks add https://github.com/codestripes-dev/clooks-marketplace/blob/HEAD/clooks-project-hooks/hooks/no-edit-protected.ts --project
-```
+For manual install, see [Other install methods](#other-install-methods).
 
-Use `--global` instead for `~/.clooks/`. Review code before installing: `clooks add`
-imports downloaded modules during validation. Replace `HEAD` with a reviewed commit
-SHA for reproducible downloads, and commit the resulting vendor files and config.
+## Marketplace
 
-Repository URLs work only for packs with a root `clooks-pack.json`. The marketplace
-is a monorepo with nested packs: a `/tree/<ref>/<pack>` URL does **not** select that
-pack. Use blob URLs above or install packs through your agent's plugin manager.
-Direct installs do not inherit plugin-manifest `autoEnable` settings; review config
-before running hooks, especially notification and example hooks.
-
-### Reviewed Hook Behavior
-
-These hooks account for differences between agents:
-
-| Hook | Behavior and limits |
-|------|---------------------|
-| `no-rm-rf` | Shared confirmation classifications use native Claude prompts or Codex token confirmations; quoted-target parsing remains limited |
-| `no-edit-protected` | Inspects supported Codex patch headers, including move source/destination and root/nested lockfiles; not a full patch validator |
-| `prefer-builtin-tools` | Codex omits Claude-only read/search/list restrictions and uses provider-appropriate write/wait guidance |
-| `no-compound-commands`, `no-destructive-git` | Bounded shell/Git inspection; supported leading `cd ... &&` and Git global options retain rule-specific controls |
-| `no-auto-confirm`, `no-bare-mv` | Literal pipeline inspection and bounded `git mv -n` feasibility checks; neither evaluates arbitrary shell syntax |
-| `no-pasted-placeholder` | Checks both providers' paste-marker forms as a heuristic, not proof that content is missing |
-| `js-package-manager-guard`, `prefer-project-scripts` | Configured command checks; script recommendations require verified literal command equivalence |
-| `tmux-notifications` | Codex native PermissionRequest attention and SessionEnd cleanup; no synthetic idle/Interrupt signal or hybrid-ask notification; opt-in with a free tmux hook slot |
-| Example hooks | Provider-compatible lifecycle/context examples; debug logging is opt-in and unredacted; not production policy |
-
-See [inspection boundaries](docs/domain/vendoring/overview.md#hook-inspection-boundaries)
-and each pack's README for configuration. Updating source or the runtime does not
-replace installed project/global hook copies.
+Two production packs (`clooks-core-hooks`, `clooks-project-hooks`) plus `clooks-example-hooks` (a learning/reference pack — **not for productive use**).
 
 ### Bring your own marketplace
 
-A marketplace is just a git repo with a `.claude-plugin/marketplace.json`
-manifest and one or more data-only plugins. Point Claude Code at your
-team's internal repo and every member gets the same hooks, auto-installed:
+Share your team's hook packs through a git repository. Add a marketplace
+manifest for each agent: `.claude-plugin/marketplace.json` for Claude Code or
+`.agents/plugins/marketplace.json` for Codex.
 
-```
+Claude Code:
+
+```bash
 claude plugin marketplace add my-org/internal-hooks
 claude plugin install <pack-name> --scope project
+```
+
+Codex:
+
+```bash
+codex plugin marketplace add my-org/internal-hooks
+codex plugin add <pack-name>@<marketplace-name>
 ```
 
 ### Vendoring & updates
 
 Plugin packs are vendored under `.clooks/vendor/plugin/` for project scope
 or `~/.clooks/vendor/plugin/` for user scope. Commit project copies. Existing hooks
-are never updated or deleted automatically, even if the plugin is disabled or removed.
+are never updated or deleted automatically.
 
 To update hooks after a marketplace plugin updates:
 
@@ -273,11 +132,8 @@ clooks update plugin:<pack-name>   # e.g., plugin:clooks-core-hooks
 
 > New hooks added to the pack since your last vendor are pulled in and registered automatically. They are enabled by default unless the pack marks them `autoEnable: false`.
 
-The update command checks both agents' plugin caches by default. If they contain
-different copies of the same pack, select a source with `--agent claude-code` or
-`--agent codex`. It does not update blob URL installs.
-For direct installs, review and preserve local changes, remove the
-old vendor file and its config entry, then re-run `clooks add` with the new blob URL.
+If both agents have different copies of the same pack, select the update source
+with `--agent claude-code` or `--agent codex`.
 
 ## Other install methods
 
@@ -293,8 +149,7 @@ clooks init
 ```
 
 Available targets: `darwin-arm64`, `darwin-x64`, `linux-x64`,
-`linux-x64-baseline`, `linux-arm64`. Use `--agent codex` or `--agent all` with init
-for Codex registration.
+`linux-x64-baseline`, `linux-arm64`.
 
 </details>
 
@@ -315,20 +170,22 @@ clooks init
 
 </details>
 
+```text
+clooks init [--agent claude-code|codex|all]
+```
+
+Defaults to `claude-code`.
+
 ### Global (user-wide) setup
 
-Configure global hooks for the selected agent:
+Configure user-wide hooks for all your projects:
 
-```
-clooks init --global
-clooks init --global --agent codex
-clooks init --global --agent all
+```text
+clooks init --global [--agent claude-code|codex|all]
 ```
 
-This creates `~/.clooks/` (mirroring the project layout) and registers
-a global entrypoint in `~/.claude/settings.json` for Claude or the effective
-Codex home's `hooks.json` for Codex. Choose one command above. Project hooks layer
-on top and can override them; native trust/review requirements still apply.
+Defaults to `claude-code`. This creates `~/.clooks/` and registers the selected
+agents. Project hooks layer on top and can override them.
 
 ### What `init` creates
 
@@ -348,8 +205,8 @@ your-project/
 `.gitignore` is updated to exclude `clooks.local.yml`, `.clooks/.cache/`,
 and `.clooks/.failures`.
 
-`--agent codex` creates the same shared runtime files but registers
-`.codex/hooks.json`; `--agent all` registers both agents.
+Hook registration lives in `.claude/settings.json` for Claude Code or
+`.codex/hooks.json` for Codex.
 
 ## Write your own hook
 
@@ -413,7 +270,7 @@ Clooks hooks are picked up dynamically - no reloading necessary.
 
 ### 4. Test it
 
-Run a hook against a synthetic event without standing up Claude Code:
+Run a hook against a synthetic event without starting an agent:
 
 ```bash
 clooks test example PreToolUse                              # prints fixture template + field docs (not parseable JSON)
@@ -423,16 +280,14 @@ clooks test ./.clooks/hooks/no-rm-rf.ts --config-json '{"threshold":7}' --input 
 
 ### Return values
 
-Clooks supports most of the same return values as native Claude Code hooks.
-The table describes Claude behavior unless noted; [Codex capabilities](#codex-usage)
-are narrower.
+Each handler returns a result that tells the agent how to proceed:
 
 | Method                       | Behavior                                                                      | Where it works                                                                                   |
 |------------------------------|-------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------|
 | `ctx.allow()`                | Proceeds; input patches¹ and context are event-specific                      | PreToolUse, UserPromptSubmit, PermissionRequest, Stop, SubagentStop, ConfigChange, PreCompact |
 | `ctx.block({ reason })`      | Event-specific refusal or feedback²; post-tool blocks cannot undo execution | The allow-capable events above, plus PostToolUse |
 | `ctx.skip()`                 | No opinion; pipeline continues                                                | All events except WorktreeCreate, which requires success/failure |
-| `ctx.ask({ reason })`        | Claude: native prompt. Codex: denial/token approval fallback                 | PreToolUse handlers only                                                                         |
+| `ctx.ask({ reason })`        | Requests user approval; `reason` explains why                                | PreToolUse handlers only                                                                         |
 | `ctx.defer()`                | Pauses the turn for `claude -p --resume`³                                     | PreToolUse only                                                                                  |
 | `ctx.continue({ feedback })` | Keeps a teammate working past idle/gate; `feedback` is sent back to the model | Continuation events (TeammateIdle, TaskCreated, TaskCompleted)                                   |
 | `ctx.stop({ reason })`       | Terminates a teammate                                                         | Continuation events (TeammateIdle, TaskCreated, TaskCompleted)                                   |
@@ -456,15 +311,34 @@ Full type definitions live in `.clooks/hooks/types.d.ts`. Regenerate with:
 clooks types
 ```
 
-For event-specific context shapes and the four unsupported events, see the [Parity map](#parity-map).
+For event support and planned events, see the [Parity map](#parity-map).
+
+### Approval requests
+
+`ctx.ask({ reason })` uses Claude Code's native approval prompt. In Codex,
+Clooks pauses the operation and returns the reason, an approval token, and
+retry instructions. The agent asks the user before proceeding.
+
+After approval, the agent can prefix an eligible simple shell command with
+`CLOOKS_APPROVAL_TOKENS=<token> ` and retry it unchanged. For other shell syntax
+or non-shell tools, it runs `clooks approve <token>`, then retries the original
+tool call unchanged. Use the issued token without quotes; multiple inline tokens
+are comma-separated.
+
+Tokens are single-use, expire after five minutes, and apply only to the matching
+operation and hook confirmation. Multiple hooks can require separate approvals;
+earlier approvals remain valid while the others are collected. Approval does not
+override explicit blocks or the agent's own permissions.
+
+See [approval details](docs/domain/codex-approvals.md) for supported command forms
+and token handling.
 
 ## Configuration
 
-Clooks finds the project's `.clooks/clooks.yml` by walking up parent directories.
-Claude discovery uses `$CLAUDE_PROJECT_DIR` when present; Codex ignores that
-Claude-specific variable, and generated Codex project registration anchors the
-checkout with `CLOOKS_PROJECT_ROOT`. Use `CLOOKS_PROJECT_ROOT=/path` to override
-discovery unconditionally.
+Clooks finds the project's `.clooks/clooks.yml` by walking up parent directories,
+like `git`, `tsc`, and `prettier`. Project hook registration keeps discovery
+anchored to your project even when the agent changes directories. Use
+`CLOOKS_PROJECT_ROOT=/path` to override unconditionally.
 
 Clooks reads three config files, merged at load time:
 
@@ -602,41 +476,39 @@ before any hook runs.
 
 ## Parity map
 
-This table describes the **Claude Code adapter**, which covers 22 of 26 events
-in the repository's compatibility map. The [Codex adapter](#supported-events)
-implements 11 events with narrower result capabilities.
+Supported events for each agent:
 
 <details>
-<summary><b>Events</b> — 22 of 26 Claude Code events supported</summary>
+<summary><b>Events</b></summary>
 
-| Event | Supported |
-|-------|:---------:|
-| `SessionStart` | ✓ |
-| `SessionEnd` | ✓ |
-| `InstructionsLoaded` | ✓ |
-| `UserPromptSubmit` | ✓ |
-| `PreToolUse` | ✓ |
-| `PostToolUse` | ✓ |
-| `PostToolUseFailure` | ✓ |
-| `PermissionRequest` | ✓ |
-| `PermissionDenied` | ✓ |
-| `Stop` | ✓ |
-| `StopFailure` | ✓ |
-| `SubagentStart` | ✓ |
-| `SubagentStop` | ✓ |
-| `Notification` | ✓ |
-| `PreCompact` | ✓ |
-| `PostCompact` | ✓ |
-| `ConfigChange` | ✓ |
-| `WorktreeCreate` | ✓ |
-| `WorktreeRemove` | ✓ |
-| `TeammateIdle` | ✓ |
-| `TaskCreated` | ✓ |
-| `TaskCompleted` | ✓ |
-| `CwdChanged` | ✗ * |
-| `FileChanged` | ✗ * |
-| `Elicitation` | ✗ * |
-| `ElicitationResult` | ✗ * |
+| Event | Claude Code | Codex |
+|-------|:-----------:|:-----:|
+| `SessionStart` | ✓ | ✓ |
+| `SessionEnd` | ✓ | ✓ |
+| `InstructionsLoaded` | ✓ | ✗ |
+| `UserPromptSubmit` | ✓ | ✓ |
+| `PreToolUse` | ✓ | ✓ |
+| `PostToolUse` | ✓ | ✓ |
+| `PostToolUseFailure` | ✓ | ✗ |
+| `PermissionRequest` | ✓ | ✓ |
+| `PermissionDenied` | ✓ | ✗ |
+| `Stop` | ✓ | ✓ |
+| `StopFailure` | ✓ | ✗ |
+| `SubagentStart` | ✓ | ✓ |
+| `SubagentStop` | ✓ | ✓ |
+| `Notification` | ✓ | ✗ |
+| `PreCompact` | ✓ | ✓ |
+| `PostCompact` | ✓ | ✓ |
+| `ConfigChange` | ✓ | ✗ |
+| `WorktreeCreate` | ✓ | ✗ |
+| `WorktreeRemove` | ✓ | ✗ |
+| `TeammateIdle` | ✓ | ✗ |
+| `TaskCreated` | ✓ | ✗ |
+| `TaskCompleted` | ✓ | ✗ |
+| `CwdChanged` | ✗ * | ✗ |
+| `FileChanged` | ✗ * | ✗ |
+| `Elicitation` | ✗ * | ✗ |
+| `ElicitationResult` | ✗ * | ✗ |
 
 \* Planned — see [Roadmap](#roadmap).
 
@@ -663,11 +535,8 @@ implements 11 events with narrower result capabilities.
 
 ### Hook handler types
 
-Claude Code natively supports four handler types: `command`, `http`,
-`prompt`, and `agent`. Clooks runs as a `command` handler — your TypeScript
-hooks execute inside the Clooks binary. The other handler types remain
-available natively in `.claude/settings.json` and don't conflict with
-Clooks.
+Clooks registers as a `command` handler. Your TypeScript hooks execute inside
+the Clooks binary, alongside any native hooks you've configured.
 
 ## Execution model
 
@@ -741,24 +610,17 @@ export const hook: ClooksHook = {
 
 ### Errors block by default
 
-The default `onError: block` requests the selected adapter's event-specific
-failure control. It is not a universal guarantee that an action can be prevented.
+Any error path blocks the action by default (where applicable).
 
 | Scenario | Default behavior |
 |----------|-----------------|
-| Hook throws an exception | Event-specific failure control, subject to configured onError/circuit breaker |
-| Hook returns an unknown result type | Event-specific failure control |
-| Clooks binary not found | Entrypoint prints installation guidance to stderr and exits 0; action proceeds without Clooks hooks |
-| Invalid stdin JSON | Failure reported; unidentified events have no prevention guarantee |
-| Unexpected exit code | Entrypoint reports failure; native event determines its effect |
+| Hook throws an exception | Block |
+| Hook returns an unknown result type | Block |
+| Clooks binary not found | Show installation guidance; hooks do not run |
+| Invalid stdin JSON | Block |
+| Unexpected exit code | Block |
 
-The bash entrypoint reports failures even when the binary crashes. A missing
-binary is instead a bootstrap advisory, not a runtime failure: it allows setup
-to proceed without blocking the tools needed to install Clooks. For Codex,
-pre-tool refusal can prevent dispatch, but post-tool feedback cannot undo side
-effects. SubagentStart failure cannot veto startup, PostCompact cannot roll back
-compaction, and SessionEnd cannot veto closure. Hooks are trusted code, not a
-sandbox or a universal enforcement boundary for every native tool path.
+The bash entrypoint handles failures even if the binary crashes.
 
 ### onError modes
 
@@ -833,9 +695,11 @@ A hook that exceeds its timeout is treated like any other crash — the
 | `clooks init --global [--agent claude-code\|codex\|all]` | Initialize global hooks at `~/.clooks/` for the selected agent(s) |
 | `clooks uninstall --project` | Uninstall Clooks from the current project |
 | `clooks uninstall --global` | Uninstall Clooks globally |
-| `clooks uninstall --unhook --agent codex` | Remove owned Codex registration; `--agent all` selects both agents |
+| `clooks uninstall --unhook [--agent claude-code\|codex\|all]` | Remove hook registration without deleting Clooks files |
 | `clooks uninstall --full` | Unhook **and** delete the `.clooks/` directory |
 | `clooks uninstall --force` | Skip confirmation prompts |
+
+Without `--agent`, uninstall detects the registered agent. If both are registered, it asks which to remove. With both registered, `--force` requires `--agent`.
 
 </details>
 
@@ -1007,10 +871,7 @@ preserves unrelated files in `dist/`, including release binaries and signatures.
 - **Remaining event parity** — `CwdChanged`, `FileChanged`, `Elicitation`,
   and `ElicitationResult` (the four events called out in the
   [Parity map](#parity-map)).
-- **More cross-agent support** — Cursor Agent, OpenCode, OpenClaw. Codex has a
-  [supported subset](#codex-usage), not universal Claude parity. Same
-  authoring model, runtime adapters per agent. (Today clooks works in any IDE
-  that hosts Claude Code — VS Code, Cursor, Windsurf, JetBrains.)
+- **More agents** — Cursor Agent, OpenCode, OpenClaw.
 
 ## License
 

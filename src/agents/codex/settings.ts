@@ -1,6 +1,7 @@
 import { lstatSync, mkdirSync, realpathSync, statSync } from 'fs'
 import { dirname, isAbsolute, join, resolve } from 'path'
 import { readRegistrationFile, writeRegistrationFileAtomic } from '../../registration-file.js'
+import { CODEX_PROJECT_ID_PATTERN, CODEX_PROJECT_LAUNCHER } from './project-launcher.js'
 
 export const CODEX_REGISTRATION_EVENTS = [
   'SessionStart',
@@ -85,14 +86,9 @@ export function quotePosixSingleArg(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`
 }
 
-export function makeCodexProjectEntrypointCommand(projectRoot: string): string {
-  const absoluteProjectRoot = resolve(projectRoot)
-  const entrypointPath = join(absoluteProjectRoot, '.clooks/bin/entrypoint.sh')
-  return [
-    'CLOOKS_AGENT=codex',
-    `CLOOKS_PROJECT_ROOT=${quotePosixSingleArg(absoluteProjectRoot)}`,
-    quotePosixSingleArg(entrypointPath),
-  ].join(' ')
+export function makeCodexProjectEntrypointCommand(projectId: string): string {
+  if (!CODEX_PROJECT_ID_PATTERN.test(projectId)) throw new Error('Invalid Codex project ID')
+  return `CLOOKS_AGENT=codex sh -c ${quotePosixSingleArg(CODEX_PROJECT_LAUNCHER)} clooks-project ${quotePosixSingleArg(projectId)}`
 }
 
 export function makeCodexGlobalEntrypointCommand(homeRoot: string): string {
@@ -112,21 +108,17 @@ export function isCodexClooksHook(hook: unknown): boolean {
   }
 
   const command = (hook as { command: string }).command
+  const projectId = / clooks-project '([a-f0-9]{32})'$/.exec(command)?.[1]
+  if (projectId && command === makeCodexProjectEntrypointCommand(projectId)) return true
   // Only decode the single-argument quoting emitted by our builders, never shell syntax.
   const quoted = "'((?:[^']|'\\\\'')*)'"
-  const match = new RegExp(
-    `^CLOOKS_AGENT=codex (?:CLOOKS_PROJECT_ROOT=${quoted} )?${quoted}$`,
-  ).exec(command)
+  const match = new RegExp(`^CLOOKS_AGENT=codex ${quoted}$`).exec(command)
   if (!match || match[0] !== command) return false
   const decode = (value: string) => value.replaceAll("'\\''", "'")
-  const executable = decode(match[2]!)
+  const executable = decode(match[1]!)
   if (!executable.startsWith('/') || !executable.endsWith('/.clooks/bin/entrypoint.sh'))
     return false
-  return (
-    match[1] === undefined ||
-    (executable === join(decode(match[1]), '.clooks/bin/entrypoint.sh') &&
-      decode(match[1]).startsWith('/'))
-  )
+  return true
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

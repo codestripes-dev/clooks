@@ -1,9 +1,9 @@
 #!/usr/bin/expect -f
 
-# Arguments are a binary, scope, agent, then exact prompt/response pairs.
+# Arguments are a binary, scope (or pick), agent (or auto), action (or none), then prompt/response pairs.
 set timeout 8
-if {$argc < 5 || ($argc - 3) % 2 != 0} {
-    puts stderr "Expected binary scope agent and prompt/response pairs"
+if {$argc < 4 || ($argc - 4) % 2 != 0} {
+    puts stderr "Expected binary scope agent action and prompt/response pairs"
     exit 64
 }
 if {![info exists env(CLOOKS_E2E_DOCKER)] || $env(CLOOKS_E2E_DOCKER) ne "true"} {
@@ -21,10 +21,14 @@ proc abort_child {message} {
 }
 
 set stty_init "rows 40 columns 1024"
-spawn -noecho [lindex $argv 0] uninstall --[lindex $argv 1] --agent [lindex $argv 2]
+set command [list [lindex $argv 0] uninstall]
+if {[lindex $argv 1] ne "pick"} { lappend command --[lindex $argv 1] }
+if {[lindex $argv 2] ne "auto"} { lappend command --agent [lindex $argv 2] }
+if {[lindex $argv 3] ne "none"} { lappend command [lindex $argv 3] }
+spawn -noecho {*}$command
 trap {abort_child "PTY driver interrupted"} {SIGTERM SIGINT}
 match_max 65536
-foreach {prompt response} [lrange $argv 3 end] {
+foreach {prompt response} [lrange $argv 4 end] {
     expect {
         -exact $prompt {}
         timeout {abort_child "Timed out waiting for prompt: $prompt"}
@@ -34,6 +38,9 @@ foreach {prompt response} [lrange $argv 3 end] {
         yes {send -- "y"}
         no {send -- "n"}
         cancel {send -- "\003"}
+        first {send -- "\r"}
+        second {send -- "\033\[B\r"}
+        third {send -- "\033\[B\033\[B\r"}
         default {abort_child "Unknown response: $response"}
     }
 }
