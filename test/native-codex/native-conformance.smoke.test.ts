@@ -139,7 +139,7 @@ ignore_default_excludes = true
 `
     writeFileSync(join(codexHome, 'config.toml'), config)
     writeFileSync(join(logs, 'config.toml'), config, { flag: 'wx' })
-    env.CLOOKS_PROJECT_ROOT = decoy
+    env.CLAUDE_PROJECT_DIR = decoy
     const prompt = 'Run the scripted command once, then finish.'
     for (const token of [...Object.values(tokens), stopReason]) {
       requireThat(
