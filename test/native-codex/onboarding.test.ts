@@ -121,6 +121,7 @@ test('onboarding completion requires all receipts, cleanup, and real test succes
       id,
       status: 'passed',
       codexSha256: onboardingPin,
+      ...(id === 'ONBOARDING-INSTALL' ? { createHook: true } : {}),
       ...(id === 'ONBOARDING-REUSE-REMOVE'
         ? {
             packs: {
@@ -136,6 +137,25 @@ test('onboarding completion requires all receipts, cleanup, and real test succes
     save(join(logs, id, 'cleanup.json'), { removed: true })
   }
   const id = 'ONBOARDING-REUSE-REMOVE'
+  const installReceipt = join(logs, 'ONBOARDING-INSTALL', 'passed.json')
+  for (const createHook of [undefined, false]) {
+    rmSync(installReceipt)
+    save(installReceipt, {
+      id: 'ONBOARDING-INSTALL',
+      status: 'passed',
+      codexSha256: onboardingPin,
+      createHook,
+    })
+    expect(() => publishOnboarding(logs, 0)).toThrow('Missing native create-hook receipt')
+    expect(existsSync(join(logs, 'passed.json'))).toBe(false)
+  }
+  rmSync(installReceipt)
+  save(installReceipt, {
+    id: 'ONBOARDING-INSTALL',
+    status: 'passed',
+    codexSha256: onboardingPin,
+    createHook: true,
+  })
   const receiptPath = join(logs, id, 'passed.json')
   const receipt = { id, status: 'passed', codexSha256: onboardingPin }
   const good = {

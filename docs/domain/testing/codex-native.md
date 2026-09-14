@@ -112,6 +112,17 @@ from the frozen runtime package metadata. Reinit preserves registration bytes.
 A new session reviews the generated runtime commands and verifies SessionStart
 context plus a native shell effect and one PostToolUse observation.
 
+The fresh-install case also invokes `$clooks:create-hook` in a new native session.
+It requires the full cached skill in the model request, then reads the shared
+Claude/Codex authoring guide through native shell calls in 40-line sections.
+Each section must arrive intact: a single read can be truncated by Codex even
+when the tool call requests a larger output budget. Native tool calls then
+scaffold a PreToolUse hook, test a normalized Codex fixture, and register the
+hook without changing native registrations. Completion requires the authoring
+receipt; helper tests reject missing or false receipts. This proves skill
+delivery, reference readability, and the scripted authoring workflow, not an
+unscripted model's ability to design a correct hook.
+
 The decline case chooses continue-without-trusting in the real UI: Hello receives
 no reminder, explicit setup/check remains invocable with its full skill body,
 and check reports the missing runtime without installing it. The reuse/removal
@@ -136,11 +147,11 @@ cache bytes while preserving config overrides and registrations. No test hook
 substitutes for the actual pack in these checks. Pack receipts are required for
 completion publication; missing or false stage flags and altered pack lists fail.
 
-Verified coverage is **11 tests across 2 files, 0 failures, 60 assertions**:
+Verified coverage is **11 tests across 2 files, 0 failures, 64 assertions**:
 one orchestration test covering three native cases, plus ten helper tests.
-All three cases passed across nine native sessions. Tested Clooks was 0.3.0,
+All three cases passed across ten native sessions, including create-hook. Tested Clooks was 0.3.0,
 compiled SHA256
-`d4c9efdf05cfcd47c0fada3dc78bbf5683a1e8b7ae7403bcc77e9a3248186120`.
+`d5f4c67f9314100ca074ba044080e77a56089addf30bc8ea7622a760eefca248`.
 The separate tooling and onboarding-helper gate passed 115 tests across three
 files with 1,076 assertions and zero failures.
 Final status, container cleanup, completion publication, snapshot verification,

@@ -249,6 +249,9 @@ export function publishOnboarding(logs: string, testExitCode: number): number {
       receipt.id === id && receipt.codexSha256 === onboardingPin && receipt.status === 'passed',
       `Invalid onboarding receipt: ${id}`,
     )
+    if (id === 'ONBOARDING-INSTALL') {
+      requireThat(receipt.createHook === true, 'Missing native create-hook receipt')
+    }
     if (id === 'ONBOARDING-REUSE-REMOVE') {
       requireThat(
         JSON.stringify(receipt.packs?.installed) === JSON.stringify(onboardingPacks) &&

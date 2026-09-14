@@ -109,6 +109,7 @@ ignore_default_excludes = true
     return result.stdout
   }
   let sessions = 0
+  let createHook = false
   let packs:
     | {
         installed: string[]
@@ -325,6 +326,90 @@ export const hook = {meta:{name:'onboarding-observer'}, SessionStart:record, Pos
           first[0].session === first[1].session,
         'Runtime dispatch missing or duplicated',
       )
+      if (id === 'ONBOARDING-INSTALL') {
+        const authorSkillPath = join(cache, 'codex-skills/create-hook/SKILL.md')
+        const authorSkill = readFileSync(authorSkillPath, 'utf8')
+        const guidePath = join(cache, 'skills/create-hook/SKILL.md')
+        const guide = readFileSync(guidePath, 'utf8')
+        const guideLines = guide.trimEnd().split('\n')
+        const guideChunks: string[] = []
+        for (let line = 0; line < guideLines.length; line += 40) {
+          guideChunks.push(guideLines.slice(line, line + 40).join('\n'))
+        }
+        requireThat(
+          authorSkill ===
+            readFileSync(
+              '/onboarding-marketplace/clooks/codex-skills/create-hook/SKILL.md',
+              'utf8',
+            ) &&
+            guide ===
+              readFileSync('/onboarding-marketplace/clooks/skills/create-hook/SKILL.md', 'utf8'),
+          'Cached authoring skill or shared guide differs',
+        )
+        const hookPath = join(project, '.clooks/hooks/onboarding-created.ts')
+        const fixture = JSON.stringify({
+          event: 'PreToolUse',
+          provider: 'codex',
+          toolName: 'Bash',
+          toolInput: { command: 'printf smoke' },
+          originalToolInput: { command: 'printf smoke' },
+          toolUseId: 'authoring-smoke',
+        })
+        const author: OnboardingTurn = {
+          prompt:
+            '$clooks:create-hook Scaffold, test and register a skip-only PreToolUse hook named onboarding-created. ONBOARDING_CREATE_HOOK',
+          done: 'ONBOARDING_CREATE_HOOK_DONE',
+          commands: [
+            ...guideChunks.map((_, index) => (output: string) => {
+              if (index > 0) {
+                requireThat(
+                  output.includes(guideChunks[index - 1]!),
+                  `Shared guide section ${index} was truncated or missing`,
+                )
+              }
+              return `sed -n '${index * 40 + 1},${(index + 1) * 40}p' ${quote(guidePath)}`
+            }),
+            (output) => {
+              requireThat(
+                output.includes(guideChunks.at(-1)!),
+                'Final shared guide section was truncated or missing',
+              )
+              return `${quote(binary)} new-hook --name onboarding-created --event PreToolUse`
+            },
+            `printf '%s' ${quote(fixture)} | ${quote(binary)} test ${quote(hookPath)}`,
+            (output) => {
+              const result = JSON.parse(output.split('Output:\n').at(-1)!.trim())
+              requireThat(
+                result.result === 'skip',
+                'Scaffolded hook did not pass its synthetic test',
+              )
+              return `printf '%s\\n' 'onboarding-created: {}' >> ${quote(join(project, '.clooks/clooks.yml'))}`
+            },
+          ],
+          inspect(body) {
+            assertSkill(body, authorSkill, true)
+          },
+          complete() {
+            requireThat(
+              readFileSync(hookPath, 'utf8').includes('onboarding-created'),
+              'Hook was not scaffolded',
+            )
+            requireThat(
+              readFileSync(join(project, '.clooks/clooks.yml'), 'utf8').includes(
+                '\nonboarding-created: {}\n',
+              ),
+              'Hook was not registered',
+            )
+            requireThat(
+              readFileSync(registration, 'utf8') === beforeReinit,
+              'Authoring changed native registration',
+            )
+            createHook = true
+          },
+        }
+        turns.push(author)
+        await tui('none', [author])
+      }
       if (reuse) {
         const configBytes = readFileSync(join(project, '.clooks/clooks.yml'), 'utf8')
         await cli(['plugin', 'remove', 'clooks@clooks-marketplace', '--json'])
@@ -576,6 +661,7 @@ export const hook = {meta:{name:'onboarding-observer'}, SessionStart:record, Pos
       clooksSha256,
       sessions,
       downloads: provider.downloads,
+      ...(id === 'ONBOARDING-INSTALL' ? { createHook } : {}),
       ...(packs ? { packs } : {}),
       evidence: 'real native TUI and tools, scripted local provider',
       limitations: [
