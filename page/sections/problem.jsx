@@ -1,4 +1,4 @@
-function ProblemSection({ accent }) {
+function ProblemSection({ accent, content }) {
   const vp = useViewport();
   const stack = vp.isMobile || vp.isTablet;
   const cols = vp.isMobile ? 1 : vp.isTablet ? 2 : 3;
@@ -13,23 +13,12 @@ function ProblemSection({ accent }) {
     ['  ', [TK.kw, 'exit'], ' ', [TK.num, '2']],
     [[TK.kw, 'fi']],
   ];
-  const pains = [
-    { n: '01', k: 'Silent failures',
-      d: 'Claude Code only blocks on exit code 2. A guard hook that crashes — a typo, a missing dep — doesn\'t prevent the action. The action runs as if the hook never ran.' },
-    { n: '02', k: 'Bash inside JSON',
-      d: 'Native hooks are bash strings inside .claude/settings.json. Every hook is a one-liner you quote by\u00a0hand or write a new bash script for.' },
-    { n: '03', k: 'No composition',
-      d: 'All native hooks run in parallel. No ordering, no pipeline, no way for one hook to modify input before another sees it.' },
-    { n: '04', k: 'Tricky portability',
-      d: 'A hook you wrote for one repo lives in that repo\'s settings file. Copying it to the next project means re-pasting bash strings and re-committing script files. And in plugins, you might not want every hook enabled.'  },
-    { n: '05', k: 'No discoverability',
-      d: 'The best hooks are gists linked in Discord threads. Sharing only works through Claude Marketplace, which can open up update injection vectors.' },
-  ];
+  const pains = content.pains;
 
   return (
     <section id="problem" className="section">
       <div style={{ maxWidth: 1200, margin: '0 auto' }}>
-        <SectionLabel accent={accent}>Problem</SectionLabel>
+        <SectionLabel accent={accent}>{content.label}</SectionLabel>
 
         {/* 2-col: narrative + quote on left, broken hook + transcript on right */}
         <div style={{
@@ -43,15 +32,11 @@ function ProblemSection({ accent }) {
               fontSize: 'clamp(28px, 3.2vw, 42px)', lineHeight: 1.1,
               letterSpacing: -1, fontWeight: 500, margin: '0 0 20px',
             }}>
-              The hook that was supposed<br/>to stop <code style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.85em', color: COL.red, background: 'rgba(248,113,113,0.08)', padding: '2px 8px' }}>rm -rf ~/</code> crashed.
-            </h2>
+          <Copy text={content.title} heading danger/>
+        </h2>
             <p style={{ fontSize: 16, color: COL.fgMute, margin: '0 0 32px', lineHeight: 1.6 }}>
-              Somebody's agent ran <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>rm -rf tests/ patches/ plan/ ~/</code> —
-              the trailing <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>~/</code> wiped the Mac.
-              A guard hook was meant to catch it, but threw an exception and exited with a non-2 code.
-              Claude Code treats anything other than exit 2 as success, so the command ran. In Clooks,
-              a crashed hook blocks the action by{'\u00a0'}default.
-            </p>
+          <Copy text={content.intro}/>
+        </p>
 
             <div style={{
               border: `1px solid ${COL.line}`, background: COL.bgSoft,

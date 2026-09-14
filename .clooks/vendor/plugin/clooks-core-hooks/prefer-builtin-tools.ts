@@ -170,13 +170,14 @@ export const hook: ClooksHook<Config> = {
   },
 
   SessionStart(ctx, config) {
+    const isCodex = 'provider' in ctx && ctx.provider === 'codex'
     const enabled = RULES
-      .filter(r => ctx.provider !== 'codex' || !r.claudeOnly)
+      .filter(r => !isCodex || !r.claudeOnly)
       .filter(r => config[r.id] !== false)
       .map(r => RULE_LABELS[r.id])
       .filter(Boolean)
     if (enabled.length === 0) return ctx.skip()
-    if (ctx.provider === 'codex') return ctx.skip({
+    if (isCodex) return ctx.skip({
       injectContext: `INFORMATION (no need to comment on it): The prefer-builtin-tools clooks hook is active in this project. Shell calls will refuse: ${enabled.join(', ')}. Shell reads and searches are permitted by the built-in preferences. Use apply_patch for file edits when available, and available process tools to wait for running commands using their returned session IDs. Tool availability depends on this session; configured additional rules still apply.`,
       debugMessage: 'prefer-builtin-tools: announced',
     })
@@ -187,6 +188,7 @@ export const hook: ClooksHook<Config> = {
   },
 
   PreToolUse(ctx, config) {
+    const isCodex = 'provider' in ctx && ctx.provider === 'codex'
     // 1. Skip non-Bash tools
     if (ctx.toolName !== 'Bash') return ctx.skip()
 
@@ -211,7 +213,7 @@ export const hook: ClooksHook<Config> = {
       if (hasEscapeHatch) continue
 
       for (const rule of RULES) {
-        if (ctx.provider === 'codex' && rule.claudeOnly) continue
+        if (isCodex && rule.claudeOnly) continue
         // Skip disabled rules
         if (config[rule.id] === false) continue
 
@@ -226,7 +228,7 @@ export const hook: ClooksHook<Config> = {
 
         // All checks passed — block
         return ctx.block({
-          reason: ctx.provider === 'codex' ? (rule.codexReason ?? rule.reason) : rule.reason,
+          reason: isCodex ? (rule.codexReason ?? rule.reason) : rule.reason,
           debugMessage: `prefer-builtin-tools: blocked by rule '${rule.id}'`,
         })
       }

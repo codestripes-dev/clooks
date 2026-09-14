@@ -84,7 +84,10 @@ export function createResultPolicy(invocation: NormalizedInvocation): Invocation
         )
       }
       const observer =
-        eventName === 'SessionStart' || eventName === 'SubagentStart' || eventName === 'PostCompact'
+        eventName === 'SessionStart' ||
+        eventName === 'SubagentStart' ||
+        eventName === 'PostCompact' ||
+        eventName === 'SessionEnd'
       if (observer && tag !== 'skip') {
         return reject(
           input.origin === 'before-hook' ? 'before-hook' : 'result',

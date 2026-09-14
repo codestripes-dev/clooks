@@ -91,10 +91,7 @@ export function translateResult(
       return { output: JSON.stringify(output), exitCode: EXIT_OK }
     }
     if (resultType === 'defer') {
-      // Upstream ignores reason / updatedInput / additionalContext for
-      // defer. The reducer in M3 drops these and emits a systemMessage
-      // warning if any loser contributed them. At the translator layer
-      // we emit the minimal shape — no defensive read of reason/etc.
+      // Claude ignores reason, input updates, and context on a deferred decision.
       const hookOutput: PreToolUseOutput = {
         hookEventName: 'PreToolUse',
         permissionDecision: 'defer',

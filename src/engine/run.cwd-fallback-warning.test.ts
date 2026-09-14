@@ -156,8 +156,6 @@ describe('runEngine M5b: cwd-fallback warning', () => {
     expect(allStderr).not.toContain('no .clooks/clooks.yml found walking up')
   })
 
-  // --- Second M5b block (non-null result path, lines 356-366 in run.ts) ---
-
   test('second M5b block: emits warning on SessionStart when signal is cwd-fallback and hasProjectConfig is false (non-null result)', async () => {
     const capturedStderr: string[] = []
     stderrSpy = spyOn(process.stderr, 'write').mockImplementation((msg: unknown) => {

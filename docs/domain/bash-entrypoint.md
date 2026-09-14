@@ -67,13 +67,15 @@ The entrypoint and the binary react to a small set of environment variables:
 | `CLOOKS_DEBUG=true` | Enable debug logging — stderr output + JSON request dumps to `CLOOKS_LOGDIR`. |
 | `CLOOKS_LOGDIR=/path` | Directory for `CLOOKS_DEBUG` JSON dumps (default `/tmp/clooks-debug`). |
 | `CLOOKS_AGENT=claude-code` | Optional explicit selector for the current Claude Code adapter. Unset or empty means the same thing for backward compatibility. |
-| `CLOOKS_AGENT=codex` | Explicit selector used by generated Codex registrations. Enables the ten-event target through event-specific normalization and result policy before hook imports; expanded Docker runtime validation has passed. Emitted controls do not establish native enforcement. |
+| `CLOOKS_AGENT=codex` | Explicit selector used by generated Codex registrations. Enables eleven events through event-specific normalization and result policy before hook imports, including observation-only SessionEnd. Earlier ten-event Docker evidence does not establish SessionEnd native enforcement. |
 | `CLOOKS_HOME_ROOT=/path` | Override the home directory used for config resolution (mostly for tests). |
 | `CODEX_HOME=/absolute/path` | Select the Codex global registration directory; unset or empty uses `$HOME/.codex`. Does not relocate the shared Clooks launcher or project `.codex/hooks.json`. |
 | `CLOOKS_PROJECT_ROOT=/path` | Skip discovery and treat `/path` as the project root unconditionally. Highest-priority override (wins over `$CLAUDE_PROJECT_DIR` and the cwd walk). Mirrors `prettier --config` / `tsc --project` / `GIT_DIR`. |
 | `$CLAUDE_PROJECT_DIR` | Set by Claude Code itself. Used by clooks as the **primary anchor** for config discovery — the walk-up starts here so an agent that runs `cd /tmp && <action>` cannot bypass project hooks. |
 
-Claude Code registration does not need to set `CLOOKS_AGENT`; the binary defaults to the Claude Code adapter. Codex registration always sets `CLOOKS_AGENT=codex`. Project Codex registration also sets `CLOOKS_PROJECT_ROOT` to the absolute project root so Codex cwd changes do not detach Clooks from the intended project. Global Codex registration intentionally omits `CLOOKS_PROJECT_ROOT`; the shell still forwards inherited `CLOOKS_PROJECT_ROOT` and `CLAUDE_PROJECT_DIR` unchanged. Before discovery, the Codex runtime uses an invocation-local environment copy with `CLAUDE_PROJECT_DIR` removed, retaining the explicit `CLOOKS_PROJECT_ROOT` override without mutating the process environment. Without that override, discovery walks from cwd so global hooks can merge with the current project's `.clooks/clooks.yml`. Shell forwarding and bootstrap behavior are unchanged.
+Claude Code registration does not need to set `CLOOKS_AGENT`; the binary defaults to the Claude Code adapter. Codex registration always sets `CLOOKS_AGENT=codex`. Project Codex registration locates its declaration by a committed project ID, then sets `CLOOKS_PROJECT_ROOT` to that directory only when no nonempty explicit override exists. It preserves the original cwd, so relative overrides resolve as supplied to the engine. Global Codex registration intentionally omits `CLOOKS_PROJECT_ROOT`; the shell still forwards inherited `CLOOKS_PROJECT_ROOT` and `CLAUDE_PROJECT_DIR` unchanged. Before discovery, the Codex runtime uses an invocation-local environment copy with `CLAUDE_PROJECT_DIR` removed, retaining the explicit `CLOOKS_PROJECT_ROOT` override without mutating the process environment. Without that override, global discovery walks from cwd so global hooks can merge with the current project's `.clooks/clooks.yml`.
+
+SessionEnd alone registers `timeout: 3` seconds, budgeting the entire entrypoint/runtime/hook pipeline. Other event registrations retain their existing timeouts. Re-run init for existing installations: migration adds the eleventh event and repairs owned SessionEnd entries without the timeout; repeated canonical init does not rewrite the file. SessionEnd success produces no stdout. Its diagnostics are local stderr only, discarded by native Codex on successful hooks; failures do not veto closure.
 
 ## Approval Token Transport
 
@@ -95,15 +97,19 @@ Two registration scopes exist:
 Codex registration uses project `.codex/hooks.json` or global `${CODEX_HOME:-$HOME/.codex}/hooks.json` and command strings shaped like:
 
 ```bash
-CLOOKS_AGENT=codex CLOOKS_PROJECT_ROOT='/abs/repo' '/abs/repo/.clooks/bin/entrypoint.sh'
+CLOOKS_AGENT=codex sh -c '<project-ID locator>' clooks-project '<32-hex-id>'
 CLOOKS_AGENT=codex '/home/joe/.clooks/bin/entrypoint.sh'
 ```
 
-The first form is project registration. The second form is global registration and deliberately has no `CLOOKS_PROJECT_ROOT`.
+The first form abbreviates the fixed project locator script; its sole argument is the declaration's ID, never a checkout path. The second form is global registration and deliberately has no `CLOOKS_PROJECT_ROOT`.
 
-Codex project commands are machine-local absolute paths. After copying, moving, or creating a new worktree, rerun `clooks init --agent codex` in that checkout before activating its hooks. A copied registration still targets the old checkout if it remains present. Re-init recognizes both the current project form and the older quoted absolute form without a root assignment, replacing old paths without adding duplicates. Explicit project roots remain independent of git-root discovery and cwd, including nested Clooks roots and non-git projects. Generated single-argument quoting preserves literal spaces, apostrophes, and shell punctuation in Codex paths.
+Codex/all project init creates `.clooks/bin/codex-project-id`: one plain 32-lowercase-hex identifier followed by LF. Commit it with the registration and entrypoint. Re-init retains valid bytes; malformed files, directories and symlinks are rejected rather than regenerated. Claude-only and global init do not create this marker. Unhook retains it with the project files. Copies and worktrees retain the ID, so registration contains no machine-local path and needs no relocation repair.
 
-Registered-command E2E probes execute the generated shell with an isolated PATH binary and capture agent, root, cwd, and stdin. Relocation tests establish the old-root invocation before repair and the new-root invocation afterward. These probes establish shell forwarding only; they do not demonstrate native Codex activation or runtime decision handling. Claude's historical global command remains an unquoted absolute path; registration recognizes its exact scope-derived form for idempotence and cleanup, but shell execution of paths requiring quoting remains a separate limitation.
+The fixed POSIX shell locator starts at physical cwd and scans ancestors for its exact marker bytes. An applicable Git root is the inclusive boundary, even above HOME; otherwise an ancestral physical HOME is the boundary, then `/`. Without an applicable Git root, an encountered `.git` marker is a conservative stopping point when Git discovery is unavailable. The scan completes before execution: repeated matching IDs within the boundary refuse ambiguous ownership, rather than choosing one nested copy. Distinct child IDs do not redirect ancestor declarations. A missing ID or unreadable/missing owning entrypoint emits a diagnostic and exits 2, with no fallback to another declaration. There is no identity-regeneration command or execution/dedup state.
+
+After locating its owner, the command preserves stdin and cwd, retains any nonempty explicit CLOOKS_PROJECT_ROOT, otherwise exports the located root, and `exec`s Bash with the entrypoint path. The launcher need not have executable bits; Bash must be available. Relative overrides resolve against the original cwd, not the owning root. Deliberately overriding two declarations to the same config is caller intent. The locator never reads YAML or implements config discovery. Ownership recognition accepts only the exact generated project script plus canonical ID argument, or the supported quoted global form; unreleased absolute project commands have no compatibility parser.
+
+Registered-command shell probes cover forwarding and existing global receipt behavior. Separate compiled portability E2E asserts real hook decisions and exact receipts for clone/move/worktree dispatch, nested declaration ownership, boundaries, missing artifacts, explicit overrides and ambiguity. Native recorder probes establish ancestor declarations are not deduplicated and main-checkout declarations can run in linked-worktree cwd; recorder evidence is distinct from compiled pipeline execution.
 
 ## Global Entrypoint and Dedup
 
@@ -146,24 +152,27 @@ A valid persisted receipt can still suppress the project when the native global 
 
 ## Plugin Entrypoint (Bootstrap)
 
-A third entrypoint variant exists for the plugin distribution model. It lives at `clooks-marketplace/clooks/hooks/install-entrypoint.sh` in the plugin source, and at runtime resides in the Claude Code plugin cache (read-only).
+The shared read-only SessionStart reminder lives in the **sibling marketplace repository**, at `clooks/hooks/install-entrypoint.sh` (`../clooks-marketplace/clooks/hooks/install-entrypoint.sh` from this checkout). Its co-located Bun tests are `clooks/hooks/install-entrypoint.test.ts`. It is plugin-owned source intended to run from the cached package, not a runtime launcher generated by `clooks init`.
 
-**What it does:** Fires on SessionStart only. Checks if the clooks binary is on PATH via `command -v clooks`. If found, exits 0 silently. If missing, exits 0 with JSON output containing `hookSpecificOutput` — a `systemMessage` shown to the user and `additionalContext` injected into Claude's context directing it to suggest `/clooks:setup`.
+**Processing order:** Drain stdin immediately with `cat >/dev/null`, then exit 0 silently if `SKIP_CLOOKS=true`. Otherwise, resolve `clooks` with `command -v` and check that the result is an executable regular file. The script never invokes the binary, including for a version or health check.
 
-**Why exit 0 + JSON, not exit 2:** SessionStart ignores blocking errors (exit 2). The hooks config screen explicitly says "Blocking errors are ignored" for SessionStart. To surface a message, the hook must exit 0 and put the message in `hookSpecificOutput.systemMessage` (shown to user) and `hookSpecificOutput.additionalContext` (injected into Claude's context).
+| Executable availability | Reminder behavior |
+|---|---|
+| Executable `clooks` on the agent's PATH | Exit 0 silently, including when a managed binary also exists |
+| No executable PATH result, but executable `$HOME/.local/bin/clooks` exists | Exit 0 with an installed-but-unavailable-on-this-agent's-PATH reminder; suggest explicit setup `check` and PATH correction |
+| Neither location has an executable regular file | Exit 0 with an explicit setup reminder; non-executable files and directories do not count as an executable runtime |
 
-**How it differs from project/global entrypoints:**
+**Provider selection:** Only `CLOOKS_AGENT=codex` selects the literal `$clooks:setup` command. An absent, empty, or other value defaults to Claude's `/clooks:setup`. The script does not infer provider identity from `CLAUDE_PLUGIN_ROOT`. The managed-only reminder names `$clooks:setup check` or `/clooks:setup check`, respectively.
 
-- No binary invocation — only checks file existence
-- SessionStart only (not all events)
-- No dedup checks needed (no binary invocation = no double-execution risk)
-- No fail-closed exit code translation (no binary exit code to translate)
-- No stdin capture/replay (consumes stdin immediately via `cat >/dev/null`)
-- Uses exit 0 + JSON (not exit 2 + stderr like project/global entrypoints)
+**Output envelope:** Reminder branches emit nonblocking exit 0 JSON with a top-level `systemMessage` for the user-facing warning and `hookSpecificOutput` containing `hookEventName: "SessionStart"` and `additionalContext` for agent context. `systemMessage` is not nested. Only fixed message strings and the selected literal setup command enter JSON; paths and arbitrary environment values are not interpolated into it.
 
-**Relationship:** The plugin entrypoint bootstraps the user. After `/clooks:setup` runs `clooks init`, the project entrypoint takes over for all events. The plugin's SessionStart hook becomes a silent no-op (binary found -> exit 0).
+**Explicit setup only:** The context asks the agent to tell the user about explicit setup, not to run it. Startup does not download, install, update, initialize, invoke skills, edit profiles/configuration, create state, or request setup consent automatically. Native plugin hook trust/review is a separate agent-owned step, not consent requested by this script.
 
-**Created by:** Plugin installation (`claude plugin install clooks@clooks-marketplace`), not `clooks init`.
+**PATH readiness:** A managed binary off PATH remains visible to the reminder even after successful initialization via its absolute path. Editing shell rc or exporting PATH in a child setup shell does not repair the running agent's environment; relaunching the agent with corrected PATH may be needed for this condition. This is not a blanket restart requirement after plugin trust approval. Conversely, silence establishes executable PATH presence only, not version compatibility, initialization, native activation, or hook readiness.
+
+**Relationship to runtime launchers:** Explicit setup can run `clooks init` to create project/global runtime registrations. Those launchers retain their existing PATH-only resolution, missing-binary exit 0 stderr advisory, stdin capture/replay, binary execution and fail-closed translation of runtime failures. The plugin reminder performs none of that dispatch or translation and needs no runtime deduplication check. Its silence depends on executable PATH presence, not whether init ran.
+
+**Evidence boundary:** The co-located tests exercise the actual script copied into disposable cache-shaped paths, parse JSON, verify stdin delivery/draining, and use command spies plus filesystem snapshots. They cover provider selection, bypass, executable PATH/managed states, non-executable files and paths containing spaces. These are isolated script checks, not verification of native loading, trust, context delivery, or execution of the actual packaged plugin.
 
 ### Comparison Table
 
@@ -173,7 +182,7 @@ A third entrypoint variant exists for the plugin distribution model. It lives at
 | Events              | All                             | All                              | SessionStart only               |
 | Invokes binary?     | Yes                             | Yes                              | No                              |
 | Dedup checks        | Claude flag / Codex receipt     | None (authoritative)             | None (no binary invocation)     |
-| Missing binary      | Exit 0 + install advisory (stderr) | Exit 0 + install advisory (stderr) | Exit 0 + JSON hookSpecificOutput |
+| Missing binary      | Exit 0 + install advisory (stderr) | Exit 0 + install advisory (stderr) | Exit 0 + JSON: top-level systemMessage and nested additionalContext |
 | Created by          | clooks init                     | clooks init --global             | Plugin install                  |
 | Purpose             | Event dispatch                  | Event dispatch (all projects)    | Bootstrap check                 |
 

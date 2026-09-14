@@ -10,6 +10,8 @@ Contrast with [clooks-core-hooks](../clooks-core-hooks/), which ships zero-confi
 
 Blocks JS/TS package managers, runners, and runtimes that aren't on your allowlist. Keeps the agent from mixing `npm`, `pnpm`, `yarn`, and `bun` in a project that has committed to one.
 
+Checks command heads in Claude and Codex shell tools, including quoted executable names, environment assignments and newline-separated commands. Quoted arguments and comments are inert; escaped newlines continue the same command. Pipe targets (including newline continuations) are always excluded, including from `additionalBlocked`. Executable paths and unknown tools are excluded from the known-tool check; `additionalBlocked` retains exact-name matching for explicitly configured entries. This is bounded lexical inspection, not shell evaluation; nested execution and heredocs are not inspected.
+
 **When to enable:** Any JS/TS project where the choice of package manager is a team decision captured in a lockfile.
 
 **Config options:**

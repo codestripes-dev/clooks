@@ -1,7 +1,6 @@
 // Using string concatenation to avoid template literal escaping issues with
 // bash $() command substitutions and ${} variable expansions.
 
-/** Shebang + strict mode, shared by both entrypoint variants. */
 const ENTRYPOINT_PREAMBLE = '#!/usr/bin/env bash\n' + 'set -euo pipefail\n'
 
 /** Type header identifying the script variant. Prevents silent misplacement. */
@@ -15,7 +14,6 @@ const GLOBAL_HEADER =
   '# clooks entrypoint: global\n' +
   '# Do not copy this file to a project — use `clooks init` instead.\n'
 
-/** SKIP_CLOOKS bypass check, shared by both entrypoint variants. */
 const SKIP_CLOOKS_CHECK =
   '\n' +
   '# Bypass: allow disabling all Clooks processing via environment variable.\n' +
@@ -76,7 +74,6 @@ const DEDUP_CHECK =
   '  exit 0\n' +
   'fi\n'
 
-/** Shared body: binary location, bootstrap detection, stdin capture, debug logging, delegation, fail-closed. */
 const ENTRYPOINT_BODY =
   '\n' +
   '# Locate the Clooks binary on PATH.\n' +
@@ -121,14 +118,11 @@ const ENTRYPOINT_BODY =
   'echo "[clooks] Binary exited with unexpected code $binary_exit. Blocking action (fail-closed)." >&2\n' +
   'exit 2\n'
 
-/** Bash entrypoint script content for project init, embedded as a template for `clooks init`. */
 export const ENTRYPOINT_SCRIPT =
   ENTRYPOINT_PREAMBLE + PROJECT_HEADER + SKIP_CLOOKS_CHECK + DEDUP_CHECK + ENTRYPOINT_BODY
 
 /**
- * Bash entrypoint script for global init (`clooks init --global`).
- * Identical to the project entrypoint but WITHOUT the dedup check —
- * it IS the global entrypoint and is the authoritative one.
+ * The global entrypoint must not suppress itself through the project's dedup check.
  */
 export const GLOBAL_ENTRYPOINT_SCRIPT =
   ENTRYPOINT_PREAMBLE + GLOBAL_HEADER + SKIP_CLOOKS_CHECK + ENTRYPOINT_BODY

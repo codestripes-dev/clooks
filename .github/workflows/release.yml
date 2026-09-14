@@ -77,10 +77,19 @@ jobs:
       - name: Lint
         run: bun run lint
 
-      - name: Unit tests
-        run: bun test src/
-        env:
-          CLAUDECODE: "1"
+      - name: Docker validation
+        run: bun run test:validation
+
+      - name: Upload validation diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: validation-diagnostics
+          path: |
+            tmp/isolated-e2e-workers/run-*/*.log
+            tmp/isolated-e2e-workers/run-*/report.json
+          retention-days: 7
+          if-no-files-found: ignore
 
       - name: Inject version
         if: github.event_name == 'push'

@@ -456,6 +456,198 @@ describe('hook.PreToolUse', () => {
 // Section 3: Edge case tests
 // =============================================================================
 
+describe('handler: Git global options', () => {
+  const cases = [
+    ['reset-hard', 'reset --hard', 'reset --soft HEAD~1'],
+    ['reset-merge', 'reset --merge', 'reset --mixed HEAD~1'],
+    ['checkout-discard', 'checkout -- file.ts', 'checkout main'],
+    ['restore-discard', 'restore file.ts', 'restore --staged file.ts'],
+    ['clean-force', 'clean -f', 'clean -nf'],
+    ['stash-drop', 'stash drop', 'stash push'],
+    ['worktree-force-remove', 'worktree remove --force path', 'worktree remove path'],
+    ['force-push', 'push --force', 'push --force-with-lease'],
+    ['commit-amend', 'commit --amend', 'commit -m "message"'],
+    ['push-delete', 'push --delete origin branch', 'push origin main'],
+    ['branch-force-delete', 'branch -D feature', 'branch -d feature'],
+    ['no-verify', 'commit --no-verify', 'commit -m "message"'],
+    ['broad-add', 'add .', 'add src/file.ts'],
+  ]
+  const prefixes = [
+    '-C repo', '-C "repo with spaces"', "-C 'repo with spaces'",
+    '-C ""', "-C ''", '-C repo\\ with\\ spaces',
+    '-C"" .', "-C'' .", '-""C .', '-c"" core.autocrlf=false',
+    '-c core.autocrlf=false', '-c "core.pager=git reset --hard"',
+    '-c core.bare', '--git-dir=repo/.git', '--git-dir repo/.git',
+    '--git-dir "repo with spaces/.git"', '--git-dir ""', '--work-tree=repo', '--work-tree repo',
+    '--work-tree="repo with spaces"', '--config-env=core.pager=PAGER',
+    '--config-env="core.pager=PAGER"', '--config-env core.pager=PATH',
+    '--config-env "core.pager=PATH"', '--namespace test', '--namespace=test',
+    '--exec-path=/usr/lib/git-core', '--attr-source=HEAD', '--attr-source HEAD',
+    '--attr-source "HEAD"', '--shallow-file repo/shallow', '--shallow-file "repo with spaces/shallow"',
+    '-C repo -C "" -C subdir -c core.autocrlf=false --no-pager',
+    '-C . --config-env core.pager=PATH --attr-source HEAD --shallow-file repo/shallow',
+    '--no-literal-pathspecs -C . --no-lazy-fetch --config-env core.pager=PATH --no-advice',
+    '-p', '--paginate', '-P', '--no-pager', '--bare', '--no-replace-objects',
+    '--literal-pathspecs', '--no-literal-pathspecs', '--glob-pathspecs', '--noglob-pathspecs',
+    '--icase-pathspecs', '--no-optional-locks', '--no-lazy-fetch', '--no-advice',
+  ]
+  const run = (command: string, config = DEFAULT_CONFIG) =>
+    hook.PreToolUse!(makeCtx(command), config)
+
+  for (const prefix of prefixes) {
+    test.each(cases)(`${prefix}: preserves %s block, safe alternative, config and escape`, (id, dangerous, safe) => {
+      const command = `git ${prefix} ${dangerous}`
+      const blocked = run(`git ${dangerous}`)
+      expect(blocked).toMatchObject({ result: 'block', reason: expect.stringContaining(`[${id}]`) })
+      expect(run(command)).toEqual(blocked)
+      expect(run(`git ${prefix} ${safe}`)).toEqual({ result: 'skip' })
+      expect(run(command, { ...DEFAULT_CONFIG, [id]: false })).toEqual({ result: 'skip' })
+      expect(run(`ALLOW_DESTRUCTIVE_GIT=true ${command}`)).toEqual(
+        id === 'broad-add' ? blocked : { result: 'skip' },
+      )
+    })
+  }
+
+  test.each([
+    ['checkout .', 'checkout-discard'], ['add -A', 'broad-add'], ['add --all', 'broad-add'],
+    ['stash clear', 'stash-drop'], ['push -f', 'force-push'],
+    ['push origin +main', 'force-push'], ['push --mirror', 'force-push'],
+    ['push origin :branch', 'push-delete'], ['clean --force', 'clean-force'],
+    ['restore --staged --worktree file.ts', 'restore-discard'],
+  ])('retains operation variant %s', (operation, id) => {
+    expect(run(`git -C "" ${operation}`)).toMatchObject({
+      result: 'block', reason: expect.stringContaining(`[${id}]`),
+    })
+  })
+
+  test.each([
+    'git -C --no-verify status', 'git -C --hard reset --soft',
+    'git -c core.pager=--no-verify status',
+    'git --git-dir=--no-verify status', 'git --work-tree --no-verify status',
+    'git -C "git reset --hard" status', 'git -C "" status',
+    'git -C repo clean --dry-run -f', 'git -C repo clean -if',
+    'git -C repo push --force-if-includes --force',
+    'git -C repo push --force-with-lease --force',
+    'echo "git -C repo reset --hard"', "echo 'git -C repo reset --hard'",
+    'echo hello # git -C repo reset --hard',
+    'git -C repo status # reset --hard', 'git -C repo status "--no-verify"',
+    'git -C', 'git -c', 'git --git-dir', 'git --work-tree',
+    'git -C "reset" --hard', 'git -c ""', 'git -C repo --unknown reset --hard',
+    'git -C "--no-verify" status', "git --work-tree '--force' push origin main",
+    'git -C repo -c', 'git -C repo --work-tree',
+    'git --config-env', 'git --attr-source', 'git --shallow-file',
+    'git -C . --config-env', 'git -C . --attr-source', 'git -C . --shallow-file',
+    'git --config-env ""', 'git --attr-source ""', 'git --shallow-file ""',
+    'git --config-env "core.pager=--no-verify" status',
+    'git --attr-source --no-verify status', 'git --shallow-file --no-verify status',
+    'git -C && echo reset --hard', 'git -C; echo reset --hard',
+    'git --git-dir | echo reset --hard', 'git --work-tree\necho reset --hard',
+    'git -c # git reset --hard',
+  ])('skips inert or incomplete input: %s', (command) => {
+    expect(run(command)).toEqual({ result: 'skip' })
+  })
+
+  test.each(['-Crepo', '-ccore.pager=cat', '-ccore.pager="git reset --hard"', '--shallow-file=repo/shallow'])(
+    'does not normalize invalid option %s', (option) => {
+      expect(run(`git ${option} reset --hard`)).toEqual({ result: 'skip' })
+      expect(run(`git -C . ${option} reset --hard`)).toEqual({ result: 'skip' })
+    },
+  )
+
+  test.each(['-C""', "-C''", '-c""'])(
+    'empty quote fragments in %s do not supply an operand', (option) => {
+      expect(run(`git ${option} reset --hard`)).toEqual({ result: 'skip' })
+      expect(run(`git -C . ${option} reset --hard`)).toEqual({ result: 'skip' })
+    },
+  )
+
+  test.each([
+    'git -C repo --future-option commit --no-verify',
+    'git --no-pager --future-option commit --no-verify',
+    'git -C "" --config-env core.pager=PATH --future-option commit --no-verify',
+    'git -C repo -Crepo commit --no-verify',
+    'git -C --no-verify --future-option status',
+  ])('unknown option retains legacy no-verify protection: %s', (command) => {
+    expect(run(command)).toEqual(run('git commit --no-verify'))
+    expect(run(command, { ...DEFAULT_CONFIG, 'no-verify': false })).toEqual({ result: 'skip' })
+    expect(run(`ALLOW_DESTRUCTIVE_GIT=true ${command}`)).toEqual({ result: 'skip' })
+  })
+
+  test.each(['&&', '||', ';', '|', '&', '\n'])(
+    'unknown-option fallback resumes across %s', (separator) => {
+      const unknown = 'git -C repo --future-option commit --no-verify'
+      const destructive = 'git -C "" reset --hard'
+      const config = { ...DEFAULT_CONFIG, 'no-verify': false }
+      expect(run(`${unknown} ${separator} ${destructive}`, config)).toEqual(run('git reset --hard'))
+      expect(run(`${destructive} ${separator} ${unknown}`, config)).toEqual(run('git reset --hard'))
+      expect(run(`git -C repo status ${separator} ${unknown}`)).toEqual(run('git commit --no-verify'))
+      expect(run(`ALLOW_DESTRUCTIVE_GIT=true ${unknown} ${separator} git -C repo add .`))
+        .toEqual(run('git add .'))
+    },
+  )
+
+  test.each(['--config-env core.pager=PATH', '--attr-source HEAD', '--shallow-file repo/shallow'])(
+    'separated operand regression: %s before no-verify', (option) => {
+      expect(run(`git -C . ${option} commit --no-verify`)).toEqual(run('git commit --no-verify'))
+    },
+  )
+
+  test.each([
+    '-h', '--help', '-v', '--version', '--exec-path', '--html-path',
+    '--man-path', '--info-path', '--list-cmds=builtins',
+  ])('skips non-executing global query %s', (query) => {
+    for (const prefix of ['', '-C "" --no-pager ']) {
+      expect(run(`git ${prefix}${query} reset --hard --no-verify`)).toEqual({ result: 'skip' })
+    }
+  })
+
+  test.each([
+    'git -C --dry-run clean -f', 'git -C --force-with-lease push --force',
+    'git -c core.pager=--staged restore file.ts',
+    'git --attr-source --force-with-lease push --force',
+    'git --shallow-file --dry-run clean -f',
+    'git --config-env core.pager=--staged restore file.ts',
+  ])('global operand cannot suppress operation flags: %s', (command) => {
+    expect(run(command)).toMatchObject({ result: 'block' })
+  })
+
+  test.each(['&&', '||', ';', '|', '&', '\n'])('stops at boundary %s', (separator) => {
+    for (const prefix of ['git -C', 'git -c', 'git --work-tree', 'git --git-dir',
+      'git --config-env', 'git --attr-source', 'git --shallow-file',
+      'git -C . --config-env', 'git -C . --attr-source', 'git -C . --shallow-file',
+      'git -C""', 'git --help reset']) {
+      expect(run(`${prefix} ${separator} git -C "" reset --hard`)).toEqual(run('git reset --hard'))
+    }
+    expect(run(`echo hello ${separator} git -C repo reset --hard`)).toEqual(run('git reset --hard'))
+    expect(run(`git -C repo reset --hard ${separator} echo done`)).toEqual(run('git reset --hard'))
+  })
+
+  test.each([
+    ['git -C repo rebase main', '\\bgit\\s+rebase\\b', false],
+    ['git -C repo rebase main', 'git -C repo rebase', true],
+    ['git -C "repo" rebase main', 'git -C  rebase', true],
+    ['git -C "git rebase" status', 'git rebase', false],
+    ['git -C repo status # git rebase', 'git rebase', false],
+    ['git --help rebase --no-verify', '--no-verify', true],
+    ['git -C repo status', '[invalid', false],
+  ])('custom patterns retain original sanitized input: %s / %s', (command, match, blocked) => {
+    const config = { ...DEFAULT_CONFIG, additionalRules: [{ match, message: 'custom policy' }] }
+    for (const prefix of ['', 'ALLOW_DESTRUCTIVE_GIT=true ']) {
+      expect(run(prefix + command, config)).toEqual(blocked ? {
+        result: 'block', reason: 'custom policy',
+        debugMessage: `no-destructive-git: blocked by additionalRule '${match}'`,
+      } : { result: 'skip' })
+    }
+  })
+
+  test('disabled built-in still checks custom patterns', () => {
+    expect(run('ALLOW_DESTRUCTIVE_GIT=true git -C repo add .', {
+      ...DEFAULT_CONFIG, 'broad-add': false,
+      additionalRules: [{ match: 'git -C repo add', message: 'custom policy' }],
+    })).toMatchObject({ result: 'block', reason: 'custom policy' })
+  })
+})
+
 describe('edge cases', () => {
   test('commands in compound statements: cd /repo && git reset --hard', () => {
     const result = hook.PreToolUse!(

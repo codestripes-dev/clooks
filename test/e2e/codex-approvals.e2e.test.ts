@@ -57,7 +57,6 @@ function envelope(result: RunResult, ok = true) {
 function fixture() {
   sandbox = createSandbox()
   // Test-only hook calls the private store through the compiled engine and config loader.
-  // It does not enable runtime ctx.ask resolution or add a production issuance command.
   sandbox.writeHook(
     'approval-fixture.ts',
     `

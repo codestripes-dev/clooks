@@ -1,4 +1,4 @@
-function ScopedConfigSection({ accent }) {
+function ScopedConfigSection({ accent, content }) {
   const vp = useViewport();
   const stack = vp.isMobile || vp.isTablet;
   const mono = { fontFamily: 'JetBrains Mono, monospace' };
@@ -121,17 +121,15 @@ function ScopedConfigSection({ accent }) {
   return (
     <section id="scoped-config" className="section">
       <div style={{ maxWidth: 1120, margin: '0 auto' }}>
-        <SectionLabel accent={accent}>Scoped config</SectionLabel>
+        <SectionLabel accent={accent}>{content.label}</SectionLabel>
         <h2 style={{
           fontSize: 'clamp(32px, 3.6vw, 46px)', lineHeight: 1.1,
           letterSpacing: -1, fontWeight: 500, margin: '0 0 16px', maxWidth: 820,
         }}>
-          Three files merge top-down.<br/>
-          <span style={{ color: COL.fgMute }}>Last write wins.</span>
+          <Copy text={content.title} heading/>
         </h2>
         <p style={{ fontSize: 15, color: COL.fgMute, maxWidth: 680, margin: '0 0 32px', lineHeight: 1.6 }}>
-          Each layer adds its own hooks and can override the ones beneath. Personal defaults in home,
-          team rules in the repo, and a gitignored local file for the exceptions only you need.
+          <Copy text={content.intro}/>
         </p>
 
         <div style={{

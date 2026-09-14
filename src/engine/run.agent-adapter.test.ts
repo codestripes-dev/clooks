@@ -956,6 +956,44 @@ describe('runEngineCore Claude adapter boundary', () => {
     expect(output.systemMessage).toContain('disallowed')
   })
 
+  test.each(['no vendor', 'unknown vendor', 'enabled Claude'])(
+    'Claude advisory skips Codex discovery with %s',
+    async (scenario) => {
+      const root = mkdtempSync(join(tmpdir(), 'clooks-lazy-advisory-'))
+      tempDirs.push(root)
+      const projectRoot = join(root, 'project')
+      const homeRoot = join(root, 'home')
+      mkdirSync(join(projectRoot, '.clooks'), { recursive: true })
+      mkdirSync(homeRoot)
+      writeFileSync(
+        join(projectRoot, '.clooks/clooks.yml'),
+        'version: "1.0.0"\n' +
+          (scenario === 'no vendor'
+            ? ''
+            : 'foo-hook:\n  uses: ./.clooks/vendor/plugin/foo/foo-hook.ts\n'),
+      )
+      if (scenario === 'enabled Claude') {
+        mkdirSync(join(projectRoot, '.claude'))
+        writeJson(join(projectRoot, '.claude/settings.json'), {
+          enabledPlugins: { 'foo@mp': true },
+        })
+      }
+      const deps: RunEngineDeps = makeProjectDeps(
+        { hook_event_name: 'SessionStart' },
+        { projectRoot, homeRoot },
+      )
+      let discoveries = 0
+      deps.discoverCodexPluginPacks = () => {
+        discoveries++
+        throw new Error('unexpected Codex IO')
+      }
+      const result = await runCoreWithExitTrap(deps)
+      expect(result.code).toBe(0)
+      expect(result.stdout).toBe('')
+      expect(discoveries).toBe(0)
+    },
+  )
+
   test('routes stale-registration advisory through Claude final output on SessionStart', async () => {
     const root = mkdtempSync(join(tmpdir(), 'clooks-stale-registration-'))
     tempDirs.push(root)
@@ -990,6 +1028,50 @@ describe('runEngineCore Claude adapter boundary', () => {
     expect(output.systemMessage).toContain('foo-hook')
     expect(output.systemMessage).toContain('foo@mp')
     expect(output.systemMessage).toContain('not enabled at project scope in Claude settings')
+
+    const originalCodexHome = process.env.CODEX_HOME
+    const originalSilencer = process.env.CLOOKS_SILENCE_STALE_PLUGIN_ADVISORIES
+    const codexHome = join(homeRoot, 'custom-codex')
+    try {
+      process.env.CODEX_HOME = codexHome
+      const deps: RunEngineDeps = makeProjectDeps(
+        { hook_event_name: 'SessionStart' },
+        { projectRoot, homeRoot },
+      )
+      let discoveries = 0
+      deps.discoverCodexPluginPacks = (options) => {
+        discoveries++
+        expect(options).toEqual({ projectRoot, homeRoot, codexHome })
+        return [
+          {
+            pluginName: 'foo@codex',
+            scope: 'project',
+            installPath,
+            manifest: {
+              version: 1,
+              name: 'foo',
+              hooks: { 'foo-hook': { path: 'hooks/foo-hook.ts', description: 'Foo' } },
+            },
+          },
+        ]
+      }
+      const suppressed = await runCoreWithExitTrap(deps)
+      expect(suppressed.code).toBe(0)
+      expect(suppressed.stdout).toBe('')
+      expect(discoveries).toBe(1)
+      deps.readStdin = async () => ({ hook_event_name: 'PreToolUse' })
+      await runCoreWithExitTrap(deps)
+      expect(discoveries).toBe(1)
+      deps.readStdin = async () => ({ hook_event_name: 'SessionStart' })
+      process.env.CLOOKS_SILENCE_STALE_PLUGIN_ADVISORIES = 'true'
+      await runCoreWithExitTrap(deps)
+      expect(discoveries).toBe(1)
+    } finally {
+      if (originalCodexHome === undefined) delete process.env.CODEX_HOME
+      else process.env.CODEX_HOME = originalCodexHome
+      if (originalSilencer === undefined) delete process.env.CLOOKS_SILENCE_STALE_PLUGIN_ADVISORIES
+      else process.env.CLOOKS_SILENCE_STALE_PLUGIN_ADVISORIES = originalSilencer
+    }
   })
 
   test('routes enable-without-install advisory through Claude final output on SessionStart', async () => {
@@ -1064,6 +1146,55 @@ describe('runEngineCore Claude adapter boundary', () => {
 })
 
 describe('runEngineCore Codex plugin isolation', () => {
+  test('Codex discovery runs after valid input and before hook loading, never through Claude DI', async () => {
+    const calls: string[] = []
+    const raw = {
+      hook_event_name: 'SessionStart',
+      session_id: 'pack-order',
+      cwd: '/project',
+      model: 'model',
+      permission_mode: 'default',
+      transcript_path: null,
+      source: 'startup',
+    }
+    const deps = makeDeps(raw)
+    deps.readStdin = async () => {
+      calls.push('stdin')
+      return raw
+    }
+    deps.discoverPluginPacks = () => {
+      throw new Error('Claude discovery must not run')
+    }
+    deps.discoverCodexPluginPacks = (options) => {
+      calls.push('discover')
+      expect(options.homeRoot).toBe(process.env.CLOOKS_HOME_ROOT!)
+      expect(options.projectRoot).toBe('/tmp/clooks-test-project')
+      return []
+    }
+    deps.vendorAndRegisterPack = async () => {
+      throw new Error('No packs to vendor')
+    }
+    deps.loadAllHooks = async () => {
+      calls.push('load')
+      return { loaded: [], loadErrors: [], dangling: [] }
+    }
+    expect((await runCoreWithExitTrap(deps, codexAdapter)).code).toBe(0)
+    expect(calls).toEqual(['stdin', 'discover', 'load'])
+    calls.length = 0
+    deps.readStdin = async () => {
+      calls.push('stdin')
+      return { hook_event_name: 'SessionStart' }
+    }
+    expect((await runCoreWithExitTrap(deps, codexAdapter)).stdout).toContain(
+      'hooks were not imported or executed',
+    )
+    expect(calls).toEqual(['stdin'])
+    calls.length = 0
+    deps.loadConfig = async () => null
+    expect((await runCoreWithExitTrap(deps, codexAdapter)).code).toBe(0)
+    expect(calls).toEqual([])
+  })
+
   test.each([false, true])(
     'invalid configured input preserves existing counters when config fails=%s',
     async (configFails) => {

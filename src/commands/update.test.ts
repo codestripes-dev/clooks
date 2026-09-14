@@ -1,9 +1,19 @@
-import { describe, test, expect, beforeEach, afterEach, spyOn } from 'bun:test'
+import { describe, test, expect, beforeEach, afterEach, spyOn, mock } from 'bun:test'
 import { Command } from 'commander'
 import * as platform from '../platform.js'
 import * as discovery from '../plugin-discovery.js'
+import * as codexDiscovery from '../agents/codex/plugin-discovery.js'
 import * as output from '../tui/output.js'
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'fs'
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+  rmSync,
+  existsSync,
+  symlinkSync,
+  chmodSync,
+} from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import { createUpdateCommand, updatePluginPack } from './update.js'
@@ -97,13 +107,84 @@ describe('clooks update command', () => {
   function run(target = 'plugin:test-pack', json = false, findRoot = async () => root) {
     return new Command()
       .option('--json')
-      .addCommand(createUpdateCommand(findRoot))
+      .addCommand(
+        createUpdateCommand(findRoot, { discoverPluginPacks: discovery.discoverPluginPacks }),
+      )
       .parseAsync([...(json ? ['--json'] : []), 'update', target], { from: 'user' })
   }
 
   function envelopes() {
     return stdoutSpy.mock.calls.map((call: unknown[]) => JSON.parse(String(call[0])))
   }
+
+  test('CLI defaults discover both providers and use the explicit disposable Codex home', async () => {
+    const originalCodexHome = process.env.CODEX_HOME
+    const originalAgent = process.env.CLOOKS_AGENT
+    const codexHome = join(home, 'selected-codex')
+    const codexCache = join(codexHome, 'plugins/cache/marketplace/test-pack/1.0.0')
+    mkdirSync(codexCache, { recursive: true })
+    writeFileSync(
+      join(codexHome, 'config.toml'),
+      '[plugins."test-pack@marketplace"]\nenabled = true\n',
+    )
+    writeFileSync(join(codexCache, 'clooks-pack.json'), JSON.stringify(makeManifest()))
+    writeValidHook(codexCache, 'hooks/test-hook.ts', 'test-hook')
+    writeValidHook(cache, 'hooks/test-hook.ts', 'test-hook')
+    writeFileSync(
+      join(cache, 'hooks/test-hook.ts'),
+      '// Different Claude source\n' + readFileSync(join(cache, 'hooks/test-hook.ts'), 'utf8'),
+    )
+    packs = [makePack({ installPath: cache, scope: 'user' })]
+    const vendor = join(home, '.clooks/vendor/plugin/test-pack/test-hook.ts')
+    mkdirSync(join(vendor, '..'), { recursive: true })
+    writeFileSync(vendor, 'retained vendor bytes')
+    const config = join(home, '.clooks/clooks.yml')
+    const configBytes =
+      'version: "1.0.0"\ntest-hook:\n  uses: ./.clooks/vendor/plugin/test-pack/test-hook.ts\n  enabled: false\n'
+    writeFileSync(config, configBytes)
+    const runDefaults = () =>
+      new Command()
+        .option('--json')
+        .addCommand(createUpdateCommand(async () => root))
+        .parseAsync(['--json', 'update', 'plugin:test-pack'], { from: 'user' })
+    try {
+      process.env.CODEX_HOME = codexHome
+      process.env.CLOOKS_AGENT = 'claude-code'
+      await expect(runDefaults()).rejects.toThrow('process.exit called')
+      expect(envelopes()[0].error).toContain('Ambiguous')
+      expect(envelopes()[0].error).toContain('claude-code:test-pack@marketplace')
+      expect(envelopes()[0].error).toContain('codex:test-pack@marketplace')
+      expect(discoverSpy).toHaveBeenCalledWith({ homeRoot: home, projectRoot: root })
+      expect(readFileSync(vendor, 'utf8')).toBe('retained vendor bytes')
+      expect(readFileSync(config, 'utf8')).toBe(configBytes)
+
+      packs = []
+      stdoutSpy.mockClear()
+      exitSpy.mockClear()
+      await runDefaults()
+      expect(exitSpy).not.toHaveBeenCalled()
+      expect(envelopes()).toEqual([
+        {
+          ok: true,
+          command: 'update',
+          data: {
+            updated: ['test-hook'],
+            registered: [],
+            skipped: [],
+            errors: [],
+          },
+        },
+      ])
+      expect(readFileSync(vendor)).toEqual(readFileSync(join(codexCache, 'hooks/test-hook.ts')))
+      expect(readFileSync(config, 'utf8')).toBe(configBytes)
+      expect(existsSync(join(root, '.clooks'))).toBe(false)
+    } finally {
+      if (originalCodexHome === undefined) delete process.env.CODEX_HOME
+      else process.env.CODEX_HOME = originalCodexHome
+      if (originalAgent === undefined) delete process.env.CLOOKS_AGENT
+      else process.env.CLOOKS_AGENT = originalAgent
+    }
+  })
 
   for (const json of [false, true]) {
     test.each([
@@ -135,7 +216,7 @@ describe('clooks update command', () => {
       expect(exitSpy).toHaveBeenCalledWith(1)
     })
 
-    test(`reports updates, registrations, collisions and partial errors; json=${json}`, async () => {
+    test(`reports updates, registrations, collisions and invalid-hook errors; json=${json}`, async () => {
       const hooks = Object.fromEntries(
         ['existing', 'fresh', 'collision', 'missing'].map((name) => [
           name,
@@ -145,6 +226,7 @@ describe('clooks update command', () => {
       packs = [makePack({ installPath: cache, manifest: makeManifest({ hooks }) })]
       for (const name of ['existing', 'fresh', 'collision'])
         writeValidHook(cache, `${name}.ts`, name)
+      writeFileSync(join(cache, 'missing.ts'), 'export const invalid = true')
       const vendor = join(root, '.clooks/vendor/plugin/test-pack')
       mkdirSync(vendor, { recursive: true })
       writeFileSync(join(vendor, 'existing.ts'), 'old bytes')
@@ -165,7 +247,7 @@ describe('clooks update command', () => {
           data: { updated: ['existing'], registered: ['fresh'], skipped: ['collision'] },
         })
         expect(envelopes()[0].data.errors).toHaveLength(1)
-        expect(envelopes()[0].data.errors[0]).toContain('missing: copy failed')
+        expect(envelopes()[0].data.errors[0]).toContain('missing: validation failed')
       } else {
         expect(output.printSuccess).toHaveBeenCalledWith(
           { json: false },
@@ -182,7 +264,7 @@ describe('clooks update command', () => {
         expect(output.printError).toHaveBeenCalledWith(
           { json: false },
           'update',
-          expect.stringContaining('missing: copy failed'),
+          expect.stringContaining('missing: validation failed'),
         )
         expect(output.printOutro).toHaveBeenCalledWith({ json: false }, 'Done.')
       }
@@ -242,6 +324,415 @@ describe('updatePluginPack', () => {
   afterEach(() => {
     rmSync(tempDir, { recursive: true, force: true })
   })
+
+  function candidate(key: string, scope: DiscoveredPack['scope'] = 'project', code?: string) {
+    const path = join(tempDir, key)
+    writeValidHook(path, 'hooks/test-hook.ts', 'test-hook')
+    if (code !== undefined) writeFileSync(join(path, 'hooks/test-hook.ts'), code)
+    return makePack({ pluginName: key, scope, installPath: path })
+  }
+  function seedExisting(root = projectRoot) {
+    const vendor = join(root, '.clooks/vendor/plugin/test-pack/test-hook.ts')
+    mkdirSync(join(vendor, '..'), { recursive: true })
+    writeFileSync(vendor, 'user-edited bytes')
+    const config = join(root, '.clooks/clooks.yml')
+    writeFileSync(
+      config,
+      'version: "1.0.0"\n# retained\ntest-hook:\n  uses: ./.clooks/vendor/plugin/test-pack/test-hook.ts\n  enabled: false\n',
+    )
+    return { vendor, config, configBytes: readFileSync(config, 'utf8') }
+  }
+
+  test('legacy fourth-argument DI never reaches default Codex discovery', async () => {
+    const codex = spyOn(codexDiscovery, 'discoverCodexPluginPacks').mockImplementation(() => {
+      throw new Error('must not run')
+    })
+    try {
+      const pack = candidate('claude@mp')
+      const result = await updatePluginPack('test-pack', projectRoot, homeRoot, () => [pack])
+      expect(result.errors).toEqual([])
+      expect(result.registered).toEqual(['test-hook'])
+      expect(codex).not.toHaveBeenCalled()
+    } finally {
+      codex.mockRestore()
+    }
+  })
+
+  for (const agent of [undefined, 'claude-code', 'codex'] as const) {
+    test(`provider filtering before discovery; selected=${agent}`, async () => {
+      const claudePack = candidate('claude@mp')
+      const codexPack = candidate('codex@mp')
+      const claude = mock(() => [claudePack])
+      const codex = mock(() => [codexPack])
+      const result = await updatePluginPack('test-pack', projectRoot, homeRoot, {
+        agent,
+        codexHome: join(homeRoot, 'selected-codex'),
+        discoverPluginPacks: claude,
+        discoverCodexPluginPacks: codex,
+      })
+      expect(result.errors).toEqual([])
+      expect(result.registered).toEqual(['test-hook'])
+      if (agent === 'codex') expect(claude).not.toHaveBeenCalled()
+      else expect(claude).toHaveBeenCalledWith({ homeRoot, projectRoot })
+      if (agent === 'claude-code') expect(codex).not.toHaveBeenCalled()
+      else
+        expect(codex).toHaveBeenCalledWith({
+          homeRoot,
+          projectRoot,
+          codexHome: join(homeRoot, 'selected-codex'),
+        })
+    })
+  }
+
+  test('equivalent reordered manifests and bytes update once and leave existing config unchanged', async () => {
+    const a = candidate('claude@mp')
+    const b = candidate('codex@mp')
+    b.manifest = {
+      hooks: { 'test-hook': { description: 'A test hook', path: 'hooks/test-hook.ts' } },
+      name: 'test-pack',
+      version: 1,
+    }
+    const before = seedExisting()
+    const result = await updatePluginPack('test-pack', projectRoot, homeRoot, {
+      discoverPluginPacks: () => [a, a],
+      discoverCodexPluginPacks: () => [b],
+    })
+    expect(result).toEqual({ updated: ['test-hook'], registered: [], skipped: [], errors: [] })
+    expect(readFileSync(before.vendor)).toEqual(
+      readFileSync(join(a.installPath, 'hooks/test-hook.ts')),
+    )
+    expect(readFileSync(before.config, 'utf8')).toBe(before.configBytes)
+  })
+
+  for (const difference of ['bytes', 'description', 'array-order', 'autoEnable']) {
+    test(`${difference} disagreement causes zero writes across ALL destinations`, async () => {
+      const user = candidate('user@mp', 'user')
+      const sentinel = join(tempDir, 'premature-import')
+      const userSource = join(user.installPath, 'hooks/test-hook.ts')
+      writeFileSync(
+        userSource,
+        `import { writeFileSync } from 'fs'\nwriteFileSync(${JSON.stringify(sentinel)}, 'imported')\n` +
+          readFileSync(userSource, 'utf8'),
+      )
+      const a = candidate('claude@mp')
+      const b = candidate('codex@mp')
+      if (difference === 'bytes')
+        writeFileSync(join(b.installPath, 'hooks/test-hook.ts'), 'different bytes')
+      if (difference === 'description') b.manifest.description = 'different'
+      if (difference === 'autoEnable') b.manifest.hooks['test-hook']!.autoEnable = false
+      if (difference === 'array-order') {
+        a.manifest.hooks['test-hook']!.tags = ['a', 'b']
+        b.manifest.hooks['test-hook']!.tags = ['b', 'a']
+      }
+      const home = seedExisting(homeRoot)
+      const project = seedExisting()
+      const result = await updatePluginPack('test-pack', projectRoot, homeRoot, {
+        discoverPluginPacks: () => [user, a],
+        discoverCodexPluginPacks: () => [b],
+      })
+      expect(result).toMatchObject({ updated: [], registered: [], skipped: [] })
+      expect(result.errors.join(' ')).toContain('Ambiguous')
+      expect(result.errors.join(' ')).toContain('claude-code:claude@mp')
+      expect(result.errors.join(' ')).toContain('codex:codex@mp')
+      for (const before of [home, project]) {
+        expect(readFileSync(before.vendor, 'utf8')).toBe('user-edited bytes')
+        expect(readFileSync(before.config, 'utf8')).toBe(before.configBytes)
+      }
+      expect(existsSync(sentinel)).toBe(false)
+      rmSync(home.vendor)
+      writeFileSync(home.config, 'version: "1.0.0"\n')
+      const control = await updatePluginPack('test-pack', projectRoot, homeRoot, () => [user])
+      expect(control.errors).toEqual([])
+      expect(readFileSync(sentinel, 'utf8')).toBe('imported')
+    })
+  }
+
+  for (const agent of ['claude-code', 'codex'] as const) {
+    test(`same-provider ambiguity remains after --agent ${agent}`, async () => {
+      const a = candidate('pack@market-a')
+      const b = candidate('pack@market-b', 'local', 'different bytes')
+      const result = await updatePluginPack('test-pack', projectRoot, homeRoot, {
+        agent,
+        discoverPluginPacks: () => [a, b],
+        discoverCodexPluginPacks: () => [a, b],
+      })
+      expect(result.errors.join(' ')).toContain(`${agent}:pack@market-a`)
+      expect(result.errors.join(' ')).toContain(`${agent}:pack@market-b`)
+      expect(result.errors.join(' ')).toContain('--agent cannot distinguish')
+      expect(existsSync(join(projectRoot, '.clooks'))).toBe(false)
+    })
+  }
+
+  test('equivalent project/local sources copy once but register both config destinations', async () => {
+    const a = candidate('pack@a')
+    const b = candidate('pack@b', 'local')
+    for (const pack of [a, b]) pack.manifest.hooks['test-hook']!.autoEnable = false
+    const result = await updatePluginPack('test-pack', projectRoot, homeRoot, {
+      discoverPluginPacks: () => [a, b],
+      discoverCodexPluginPacks: () => [{ ...a, pluginName: 'pack@codex' }],
+    })
+    expect(result).toEqual({
+      updated: [],
+      registered: ['test-hook', 'test-hook'],
+      skipped: [],
+      errors: [],
+    })
+    for (const file of ['clooks.yml', 'clooks.local.yml']) {
+      expect(readFileSync(join(projectRoot, '.clooks', file), 'utf8')).toContain(
+        'test-hook:\n  uses: ./.clooks/vendor/plugin/test-pack/test-hook.ts\n  enabled: false',
+      )
+    }
+  })
+
+  test('user/project are separate conflict domains even when bytes differ', async () => {
+    const a = candidate('pack@a', 'user')
+    const b = candidate('pack@b', 'project')
+    writeValidHook(b.installPath, 'hooks/test-hook.ts', 'different-meta')
+    const result = await updatePluginPack('test-pack', projectRoot, homeRoot, {
+      discoverPluginPacks: () => [a],
+      discoverCodexPluginPacks: () => [b],
+    })
+    expect(result.errors).toEqual([])
+    expect(result.registered).toEqual(['test-hook', 'test-hook'])
+    expect(readFileSync(join(homeRoot, '.clooks/vendor/plugin/test-pack/test-hook.ts'))).toEqual(
+      readFileSync(join(a.installPath, 'hooks/test-hook.ts')),
+    )
+    expect(readFileSync(join(projectRoot, '.clooks/vendor/plugin/test-pack/test-hook.ts'))).toEqual(
+      readFileSync(join(b.installPath, 'hooks/test-hook.ts')),
+    )
+  })
+
+  test('missing source in the LAST candidate prevents all earlier writes', async () => {
+    const a = candidate('first@mp', 'user')
+    const b = candidate('last@mp')
+    rmSync(join(b.installPath, 'hooks/test-hook.ts'))
+    const before = seedExisting(homeRoot)
+    const result = await updatePluginPack('test-pack', projectRoot, homeRoot, {
+      discoverPluginPacks: () => [a],
+      discoverCodexPluginPacks: () => [b],
+    })
+    expect(result.errors.join(' ')).toContain('codex:last@mp test-hook: source preflight failed')
+    expect(result.updated).toEqual([])
+    expect(readFileSync(before.vendor, 'utf8')).toBe('user-edited bytes')
+    expect(readFileSync(before.config, 'utf8')).toBe(before.configBytes)
+    expect(existsSync(join(projectRoot, '.clooks'))).toBe(false)
+  })
+
+  test.each(['./custom.ts', '.clooks/vendor/plugin/test-pack/test-hook.ts'])(
+    'structured collision check preserves a distinct runtime reference: %s',
+    async (uses) => {
+      const a = candidate('pack@mp')
+      mkdirSync(join(projectRoot, '.clooks'))
+      const config = `version: "1.0.0"\n"test-hook": { uses: ${uses} }\n`
+      writeFileSync(join(projectRoot, '.clooks/clooks.yml'), config)
+      const result = await updatePluginPack('test-pack', projectRoot, homeRoot, () => [a])
+      expect(result).toEqual({ updated: [], registered: [], skipped: ['test-hook'], errors: [] })
+      expect(existsSync(join(projectRoot, '.clooks/vendor'))).toBe(false)
+      expect(readFileSync(join(projectRoot, '.clooks/clooks.yml'), 'utf8')).toBe(config)
+    },
+  )
+
+  for (const scope of ['user', 'project', 'local'] as const) {
+    test(`restores a missing own-registered ${scope} file without rewriting YAML`, async () => {
+      const pack = candidate('pack@mp', scope)
+      const root = scope === 'user' ? homeRoot : projectRoot
+      const before = seedExisting(root)
+      rmSync(before.vendor)
+      const config = join(root, '.clooks', scope === 'local' ? 'clooks.local.yml' : 'clooks.yml')
+      writeFileSync(config, before.configBytes)
+      const result = await updatePluginPack('test-pack', projectRoot, homeRoot, () => [pack])
+      expect(result).toEqual({ updated: ['test-hook'], registered: [], skipped: [], errors: [] })
+      expect(readFileSync(before.vendor)).toEqual(
+        readFileSync(join(pack.installPath, 'hooks/test-hook.ts')),
+      )
+      expect(readFileSync(config, 'utf8')).toBe(before.configBytes)
+    })
+  }
+
+  test('restoration follows a vendor alias while a distinct local custom registration remains untouched', async () => {
+    const pack = candidate('pack@mp')
+    const before = seedExisting()
+    rmSync(before.vendor)
+    symlinkSync(
+      join(projectRoot, '.clooks/vendor/plugin/test-pack'),
+      join(projectRoot, 'vendor-alias'),
+    )
+    const config = before.configBytes.replace(
+      './.clooks/vendor/plugin/test-pack/test-hook.ts',
+      './vendor-alias/test-hook.ts',
+    )
+    writeFileSync(before.config, config)
+    const custom = 'version: "1.0.0"\ntest-hook: { uses: ./custom.ts }\n'
+    writeFileSync(join(projectRoot, '.clooks/clooks.local.yml'), custom)
+    const result = await updatePluginPack('test-pack', projectRoot, homeRoot, () => [
+      pack,
+      { ...pack, scope: 'local' },
+    ])
+    expect(result).toEqual({
+      updated: ['test-hook'],
+      registered: [],
+      skipped: ['test-hook'],
+      errors: [],
+    })
+    expect(readFileSync(before.vendor)).toEqual(
+      readFileSync(join(pack.installPath, 'hooks/test-hook.ts')),
+    )
+    expect(readFileSync(before.config, 'utf8')).toBe(config)
+    expect(readFileSync(join(projectRoot, '.clooks/clooks.local.yml'), 'utf8')).toBe(custom)
+  })
+
+  test('restoration validates the recreated file and removes invalid bytes without changing registration', async () => {
+    const pack = candidate('pack@mp', 'project', 'export const invalid = true')
+    const before = seedExisting()
+    rmSync(before.vendor)
+    const result = await updatePluginPack('test-pack', projectRoot, homeRoot, () => [pack])
+    expect(result).toMatchObject({ updated: [], registered: [], skipped: [] })
+    expect(result.errors).toHaveLength(1)
+    expect(result.errors[0]).toContain('validation failed')
+    expect(existsSync(before.vendor)).toBe(false)
+    expect(readFileSync(before.config, 'utf8')).toBe(before.configBytes)
+  })
+
+  test('own-registration repair cannot bypass missing-source preflight', async () => {
+    const pack = candidate('pack@mp')
+    const before = seedExisting()
+    rmSync(before.vendor)
+    rmSync(join(pack.installPath, 'hooks/test-hook.ts'))
+    const result = await updatePluginPack('test-pack', projectRoot, homeRoot, () => [pack])
+    expect(result.errors[0]).toContain('source preflight failed')
+    expect(result.updated).toEqual([])
+    expect(existsSync(before.vendor)).toBe(false)
+    expect(readFileSync(before.config, 'utf8')).toBe(before.configBytes)
+  })
+
+  for (const kind of ['vendor', 'config'] as const) {
+    test(`${kind} destination errors identify the update path, not CODEX_HOME`, async () => {
+      const pack = candidate('pack@mp')
+      const before = seedExisting(homeRoot)
+      const invalidDirectory = join(tempDir, 'invalid\npath')
+      mkdirSync(invalidDirectory)
+      let selectedProject = projectRoot
+      if (kind === 'config') selectedProject = invalidDirectory
+      else {
+        mkdirSync(join(projectRoot, '.clooks'))
+        symlinkSync(invalidDirectory, join(projectRoot, '.clooks/vendor'))
+      }
+      const result = await updatePluginPack('test-pack', selectedProject, homeRoot, () => [
+        { ...pack, scope: 'user' },
+        pack,
+      ])
+      expect(result.errors).toHaveLength(1)
+      expect(result.errors[0]).toContain(`Cannot resolve ${kind} destination`)
+      expect(result.errors[0]).toContain(
+        kind === 'config' ? 'clooks.yml' : 'vendor/plugin/test-pack',
+      )
+      expect(result.errors[0]).not.toContain('CODEX_HOME')
+      expect(result.updated).toEqual([])
+      expect(readFileSync(before.vendor, 'utf8')).toBe('user-edited bytes')
+      expect(readFileSync(before.config, 'utf8')).toBe(before.configBytes)
+    })
+  }
+
+  test('existing destination write errors are reported after successful source preflight', async () => {
+    const a = candidate('pack@mp')
+    mkdirSync(join(projectRoot, '.clooks/vendor/plugin/test-pack/test-hook.ts'), {
+      recursive: true,
+    })
+    const result = await updatePluginPack('test-pack', projectRoot, homeRoot, () => [a])
+    expect(result.errors.join(' ')).toContain('copy failed')
+    expect(result.updated).toEqual([])
+  })
+
+  for (const alias of ['root', 'vendor', 'missing-prefix']) {
+    test(`${alias} alias destinations share one zero-write conflict domain`, async () => {
+      const a = candidate('pack@claude', 'user')
+      const b = candidate('pack@codex', 'project', 'different bytes')
+      const before = seedExisting(homeRoot)
+      let selectedProject = projectRoot
+      if (alias === 'root') {
+        selectedProject = join(tempDir, 'home-alias')
+        symlinkSync(homeRoot, selectedProject)
+      } else if (alias === 'vendor') {
+        mkdirSync(join(projectRoot, '.clooks/vendor/plugin'), { recursive: true })
+        symlinkSync(
+          join(homeRoot, '.clooks/vendor/plugin/test-pack'),
+          join(projectRoot, '.clooks/vendor/plugin/test-pack'),
+        )
+      } else {
+        rmSync(join(homeRoot, '.clooks/vendor'), { recursive: true })
+        symlinkSync(join(homeRoot, '.clooks'), join(projectRoot, '.clooks'))
+      }
+      const result = await updatePluginPack('test-pack', selectedProject, homeRoot, {
+        discoverPluginPacks: () => [a],
+        discoverCodexPluginPacks: () => [b],
+      })
+      expect(result.errors.join(' ')).toContain('Ambiguous')
+      expect(result.updated).toEqual([])
+      expect(result.registered).toEqual([])
+      expect(readFileSync(before.config, 'utf8')).toBe(before.configBytes)
+      if (alias === 'missing-prefix')
+        expect(existsSync(join(homeRoot, '.clooks/vendor'))).toBe(false)
+      else expect(readFileSync(before.vendor, 'utf8')).toBe('user-edited bytes')
+    })
+  }
+
+  test('equivalent aliased roots coalesce config registration as well as vendor writes', async () => {
+    const a = candidate('pack@claude', 'user')
+    const b = candidate('pack@codex', 'project')
+    const alias = join(tempDir, 'home-alias')
+    symlinkSync(homeRoot, alias)
+    const result = await updatePluginPack('test-pack', alias, homeRoot, {
+      discoverPluginPacks: () => [a],
+      discoverCodexPluginPacks: () => [b],
+    })
+    expect(result).toEqual({ updated: [], registered: ['test-hook'], skipped: [], errors: [] })
+  })
+
+  test('registration write failure is reported without claiming a registration', async () => {
+    const a = candidate('pack@mp')
+    mkdirSync(join(projectRoot, '.clooks'))
+    const path = join(projectRoot, '.clooks/clooks.yml')
+    writeFileSync(path, 'version: "1.0.0"\n')
+    chmodSync(path, 0o400)
+    try {
+      const result = await updatePluginPack('test-pack', projectRoot, homeRoot, () => [a])
+      expect(result.errors.join(' ')).toContain('registration failed')
+      expect(result.registered).toEqual([])
+      expect(readFileSync(path, 'utf8')).toBe('version: "1.0.0"\n')
+    } finally {
+      chmodSync(path, 0o600)
+    }
+  })
+
+  test('destination resolution failure ends preflight before other destinations change', async () => {
+    const a = candidate('pack@a', 'user')
+    const b = candidate('pack@b')
+    const before = seedExisting(homeRoot)
+    writeFileSync(join(projectRoot, '.clooks'), 'not a directory')
+    const result = await updatePluginPack('test-pack', projectRoot, homeRoot, {
+      discoverPluginPacks: () => [a],
+      discoverCodexPluginPacks: () => [b],
+    })
+    expect(result.errors.join(' ')).toContain('destination preflight failed')
+    expect(result.updated).toEqual([])
+    expect(readFileSync(before.vendor, 'utf8')).toBe('user-edited bytes')
+    expect(readFileSync(before.config, 'utf8')).toBe(before.configBytes)
+  })
+
+  for (const yaml of ['[]', 'invalid: [', '']) {
+    test(`new-hook registration config parsing: ${JSON.stringify(yaml)}`, async () => {
+      const a = candidate('pack@mp')
+      mkdirSync(join(projectRoot, '.clooks'))
+      writeFileSync(join(projectRoot, '.clooks/clooks.yml'), yaml)
+      const result = await updatePluginPack('test-pack', projectRoot, homeRoot, () => [a])
+      if (yaml === '') expect(result.registered).toEqual(['test-hook'])
+      else {
+        expect(result.errors.join(' ')).toContain('registration config failed')
+        expect(existsSync(join(projectRoot, '.clooks/vendor'))).toBe(false)
+        expect(readFileSync(join(projectRoot, '.clooks/clooks.yml'), 'utf8')).toBe(yaml)
+      }
+    })
+  }
 
   test.each(['export const invalid = true', 'throw "import failed"'])(
     'removes an invalid newly copied hook and leaves configuration unchanged: %s',
@@ -409,7 +900,7 @@ describe('updatePluginPack', () => {
     expect(result.registered).toEqual([])
   })
 
-  test('handles copy failure gracefully', async () => {
+  test('missing source fails preflight before creating any destination', async () => {
     // Don't create the source hook file — it won't exist
     const pack = makePack({ installPath, scope: 'project' })
     const discoverFn = (_opts?: DiscoverOptions) => [pack]
@@ -418,9 +909,10 @@ describe('updatePluginPack', () => {
 
     expect(result.errors).toHaveLength(1)
     expect(result.errors[0]).toContain('test-hook')
-    expect(result.errors[0]).toContain('copy failed')
+    expect(result.errors[0]).toContain('source preflight failed')
     expect(result.updated).toEqual([])
     expect(result.registered).toEqual([])
+    expect(existsSync(join(projectRoot, '.clooks'))).toBe(false)
   })
 
   test('collision detection for new hooks', async () => {

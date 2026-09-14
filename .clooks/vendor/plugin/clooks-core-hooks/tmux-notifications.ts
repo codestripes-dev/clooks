@@ -1,9 +1,10 @@
-// tmux-notifications — Visual tmux indicators for Claude Code session state
+// tmux-notifications — Visual tmux indicators for supported agent session events
 //
 // - Stop: orange tab text, auto-resets when user focuses the window
 // - Notification/idle_prompt: red tab text + "⏸ c-{dir}", resets color on focus (⏸ stays)
 // - Notification/permission_prompt|elicitation_dialog: red bold + flash on
-//   the user's currently-focused window (may differ from Claude's window)
+//   the user's currently-focused window (may differ from the agent's window)
+// - Codex PermissionRequest: same attention + optional flash; may auto-resolve
 // - UserPromptSubmit, PostToolUse, SessionStart: reset to default
 // - SessionEnd: reset + restore automatic-rename
 //
@@ -78,7 +79,7 @@ function getWindowId(): string | null {
 }
 
 // The session's currently-active window — the one the user is most likely
-// looking at. May differ from Claude's own window if Claude runs in a
+// looking at. May differ from the agent's own window if it runs in a
 // background window. Returns null if we can't resolve it.
 export function getFocusedWindowId(): string | null {
   const pane = process.env.TMUX_PANE
@@ -88,7 +89,7 @@ export function getFocusedWindowId(): string | null {
       encoding: "utf8",
     }).trim()
     if (!sessionId) return null
-    const windowId = execSync(`tmux display-message -t "${sessionId}" -p '#{window_id}'`, {
+    const windowId = execSync(`tmux display-message -t '${sessionId.replaceAll("'", "'\\''")}' -p '#{window_id}'`, {
       encoding: "utf8",
     }).trim()
     return windowId || null
@@ -262,6 +263,13 @@ export const hook: ClooksHook<TmuxNotificationsConfig> = {
         await flashFocusedWindow()
       }
     }
+    return ctx.skip()
+  },
+
+  async PermissionRequest(ctx, config) {
+    if (!('provider' in ctx && ctx.provider === 'codex')) return ctx.skip()
+    setAttentionStyle(w, config.attentionStyle)
+    if (config.flashOnPrompt) await flashFocusedWindow()
     return ctx.skip()
   },
 

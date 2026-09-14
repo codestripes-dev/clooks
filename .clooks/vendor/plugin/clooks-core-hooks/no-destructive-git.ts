@@ -26,6 +26,79 @@ function sanitize(command: string): string {
     .replace(/#.*$/gm, '')
 }
 
+const GLOBAL_FLAGS = new Set([
+  '-p', '--paginate', '-P', '--no-pager', '--bare', '--no-replace-objects',
+  '--literal-pathspecs', '--no-literal-pathspecs', '--glob-pathspecs', '--noglob-pathspecs',
+  '--icase-pathspecs', '--no-optional-locks', '--no-lazy-fetch', '--no-advice',
+])
+const GLOBAL_QUERIES = new Set([
+  '-h', '--help', '-v', '--version', '--exec-path',
+  '--html-path', '--man-path', '--info-path',
+])
+
+function withoutGlobalOptions(command: string): string {
+  // Keep original word boundaries: even "" is an operand. This only scans
+  // global prefixes; operation arguments still use the existing sanitizer.
+  const words = [...command.matchAll(/#[^\n]*|[;&|()<>\n]|(?:[^\s'"\\#;&|()<>]+|'[^']*'|"(?:\\.|[^"\\])*"|\\[^\n])+/g)]
+  const boundary = (word: string) => /^[#;&|()<>\n]/.test(word)
+  let result = ''
+  let copied = 0
+  // Indexed words below are bounded by length checks; matchAll supplies each match.
+  for (let i = 0; i < words.length; i++) {
+    if (words[i]![0] !== 'git') continue
+    const start = words[i]!.index!
+    let j = i + 1
+    let hasGlobal = false
+    let noOperation = false
+    while (j < words.length && !boundary(words[j]![0])) {
+      // Empty quote fragments change spelling, not arity: -C"" still needs a word.
+      const option = words[j]![0].replace(/'[^']*'|"(?:\\.|[^"\\])*"/g,
+        quoted => quoted.length === 2 ? '' : quoted)
+      if (GLOBAL_QUERIES.has(option) || option.startsWith('--list-cmds=')) {
+        hasGlobal = true
+        noOperation = true
+        break
+      }
+      if (GLOBAL_FLAGS.has(option) ||
+          /^--(?:git-dir|work-tree|namespace|config-env|exec-path|attr-source)=/.test(option)) {
+        hasGlobal = true
+        j++
+        continue
+      }
+      if (['-C', '-c', '--git-dir', '--work-tree', '--namespace',
+        '--config-env', '--attr-source', '--shallow-file'].includes(option)) {
+        hasGlobal = true
+        j++
+        if (j === words.length || boundary(words[j]![0])) {
+          noOperation = true
+          break
+        }
+        j++ // Consume one operand, including quoted/empty/flag-looking words.
+        continue
+      }
+      if (hasGlobal && option.startsWith('-')) {
+        // Unknown grammar: preserve this invocation for the legacy detectors.
+        while (j < words.length && !boundary(words[j]![0])) j++
+        i = j - 1
+        hasGlobal = false
+      }
+      break
+    }
+    if (!hasGlobal) continue
+    if (j === words.length || boundary(words[j]![0])) {
+      noOperation = true
+    }
+    if (noOperation) {
+      while (j < words.length && !boundary(words[j]![0])) j++
+    }
+    const end = j < words.length ? words[j]!.index! : command.length
+    result += command.slice(copied, start) + (noOperation ? '' : 'git ')
+    copied = end
+    i = j - 1
+  }
+  return result + command.slice(copied)
+}
+
 // --- Detection functions (exported for unit testing) ---
 
 export function matchesResetHard(sanitized: string): boolean {
@@ -103,7 +176,7 @@ export function matchesForcePush(sanitized: string): boolean {
   // Find tokens after "git push"
   const pushMatch = sanitized.match(/\bgit\s+push\b\s*(.*)/)
   if (pushMatch) {
-    const afterPush = pushMatch[1].split(/\s+/)
+    const afterPush = pushMatch[1]!.split(/\s+/)
     for (const token of afterPush) {
       if (token.startsWith('+') && !token.startsWith('-')) return true
     }
@@ -261,6 +334,7 @@ export const hook: ClooksHook<Config> = {
 
     // 3. Sanitize: strip quoted strings and comments
     const sanitized = sanitize(command)
+    const builtInCommand = sanitize(withoutGlobalOptions(command))
 
     // 4. Check escape hatch prefix (on original command, not sanitized)
     const hasEscapeHatch = command.startsWith('ALLOW_DESTRUCTIVE_GIT=true')
@@ -269,7 +343,7 @@ export const hook: ClooksHook<Config> = {
     for (const rule of RULES) {
       if (config[rule.id] === false) continue
       if (hasEscapeHatch && rule.hasEscapeHatch) continue
-      if (rule.detect(sanitized)) {
+      if (rule.detect(builtInCommand)) {
         return ctx.block({
           reason: rule.reason,
           debugMessage: `no-destructive-git: blocked by rule '${rule.id}'`,

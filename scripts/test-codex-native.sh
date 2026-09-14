@@ -2,20 +2,23 @@
 set -euo pipefail
 umask 022
 
-if [[ $# != 1 || ( $1 != --unit && $1 != --smoke ) ]]; then
-  echo 'Usage: bash scripts/test-codex-native.sh --unit|--smoke' >&2
+if [[ $# != 1 || ( $1 != --unit && $1 != --smoke && $1 != --session-end && $1 != --onboarding ) ]]; then
+  echo 'Usage: bash scripts/test-codex-native.sh --unit|--smoke|--session-end|--onboarding' >&2
   exit 64
 fi
 mode=$1
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
 vendor=
-if [[ "$mode" == --smoke ]]; then
+if [[ "$mode" != --unit ]]; then
   : "${CLOOKS_CODEX_DIST:?Set CLOOKS_CODEX_DIST to the explicit retained native distribution directory}"
   vendor=$(cd -- "$CLOOKS_CODEX_DIST" && pwd -P)
   [[ -f "$vendor/bin/codex" && -x "$vendor/bin/codex" ]] || {
     echo 'Required distribution has no executable bin/codex; nothing was run.' >&2
     exit 66
   }
+fi
+if [[ "$mode" == --onboarding ]]; then
+  : "${CLOOKS_MARKETPLACE_ROOT:?Set CLOOKS_MARKETPLACE_ROOT to the explicit marketplace checkout}"
 fi
 # No build, pull, downloader, host native execution or implicit home search.
 image=$(docker image inspect --format '{{.Id}}' clooks-e2e)
@@ -49,6 +52,17 @@ cleanup() {
     cleanup_rc=$?
   fi
   write_status cleanup.rc "$cleanup_rc"
+  onboarding_rc=0
+  if [[ "$mode" == --onboarding && -f "$attempt/onboarding-inputs.json" ]]; then
+    # Use the frozen helper, not subsequently edited working-tree source.
+    bun -e '
+      const [helper, root, manifest] = process.argv.slice(1);
+      const { verifyOnboardingInputs } = await import(helper);
+      verifyOnboardingInputs(root, await Bun.file(manifest).json());
+    ' "$attempt/input/test/tooling/onboarding-inputs.ts" "$attempt/onboarding-marketplace" "$attempt/onboarding-inputs.json" > "$attempt/onboarding-verify.log" 2>&1
+    onboarding_rc=$?
+  fi
+  write_status onboarding-verify.rc "$onboarding_rc"
   launches=$(find "$attempt/export" -name native.launched.json -type f | wc -l)
   launch_scan_rc=$?
   write_status native-launch-scan.rc "$launch_scan_rc"
@@ -68,7 +82,11 @@ cleanup() {
   if [[ "$export_rc" == 0 && -n "$writable" ]]; then export_rc=74; fi
   write_status export-seal.rc "$export_rc"
   # Hash frozen source plus raw captures/logs. Finalization status files are separate.
-  (cd "$attempt" && find input export -type f -print0 | sort -z | xargs -0 sha256sum &&
+  hash_roots=(input export)
+  if [[ -d "$attempt/onboarding-marketplace" ]]; then hash_roots+=(onboarding-marketplace); fi
+  if [[ -d "$attempt/native" ]]; then hash_roots+=(native); fi
+  if [[ -d "$attempt/prebuilt" ]]; then hash_roots+=(prebuilt); fi
+  (cd "$attempt" && find "${hash_roots[@]}" -type f -print0 | sort -z | xargs -0 sha256sum &&
     sha256sum runner.sh command.sh attempt.log image-id revision tracked-source.diff) > "$attempt/artifacts.sha256"
   hash_rc=$?
   if [[ "$hash_rc" == 0 ]]; then
@@ -76,7 +94,7 @@ cleanup() {
     hash_rc=$?
   fi
   write_status hash.rc "$hash_rc"
-  for failure_rc in "$cleanup_rc" "$launch_scan_rc" "$seal_rc" "$export_rc" "$hash_rc"; do
+  for failure_rc in "$cleanup_rc" "$onboarding_rc" "$launch_scan_rc" "$seal_rc" "$export_rc" "$hash_rc"; do
     if [[ "$final_rc" == 0 && "$failure_rc" != 0 ]]; then final_rc=$failure_rc; fi
   done
   write_status final.rc "$final_rc"
@@ -106,7 +124,33 @@ done
 mkdir -p "$attempt/input/.clooks/vendor"
 cp -a "$root/.clooks/vendor/plugin" "$attempt/input/.clooks/vendor/plugin"
 cp "$root/scripts/test-codex-native.sh" "$attempt/runner.sh"
+if [[ "$mode" == --onboarding ]]; then
+  bun -e '
+    const [helper, source, destination, manifest] = process.argv.slice(1);
+    const { freezeOnboardingInputs } = await import(helper);
+    await Bun.write(manifest, JSON.stringify(freezeOnboardingInputs(source, destination), null, 2));
+  ' "$attempt/input/test/tooling/onboarding-inputs.ts" "$CLOOKS_MARKETPLACE_ROOT" "$attempt/onboarding-marketplace" "$attempt/onboarding-inputs.json"
+  mkdir -p "$attempt/native/bin"
+  cp "$vendor/bin/codex" "$attempt/native/bin/codex"
+  expected=3188814c35471432d4123203e0eb38e5bddc60226e3d7ddf0e59e649ea140022
+  actual=$(sha256sum "$attempt/native/bin/codex")
+  [[ ${actual%% *} == "$expected" ]] || { echo 'Onboarding requires pinned Codex 0.154.0' >&2; exit 66; }
+  chmod -R a-w "$attempt/native"
+  vendor="$attempt/native"
+fi
 chmod -R a-w "$attempt/input"
+if [[ -n ${CLOOKS_TEST_BINARY:-} ]]; then
+  : "${CLOOKS_TEST_BINARY_SHA256:?Set the expected external test binary SHA-256}"
+  [[ -f "$CLOOKS_TEST_BINARY" && ! -L "$CLOOKS_TEST_BINARY" ]]
+  mkdir "$attempt/prebuilt"
+  cp "$CLOOKS_TEST_BINARY" "$attempt/prebuilt/clooks"
+  actual=$(sha256sum "$attempt/prebuilt/clooks")
+  [[ ${actual%% *} == "$CLOOKS_TEST_BINARY_SHA256" ]] || {
+    echo 'External test binary checksum mismatch' >&2
+    exit 66
+  }
+  chmod -R a-w "$attempt/prebuilt"
+fi
 (cd "$attempt/input" && find . -type f -print0 | sort -z | xargs -0 sha256sum) > "$attempt/source.sha256"
 
 cmd=(docker run --pull never --name "$name" --network none --init
@@ -114,7 +158,16 @@ cmd=(docker run --pull never --name "$name" --network none --init
 for path in src test schemas scripts tsconfig.json bunfig.toml package.json .clooks/vendor/plugin; do
   cmd+=(--mount "type=bind,src=$attempt/input/$path,dst=/app/$path,readonly")
 done
-if [[ "$mode" == --smoke ]]; then cmd+=(--mount "type=bind,src=$vendor,dst=/native,readonly"); fi
+if [[ "$mode" != --unit ]]; then cmd+=(--mount "type=bind,src=$vendor,dst=/native,readonly"); fi
+if [[ -n ${CLOOKS_TEST_BINARY:-} ]]; then
+  cmd+=(--mount "type=bind,src=$attempt/prebuilt,dst=/prebuilt,readonly"
+    --env CLOOKS_TEST_BINARY=/prebuilt/clooks
+    --env "CLOOKS_TEST_BINARY_SHA256=$CLOOKS_TEST_BINARY_SHA256")
+fi
+if [[ "$mode" == --onboarding ]]; then
+  cmd+=(--mount "type=bind,src=$attempt/onboarding-marketplace,dst=/onboarding-marketplace,readonly"
+    --env CLOOKS_MARKETPLACE_ROOT=/onboarding-marketplace)
+fi
 cmd+=(--mount "type=bind,src=$attempt/export,dst=/export"
   --env CLOOKS_NATIVE_LOGDIR=/export --env "CLOOKS_NATIVE_MODE=$mode"
   "$image" /app/test/native-codex/container-entrypoint.sh)

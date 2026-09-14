@@ -1,4 +1,29 @@
-function CmdBox({ accent, cmd, slash, comment }) {
+// Presentation-only tokenization: preserve every character, including partial typed commands.
+function ShellCommand({ command, instruction = false }) {
+  if (instruction) return <span style={{ color: TK.str }}>{command}</span>;
+  const tokens = String(command).match(/\s+|'[^']*(?:'|$)|"(?:\\.|[^"\\])*(?:"|$)|&&|\|\||[;|<>]|[^\s'";&|<>]+/g) || [];
+  let commandStart = true;
+  return tokens.map((token, i) => {
+    let kind = 'argument';
+    let color = COL.fg;
+    if (/^\s+$/.test(token)) {
+      if (token.includes('\n')) commandStart = true;
+    } else if (/^(?:&&|\|\||[;|<>])$/.test(token)) {
+      kind = 'operator'; color = TK.kw; commandStart = true;
+    } else if (/^['"]/.test(token)) {
+      kind = 'string'; color = TK.str; commandStart = false;
+    } else if (/^\$/.test(token) || /^[A-Za-z_][A-Za-z0-9_]*=/.test(token)) {
+      kind = 'variable'; color = TK.prop;
+    } else if (commandStart) {
+      kind = 'command'; color = TK.ty; commandStart = false;
+    } else if (/^-/.test(token)) {
+      kind = 'flag'; color = TK.prop;
+    }
+    return <span key={i} data-shell-token={kind} style={{ color }}>{token}</span>;
+  });
+}
+
+function CmdBox({ accent, cmd, slash, comment, copyLabel }) {
   const vp = useViewport();
   const wrap = vp.isMobile;
   const [copied, setCopied] = React.useState(false);
@@ -45,10 +70,10 @@ function CmdBox({ accent, cmd, slash, comment }) {
       }}>
         {comment
           ? <span style={{ color: COL.fgDim }}>{cmd}</span>
-          : <><span style={{ color: accent, marginRight: 10 }}>{slash ? '>' : '$'}</span>{cmd}</>}
+          : <><span style={{ color: accent, marginRight: 10 }}>{slash ? '>' : '$'}</span><ShellCommand command={cmd} instruction={slash}/></>}
       </div>
       {!comment && (
-        <button onClick={copy} title={copied ? 'Copied' : 'Copy'} style={{
+        <button onClick={copy} title={copied ? 'Copied' : (copyLabel || (slash ? 'Copy in-agent instruction' : 'Copy terminal command'))} aria-label={copyLabel || (slash ? 'Copy in-agent instruction' : 'Copy terminal command')} style={{
           flex: '0 0 auto',
           background: copied ? accent : 'transparent',
           border: 'none',
@@ -86,4 +111,4 @@ const codeInline = {
   borderRadius: 0,
 };
 
-Object.assign(window, { CmdBox, codeInline });
+Object.assign(window, { CmdBox, ShellCommand, codeInline });

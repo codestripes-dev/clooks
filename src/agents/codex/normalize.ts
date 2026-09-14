@@ -15,6 +15,7 @@ const EVENTS: readonly EventName[] = [
   'UserPromptSubmit',
   'SubagentStop',
   'Stop',
+  'SessionEnd',
 ]
 
 export function readEventName(payload: Record<string, unknown>): EventName | null {
@@ -43,9 +44,10 @@ export function normalizeInvocation(
     return value
   }
   const sessionId = requiredString('session_id')
-  const nativeTurnId = eventName === 'SessionStart' ? null : requiredString('turn_id')
+  const sessionEnd = eventName === 'SessionEnd'
+  const nativeTurnId = eventName === 'SessionStart' || sessionEnd ? null : requiredString('turn_id')
   const cwd = requiredString('cwd')
-  const model = requiredString('model')
+  const model = sessionEnd ? undefined : requiredString('model')
   const compact = eventName === 'PreCompact' || eventName === 'PostCompact'
   const nullableString = (key: string): string => {
     const value = payload[key]
@@ -59,6 +61,22 @@ export function normalizeInvocation(
     sessionId,
     cwd,
     transcriptPath: nullableString('transcript_path'),
+  }
+  if (sessionEnd) {
+    if (payload.reason !== 'other') return fail('reason', 'reason must be other')
+    context.reason = 'other'
+    return {
+      eventName,
+      context,
+      private: {
+        provider: 'codex',
+        raw: cloneDeep(payload),
+        sessionId,
+        nativeTurnId: null,
+        referencedAgentId: null,
+        tool: null,
+      },
+    }
   }
   if (!compact) context.permissionMode = requiredString('permission_mode')
   let agentId: string | null = null

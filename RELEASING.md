@@ -8,14 +8,47 @@ Clooks releases are cut by pushing a git tag of the form `vMAJOR.MINOR.PATCH`. A
 
        git checkout master && git pull && git status
 
-2. Bump the version in both files to the new release number. Both must match the tag exactly (without the leading `v`).
+2. Bump the version in both source files to the new release number. Both must match the tag exactly (without the leading `v`).
 
    - `package.json` — the `"version"` field
    - `src/version.ts` — the `VERSION` constant
 
+   Regenerate the website version indicator from `src/version.ts` and include it
+   in the release changes; never edit the generated file manually:
+
+       bun run scripts/sync-page-version.ts
+
+   Confirm `package.json`, `src/version.ts`, and `page/version.js` agree. Refresh
+   README and website capability/setup copy against the shipped source. The tag
+   workflow checks the two source versions, not website or marketplace parity.
+
+   Coordinate the sibling `clooks-marketplace` repository separately. Update each
+   changed pack's `.claude-plugin/plugin.json` version and the matching entry in
+   `.claude-plugin/marketplace.json` together, including the `clooks` bootstrap
+   plugin when included in the release. Each listing must match its plugin manifest.
+
+   For the dual-agent onboarding package, also check
+   `clooks/.codex-plugin/plugin.json` and `.agents/plugins/marketplace.json`.
+   Coordinate Claude and Codex package versions with the runtime release wherever
+   versions are declared; do not invent version fields in catalogs without them.
+   Validate the actual cached package, explicit setup, native hook trust and
+   runtime dispatch separately: catalog/add/list success alone is insufficient.
+   Document verified CLI versions as tested versions, not unproven minimums.
+
+   Keep every `clooks-pack.json` numeric `version: 1` unchanged: it identifies the
+   manifest schema, not the plugin release. Do not rewrite historical fixtures or
+   vendored provenance to imply a published release. Marketplace changes are not
+   published by the Clooks tag workflow; release them separately after validation
+   and runtime availability. Publish runtime assets before onboarding metadata
+   offers them. A plugin version bump must not implicitly install or update a
+   user's runtime; install/update/check remain explicit setup actions.
+   Existing installed hook copies need an explicit
+   refresh; see README's vendoring and updates section.
+
 3. Commit the bump:
 
-       git commit -am "chore(release): bump to vX.Y.Z"
+       git add package.json src/version.ts page/ README.md RELEASING.md
+       git commit -m "chore(release): bump to vX.Y.Z"
        git push origin master
 
 4. Tag and push:
@@ -66,6 +99,9 @@ Intentionally minimal. This release workflow does NOT provide:
 - SLSA / build provenance attestations
 - `.tar.gz` archives
 - Homebrew tap / Scoop / `curl | sh` installer (planned)
-- E2E tests as a release gate (the workflow only runs unit tests + lint + typecheck)
 
 Each of these will be added when there is a concrete reason (user report, distribution push, security requirement).
+
+The build job runs `bun run test:validation` in Docker, including unit coverage,
+tooling checks, and the full compiled-binary E2E suite. Native Codex smoke remains
+a separate pre-publication check.

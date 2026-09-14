@@ -72,7 +72,6 @@ function bounded(values: readonly unknown[]): void {
   }
 }
 
-/** Private provider state; no connection or filesystem mutation until an operation needs it. */
 export class ApprovalStore {
   readonly path: string
   private readonly clock: () => number

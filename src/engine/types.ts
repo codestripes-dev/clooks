@@ -3,6 +3,7 @@ import type { PermissionUpdateEntry } from '../types/permissions.js'
 import type { loadConfig } from '../config/index.js'
 import type { loadAllHooks } from '../loader.js'
 import type { discoverPluginPacks } from '../plugin-discovery.js'
+import type { discoverCodexPluginPacks } from '../agents/codex/plugin-discovery.js'
 import type { vendorAndRegisterPack } from '../plugin-vendor.js'
 import type { discoverProjectRoot } from '../config/discovery.js'
 import type { ResultOrigin, RuntimePolicyFailure } from '../agents/types.js'
@@ -72,16 +73,14 @@ export const EXIT_STDERR = 2 as const
 export type ExitCode = typeof EXIT_OK | typeof EXIT_HOOK_FAILURE | typeof EXIT_STDERR
 
 /**
- * Injectable dependencies for runEngine.
- * Why DI instead of mock.module?  Bun's mock.module is process-wide and
- * leaks across test files in the same run.  Mocking ./config/index.js and
- * ./loader.js here broke every loadConfig and loader test (16+ failures).
+ * Inject dependencies to avoid Bun's process-wide module mocks leaking between tests.
  */
 export interface RunEngineDeps {
   loadConfig: typeof loadConfig
   loadAllHooks: typeof loadAllHooks
   readStdin: () => Promise<unknown>
   discoverPluginPacks?: typeof discoverPluginPacks
+  discoverCodexPluginPacks?: typeof discoverCodexPluginPacks
   vendorAndRegisterPack?: typeof vendorAndRegisterPack
   discoverProjectRoot?: typeof discoverProjectRoot
 }

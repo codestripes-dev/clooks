@@ -1,0 +1,6 @@
+.editor-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; font: 13px system-ui, sans-serif; }
+.editor-actions button, .editor-actions a { font: inherit; }
+.editor-actions button { padding: 8px 12px; border: 1px solid #c6cbd1; border-radius: 5px; background: white; color: #222; cursor: pointer; }
+.editor-actions .save-button { background: #155eef; color: white; border-color: #155eef; font-weight: 600; }
+.editor-actions button:disabled { opacity: .45; cursor: default; }
+.save-status { max-width: 420px; overflow-wrap: anywhere; }

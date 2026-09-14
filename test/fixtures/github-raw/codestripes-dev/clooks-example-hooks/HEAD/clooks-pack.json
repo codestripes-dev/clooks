@@ -26,7 +26,7 @@
     },
     "debug-payload": {
       "path": "hooks/debug-payload.ts",
-      "description": "Echoes hook payload into conversation context when CLOOKS_DEBUG=true",
+      "description": "Inspects serializable normalized context with skip-only debug logging when CLOOKS_DEBUG=true",
       "events": [
         "PreToolUse",
         "PostToolUse",
@@ -43,6 +43,7 @@
         "ConfigChange",
         "WorktreeRemove",
         "PreCompact",
+        "PostCompact",
         "TeammateIdle",
         "TaskCompleted"
       ],

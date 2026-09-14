@@ -15,6 +15,7 @@ import { dirname, join } from 'path'
 import { type Sandbox } from './helpers/sandbox'
 import { createRegistrationSandbox as createSandbox, registrationEnv } from './helpers/registration'
 import { chmodSync, readdirSync, symlinkSync, readlinkSync } from 'fs'
+import { makeCodexProjectEntrypointCommand } from '../../src/agents/codex/settings'
 
 describe('codex registration preservation E2E', () => {
   for (const contents of [
@@ -75,14 +76,11 @@ describe('codex registration preservation E2E', () => {
       },
       {
         type: 'command',
-        command: owned.command.replace('CLOOKS_PROJECT_ROOT=', 'EXTRA=1 CLOOKS_PROJECT_ROOT='),
+        command: owned.command.replace('clooks-project ', 'other-project '),
       },
       {
         type: 'command',
-        command: owned.command.replace(
-          `CLOOKS_PROJECT_ROOT='${sandbox.dir}'`,
-          "CLOOKS_PROJECT_ROOT='/different'",
-        ),
+        command: owned.command.replace('exec bash', 'exec sh'),
       },
       { type: 'prompt', command: owned.command, prompt: 'keep' },
     ]
@@ -227,6 +225,7 @@ const CODEX_EVENTS = [
   'UserPromptSubmit',
   'SubagentStop',
   'Stop',
+  'SessionEnd',
 ]
 
 const CLAUDE_EVENTS = [
@@ -286,7 +285,13 @@ function expectCodexRegistration(
     expect(hooks[event]).toEqual([
       {
         matcher: '*',
-        hooks: [{ type: 'command', command: expectedCommand }],
+        hooks: [
+          {
+            type: 'command',
+            command: expectedCommand,
+            ...(event === 'SessionEnd' ? { timeout: 3 } : {}),
+          },
+        ],
       },
     ])
   }
@@ -311,9 +316,9 @@ function expectClaudeProjectRegistration(): void {
 }
 
 function projectCodexCommand(root = sandbox.dir): string {
-  const quote = (value: string) => "'" + value.split("'").join("'\\''") + "'"
-  const entrypointPath = join(root, '.clooks/bin/entrypoint.sh')
-  return `CLOOKS_AGENT=codex CLOOKS_PROJECT_ROOT=${quote(root)} ${quote(entrypointPath)}`
+  return makeCodexProjectEntrypointCommand(
+    readFileSync(join(root, '.clooks/bin/codex-project-id'), 'utf8').trim(),
+  )
 }
 
 function globalCodexCommand(): string {
@@ -354,7 +359,7 @@ cat
 
 describe('registered Codex shell commands', () => {
   for (const moved of [false, true]) {
-    test(`re-init repairs copied paths with old checkout ${moved ? 'moved away' : 'still present'}`, () => {
+    test(`copied registration works with old checkout ${moved ? 'moved away' : 'still present'}`, () => {
       sandbox = createSandbox()
       const oldRoot = join(sandbox.dir, "A joe's $(literal); 日本語")
       const newRoot = join(sandbox.dir, "B joe's $(literal); 日本語")
@@ -367,24 +372,23 @@ describe('registered Codex shell commands', () => {
       expect(probeCommand(registeredCommand(newRoot), newRoot)).toEqual([
         'invoked',
         'codex',
-        oldRoot,
+        newRoot,
         'unset',
         newRoot,
         'probe-input',
       ])
       const retained = moved ? join(sandbox.dir, 'retained-old') : oldRoot
       if (moved) renameSync(oldRoot, retained)
-      expect(sandbox.run(['init', '--agent', 'codex'], { cwd: newRoot }).exitCode).toBe(0)
       const command = registeredCommand(newRoot)
       expect(command).toBe(projectCodexCommand(newRoot))
       mkdirSync(join(newRoot, 'subdir'))
       for (const cwd of [newRoot, join(newRoot, 'subdir')]) {
         expect(
           probeCommand(command, cwd, {
-            CLOOKS_PROJECT_ROOT: '/ignored',
+            CLOOKS_PROJECT_ROOT: '/intentional',
             CLAUDE_PROJECT_DIR: '/inherited-claude',
           }),
-        ).toEqual(['invoked', 'codex', newRoot, '/inherited-claude', cwd, 'probe-input'])
+        ).toEqual(['invoked', 'codex', '/intentional', '/inherited-claude', cwd, 'probe-input'])
       }
       expect(readFileSync(join(retained, '.codex/hooks.json'), 'utf8')).toBe(oldBytes)
       const repaired = readFileSync(join(newRoot, '.codex/hooks.json'), 'utf8')
@@ -434,7 +438,7 @@ describe('registered Codex shell commands', () => {
     expect(sandbox.run(['init', '--agent', 'codex'], { cwd: worktree }).exitCode).toBe(0)
     installProbe()
     expect(registeredCommand(worktree)).toBe(projectCodexCommand(worktree))
-    expect(probeCommand(registeredCommand(worktree), sandbox.dir)[2]).toBe(worktree)
+    expect(probeCommand(registeredCommand(worktree), worktree)[2]).toBe(worktree)
   })
 
   test('global command forwards intentional root and inherited Claude environment', () => {
@@ -1036,6 +1040,8 @@ describe('Codex receipt launcher E2E', () => {
     mkdirSync(bin)
     for (const [name, target] of [
       ['bash', '/bin/bash'],
+      ['sh', '/bin/sh'],
+      ['cmp', '/usr/bin/cmp'],
       ['cat', '/bin/cat'],
       ['clooks', join(dirname(sandbox.dir), 'bin/clooks')],
     ]) {

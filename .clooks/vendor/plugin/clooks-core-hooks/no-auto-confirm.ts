@@ -4,7 +4,7 @@
 // using the command's designed non-interactive interface.
 //
 // Blocked:
-//   yes |, yes <word> |, /usr/bin/yes |,
+//   yes |, yes <words...> |, /usr/bin/yes |,
 //   echo y|yes |, echo -e|-n|-ne|-en y|yes |,
 //   printf y|yes |
 //   (case-insensitive on confirmation tokens y/yes)
@@ -150,7 +150,7 @@ export const hook: ClooksHook = {
 
   SessionStart(ctx) {
     return ctx.skip({
-      injectContext: `INFORMATION (no need to comment on it): The no-auto-confirm clooks hook is active in this project. The Bash tool will refuse piping auto-confirmation into commands — \`yes |\`, \`echo y |\`, \`printf y |\`, and similar. Use the command's own non-interactive flag (\`-y\`, \`--yes\`, \`--force\`, \`--non-interactive\`, \`-auto-approve\`, etc.) instead, or ask the user to run the command interactively.`,
+      injectContext: `INFORMATION (no need to comment on it): The no-auto-confirm clooks hook is active in this project. Shell commands will be blocked for piping auto-confirmation into commands — \`yes |\`, \`echo y |\`, \`printf y |\`, and similar. Use the command's own non-interactive flag (\`-y\`, \`--yes\`, \`--force\`, \`--non-interactive\`, \`-auto-approve\`, etc.) instead, or ask the user to run the command interactively.`,
       debugMessage: 'no-auto-confirm: announced',
     })
   },

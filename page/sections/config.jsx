@@ -1,4 +1,4 @@
-function ConfigSection({ accent }) {
+function ConfigSection({ accent, content }) {
   const vp = useViewport();
   const stack = vp.isMobile || vp.isTablet;
   const treeLines = [
@@ -45,19 +45,15 @@ function ConfigSection({ accent }) {
   return (
     <section id="config" className="section">
       <div style={{ maxWidth: 1120, margin: '0 auto' }}>
-        <SectionLabel accent={accent}>Config</SectionLabel>
+        <SectionLabel accent={accent}>{content.label}</SectionLabel>
         <h2 style={{
           fontSize: 'clamp(32px, 3.6vw, 46px)', lineHeight: 1.1,
           letterSpacing: -1, fontWeight: 500, margin: '0 0 20px', maxWidth: 780,
         }}>
-          Everything lives in <code style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.85em' }}>.clooks/</code>.<br/>
-          <span style={{ color: COL.fgMute }}>Committed with the rest of your{'\u00a0'}code.</span>
+          <Copy text={content.title} heading/>
         </h2>
         <p style={{ fontSize: 15, color: COL.fgMute, maxWidth: 640, margin: '0 0 48px', lineHeight: 1.6 }}>
-          <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}>clooks init</code> writes a
-          self-contained folder. Only the entrypoint script is registered into
-          <code style={{ fontFamily: 'JetBrains Mono, monospace', color: COL.fg }}> .claude/settings.json</code>.
-          A teammate cloning the repo gets the same hooks as they're checked{'\u00a0'}in.
+          <Copy text={content.intro}/>
         </p>
 
         <div style={{

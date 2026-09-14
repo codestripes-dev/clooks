@@ -17,7 +17,7 @@ Make Clooks usable as a general-purpose hook framework across Claude Code and Co
 ### External Dependencies
 
 - **FEAT-0018** (Cross-Agent Event Normalization) -- prior concept for mapping agent-specific events. This epic should either consume it or supersede its broad shape with a narrower adapter-first design.
-- **FEAT-0041** (Plugin Distribution) -- establishes that Claude plugin-delivered hooks are Claude-only; portable hooks are custom or vendored Clooks hooks.
+- **FEAT-0041** (Plugin Distribution) -- established the original Claude plugin-discovery scope. The user-approved [PLAN-0082](../plans/done/codex-plugin-packs/PLAN-0082-codex-plugin-packs.md) extension supersedes that restriction: Claude Code and Codex packs use shared vendoring and explicit updates. Runtime setup remains explicit; packs are optional.
 - **Codex hook trust/review model** -- project-local `.codex/` hook registration only runs after the project layer and hook commands are trusted/reviewed by Codex. This is an external product constraint.
 
 ## Research
@@ -132,7 +132,7 @@ The same hook can run under Claude Code and Codex when it uses shared lifecycle 
 | Codex's source capabilities differ from Clooks' Claude surface. | Reserved `PermissionRequest` fields fail the handler with no decision, leaving normal review absent another decision. Bare PreToolUse allow without replacement and ask are unsupported. Pinned source resolves these constraints; execution remains unverified. | M0 wire audit, Codex 0.153.4 source |
 | Codex command hooks require trust/review. | A successful `clooks init --agent codex` does not guarantee hooks run immediately in every project. CLI output and docs must explain review/trust. | Codex docs |
 | Codex launches multiple matching command hooks concurrently. | Clooks must register one entrypoint per event and preserve multi-hook ordering internally. Do not register individual Clooks hooks directly with Codex. | Codex docs, design discussion |
-| Plugin distribution is a separate integration. | Keep command-hook JSON distribution first because it matches Clooks' existing runtime and ownership model. Do not rely on the historical claim that plugin hooks are disabled by default. | September continuation review |
+| Pack discovery and updates support both agents. | PLAN-0082 implements shared vendoring and explicit updates from either agent's installed packs; runtime setup remains explicit. | User-approved PLAN-0082 completion |
 | `transcript_path` can be nullable in Codex schemas. | Clooks `BaseContext.transcriptPath` is currently a string. The adapter needs a compatibility policy before types are widened. | research |
 | A global installation flag is not proof that a global hook will execute. | Registration failure, disabled/untrusted commands, and alternate Codex homes can invalidate project-entrypoint suppression. Correct these activation/dedup defects without changing the repository trust model. | September continuation review, user clarification |
 | Final-output translation cannot police every hook result. | Reduction can discard an unsupported result after it already affected the pipeline. Validate per-hook capabilities before input mutation, handoff, and reduction. | September continuation review |
@@ -376,6 +376,12 @@ The repository's no-rm-rf confirmation branch now asks on both providers, withou
 
 The pinned Codex 0.153.4 native suite passed all 15 cases with completion and tested-binary export, including two-ask shell inline and direct-patch CLI workflows, bounded rewrite execution/denial controls and actual-pack `rm -r`. The read-only patch case uses a separate compiled CLI process to simulate user registration outside the native shell sandbox. The actual-pack case preserves the target through two pending asks, removes it only after both inline acknowledgements, and refuses consumed-token replay against a restored target. It is not native `rm -rf` allow proof. These synthetic-model results add no human-consent proof, new PermissionRequest coverage or full conformance claim. README explains the bounded verified workflow; historical adapter and native receipts retain their original scope.
 
+### Cross-Agent Pack Support
+
+**Status:** Implemented in [PLAN-0082](../plans/done/codex-plugin-packs/PLAN-0082-codex-plugin-packs.md). Each agent discovers its installed packs into shared Clooks vendor files and configuration. Explicit updates check both sources by default, with `--agent` source selection for cross-agent conflicts. The Codex catalog includes all three existing packs; their bundled types are refreshed.
+
+The isolated native Codex 0.154.0 checks installed all three actual packs and demonstrated core-pack command denial, repeat discovery without duplicate registrations, preservation of existing copies, and explicit update behavior. Runtime setup remains explicit and packs remain optional. Validation details are retained with the plan and receipts.
+
 ## Design Decisions
 
 | Decision | Resolution | Source |
@@ -383,7 +389,7 @@ The pinned Codex 0.153.4 native suite passed all 15 cases with completion and te
 | First cross-agent target | Codex. Cursor/Windsurf/Copilot remain future targets. | User request, 2026-05-17 |
 | Authoring surface | Preserve existing `ClooksHook` for the first Codex integration. Add adapter translation at the edge. | Research discussion, 2026-05-17 |
 | Registration granularity | Register one Clooks entrypoint per Codex event, not one command per Clooks hook. Clooks owns ordering/reduction internally. | Research discussion, verifier report |
-| Distribution default | Keep command-hook JSON distribution and existing merged home/project/local execution. Correct concrete registration/dedup defects; plugin distribution remains separate scope. | September continuation review and user clarification |
+| Distribution default | Keep command-hook registration and existing merged home/project/local execution. The user-approved PLAN-0082 extension adds pack discovery and explicit updates from either agent without implicit runtime setup. | September continuation review; scope extended by user approval, 2026-09-11 |
 | Repository trust | Using Clooks assumes the repository is trusted. No separate project authorization layer, home-only global mode, or permission-model redesign is required. Tighter permissions are deferred. | Explicit user direction, 2026-09-07 |
 | Supported event subset | Retain the agreed ten-event MVP. The current upstream catalog is broader; event-name parity alone does not establish payload/result parity. | User direction 2026-05-25, September continuation review |
 | Capability policy | Proposed tightening: validate each result before pipeline effects, not only at serialization. Unsupported safety controls cannot silently become allow through a warning or reduction. | September continuation review |

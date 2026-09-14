@@ -1,11 +1,11 @@
-function ComparisonSection({ accent }) {
+function ComparisonSection({ accent, content }) {
   const rows = [
-    ['Failure mode',           'Lets the action through on anything but exit 2', 'Blocks the action when a hook errors (configurable)'],
-    ['Language',               'Bash strings in JSON',                        'TypeScript, typed end to end'],
-    ['Composition',            'All hooks parallel, no ordering',             'Parallel or sequential with explicit order'],
-    ['Input modification',     'Not supported',                               'Sequential pipeline; hooks see previous updatedInput'],
+    ['Failure mode',           'Provider- and event-defined behavior',        'Configurable error policy; refusal depends on the native event'],
+    ['Language',               'Provider-defined handler contracts',          'TypeScript with typed event contracts'],
+    ['Composition',            'Provider-defined execution and ordering',     'Parallel or sequential with explicit order'],
+    ['Input modification',     'Provider- and tool-specific rewrites',         'Sequential pipeline; validated updates reach later hooks'],
     ['Retries',                'Per invocation only',                         'Circuit breaker auto-disables after N failures'],
-    ['Distribution',           'Copy-paste from gists',                       'Install via marketplace CLI'],
+    ['Distribution',           'Provider-specific packaging and settings',    'Vendor GitHub hook files or root-manifest packs'],
     ['Portability',            'Lives in your settings',                      'Vendored into .clooks/, committed'],
   ];
   const vp = useViewport();
@@ -13,12 +13,12 @@ function ComparisonSection({ accent }) {
   return (
     <section className="section">
       <div style={{ maxWidth: 1120, margin: '0 auto' }}>
-        <SectionLabel accent={accent}>vs. native hooks</SectionLabel>
+        <SectionLabel accent={accent}>{content.label}</SectionLabel>
         <h2 style={{
           fontSize: 'clamp(28px, 3vw, 38px)', lineHeight: 1.15,
           letterSpacing: -0.8, fontWeight: 500, margin: '0 0 40px', maxWidth: 640,
         }}>
-          Clooks vs. native hooks.
+          <Copy text={content.title} heading/>
         </h2>
         <div style={{ border: `1px solid ${COL.line}` }}>
           {!stack && (

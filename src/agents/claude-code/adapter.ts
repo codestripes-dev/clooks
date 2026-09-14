@@ -1,4 +1,5 @@
 import { join } from 'path'
+import { preparePluginPacks } from '../prepare-plugin-packs.js'
 import {
   isEventName as isClaudeCodeEventName,
   NOTIFY_ONLY_EVENTS,
@@ -147,71 +148,26 @@ export const claudeCodeAdapter: AgentAdapter = {
   },
 
   async prepareConfigAfterLoad(input) {
-    let config = input.config
-    let shadows = input.shadows
-    const systemMessages: string[] = []
-
     if (!input.discoverPluginPacks || !input.vendorAndRegisterPack) {
-      return { config, shadows, systemMessages }
-    }
-
-    const packs = input.discoverPluginPacks({
-      homeRoot: input.homeRoot,
-      projectRoot: input.projectRoot,
-    })
-    if (packs.length === 0) {
-      return { config, shadows, systemMessages }
-    }
-
-    let needsReload = false
-    for (const pack of packs) {
-      const vendorResult = await input.vendorAndRegisterPack(
-        pack,
-        input.projectRoot,
-        input.homeRoot,
-      )
-
-      if (vendorResult.registered.length > 0) {
-        needsReload = true
-        const enabledHooks = vendorResult.registered.filter(
-          (h) => !vendorResult.disabledHooks.includes(h),
-        )
-        const disabledHooks = vendorResult.disabledHooks
-        let msg = `clooks: Registered ${vendorResult.registered.length} hook(s) from ${pack.manifest.name} (plugin)`
-        if (disabledHooks.length > 0 && enabledHooks.length > 0) {
-          msg += `: ${enabledHooks.join(', ')} (enabled); ${disabledHooks.join(', ')} (disabled -- enable in clooks.yml)`
-        } else if (disabledHooks.length > 0) {
-          msg += `: ${disabledHooks.join(', ')} (disabled -- enable in clooks.yml)`
-        }
-        systemMessages.push(msg)
-      }
-
-      for (const collision of vendorResult.collisions) {
-        systemMessages.push(`clooks: ${collision}`)
-      }
-
-      for (const error of vendorResult.errors) {
-        systemMessages.push(`clooks: ${error}`)
+      return {
+        config: input.config,
+        shadows: input.shadows,
+        hasProjectConfig: input.hasProjectConfig,
+        systemMessages: [],
       }
     }
-
-    if (needsReload) {
-      try {
-        const reloaded = await input.loadConfig(input.projectRoot, { homeRoot: input.homeRoot })
-        if (reloaded !== null) {
-          config = reloaded.config
-          shadows = reloaded.shadows
-        }
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e)
-        systemMessages.push(`clooks: Config reload after plugin registration failed: ${msg}`)
-      }
-    }
-
-    return { config, shadows, systemMessages }
+    return preparePluginPacks(
+      input,
+      input.discoverPluginPacks({
+        homeRoot: input.homeRoot,
+        projectRoot: input.projectRoot,
+      }),
+      input.vendorAndRegisterPack,
+    )
   },
 
   collectSessionStartAdvisories(input) {
+    if (process.env.CLOOKS_SILENCE_STALE_PLUGIN_ADVISORIES === 'true') return []
     const settingsPaths = defaultSettingsPaths(input.homeRoot, input.projectRoot)
     const installedPluginsPath = join(
       input.homeRoot,
@@ -224,6 +180,13 @@ export const claudeCodeAdapter: AgentAdapter = {
     const advisories = detectStaleAdvisories({
       installedPluginsFile,
       layers,
+      roots: { homeRoot: input.homeRoot, projectRoot: input.projectRoot },
+      discoverCodexPacks: () =>
+        input.discoverCodexPluginPacks?.({
+          homeRoot: input.homeRoot,
+          projectRoot: input.projectRoot,
+          codexHome: input.codexHome,
+        }) ?? [],
       clooksYmlReaders: {
         user: () => readVendoredPluginEntries(join(input.homeRoot, '.clooks', 'clooks.yml')),
         project: () => readVendoredPluginEntries(join(input.projectRoot, '.clooks', 'clooks.yml')),
@@ -287,7 +250,7 @@ export const claudeCodeAdapter: AgentAdapter = {
       else for (const message of input.degradedMessages) stderr.push(`clooks: warning: ${message}`)
     }
     for (const line of input.debugMessages) stderr.push(`[clooks:debug] ${line}`)
-    if (input.debugMessages.length > 0)
+    if (input.debugMessages.length > 0 && INJECTABLE_EVENTS.has(input.eventName))
       append(input.debugMessages.map((line) => `[clooks:debug] ${line}`).join('\n'))
     return { result, stderr, systemMessages: [] }
   },

@@ -50,7 +50,7 @@ interface UninstallOptions {
 }
 
 function parseUninstallAgent(value: unknown): UninstallAgent {
-  const agent = value ?? 'claude-code'
+  const agent = value
   if (typeof agent === 'string' && UNINSTALL_AGENTS.includes(agent as UninstallAgent)) {
     return agent as UninstallAgent
   }
@@ -60,16 +60,47 @@ function parseUninstallAgent(value: unknown): UninstallAgent {
   )
 }
 
-function selectedAgents(agent: UninstallAgent): ConcreteUninstallAgent[] {
-  return agent === 'all' ? ['claude-code', 'codex'] : [agent]
+function selectedAgents(agent: UninstallAgent | null): ConcreteUninstallAgent[] {
+  return agent === null ? [] : agent === 'all' ? ['claude-code', 'codex'] : [agent]
 }
 
-function includesAgent(agent: UninstallAgent, target: ConcreteUninstallAgent): boolean {
+function includesAgent(agent: UninstallAgent | null, target: ConcreteUninstallAgent): boolean {
   return selectedAgents(agent).includes(target)
 }
 
-function agentsForAction(agent: UninstallAgent, shouldDelete: boolean): ConcreteUninstallAgent[] {
+function agentsForAction(
+  agent: UninstallAgent | null,
+  shouldDelete: boolean,
+): ConcreteUninstallAgent[] {
   return shouldDelete ? selectedAgents('all') : selectedAgents(agent)
+}
+
+async function resolveUninstallAgent(
+  ctx: OutputContext,
+  opts: UninstallOptions,
+  scope: 'project' | 'global',
+  settingsDir: string,
+  codexDir: string,
+): Promise<UninstallAgent | null> {
+  if (opts.agent !== undefined) return parseUninstallAgent(opts.agent)
+
+  const claude = isClooksRegistered(settingsDir)
+  const codex = isCodexClooksRegistered(codexDir)
+  if (!claude) return codex ? 'codex' : null
+  if (!codex) return 'claude-code'
+  if (opts.force || isNonInteractive(ctx)) {
+    throw new Error(
+      `Both Claude Code and Codex Clooks registrations found in ${scope} scope. Specify --agent claude-code, --agent codex, or --agent all; --force does not select an agent.`,
+    )
+  }
+  return promptSelect(ctx, {
+    message: `Which agent registrations do you want to remove in ${scope} scope?`,
+    options: [
+      { value: 'claude-code' as const, label: 'Claude Code' },
+      { value: 'codex' as const, label: 'Codex' },
+      { value: 'all' as const, label: 'Both Claude Code and Codex' },
+    ],
+  })
 }
 
 function inspectRegistrations(root: string, agent: ConcreteUninstallAgent, codexHome?: string) {
@@ -134,7 +165,7 @@ function globalCodexHomes(homeRoot: string, effectiveHome: string): string[] {
 async function confirmCleanup(
   ctx: OutputContext,
   root: string,
-  agent: UninstallAgent,
+  agent: UninstallAgent | null,
   opts: UninstallOptions,
   shouldUnhook: boolean,
   shouldDelete: boolean,
@@ -192,7 +223,7 @@ async function confirmCleanup(
   return agents
 }
 
-function agentLabel(agent: UninstallAgent): string {
+function agentLabel(agent: UninstallAgent | null): string {
   if (agent === 'claude-code') return 'Claude Code'
   if (agent === 'codex') return 'Codex'
   return 'Claude Code and Codex'
@@ -273,7 +304,7 @@ async function uninstallProject(
   const clooksDir = join(projectRoot, '.clooks')
   const settingsDir = join(projectRoot, '.claude')
   const codexDir = join(projectRoot, '.codex')
-  const agent = parseUninstallAgent(opts.agent)
+  const agent = await resolveUninstallAgent(ctx, opts, 'project', settingsDir, codexDir)
   const agents = selectedAgents(agent)
   const initialAgents = agentsForAction(agent, Boolean(opts.force && opts.full))
   const hasSelectedClaudeRegistration =
@@ -286,7 +317,10 @@ async function uninstallProject(
     initialAgents.includes('codex') && isCodexClooksRegistered(codexDir)
 
   // b. No-op check
-  if (!hasActionClaudeRegistration && !hasActionCodexRegistration && !existsSync(clooksDir)) {
+  if (
+    (agent === null && !opts.full) ||
+    (!hasActionClaudeRegistration && !hasActionCodexRegistration && !existsSync(clooksDir))
+  ) {
     if (ctx.json) {
       process.stdout.write(
         jsonSuccess('uninstall', {
@@ -303,7 +337,7 @@ async function uninstallProject(
       )
       return
     }
-    printInfo(ctx, 'Nothing to uninstall.')
+    printInfo(ctx, 'No Clooks hook registrations found in project scope. Nothing to uninstall.')
     return
   }
 
@@ -322,7 +356,7 @@ async function uninstallProject(
         defaultValue: true,
       })
     }
-    if (existsSync(clooksDir)) {
+    if (!opts.unhook && existsSync(clooksDir)) {
       const customHooks = detectCustomHooks(join(clooksDir, 'hooks'))
       if (customHooks.length > 0) {
         printWarning(
@@ -470,12 +504,13 @@ async function uninstallGlobal(ctx: OutputContext, opts: UninstallOptions): Prom
   const homeRoot = getHomeDir()
   const clooksDir = join(homeRoot, '.clooks')
   const settingsDir = join(homeRoot, '.claude')
-  const agent = parseUninstallAgent(opts.agent)
+  let codexDir =
+    opts.agent !== 'claude-code' || (opts.force && opts.full)
+      ? resolveCodexHome(homeRoot, process.env)
+      : join(homeRoot, '.codex')
+  const agent = await resolveUninstallAgent(ctx, opts, 'global', settingsDir, codexDir)
   const agents = selectedAgents(agent)
   const initialAgents = agentsForAction(agent, Boolean(opts.force && opts.full))
-  let codexDir = initialAgents.includes('codex')
-    ? resolveCodexHome(homeRoot, process.env)
-    : join(homeRoot, '.codex')
   const initialCodexHomes = initialAgents.includes('codex')
     ? globalCodexHomes(homeRoot, codexDir)
     : [codexDir]
@@ -490,7 +525,10 @@ async function uninstallGlobal(ctx: OutputContext, opts: UninstallOptions): Prom
     (opts.force && opts.full ? initialCodexHomes : [codexDir]).some(isCodexClooksRegistered)
 
   // b. No-op check
-  if (!hasActionClaudeRegistration && !hasActionCodexRegistration && !existsSync(clooksDir)) {
+  if (
+    (agent === null && !opts.full) ||
+    (!hasActionClaudeRegistration && !hasActionCodexRegistration && !existsSync(clooksDir))
+  ) {
     if (ctx.json) {
       process.stdout.write(
         jsonSuccess('uninstall', {
@@ -507,7 +545,7 @@ async function uninstallGlobal(ctx: OutputContext, opts: UninstallOptions): Prom
       )
       return
     }
-    printInfo(ctx, 'Nothing to uninstall.')
+    printInfo(ctx, 'No Clooks hook registrations found in global scope. Nothing to uninstall.')
     return
   }
 
@@ -526,7 +564,7 @@ async function uninstallGlobal(ctx: OutputContext, opts: UninstallOptions): Prom
         defaultValue: true,
       })
     }
-    if (existsSync(clooksDir)) {
+    if (!opts.unhook && existsSync(clooksDir)) {
       const customHooks = detectCustomHooks(join(clooksDir, 'hooks'))
       if (customHooks.length > 0) {
         printWarning(
@@ -707,9 +745,12 @@ export function createUninstallCommand(findRoot: () => Promise<string> = findPro
     .option('--project', 'Uninstall from current project')
     .option('--global', 'Uninstall globally (~/.clooks/)')
     .option('--force', 'Skip confirmation prompts (requires explicit scope + action flags)')
-    .option('--unhook', 'Only remove from settings.json')
+    .option('--unhook', 'Only remove agent hook registrations; keep .clooks/')
     .option('--full', 'Unhook + delete .clooks/ directory')
-    .option('--agent <agent>', 'Agent registration to remove: claude-code, codex, or all')
+    .option(
+      '--agent <agent>',
+      'Agent registration to remove: claude-code, codex, or all (auto-detect when omitted)',
+    )
     .action(
       async (
         opts: UninstallOptions & {
@@ -722,7 +763,7 @@ export function createUninstallCommand(findRoot: () => Promise<string> = findPro
         printIntro(ctx, 'clooks uninstall')
 
         try {
-          parseUninstallAgent(opts.agent)
+          if (opts.agent !== undefined) parseUninstallAgent(opts.agent)
 
           // Non-interactive guard
           if (isNonInteractive(ctx) && !opts.force) {
@@ -744,10 +785,10 @@ export function createUninstallCommand(findRoot: () => Promise<string> = findPro
               printError(ctx, 'uninstall', 'Specify --unhook or --full with --force.')
               process.exit(1)
             }
-            if (opts.unhook && opts.full) {
-              printError(ctx, 'uninstall', 'Cannot use both --unhook and --full.')
-              process.exit(1)
-            }
+          }
+
+          if (opts.unhook && opts.full) {
+            throw new Error('Cannot use both --unhook and --full.')
           }
 
           // Scope conflict

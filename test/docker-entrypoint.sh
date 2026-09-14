@@ -15,7 +15,19 @@ fi
 
 ./node_modules/.bin/tsc --noEmit
 mkdir -p dist
-bun build --compile --outfile dist/clooks src/cli.ts
+if [[ -n ${CLOOKS_TEST_BINARY:-} ]]; then
+  : "${CLOOKS_TEST_BINARY_SHA256:?An external test binary requires its expected SHA-256}"
+  [[ -f "$CLOOKS_TEST_BINARY" && ! -L "$CLOOKS_TEST_BINARY" ]]
+  actual=$(sha256sum "$CLOOKS_TEST_BINARY")
+  [[ ${actual%% *} == "$CLOOKS_TEST_BINARY_SHA256" ]] || {
+    echo 'External test binary checksum mismatch' >&2
+    exit 66
+  }
+  cp "$CLOOKS_TEST_BINARY" dist/clooks
+  chmod 0755 dist/clooks
+else
+  bun build --compile --outfile dist/clooks src/cli.ts
+fi
 
 # Run tests — default to test/e2e/ if no args given
 if [ $# -eq 0 ]; then

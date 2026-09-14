@@ -46,7 +46,8 @@ export const hybridCases = [
   'HYBRID-SHELL',
 ] as const
 export type HybridCaseId = (typeof hybridCases)[number]
-export const mandatoryCases = [...baselineCases, ...packCases, ...hybridCases]
+export const sessionEndCases = ['SESSION-END'] as const
+export const mandatoryCases = [...baselineCases, ...packCases, ...hybridCases, ...sessionEndCases]
 export const expectedUnitTests = 26
 
 export function exportSmokeBinary(logs: string, mode: string, binary: string) {
@@ -106,12 +107,13 @@ export function publishPassed(logs: string, mode: string, testExitCode: number):
   if (mode === '--unit') {
     requireThat(completion.completed === expectedUnitTests, 'Incomplete harness unit suite')
   } else {
-    requireThat(mode === '--smoke', 'Unknown completion mode')
+    requireThat(mode === '--smoke' || mode === '--session-end', 'Unknown completion mode')
+    const cases = mode === '--session-end' ? sessionEndCases : mandatoryCases
     requireThat(
-      completion.completed === mandatoryCases.length &&
+      completion.completed === cases.length &&
         Array.isArray(completion.cases) &&
-        completion.cases.length === mandatoryCases.length &&
-        mandatoryCases.every((id, index) => completion.cases[index] === id),
+        completion.cases.length === cases.length &&
+        cases.every((id, index) => completion.cases[index] === id),
       'Incomplete native cases',
     )
   }

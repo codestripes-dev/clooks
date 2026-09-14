@@ -19,8 +19,7 @@ const packs: Record<string, string> = {
   'tmux-notifications': 'clooks-core-hooks',
 }
 const originals: Record<string, string> = {
-  'no-destructive-git': '4278f695615bb43e9516cf02a948a07dd6805d98dd9f1849c765fbbdc5f85ff8',
-  'js-package-manager-guard': '7482fb75d6ba43f0675d102238d9a61b34c812f354de0fdc0abceb53c4805268',
+  'no-destructive-git': '663aa80fa98f8db926fda0c5c292710092696313a89430a5a18de9bb3abe8e00',
 }
 const root = join(import.meta.dir, '../../.clooks/vendor/plugin')
 const digest = (bytes: string | Buffer) => createHash('sha256').update(bytes).digest('hex')
@@ -255,29 +254,39 @@ describe('actual default packs through the compiled binary', () => {
         } else expect(message).toContain('Read, Glob, Grep, Edit, Write')
       })
 
-      test('placeholder provider selection and task-notification compatibility', () => {
+      test('paste placeholder formats block on both providers with task-notification compatibility', () => {
         sandbox = createSandbox()
         configure({ 'no-pasted-placeholder': {} })
         for (const prompt of [
           '[Pasted text #1 +10 lines]',
+          '[Pasted text #6 +1 line]',
+          '[Pasted Content 123 chars]',
+          'review [Pasted Content 123 chars] #2 please',
+          '[Pasted text #1 +10 lines] [Pasted text #1 +10 lines]',
+          '[Pasted Content 123 chars] [Pasted Content 123 chars] #2',
+          '[Pasted text #1 +10 lines] [Pasted Content 123 chars]',
           ' <task-notification>[Pasted text #1 +10 lines]',
+          ' <task-notification>[Pasted Content 123 chars]',
         ]) {
-          const decision = provider === 'codex' ? 'skip' : 'block'
           const output = run(
             provider,
             'UserPromptSubmit',
             { prompt },
-            { 'no-pasted-placeholder': decision },
+            { 'no-pasted-placeholder': 'block' },
           )
-          if (provider === 'codex') expect(output).toBeNull()
-          else {
-            expect(output.decision).toBe('block')
-            expect(output.reason).toContain('unresolved paste placeholder')
-          }
+          expect(output.decision).toBe('block')
+          expect(output.reason).toContain('possible unresolved paste placeholder')
+          expect(output.reason).toContain('[Pasted text #1 +10 lines]')
+          expect(output.reason).toContain('[Pasted Content 123 chars]')
         }
         for (const prompt of [
           'ordinary prompt',
+          '[Pasted text #1 10 lines]',
+          '[Pasted Content 123 char]',
+          '[Pasted content 123 chars]',
           '<task-notification>[Pasted text #1 +10 lines]</task-notification>',
+          '<task-notification>[Pasted Content 123 chars] #2</task-notification>',
+          '<task-notification>[Pasted text #1 +10 lines] [Pasted Content 123 chars]</task-notification>',
         ]) {
           expect(
             run(provider, 'UserPromptSubmit', { prompt }, { 'no-pasted-placeholder': 'skip' }),
@@ -285,10 +294,19 @@ describe('actual default packs through the compiled binary', () => {
         }
       })
 
-      test('compound classification and escape are unchanged', () => {
+      test('compound cd exception requires &&; escape and provider guidance remain', () => {
         sandbox = createSandbox()
         configure({ 'no-compound-commands': {} })
-        for (const command of ['echo a && echo b', 'echo a || echo b', 'echo a; echo b']) {
+        for (const command of [
+          'echo a && echo b',
+          'echo a || echo b',
+          'echo a; echo b',
+          'cd /tmp ; echo a',
+          'cd /tmp;echo a',
+          'cd /tmp;true && echo done',
+          'cd /tmp&&true && echo done',
+          'cd "/path with spaces"; echo a',
+        ]) {
           denied(
             shell(provider, command, { 'no-compound-commands': 'block' }),
             provider === 'codex' ? 'individual shell tool calls' : 'individual Bash calls',
@@ -297,6 +315,9 @@ describe('actual default packs through the compiled binary', () => {
         for (const command of [
           'echo a',
           'cd /tmp && echo a',
+          'cd "/path with spaces" && echo a | sort',
+          'cd "/path;literal" && echo a',
+          'ALLOW_COMPOUND=true cd /tmp; echo a',
           'ALLOW_COMPOUND=true echo a && echo b',
           'echo "a && b"',
         ]) {
@@ -304,7 +325,137 @@ describe('actual default packs through the compiled binary', () => {
         }
       })
 
-      test('unchanged git and package guards retain blocking and permissive decisions', () => {
+      test.each([
+        ["git -C '/tmp/repo with spaces' reset --hard", 'reset-hard'],
+        ["git -c core.sshCommand='ssh -o BatchMode=yes' push --force", 'force-push'],
+        ['git --git-dir=/tmp/inert-repo.git add -A', 'broad-add'],
+        ['git -C . --config-env core.pager=PATH commit --no-verify', 'no-verify'],
+        ['git -C"" . reset --hard', 'reset-hard'],
+      ])('git globals preserve %s classification and rule disable', (command, rule) => {
+        sandbox = createSandbox()
+        sandbox.writeFile('sentinel.txt', 'unchanged')
+        configure({ 'no-destructive-git': {} })
+        denied(shell(provider, command, { 'no-destructive-git': 'block' }), `[${rule}]`)
+        configure({ 'no-destructive-git': { config: { [rule]: false } } })
+        permitted(shell(provider, command, { 'no-destructive-git': 'skip' }), provider)
+        expect(sandbox.readFile('sentinel.txt')).toBe('unchanged')
+      })
+
+      test.each([
+        "git -C '/tmp/repo with spaces' reset --soft",
+        'git -c push.default=current push --force-with-lease',
+        'git --git-dir=/tmp/inert-repo.git add sentinel.txt',
+        "ALLOW_DESTRUCTIVE_GIT=true git -C '/tmp/repo with spaces' reset --hard",
+      ])('git globals preserve safe and escaped skips: %s', (command) => {
+        sandbox = createSandbox()
+        sandbox.writeFile('sentinel.txt', 'unchanged')
+        configure({ 'no-destructive-git': {} })
+        permitted(shell(provider, command, { 'no-destructive-git': 'skip' }), provider)
+        expect(sandbox.readFile('sentinel.txt')).toBe('unchanged')
+      })
+
+      test('git globals preserve escape boundaries and independent rules', () => {
+        sandbox = createSandbox()
+        sandbox.writeFile('sentinel.txt', 'unchanged')
+        configure({ 'no-destructive-git': { config: { 'reset-hard': false } } })
+        for (const prefix of ['', 'ALLOW_DESTRUCTIVE_GIT=true ']) {
+          denied(
+            shell(provider, `${prefix}git --git-dir=/tmp/inert-repo.git add -A`, {
+              'no-destructive-git': 'block',
+            }),
+            '[broad-add]',
+          )
+        }
+        denied(
+          shell(provider, 'git -c push.default=current push --force', {
+            'no-destructive-git': 'block',
+          }),
+          '[force-push]',
+        )
+        expect(sandbox.readFile('sentinel.txt')).toBe('unchanged')
+      })
+
+      test('git globals retain original sanitized input for custom rules', () => {
+        sandbox = createSandbox()
+        sandbox.writeFile('sentinel.txt', 'unchanged')
+        configure({
+          'no-destructive-git': {
+            config: {
+              'reset-hard': false,
+              additionalRules: [
+                { match: '\\bgit\\s+reset\\b', message: '[custom-normalized] must not match' },
+                { match: '\\bcore\\.pager=cat\\b', message: '[custom-global] pager restricted' },
+              ],
+            },
+          },
+        })
+        for (const prefix of ['', 'ALLOW_DESTRUCTIVE_GIT=true ']) {
+          denied(
+            shell(provider, `${prefix}git -c core.pager=cat reset --hard`, {
+              'no-destructive-git': 'block',
+            }),
+            '[custom-global]',
+          )
+          permitted(
+            shell(provider, `${prefix}git -c 'core.pager=cat' reset --hard`, {
+              'no-destructive-git': 'skip',
+            }),
+            provider,
+          )
+        }
+        expect(sandbox.readFile('sentinel.txt')).toBe('unchanged')
+      })
+
+      test('package-manager quoted executables, multiline boundaries and announcement', () => {
+        sandbox = createSandbox()
+        configure({
+          'js-package-manager-guard': {
+            config: {
+              allowed: ['bun'],
+              additionalBlocked: [{ tool: 'fruity', message: 'Use the configured toolchain.' }],
+            },
+          },
+        })
+        for (const command of [
+          '"npm" install',
+          "'npm' install",
+          'bun install\nnpm publish',
+          'CI=true TOKEN="two words" "npm" install',
+          'echo "# inert" # comment\nnpm install',
+          'n\\\npm install',
+          'bun install &&\n"npm" publish',
+          'echo x | cat\nnpm install',
+          '"fruity" deploy',
+          'bun install\nTOKEN="two words" fruity deploy',
+        ]) {
+          denied(
+            shell(provider, command, { 'js-package-manager-guard': 'block' }),
+            'js-package-manager-guard',
+          )
+        }
+        for (const command of [
+          '"bun" install',
+          "'bunx' tool",
+          'echo "npm install"',
+          "echo 'ok\nnpm install'",
+          'echo ok # npm install',
+          'echo ok \\\nnpm install',
+          'echo x |\n npm install',
+          'echo x | # comment\n "npm" install',
+          'echo x |\n fruity deploy',
+          'echo "fruity deploy"',
+          '"/usr/bin/npm" install',
+          './fruity deploy',
+          'cargo build',
+        ]) {
+          permitted(shell(provider, command, { 'js-package-manager-guard': 'skip' }), provider)
+        }
+        const announcement = run(provider, 'SessionStart', { source: 'startup' }, {})
+        expect(announcement.hookSpecificOutput.additionalContext).toContain('shell tools')
+        expect(JSON.stringify(announcement)).not.toContain('The Bash tool')
+      })
+
+      test('git and package guards retain blocking and permissive decisions', () => {
         sandbox = createSandbox()
         configure({
           'no-destructive-git': {},
@@ -829,6 +980,11 @@ describe('actual removal, script equivalence and tmux hooks', () => {
       ['UserPromptSubmit', {}, true, false],
       ['PostToolUse', {}, true, false],
       ['SessionStart', {}, true, false],
+      ['PermissionRequest', { flashOnPrompt: false }, true, false],
+      ['PermissionRequest', { flashOnPrompt: true }, true, false],
+      ['PermissionRequest', {}, false, false],
+      ['SessionEnd', {}, true, false],
+      ['SessionEnd', {}, false, false],
     ])(`${provider}: tmux %s / %j / available=%s`, (event, config, available, attention) => {
       sandbox = createSandbox()
       configure({ 'tmux-notifications': { config } })
@@ -844,7 +1000,9 @@ describe('actual removal, script equivalence and tmux hooks', () => {
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs'
 const args = process.argv.slice(2)
 appendFileSync(process.env.TMUX_TEST_LOG, JSON.stringify(args) + '\\n')
-if (args[0] === 'display-message') console.log('@7')
+if (args[0] === 'display-message') console.log(args.includes('#{session_id}') ? '$2' : args.includes('$2') ? '@9' : '@7')
+if (args[0] === 'list-panes') console.log('%8\\tdefault\\tdefault')
+if (args[0] === 'show-option') console.log('bg=black')
 if (args[0] === 'set-hook') {
   const hooks = JSON.parse(readFileSync(process.env.TMUX_TEST_STATE, 'utf8'))
   hooks[args[2]] = args[3]
@@ -864,8 +1022,28 @@ if (args[0] === 'set-hook') {
           tool_name: provider === 'codex' ? 'exec_command' : 'Bash',
           tool_input: { command: 'echo inert' },
           tool_response: { stdout: 'inert', stderr: '', exit_code: 0 },
+          ...(event === 'SessionEnd'
+            ? {
+                reason: 'other',
+                ...(provider === 'codex'
+                  ? {
+                      model: undefined,
+                      permission_mode: undefined,
+                      turn_id: undefined,
+                      tool_use_id: undefined,
+                      tool_name: undefined,
+                      tool_input: undefined,
+                      tool_response: undefined,
+                      stop_hook_active: undefined,
+                      last_assistant_message: undefined,
+                      prompt: undefined,
+                      source: undefined,
+                    }
+                  : {}),
+              }
+            : {}),
         },
-        { 'tmux-notifications': 'skip' },
+        event === 'SessionEnd' && provider === 'codex' ? {} : { 'tmux-notifications': 'skip' },
         {
           TMUX: available ? '/inert/no-socket,1,0' : '',
           TMUX_PANE: available ? '%4' : '',
@@ -874,11 +1052,7 @@ if (args[0] === 'set-hook') {
           PATH: `${join(sandbox.dir, 'stub-bin')}:${process.env.PATH}`,
         },
       )
-      if (provider === 'claude-code' && event === 'SessionStart') {
-        expect(output).toEqual({
-          systemMessage: expect.stringContaining('plugin is not enabled at project scope'),
-        })
-      } else permitted(output, provider)
+      permitted(output, provider)
       const commands: string[][] = existsSync(log)
         ? readFileSync(log, 'utf8')
             .trim()
@@ -899,8 +1073,40 @@ if (args[0] === 'set-hook') {
         expect(install?.[3]).toContain('set-option -wu @clooks-attention')
       } else {
         expect(commands.some((args) => args.includes('fg=colour208'))).toBe(false)
-        if (available && event !== 'Stop')
+        if (available && !['Stop', 'PermissionRequest', 'SessionEnd'].includes(event as string))
           expect(commands).toContainEqual(['set-option', '-wu', '-t', '@7', '@clooks-attention'])
+      }
+      if (available && event === 'PermissionRequest') {
+        if (provider === 'codex') {
+          expect(commands).toContainEqual([
+            'set-window-option',
+            '-t',
+            '@7',
+            'window-status-style',
+            'bg=red,fg=white,bold',
+          ])
+          expect(commands).toContainEqual([
+            'set-window-option',
+            '-t',
+            '@7',
+            'window-status-current-style',
+            'bg=red,fg=white,bold',
+          ])
+          const flash = (config as { flashOnPrompt?: boolean }).flashOnPrompt !== false
+          expect(commands.some((args) => args[0] === 'list-panes' && args[2] === '@9')).toBe(flash)
+          expect(commands.filter((args) => args.includes('bg=colour240'))).toHaveLength(
+            flash ? 2 : 0,
+          )
+          if (flash) expect(commands.filter((args) => args.includes('bg=black'))).toHaveLength(2)
+        } else expect(commands).toEqual([['display-message', '-t', '%4', '-p', '#{window_id}']])
+      }
+      if (available && event === 'SessionEnd') {
+        expect(commands).toEqual([
+          ['display-message', '-t', '%4', '-p', '#{window_id}'],
+          ['set-window-option', '-t', '@7', 'window-status-style', 'default'],
+          ['set-window-option', '-t', '@7', '-u', 'window-status-current-style'],
+          ['set-window-option', '-t', '@7', 'automatic-rename', 'on'],
+        ])
       }
       expect(JSON.parse(sandbox.readFile('tmux-hooks.json'))['session-window-changed[12]']).toBe(
         'user hook',

@@ -1,13 +1,6 @@
 // Clooks landing site — core (nav, logo, tweaks, palette)
 // ------------------------------------------------------------
 
-const TWEAKS = /*EDITMODE-BEGIN*/{
-  "accent": "#fbbf24",
-  "installCmd": "claude plugin marketplace add codestripes-dev/clooks-marketplace",
-  "heroVariant": "split",
-  "viewport": "full"
-}/*EDITMODE-END*/;
-
 const COL = {
   bg: '#0a0a0a',
   bgElev: '#0f0f0f',
@@ -23,95 +16,6 @@ const COL = {
   green: '#34d399',
   yellow: '#fbbf24',
 };
-
-function TweaksPanel({ tweaks, setTweaks, visible }) {
-  if (!visible) return null;
-  const update = (patch) => {
-    const next = { ...tweaks, ...patch };
-    setTweaks(next);
-    window.parent.postMessage({ type: '__edit_mode_set_keys', edits: patch }, '*');
-  };
-  return (
-    <div style={{
-      position: 'fixed', bottom: 20, right: 20, zIndex: 9999,
-      background: '#161616', border: `1px solid ${COL.lineStrong}`,
-      padding: 16, width: 320, fontSize: 12,
-      fontFamily: 'Geist, -apple-system, sans-serif', color: COL.fg,
-      boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
-    }}>
-      <div style={{ fontSize: 11, letterSpacing: 1.2, textTransform: 'uppercase', color: COL.fgDim, marginBottom: 14 }}>
-        Tweaks
-      </div>
-      <div style={{ marginBottom: 14 }}>
-        <label style={{ display: 'block', color: COL.fgMute, marginBottom: 6 }}>Accent color</label>
-        <div style={{ display: 'flex', gap: 6 }}>
-          {['#fbbf24', '#f97316', '#34d399', '#60a5fa', '#a78bfa', '#f472b6'].map(c => (
-            <button key={c} onClick={() => update({ accent: c })}
-              style={{
-                width: 28, height: 28, background: c, border: tweaks.accent === c ? '2px solid #fff' : '1px solid rgba(255,255,255,0.2)',
-                cursor: 'pointer', padding: 0,
-              }} />
-          ))}
-        </div>
-      </div>
-      <div style={{ marginBottom: 14 }}>
-        <label style={{ display: 'block', color: COL.fgMute, marginBottom: 6 }}>Install command</label>
-        <input
-          value={tweaks.installCmd}
-          onChange={(e) => update({ installCmd: e.target.value })}
-          style={{
-            width: '100%', background: '#0a0a0a', border: `1px solid ${COL.line}`,
-            color: COL.fg, padding: '8px 10px', fontSize: 11,
-            fontFamily: 'JetBrains Mono, monospace', boxSizing: 'border-box',
-          }}
-        />
-      </div>
-      <div style={{ marginBottom: 14 }}>
-        <label style={{ display: 'block', color: COL.fgMute, marginBottom: 6 }}>Hero layout</label>
-        <div style={{ display: 'flex', gap: 6 }}>
-          {[{ id: 'code', label: 'Stacked' }, { id: 'split', label: 'Split' }].map(v => (
-            <button key={v.id} onClick={() => update({ heroVariant: v.id })}
-              style={{
-                flex: 1, padding: '6px 8px', fontSize: 11,
-                background: tweaks.heroVariant === v.id ? tweaks.accent : 'transparent',
-                color: tweaks.heroVariant === v.id ? '#0a0a0a' : COL.fg,
-                border: `1px solid ${tweaks.heroVariant === v.id ? tweaks.accent : COL.line}`,
-                cursor: 'pointer', fontFamily: 'inherit',
-              }}>
-              {v.label}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div style={{ borderTop: `1px solid ${COL.line}`, paddingTop: 14 }}>
-        <label style={{ display: 'block', color: COL.fgMute, marginBottom: 6 }}>
-          Viewport <span style={{ color: COL.fgFaint }}>· simulate</span>
-        </label>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 4 }}>
-          {Object.entries(VIEWPORT_PRESETS).map(([k, p]) => {
-            const on = tweaks.viewport === k;
-            return (
-              <button key={k} onClick={() => update({ viewport: k })}
-                style={{
-                  padding: '8px 4px', fontSize: 10, letterSpacing: 0.6,
-                  textTransform: 'uppercase',
-                  background: on ? tweaks.accent : 'transparent',
-                  color: on ? '#0a0a0a' : COL.fg,
-                  border: `1px solid ${on ? tweaks.accent : COL.line}`,
-                  cursor: 'pointer', fontFamily: 'inherit', fontWeight: on ? 600 : 400,
-                }}>
-                {p.label}
-                <div style={{ fontSize: 9, opacity: 0.7, marginTop: 2, letterSpacing: 0.4 }}>
-                  {p.width ? `${p.width}px` : 'live'}
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function Logo({ accent }) {
   return (
@@ -266,4 +170,4 @@ const TK = {
   op: '#e4e4e7',
 };
 
-Object.assign(window, { TWEAKS, COL, TK, TweaksPanel, Logo, Nav, SectionLabel, CodeCard, renderLine });
+Object.assign(window, { COL, TK, Logo, Nav, SectionLabel, CodeCard, renderLine });

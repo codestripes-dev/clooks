@@ -30,12 +30,15 @@ function useViewport() {
 }
 
 function useWindowWidth() {
-  const [w, setW] = React.useState(() => typeof window !== 'undefined' ? window.innerWidth : 1280);
+  const { targetWindow } = usePageEnvironment();
+  const win = targetWindow || window;
+  const [w, setW] = React.useState(() => win.innerWidth);
   React.useEffect(() => {
-    const on = () => setW(window.innerWidth);
-    window.addEventListener('resize', on);
-    return () => window.removeEventListener('resize', on);
-  }, []);
+    const on = () => setW(win.innerWidth);
+    on();
+    win.addEventListener('resize', on);
+    return () => win.removeEventListener('resize', on);
+  }, [win]);
   return w;
 }
 

@@ -86,6 +86,8 @@ PreToolUse:
 
 Event-level `timeout` and `onError` have been removed. Use per-hook `timeout` and per-hook event overrides (`hooks.<name>.events.<event>.onError`) instead.
 
+Codex native registration is a separate timeout layer: SessionEnd alone registers `timeout: 3` seconds for the entire pipeline, including entrypoint startup and all hooks. This does not change the per-hook millisecond cascade below. Existing installations require init refresh to add/canonicalize SessionEnd; other native event timeouts stay unchanged.
+
 ### Global Config
 
 | Field | Type | Default | Description |
@@ -132,6 +134,8 @@ lint-guard:
 Both formats skip `meta.name` validation (routed through `isShortAddress` or `isPathLike` before the convention rules are reached). See `docs/domain/vendoring/overview.md` for the full vendoring workflow.
 
 **Plugin-delivered hooks** use path-like `uses` values (e.g., `uses: ./.clooks/vendor/plugin/<pack>/<hook>.ts`). They resolve through the same `isPathLike` path as manually vendored hooks. See `docs/domain/vendoring/plugin-vendoring.md` for discovery, vendoring, and scope-based routing.
+
+Both agents use these same entries and vendor paths; changing the runtime agent does not create a second hook identity. Native activation governs new discovery, while existing Clooks entries govern execution after native disable/removal. Explicit updates preserve existing YAML overrides, including `enabled: false`; new disabled-by-default hooks retain that setting. Equivalent update sources sharing a project/local vendor directory still register new hooks in each distinct config destination. The ordinary narrower-scope merge deduplicates execution; no new config merge model or provenance field is introduced.
 
 ## Hook Aliases
 

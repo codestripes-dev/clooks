@@ -1,6 +1,8 @@
 import { existsSync, readFileSync } from 'fs'
 import { join } from 'path'
 import { classifyConfigKeys } from './config/classify.js'
+import type { DiscoveredPack } from './plugin-discovery.js'
+import { resolveCodexHome } from './agents/codex/settings.js'
 
 export type ClaudeSettingsScope = 'managed' | 'user' | 'project' | 'local'
 
@@ -205,9 +207,18 @@ function hasClooksPackJson(file: InstalledPluginsFile, pluginKey: string): boole
  * for each installed plugin entry. Plugins whose install records lack a
  * clooks-pack.json are omitted (they cannot produce vendored entries).
  */
-function buildPackNameToPluginKey(file: InstalledPluginsFile): Record<string, string> {
-  const out: Record<string, string> = {}
-  for (const [pluginKey, entries] of Object.entries(file.plugins ?? {})) {
+function buildPackNameToPluginKeys(
+  file: InstalledPluginsFile | null,
+  layers: EnabledPluginsByLayer,
+): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>()
+  const add = (name: string, key: string) => {
+    const keys = out.get(name) ?? new Set<string>()
+    keys.add(key)
+    out.set(name, keys)
+  }
+  const identified = new Set<string>()
+  for (const [pluginKey, entries] of Object.entries(file?.plugins ?? {})) {
     if (!Array.isArray(entries)) continue
     for (const entry of entries) {
       if (!entry || typeof entry !== 'object') continue
@@ -223,19 +234,54 @@ function buildPackNameToPluginKey(file: InstalledPluginsFile): Record<string, st
       if (!manifest || typeof manifest !== 'object') continue
       const name = (manifest as { name?: unknown }).name
       if (typeof name !== 'string') continue
-      // First plugin key wins when two plugins ship a pack with the same manifest.name.
-      if (!(name in out)) {
-        out[name] = pluginKey
-      }
+      add(name, pluginKey)
+      identified.add(pluginKey)
       break
     }
   }
+  // When the manifest is gone, a matching persisted plugin identity still identifies a pack.
+  // A vendor directory alone never establishes Claude ownership.
+  const keys = new Set([
+    ...Object.keys(file?.plugins ?? {}),
+    ...Object.keys(layers.user),
+    ...Object.keys(layers.project),
+    ...Object.keys(layers.local),
+  ])
+  for (const key of keys) {
+    if (identified.has(key)) continue
+    const parts = key.split('@')
+    if (parts.length === 2 && parts[0] && parts[1]) add(parts[0], key)
+  }
   return out
+}
+
+function sameVendorDestination(
+  pack: DiscoveredPack,
+  scope: 'user' | 'project' | 'local',
+  roots?: { homeRoot: string; projectRoot: string },
+): boolean {
+  if (!roots) return (pack.scope === 'user') === (scope === 'user')
+  const destination = (selected: 'user' | 'project' | 'local') =>
+    resolveCodexHome(roots.homeRoot, {
+      CODEX_HOME: join(
+        selected === 'user' ? roots.homeRoot : roots.projectRoot,
+        '.clooks/vendor/plugin',
+        pack.manifest.name,
+      ),
+    })
+  try {
+    return destination(pack.scope) === destination(scope)
+  } catch {
+    return false
+  }
 }
 
 export function detectStaleAdvisories(opts: {
   installedPluginsFile: InstalledPluginsFile | null
   layers: EnabledPluginsByLayer
+  codexPacks?: readonly DiscoveredPack[]
+  discoverCodexPacks?: () => readonly DiscoveredPack[]
+  roots?: { homeRoot: string; projectRoot: string }
   clooksYmlReaders: {
     user: () => VendoredHookEntry[]
     project: () => VendoredHookEntry[]
@@ -250,27 +296,34 @@ export function detectStaleAdvisories(opts: {
     return []
   }
   const { installedPluginsFile, layers, clooksYmlReaders } = opts
-  const packNameToPluginKey = installedPluginsFile
-    ? buildPackNameToPluginKey(installedPluginsFile)
-    : {}
+  const packNameToPluginKeys = buildPackNameToPluginKeys(installedPluginsFile, layers)
   const advisories: StaleAdvisory[] = []
   const scopes: Array<'user' | 'project' | 'local'> = ['user', 'project', 'local']
+  let codexPacks = opts.codexPacks
 
   for (const scope of scopes) {
     // Drift case A: stale-registration.
     const entries = clooksYmlReaders[scope]()
     for (const entry of entries) {
-      const pluginKey = packNameToPluginKey[entry.packName] ?? entry.packName
-      const enabledAtScope = layers[scope][pluginKey] === true
-      if (!enabledAtScope) {
-        advisories.push({
-          kind: 'stale-registration',
-          scope,
-          pluginKey,
-          hookName: entry.hookName,
-          vendorPackDir: `./.clooks/vendor/plugin/${entry.packName}/`,
-        })
-      }
+      const pluginKeys = packNameToPluginKeys.get(entry.packName)
+      if (!pluginKeys) continue
+      const enabledAtScope = [...pluginKeys].some((key) => layers[scope][key] === true)
+      if (enabledAtScope) continue
+      codexPacks ??= opts.discoverCodexPacks?.() ?? []
+      if (
+        codexPacks.some(
+          (pack) =>
+            pack.manifest.name === entry.packName && sameVendorDestination(pack, scope, opts.roots),
+        )
+      )
+        continue
+      advisories.push({
+        kind: 'stale-registration',
+        scope,
+        pluginKey: [...pluginKeys].sort()[0]!,
+        hookName: entry.hookName,
+        vendorPackDir: `./.clooks/vendor/plugin/${entry.packName}/`,
+      })
     }
 
     // Drift case B: enable-without-install. Gated on hasClooksPackJson so

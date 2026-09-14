@@ -220,7 +220,7 @@ export const hook: ClooksHook<Config> = {
 
   PreToolUse(ctx, config) {
     const raw = ctx as unknown as UnknownPreToolUseContext
-    const nativePatch = ctx.provider === 'codex' && raw.toolName === 'apply_patch'
+    const nativePatch = 'provider' in ctx && ctx.provider === 'codex' && raw.toolName === 'apply_patch'
     const targetTools = ['Write', 'Edit', 'MultiEdit']
     if (!nativePatch && !targetTools.includes(ctx.toolName)) return ctx.skip()
 

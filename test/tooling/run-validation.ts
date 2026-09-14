@@ -13,6 +13,11 @@ import {
   writeSync,
 } from 'node:fs'
 import { join, resolve } from 'node:path'
+import {
+  freezeOnboardingInputs,
+  verifyOnboardingInputs,
+  type OnboardingInputs,
+} from './onboarding-inputs'
 
 const inputs = [
   'src',
@@ -272,6 +277,7 @@ export async function runValidation(
     attemptID: string
     sourceHash?: string
     sourceHashAfter?: string
+    onboarding?: { source: string; snapshot: string; manifest: OnboardingInputs }
     imageID?: string
     build?: CommandResult
     results: WorkerResult[]
@@ -445,6 +451,16 @@ export async function runValidation(
       for (const path of mounts) {
         argv.push('--mount', `type=bind,src=${join(root, path)},dst=/app/${path},readonly`)
       }
+      if (report.onboarding) {
+        argv.push(
+          '--network',
+          'none',
+          '--mount',
+          `type=bind,src=${report.onboarding.snapshot},dst=/onboarding-marketplace,readonly`,
+          '--env',
+          'CLOOKS_MARKETPLACE_ROOT=/onboarding-marketplace',
+        )
+      }
       argv.push(report.imageID!)
       if (worker.kind === 'e2e') argv.push('-u', 'CLAUDECODE', '-u', 'REPL_ID', '-u', 'AGENT')
       argv.push('/bin/bash', '-x', '/app/test/docker-entrypoint.sh', ...worker.args)
@@ -493,6 +509,19 @@ export async function runValidation(
   console.log(`Validation artifacts: ${attempt}`)
   try {
     report.sourceHash = sourceIdentity(root)
+    const marketplaceRoot = process.env.CLOOKS_MARKETPLACE_ROOT
+    if (marketplaceRoot !== undefined) {
+      if (!marketplaceRoot.trim())
+        throw new Error('CLOOKS_MARKETPLACE_ROOT must be an explicit nonempty path')
+      const source = resolve(root, marketplaceRoot)
+      const snapshot = join(attempt, 'onboarding-marketplace')
+      const manifest = freezeOnboardingInputs(source, snapshot)
+      report.onboarding = { source, snapshot, manifest }
+      writeFileSync(
+        join(attempt, 'onboarding-inputs.json'),
+        JSON.stringify(manifest, null, 2) + '\n',
+      )
+    }
     const files = args.length ? [] : discover(root)
     const groups = args.length ? [] : partition(files, workers)
     writeFileSync(join(attempt, 'manifest.json'), JSON.stringify({ files, groups }, null, 2) + '\n')
@@ -558,6 +587,14 @@ export async function runValidation(
     report.error = String(error)
   } finally {
     for (const worker of report.results) await cleanupWorker(worker)
+    if (report.onboarding) {
+      try {
+        verifyOnboardingInputs(report.onboarding.snapshot, report.onboarding.manifest)
+      } catch (error) {
+        report.error = `${report.error ?? ''}\nOnboarding snapshot verification failed: ${error}`
+        report.code = 1
+      }
+    }
     try {
       report.sourceHashAfter = sourceIdentity(root)
       if (report.sourceHashAfter !== report.sourceHash) {

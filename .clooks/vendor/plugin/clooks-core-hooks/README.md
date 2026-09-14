@@ -14,7 +14,7 @@ Blocks compound shell commands (`&&`, `||`, `;`) to encourage single-purpose cal
 
 **Config options:** None.
 
-**Escape hatch:** Prefix a command with `ALLOW_COMPOUND=true` to bypass the check. The hook also allows `cd <path> && <command>` as a safe pattern (single-command remainder only).
+**Escape hatch:** Prefix a command with `ALLOW_COMPOUND=true` to bypass the check. The hook also allows `cd <path> && <command>` as a safe pattern (single-command remainder only). The cd exception requires `&&`; `cd <path>; <command>` is blocked unless explicitly escaped.
 
 ---
 
@@ -35,6 +35,8 @@ Rewrites a standalone literal `mv` with exactly two nonempty operands and no opt
 Blocks dangerous git operations on the Bash tool: `git reset --hard`, `git clean -f`, `git push --force`, `git stash drop`, `git commit --amend`, broad `git add -A` / `.`, and several more — 13 rules in total spanning reset, checkout, restore, clean, stash, worktree, push, branch, and hook-skipping (`--no-verify`). The block reason is tagged with the rule ID that fired so it's clear which rule triggered.
 
 **When to enable:** Always. Each rule corresponds to a concrete way an agent can lose committed work, lose uncommitted work, or rewrite shared history.
+
+Built-in checks also recognize Git global options before the operation (for example, `git -C repo reset --hard`), including quoted operands. Global help/version/path queries are skipped. Custom `additionalRules` still match the original command after the existing quote/comment sanitization, not a normalized command.
 
 **Config options:**
 
@@ -163,9 +165,9 @@ Blocks commands that pipe automatic responses (`yes`, `echo y`, `printf y`, etc.
 
 ### no-pasted-placeholder
 
-Explicit Codex invocations skip this hook. Claude and legacy undefined-provider contexts retain placeholder checks, except prompts starting with `<task-notification>`, which skip to preserve completion notices.
+Claude, Codex and legacy undefined-provider contexts check both formats, except prompts starting with `<task-notification>`, which skip to preserve completion notices.
 
-Blocks `UserPromptSubmit` when the prompt still contains a literal `[Pasted text #N +N lines]` placeholder. Claude Code shows that placeholder in the input box for large pastes; if it survives into the submitted prompt, the paste was not expanded and the prompt references nothing.
+Blocks `UserPromptSubmit` on literal `[Pasted text #N +N lines]` (Claude) or `[Pasted Content N chars]` (Codex) markers. This is a heuristic for potentially unexpanded pastes, not proof that content is missing; literal examples also match.
 
 **When to enable:** Always. The cost of a blocked false positive is one re-submit; the cost of a false negative is a wasted turn responding to a literal placeholder string.
 
@@ -175,8 +177,10 @@ Blocks `UserPromptSubmit` when the prompt still contains a literal `[Pasted text
 
 **Patterns blocked:**
 - `[Pasted text #1 +10 lines]`, `[Pasted text #6 +1 line]`, `[Pasted text #15 +1234 lines]`
+- `[Pasted Content 123 chars]`, `[Pasted Content 123 chars] #2` (the suffix is outside the marker)
 
 **Not blocked:**
+- Prompts starting exactly with `<task-notification>`, even when either marker format appears inside.
 - The same string without brackets (e.g. quoted in a meta-discussion).
 - Variants without a `+` sign (`[Pasted text #4 7 lines]`) or with `-` (`[Pasted text #3 -5 lines]`) — neither matches the format Claude Code emits.
 
@@ -184,7 +188,7 @@ Blocks `UserPromptSubmit` when the prompt still contains a literal `[Pasted text
 
 ### tmux-notifications
 
-Visual tmux indicators for supported session events. Stop colors the window status orange by default and marks it for reset on focus. New prompts, completed tool use and session start reset attention. Claude notifications retain idle and permission/elicitation feedback; flashing targets the currently focused window and restores its pane/status styles. Codex uses supported Stop/activity events, without synthesized Notification, SessionEnd or PostToolUseFailure events.
+Visual tmux indicators for supported session events. Stop colors the window status orange by default and marks it for reset on focus. New prompts, completed tool use and session start reset attention. Claude notifications retain idle and permission/elicitation feedback; flashing targets the currently focused window and restores its pane/status styles. Explicit Codex PermissionRequest applies attentionStyle and optional flashOnPrompt, then skips without deciding approval. This is an approval-request signal that may auto-resolve, not proof that a prompt was displayed. Claude and absent-provider PermissionRequest skip without duplicating notification feedback. SessionEnd restores window styles and automatic rename on both providers; Codex requires the eleven-event adapter and init refresh. No Codex idle, Interrupt, Notification or PostToolUseFailure event is synthesized.
 
 **When to enable:** When running a supported agent inside tmux and visual session feedback is useful. Select the hook through existing pack/config activation; this description does not change registration.
 

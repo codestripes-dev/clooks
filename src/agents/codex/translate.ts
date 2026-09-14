@@ -18,6 +18,8 @@ export function translateFailure(input: TranslateFailureInput): TranslatedAgentO
     SubagentStart:
       'Local hook failure only; no native startup veto is available and detailed stderr may be discarded.',
     PostCompact: 'Local hook failure after compaction; no rollback or native veto is requested.',
+    SessionEnd:
+      'Local hook failure only; no session closure veto is available and native stderr delivery is not guaranteed.',
   }
   const disposition =
     input.eventName && Object.hasOwn(dispositions, input.eventName)
@@ -65,6 +67,9 @@ export function translateFinalOutput(input: TranslateFinalOutputInput): Translat
   const output: Record<string, unknown> = {}
   const specific: Record<string, unknown> = { hookEventName: input.eventName }
   const messages = [...input.systemMessages, ...input.diagnostics]
+  if (input.eventName === 'SessionEnd') {
+    return { stderr: messages.length > 0 ? messages.join('\n') : undefined, exitCode: 0 }
+  }
   if (input.eventName === 'PreToolUse' && result?.result === 'block') {
     specific.permissionDecision = 'deny'
     specific.permissionDecisionReason = result.reason

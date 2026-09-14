@@ -1,74 +1,40 @@
 // Hero + install block + real ClooksHook snippet
 
-function InstallBlock({ cmd, accent, autoType = true, lines = [] }) {
+function InstallBlock({ accent, content, agent, onAgentChange, autoType = true }) {
   const vp = useViewport();
   const wrap = vp.isMobile;
-  // Three-step install: add marketplace → install+enable plugin → scaffold
-  const steps = [
-    {
-      cmd,
-      output: [
-        ['→ Added marketplace ', ['muted', 'codestripes-dev/clooks-marketplace']],
-      ],
-      doneLabel: '✓ added.',
-      typeSpeed: 12,
-      runMs: 500,
-    },
-    {
-      cmd: 'claude plugin install clooks@clooks-marketplace',
-      output: [
-        ['→ Installed ', ['muted', `clooks@${window.CLOOKS_VERSION}`], ', enabled in this project.'],
-      ],
-      doneLabel: '✓ enabled.',
-      typeSpeed: 12,
-      runMs: 500,
-    },
-    {
-      cmd: 'claude /clooks:setup',
-      output: [
-        ['→ Created ', ['code', '.clooks/clooks.yml'], ', ', ['code', '.clooks/hooks/'], ', ', ['code', '.clooks/vendor/']],
-        ['→ Installed ', ['muted', `clooks-core-hooks@${window.CLOOKS_VERSION}`], ' (8 hooks)'],
-      ],
-      doneLabel: '✓ ready.',
-      typeSpeed: 14,
-      runMs: 600,
-    },
-  ];
+  const commands = content.installSteps[agent];
+  const steps = commands.map(s => ({ ...s, output: [[s.output]], typeSpeed: 12, runMs: 500 }));
 
   const [copied, setCopied] = React.useState(false);
   // For each step: { typed: string, phase: 'idle'|'typing'|'running'|'done' }
-  const [state, setState] = React.useState(
-    steps.map((s, i) => ({ typed: autoType ? '' : s.cmd, phase: autoType ? (i === 0 ? 'typing' : 'idle') : 'done' }))
-  );
+  const [state, setState] = React.useState([]);
+  const copyTimer = React.useRef(null);
+  React.useEffect(() => () => clearTimeout(copyTimer.current), []);
 
   const setStep = React.useCallback((i, patch) => {
     setState(prev => prev.map((s, idx) => idx === i ? { ...s, ...patch } : s));
   }, []);
 
-  // Drive each step's typing + running
   React.useEffect(() => {
     if (!autoType) return;
-    const active = state.findIndex(s => s.phase === 'typing');
-    if (active === -1) return;
-    const { cmd: c, typeSpeed, runMs } = steps[active];
-    let i = state[active].typed.length;
-    const iv = setInterval(() => {
-      i++;
-      setStep(active, { typed: c.slice(0, i) });
-      if (i >= c.length) {
-        clearInterval(iv);
-        setTimeout(() => setStep(active, { phase: 'running' }), 300);
-        setTimeout(() => {
+    let timer;
+    setState(steps.map(() => ({ typed: '', phase: 'idle' })));
+    const type = (active, length = 0) => {
+      const step = steps[active];
+      setStep(active, { typed: step.cmd.slice(0, length), phase: 'typing' });
+      if (length < step.cmd.length) timer = setTimeout(() => type(active, length + 1), step.typeSpeed);
+      else timer = setTimeout(() => {
+        setStep(active, { phase: 'running' });
+        timer = setTimeout(() => {
           setStep(active, { phase: 'done' });
-          if (active + 1 < steps.length) {
-            setTimeout(() => setStep(active + 1, { phase: 'typing' }), 500);
-          }
-        }, 300 + runMs);
-      }
-    }, typeSpeed);
-    return () => clearInterval(iv);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.map(s => s.phase).join(',')]);
+          if (active + 1 < steps.length) timer = setTimeout(() => type(active + 1), 500);
+        }, step.runMs);
+      }, 300);
+    };
+    if (steps.length) type(0);
+    return () => clearTimeout(timer);
+  }, [autoType, JSON.stringify(commands), setStep]);
 
   const copy = async () => {
     const parts = steps.map(s => s.cmd);
@@ -96,22 +62,33 @@ function InstallBlock({ cmd, accent, autoType = true, lines = [] }) {
     }
     if (ok) {
       setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
+      clearTimeout(copyTimer.current);
+      copyTimer.current = setTimeout(() => setCopied(false), 1800);
     }
   };
 
   return (
-    <div style={{
+    <div data-install-one-liner style={{
       background: COL.bgCode, border: `1px solid ${COL.line}`,
       fontFamily: 'JetBrains Mono, monospace', fontSize: wrap ? 9 : 13, lineHeight: 1.6,
     }}>
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        flexWrap: 'wrap', gap: 8,
         padding: '10px 14px', borderBottom: `1px solid ${COL.line}`,
         fontSize: 11, color: COL.fgDim, letterSpacing: 0.3,
       }}>
         <span>~/projects/my-repo</span>
-        <button onClick={copy} style={{
+        <div role="group" aria-label="Install agent" style={{ display: 'flex', gap: 2 }}>
+          {['claude', 'codex'].map(value => (
+            <button key={value} type="button" aria-pressed={agent === value} onClick={() => onAgentChange(value)} style={{
+              padding: '4px 8px', border: `1px solid ${agent === value ? COL.line : 'transparent'}`,
+              fontFamily: 'inherit', fontSize: 11, cursor: 'pointer',
+              background: agent === value ? COL.bgSoft : 'transparent', color: agent === value ? accent : COL.fgDim,
+            }}>{value === 'claude' ? 'Claude' : 'Codex'}</button>
+          ))}
+        </div>
+        <button onClick={copy} title={`Copy ${agent === 'claude' ? 'Claude' : 'Codex'} one-liner`} aria-label={`Copy ${agent === 'claude' ? 'Claude' : 'Codex'} one-liner`} style={{
           background: copied ? accent : 'transparent',
           border: `1px solid ${copied ? accent : COL.line}`,
           color: copied ? COL.bg : COL.fgMute,
@@ -135,7 +112,7 @@ function InstallBlock({ cmd, accent, autoType = true, lines = [] }) {
       </div>
       <div style={{ padding: '16px 18px', overflowX: wrap ? 'visible' : 'auto' }}>
         {steps.map((step, si) => {
-          const s = state[si];
+          const s = autoType ? (state[si] || { typed: '', phase: 'idle' }) : { typed: step.cmd, phase: 'done' };
           if (s.phase === 'idle') return null;
           const showCaret = s.phase === 'typing';
           const showOutput = s.phase === 'running' || s.phase === 'done';
@@ -144,13 +121,13 @@ function InstallBlock({ cmd, accent, autoType = true, lines = [] }) {
             <div key={si} style={{ marginTop: si === 0 ? 0 : 14 }}>
               <div style={{
                 color: COL.fg,
-                whiteSpace: wrap ? 'pre-wrap' : 'pre',
-                overflowWrap: wrap ? 'anywhere' : 'normal',
+                whiteSpace: 'pre-wrap',
+                overflowWrap: 'anywhere',
                 textIndent: wrap ? '-1.4em' : 0,
                 paddingLeft: wrap ? '1.4em' : 0,
               }}>
                 <span style={{ color: accent, marginRight: 10 }}>$</span>
-                <span>{s.typed}</span>
+                <ShellCommand command={s.typed}/>
                 {showCaret && (
                   <span style={{
                     display: 'inline-block', width: 7, height: 15,
@@ -191,7 +168,7 @@ function HookSnippet({ compact = false }) {
   // Real ClooksHook object shape (not definePreToolUse)
   const lines = [
     [[TK.com, '// .clooks/hooks/no-rm-rf.ts']],
-    [[TK.kw, 'import type'], [TK.op, ' { '], [TK.ty, 'ClooksHook'], [TK.op, ' } '], [TK.kw, 'from'], [TK.str, " 'clooks'"]],
+    [[TK.kw, 'import type'], [TK.op, ' { '], [TK.ty, 'ClooksHook'], [TK.op, ' } '], [TK.kw, 'from'], [TK.str, " './types'"]],
     '',
     [[TK.kw, 'export const'], [TK.fn, ' hook'], [TK.op, ': '], [TK.ty, 'ClooksHook'], [TK.op, ' = {']],
     ['  ', [TK.prop, 'meta'], [TK.op, ': {']],
@@ -200,9 +177,9 @@ function HookSnippet({ compact = false }) {
     ['  ', [TK.op, '},']],
     '',
     ['  ', [TK.fn, 'PreToolUse'], [TK.op, '('], [TK.ty, 'ctx'], [TK.op, ') {']],
-    ['    ', [TK.kw, 'if'], [TK.op, ' ('], [TK.ty, 'ctx'], [TK.op, '.tool '], [TK.op, '!== '], [TK.str, "'Bash'"], [TK.op, ') '], [TK.kw, 'return'], [TK.op, ' '], [TK.ty, 'ctx'], [TK.op, '.'], [TK.fn, 'skip'], [TK.op, '()']],
+    ['    ', [TK.kw, 'if'], [TK.op, ' ('], [TK.ty, 'ctx'], [TK.op, '.toolName '], [TK.op, '!== '], [TK.str, "'Bash'"], [TK.op, ') '], [TK.kw, 'return'], [TK.op, ' '], [TK.ty, 'ctx'], [TK.op, '.'], [TK.fn, 'skip'], [TK.op, '()']],
     '',
-    ['    ', [TK.kw, 'const'], [TK.fn, ' cmd '], [TK.op, '= '], [TK.ty, 'ctx'], [TK.op, '.input.command '], [TK.op, '?? '], [TK.str, "''"]],
+    ['    ', [TK.kw, 'const'], [TK.fn, ' cmd '], [TK.op, '= '], [TK.ty, 'ctx'], [TK.op, '.toolInput.command '], [TK.op, '?? '], [TK.str, "''"]],
     ['    ', [TK.kw, 'const'], [TK.fn, ' dangerous '], [TK.op, '= /'], [TK.str, 'rm\\s+-rf?\\s+(\\/|~|\\$HOME)'], [TK.op, '/.test(cmd)']],
     '',
     ['    ', [TK.kw, 'return'], [TK.fn, ' dangerous'],],
@@ -340,26 +317,32 @@ function CompatRow({ accent }) {
         gap: compact ? 6 : 8,
         gridTemplateColumns: compact || vp.isTablet
           ? 'repeat(2, minmax(0, 1fr))'
-          : 'repeat(4, max-content)',
+          : 'repeat(3, max-content)',
         maxWidth: compact || vp.isTablet ? 360 : 'none',
         justifyItems: 'stretch',
       }}>
         <span style={chip}><ClaudeMark size={iconSize}/> Claude Code</span>
+        <span style={chip}><img src="codex.svg" alt="" width={iconSize} height={iconSize} style={{ display: 'block', flex: '0 0 auto', objectFit: 'contain', filter: 'invert(1)' }}/> Codex</span>
         <span style={chip}><CursorMark size={iconSize}/> Cursor<span style={star}>*</span></span>
         <span style={chip}><WindsurfMark size={iconSize}/> Windsurf<span style={star}>*</span></span>
         <span style={chip}><JetBrainsMark size={iconSize}/> JetBrains<span style={star}>*</span></span>
       </div>
-      <div style={{
-        marginTop: 10, fontSize: 11.5, color: COL.fgDim,
-        fontFamily: 'JetBrains Mono, monospace', letterSpacing: 0.2,
-      }}>
-        * via Claude Code's IDE integration
+      <div style={{ marginTop: 10, fontSize: 11.5, color: COL.fgDim, fontFamily: 'JetBrains Mono, monospace' }}>
+        * via Claude Code or Codex IDE integrations
       </div>
     </div>
   );
 }
 
-function HeroCode({ tweaks }) {
+function InstallOneLiner({ accent, content }) {
+  const [agent, setAgent] = React.useState('claude');
+  const { editing } = usePageEnvironment();
+  return (
+    <InstallBlock key={agent} accent={accent} content={content} agent={agent} onAgentChange={setAgent} autoType={!editing}/>
+  );
+}
+
+function HeroCode({ tweaks, content }) {
   const vp = useViewport();
   return (
     <section style={{
@@ -381,31 +364,27 @@ function HeroCode({ tweaks }) {
           letterSpacing: vp.isMobile ? -1 : -2,
           fontWeight: 500, margin: '0 0 24px', maxWidth: 980,
         }}>
-          TypeScript hooks<br/>
-          <span style={{ color: COL.fgMute }}>for Claude Code.</span>
+          {content.title}<br/>
+          <span style={{ color: COL.fgMute }}>{content.subtitle}</span>
         </h1>
         <p style={{
           fontSize: vp.isMobile ? 16 : 18, lineHeight: 1.55, color: COL.fgMute,
           maxWidth: 640, margin: '0 0 40px',
         }}>
-          Write hooks as small TypeScript files.<br/>
-          Clooks runs them when Claude Code edits files, runs commands, or finishes
-          a session — and blocks the
-          action if a hook{'\u00a0'}crashes.
+          <Copy text={content.intro}/>
         </p>
 
         <CompatRow accent={tweaks.accent}/>
 
+        <InstallOneLiner accent={tweaks.accent} content={content}/>
+
         <div style={{ maxWidth: 720, marginBottom: vp.isMobile ? 40 : 56 }}>
-          {!vp.isMobile && <InstallBlock cmd={tweaks.installCmd} accent={tweaks.accent}/>}
           <div style={{
             marginTop: vp.isMobile ? 0 : 14, fontSize: 12, color: COL.fgDim,
             fontFamily: 'JetBrains Mono, monospace',
             display: 'flex', gap: 20, flexWrap: 'wrap',
           }}>
-            <span>macOS · Linux</span>
-            <span>Compiled Bun binary</span>
-            <span>MIT license</span>
+            {content.badges.map((badge, i) => <span key={i}>{badge.text}</span>)}
           </div>
         </div>
 
@@ -415,7 +394,7 @@ function HeroCode({ tweaks }) {
             fontFamily: 'JetBrains Mono, monospace', letterSpacing: 1,
             textTransform: 'uppercase',
           }}>
-            A real hook:
+            {content.snippetLabel}
           </div>
           <HookSnippet/>
         </div>
@@ -424,7 +403,7 @@ function HeroCode({ tweaks }) {
   );
 }
 
-function HeroSplit({ tweaks }) {
+function HeroSplit({ tweaks, content }) {
   const vp = useViewport();
   const stack = vp.isMobile || vp.isTablet;
   return (
@@ -453,23 +432,20 @@ function HeroSplit({ tweaks }) {
             letterSpacing: vp.isMobile ? -1 : -1.6,
             fontWeight: 500, margin: '0 0 22px',
           }}>
-            TypeScript hooks<br/>
-            <span style={{ color: COL.fgMute }}>for Claude Code.</span>
+            {content.title}<br/>
+            <span style={{ color: COL.fgMute }}>{content.subtitle}</span>
           </h1>
           <p style={{ fontSize: 17, lineHeight: 1.55, color: COL.fgMute, margin: '0 0 32px' }}>
-            Write hooks as small TypeScript files.<br/>
-            Clooks runs them when Claude Code edits files or runs commands, and blocks the action if a hook{'\u00a0'}crashes.
+            <Copy text={content.intro}/>
           </p>
           <CompatRow accent={tweaks.accent}/>
-          {!vp.isMobile && <InstallBlock cmd={tweaks.installCmd} accent={tweaks.accent}/>}
+          <InstallOneLiner accent={tweaks.accent} content={content}/>
           <div style={{
             marginTop: vp.isMobile ? 0 : 14, fontSize: 12, color: COL.fgDim,
             fontFamily: 'JetBrains Mono, monospace',
             display: 'flex', gap: 20, flexWrap: 'wrap',
           }}>
-            <span>macOS · Linux</span>
-            <span>Compiled Bun binary</span>
-            <span>MIT license</span>
+            {content.badges.map((badge, i) => <span key={i}>{badge.text}</span>)}
           </div>
         </div>
         <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', gap: 16 }}>

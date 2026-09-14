@@ -51,23 +51,91 @@ const RUNTIME_CAPABLE = new Set(['node', 'bun', 'deno'])
 
 // --- Private helpers ---
 
-function sanitize(command: string): string {
-  return command
-    .replace(/'[^']*'/g, '')
-    .replace(/"[^"]*"/g, '')
-    .replace(/#.*$/gm, '')
-}
-
-function getSegments(sanitized: string): string[] {
-  return sanitized.split(/\s*(?:&&|\|\||;)\s*/).filter(s => s.length > 0)
-}
-
-function extractFirstWord(segment: string): string {
-  const pipeIndex = segment.indexOf('|')
-  const prePipe = pipeIndex !== -1 ? segment.slice(0, pipeIndex) : segment
-  const trimmed = prePipe.trim()
-  const command = trimmed.replace(/^(?:\w+=\S*\s+)*/, '')  // strip VAR=val prefixes
-  return command.split(/\s/)[0] || ''
+// Bounded lexical inspection, not shell evaluation. Only pipeline heads count;
+// nested execution and heredocs stop inspection of the remaining input.
+function commandHeads(command: string): string[] {
+  const heads: string[] = []
+  if (command.includes('\0')) return heads
+  let i = 0
+  let head = true
+  let pipeTarget = false
+  let pendingPipe = false
+  while (i < command.length) {
+    const char = command[i]!
+    if (char === '\\' && command[i + 1] === '\n') {
+      i += 2
+      continue
+    }
+    if (/[ \t\r]/.test(char)) {
+      i++
+      continue
+    }
+    if (char === '#') {
+      while (i < command.length && command[i] !== '\n') i++
+      continue
+    }
+    if (';&|\n'.includes(char)) {
+      const pair = command.slice(i, i + 2)
+      if (char === '|' && pair !== '||') {
+        pipeTarget = true
+        pendingPipe = true
+      } else if (char !== '\n' || !pendingPipe) {
+        pipeTarget = false
+        pendingPipe = false
+      }
+      head = true
+      i += ['&&', '||', '|&'].includes(pair) ? 2 : 1
+      continue
+    }
+    if ('()'.includes(char) || command.slice(i, i + 2) === '<<') return heads
+    if ('<>'.includes(char)) {
+      head = false
+      i++
+      continue
+    }
+    const start = i
+    let value = ''
+    let quote = ''
+    while (i < command.length) {
+      const next = command[i]!
+      if (!quote && /[ \t\r\n;&|<>]/.test(next)) break
+      if (next === quote) {
+        quote = ''
+        i++
+        continue
+      }
+      if (!quote && (next === "'" || next === '"')) {
+        quote = next
+        i++
+        continue
+      }
+      if (next === '\\' && quote !== "'") {
+        const escaped = command[i + 1]
+        if (escaped === undefined) return heads
+        if (escaped === '\n') {
+          i += 2
+          continue
+        }
+        if (quote === '"' && !['$', '`', '"', '\\'].includes(escaped)) {
+          value += next
+          i++
+        } else {
+          value += escaped
+          i += 2
+        }
+        continue
+      }
+      if (quote !== "'" && (next === '`' || (next === '$' && command[i + 1] === '(') || (!quote && '()'.includes(next)))) return heads
+      value += next
+      i++
+    }
+    if (quote) return heads
+    pendingPipe = false
+    if (head && /^[A-Za-z_][A-Za-z0-9_]*=/.test(command.slice(start, i))) continue
+    if (head && !pipeTarget) heads.push(value)
+    head = false
+  }
+  return heads
 }
 
 // --- Exported utility and detection functions ---
@@ -141,12 +209,7 @@ export function generateBlockMessage(blocked: string, expandedAllowed: Set<strin
 }
 
 export function detectBlockedTool(command: string, expandedAllowed: Set<string>): string | null {
-  const sanitized = sanitize(command)
-  const segments = getSegments(sanitized)
-
-  for (const segment of segments) {
-    const firstWord = extractFirstWord(segment)
-    if (!firstWord) continue
+  for (const firstWord of commandHeads(command)) {
     if (isBlocked(firstWord, expandedAllowed)) {
       return firstWord
     }
@@ -156,12 +219,7 @@ export function detectBlockedTool(command: string, expandedAllowed: Set<string>)
 }
 
 export function isAdditionalBlocked(command: string, additionalBlocked: Array<{ tool: string; message: string }>): { tool: string; message: string } | null {
-  const sanitized = sanitize(command)
-  const segments = getSegments(sanitized)
-
-  for (const segment of segments) {
-    const firstWord = extractFirstWord(segment)
-    if (!firstWord) continue
+  for (const firstWord of commandHeads(command)) {
     for (const entry of additionalBlocked) {
       if (firstWord === entry.tool) {
         return entry
@@ -226,7 +284,7 @@ Without configuration, this hook cannot protect against wrong package manager us
     const blockedList = blockedTools.map(t => `\`${t}\``).join(', ')
 
     const injectContext = 'INFORMATION (no need to comment on it):' + (blockedTools.length > 0
-      ? `The js-package-manager-guard clooks hook is active in this project. Allowed JS toolchain: ${allowedList}. The Bash tool will refuse other JS package managers, runners, and runtimes: ${blockedList}.`
+      ? `The js-package-manager-guard clooks hook is active in this project. Allowed JS toolchain: ${allowedList}. Calls through shell tools will be blocked for other JS package managers, runners, and runtimes: ${blockedList}.`
       : `The js-package-manager-guard clooks hook is active in this project. Allowed JS toolchain: ${allowedList}.`)
 
     return ctx.skip({

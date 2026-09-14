@@ -44,6 +44,7 @@ import type {
   InvocationTurnPolicy,
 } from '../agents/index.js'
 import { claudeCodePluginDeps } from '../agents/claude-code/adapter.js'
+import { discoverCodexPluginPacks } from '../agents/codex/plugin-discovery.js'
 import { ApprovalStore } from '../agents/codex/approval-store.js'
 import {
   prepareApprovalAttempt,
@@ -76,6 +77,7 @@ export const defaultDeps: RunEngineDeps = {
   loadAllHooks,
   readStdin: readStdinJson,
   discoverPluginPacks: claudeCodePluginDeps.discoverPluginPacks,
+  discoverCodexPluginPacks,
   vendorAndRegisterPack: claudeCodePluginDeps.vendorAndRegisterPack,
   discoverProjectRoot,
 }
@@ -389,23 +391,26 @@ async function runEngineInvocation(
 
   let config = result!.config
   let shadows = result!.shadows
-  const hasProjectConfig = result!.hasProjectConfig
-
-  const failurePath = getFailureLocation(projectRoot, homeRoot, hasProjectConfig, adapter.id)
+  let hasProjectConfig = result!.hasProjectConfig
 
   const pluginSystemMessages: string[] = []
   const danglingWarnings: string[] = []
   const prepared = await adapter.prepareConfigAfterLoad({
     projectRoot,
     homeRoot,
+    codexHome: process.env.CODEX_HOME,
+    hasProjectConfig,
     config,
     shadows,
     loadConfig: deps.loadConfig,
     discoverPluginPacks: deps.discoverPluginPacks,
+    discoverCodexPluginPacks: deps.discoverCodexPluginPacks,
     vendorAndRegisterPack: deps.vendorAndRegisterPack,
   })
   config = prepared.config
   shadows = prepared.shadows
+  hasProjectConfig = prepared.hasProjectConfig ?? hasProjectConfig
+  const failurePath = getFailureLocation(projectRoot, homeRoot, hasProjectConfig, adapter.id)
   pluginSystemMessages.push(...prepared.systemMessages)
 
   const debug = process.env.CLOOKS_DEBUG === 'true'
@@ -477,10 +482,7 @@ async function runEngineInvocation(
       finishEngine(EXIT_STDERR)
     }
 
-    // Normalized here, before the early exits, so the turn boundary below can
-    // read a session identity the adapter owns rather than a raw wire key.
-    // `normalizeInvocation` is a pure transform, and this same object is reused at
-    // the executeHooks call site — the payload is never normalized twice.
+    // Turn boundaries need normalized session identity even when no hooks match.
     invocation = adapter.normalizeInvocation(payload, eventName)
     state.invocation = invocation
     state.eventName = eventName
@@ -495,10 +497,7 @@ async function runEngineInvocation(
     await pruneHandoffFiles(projectRoot).catch(() => {})
   }
 
-  // Turn state is meaningless without a session identity, and inventing a
-  // fallback would silently merge unrelated sessions into one history. No
-  // identity means no boundary, no snapshot, no recording, and an empty
-  // ctx.turn for every hook in this invocation.
+  // A fallback identity would merge unrelated sessions; disable turn state instead.
   const sessionId =
     typeof normalized.sessionId === 'string' && normalized.sessionId.length > 0
       ? normalized.sessionId
@@ -528,9 +527,7 @@ async function runEngineInvocation(
   // file a second time.
   let boundaryState: TurnState | null = null
 
-  // Placed before both early exits for the same reason the handoff prune is: a
-  // project with no UserPromptSubmit hooks must still get its turn boundary, or
-  // every dedup hook goes permanently silent after its first intervention.
+  // Advance turn state even without matching hooks, or dedup history never resets.
   if (turnPath !== null && turnPolicy !== null) {
     if (turnPolicy.prune) await pruneTurnState(homeRoot, adapter.id).catch(() => {})
     if (turnPolicy.boundary !== null) {
@@ -545,11 +542,7 @@ async function runEngineInvocation(
 
   // Gate the cwd-fallback warning to SessionStart so it appears once per session,
   // not once per tool call.
-  if (
-    eventName === 'SessionStart' &&
-    discovery.signal === 'cwd-fallback' &&
-    !result.hasProjectConfig
-  ) {
+  if (eventName === 'SessionStart' && discovery.signal === 'cwd-fallback' && !hasProjectConfig) {
     const boundary = discovery.boundary ?? 'fs-root'
     const boundaryPath = discovery.boundaryPath ?? '/'
     process.stderr.write(
@@ -562,6 +555,8 @@ async function runEngineInvocation(
       ...adapter.collectSessionStartAdvisories({
         homeRoot,
         projectRoot,
+        codexHome: process.env.CODEX_HOME,
+        discoverCodexPluginPacks: deps.discoverCodexPluginPacks,
       }),
     )
   }

@@ -1,4 +1,4 @@
-function HookInActionSection({ accent }) {
+function HookInActionSection({ accent, content }) {
   const vp = useViewport();
   const stack = vp.isMobile || vp.isTablet;
   // Timeline (ms) of a single loop. Each tick advances the scene.
@@ -6,7 +6,7 @@ function HookInActionSection({ accent }) {
     { at: 0,    step: 'idle',     highlight: null },
     { at: 300,  step: 'typing',   highlight: null },
     { at: 2100, step: 'sent',     highlight: null },
-    { at: 2500, step: 'pre-tool', highlight: 'guard' },   // ctx.tool !== 'Bash' check
+    { at: 2500, step: 'pre-tool', highlight: 'guard' },   // ctx.toolName !== 'Bash' check
     { at: 3000, step: 'parse',    highlight: 'regex' },   // dangerous = /rm.../.test
     { at: 3500, step: 'decide',   highlight: 'return' },  // returns block
     { at: 3900, step: 'blocked',  highlight: 'return' },
@@ -84,7 +84,7 @@ function HookInActionSection({ accent }) {
   // Source-code line highlights keyed by scene.highlight
   // Our hook source is 19 lines. Line indices below are 0-based.
   const HL = {
-    guard:  [10],       // if (ctx.tool !== 'Bash') return skip
+    guard:  [10],       // if (ctx.toolName !== 'Bash') return skip
     regex:  [12, 13],   // const cmd / const dangerous = regex
     return: [15, 16, 17], // return dangerous ? block : allow
   };
@@ -92,7 +92,7 @@ function HookInActionSection({ accent }) {
 
   const hookLines = [
     [[TK.com, '// .clooks/hooks/no-rm-rf.ts']],
-    [[TK.kw, 'import type'], [TK.op, ' { '], [TK.ty, 'ClooksHook'], [TK.op, ' } '], [TK.kw, 'from'], [TK.str, " 'clooks'"]],
+    [[TK.kw, 'import type'], [TK.op, ' { '], [TK.ty, 'ClooksHook'], [TK.op, ' } '], [TK.kw, 'from'], [TK.str, " './types'"]],
     '',
     [[TK.kw, 'export const'], [TK.fn, ' hook'], [TK.op, ': '], [TK.ty, 'ClooksHook'], [TK.op, ' = {']],
     ['  ', [TK.prop, 'meta'], [TK.op, ': {']],
@@ -101,9 +101,9 @@ function HookInActionSection({ accent }) {
     ['  ', [TK.op, '},']],
     '',
     ['  ', [TK.fn, 'PreToolUse'], [TK.op, '('], [TK.ty, 'ctx'], [TK.op, ') {']],
-    ['    ', [TK.kw, 'if'], [TK.op, ' ('], [TK.ty, 'ctx'], [TK.op, '.tool '], [TK.op, '!== '], [TK.str, "'Bash'"], [TK.op, ') '], [TK.kw, 'return'], [TK.op, ' '], [TK.ty, 'ctx'], [TK.op, '.'], [TK.fn, 'skip'], [TK.op, '()']],
+    ['    ', [TK.kw, 'if'], [TK.op, ' ('], [TK.ty, 'ctx'], [TK.op, '.toolName '], [TK.op, '!== '], [TK.str, "'Bash'"], [TK.op, ') '], [TK.kw, 'return'], [TK.op, ' '], [TK.ty, 'ctx'], [TK.op, '.'], [TK.fn, 'skip'], [TK.op, '()']],
     '',
-    ['    ', [TK.kw, 'const'], [TK.fn, ' cmd '], [TK.op, '= '], [TK.ty, 'ctx'], [TK.op, '.input.command '], [TK.op, '?? '], [TK.str, "''"]],
+    ['    ', [TK.kw, 'const'], [TK.fn, ' cmd '], [TK.op, '= '], [TK.ty, 'ctx'], [TK.op, '.toolInput.command '], [TK.op, '?? '], [TK.str, "''"]],
     ['    ', [TK.kw, 'const'], [TK.fn, ' dangerous '], [TK.op, '= /'], [TK.str, 'rm\\s+-rf?\\s+(\\/|~|\\$HOME)'], [TK.op, '/.test(cmd)']],
     '',
     ['    ', [TK.kw, 'return'], [TK.fn, ' dangerous'],],
@@ -144,16 +144,15 @@ function HookInActionSection({ accent }) {
   return (
     <section ref={sectionRef} className="section section--elev">
       <div style={{ maxWidth: 1200, margin: '0 auto' }}>
-        <SectionLabel accent={accent}>Hook in action</SectionLabel>
+        <SectionLabel accent={accent}>{content.label}</SectionLabel>
         <h2 style={{
           fontSize: 'clamp(32px, 3.6vw, 46px)', lineHeight: 1.1,
           letterSpacing: -1, fontWeight: 500, margin: '0 0 20px', maxWidth: 820,
         }}>
-          A hook decides.<br/>
-          <span style={{ color: COL.fgMute }}>Step by step.</span>
+          <Copy text={content.title} heading/>
         </h2>
         <p style={{ fontSize: 15, color: COL.fgMute, maxWidth: 680, margin: '0 0 28px', lineHeight: 1.6 }}>
-          On the left, a Claude Code session. On the right, the hook file.
+          <Copy text={content.intro}/>
         </p>
 
         {/* Step ribbon — clickable */}
@@ -352,7 +351,7 @@ function HookInActionSection({ accent }) {
             }}>
               <span>
                 {scene.highlight === 'guard' && 'tool gate — not Bash? skip'}
-                {scene.highlight === 'regex' && 'regex match on ctx.input.command'}
+                {scene.highlight === 'regex' && 'regex match on ctx.toolInput.command'}
                 {scene.highlight === 'return' && 'decision: ctx.block({ reason })'}
                 {!scene.highlight && 'waiting for PreToolUse'}
               </span>
