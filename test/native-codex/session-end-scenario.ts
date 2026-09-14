@@ -76,7 +76,7 @@ export async function sessionEndScenario(logRoot: string) {
     const registered = readFileSync(hooksPath, 'utf8')
     const hooks = JSON.parse(registered).hooks
     requireThat(
-      Object.keys(hooks).length === 11 && hooks.SessionEnd[0].hooks[0].timeout === 3,
+      Object.keys(hooks).length === 12 && hooks.SessionEnd[0].hooks[0].timeout === 3,
       'Missing generated SessionEnd registration',
     )
     cpSync(hooksPath, join(logs, 'generated-hooks.json'))

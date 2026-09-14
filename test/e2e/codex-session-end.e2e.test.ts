@@ -195,7 +195,7 @@ describe('Codex SessionEnd registered compiled smoke', () => {
       expect(sandbox.run(['init', '--agent', 'codex']).exitCode).toBe(0)
       const bytes = sandbox.readFile('.codex/hooks.json')
       const upgraded = JSON.parse(bytes)
-      expect(Object.keys(upgraded.hooks)).toHaveLength(11)
+      expect(Object.keys(upgraded.hooks)).toHaveLength(12)
       expect(upgraded.hooks.SessionEnd[0]).toEqual(unrelated)
       expect(upgraded.hooks.SessionEnd[1].hooks[0].timeout).toBe(3)
       expect(

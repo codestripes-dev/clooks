@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   assertSkill,
+  assertRuntimeRegistration,
   deniedToolOutput,
   onboardingCases,
   onboardingPin,
@@ -13,6 +14,67 @@ import {
   toolOutput,
 } from './onboarding'
 import { save } from './harness'
+import { CODEX_REGISTRATION_EVENTS } from '../../src/agents/codex/settings'
+
+function runtimeRegistration(): Record<string, any[]> {
+  return Object.fromEntries(
+    CODEX_REGISTRATION_EVENTS.map((event) => [
+      event,
+      [
+        {
+          matcher: '*',
+          hooks: [
+            {
+              type: 'command',
+              command: 'CLOOKS_AGENT=codex entrypoint',
+              ...(event === 'SessionEnd' || event === 'Interrupt' ? { timeout: 3 } : {}),
+            },
+          ],
+        },
+      ],
+    ]),
+  )
+}
+
+test('runtime registration accepts all twelve current events including bounded Interrupt', () => {
+  expect(() => assertRuntimeRegistration(runtimeRegistration())).not.toThrow()
+})
+test.each([
+  'missing',
+  'extra',
+  'replacement',
+  'duplicate-group',
+  'duplicate-command',
+  'timeout',
+  'missing-timeout',
+  'end-timeout',
+  'unbounded-timeout',
+  'matcher',
+  'command',
+])('runtime registration rejects %s', (mutation) => {
+  const hooks = runtimeRegistration()
+  if (mutation === 'missing') delete hooks.Interrupt
+  if (mutation === 'extra') hooks.Unknown = hooks.Stop!
+  if (mutation === 'replacement') {
+    hooks.Unknown = hooks.Interrupt!
+    delete hooks.Interrupt
+  }
+  if (mutation === 'duplicate-group') hooks.Interrupt!.push(hooks.Interrupt![0])
+  if (mutation === 'duplicate-command') hooks.Interrupt![0].hooks.push(hooks.Interrupt![0].hooks[0])
+  if (mutation === 'timeout') hooks.Interrupt![0].hooks[0].timeout = 1
+  if (mutation === 'missing-timeout') delete hooks.Interrupt![0].hooks[0].timeout
+  if (mutation === 'end-timeout') hooks.SessionEnd![0].hooks[0].timeout = 1
+  if (mutation === 'unbounded-timeout') hooks.Stop![0].hooks[0].timeout = 3
+  if (mutation === 'matcher') hooks.Interrupt![0].matcher = 'wrong'
+  if (mutation === 'command') hooks.Interrupt![0].hooks[0].type = 'prompt'
+  expect(() => assertRuntimeRegistration(hooks)).toThrow()
+})
+test.each([{ hooks: null }, { hooks: [] }, { hooks: {} }, { hooks: false }])(
+  'runtime registration rejects malformed root %j',
+  ({ hooks }) => {
+    expect(() => assertRuntimeRegistration(hooks)).toThrow('exact twelve-event inventory')
+  },
+)
 
 const directories: string[] = []
 afterEach(() => {

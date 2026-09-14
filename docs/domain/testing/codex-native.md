@@ -9,7 +9,7 @@ Codex fixture provenance, native evidence boundaries and the opt-in isolated CLI
 `test/fixtures/codex/events/` contains synthetic wire fixtures; `scripts/test-codex-native.sh` orchestrates isolated native runs; `test/native-codex/` contains the harness, fixture server and container entrypoint.
 
 ## Codex event fixtures
-Codex wire fixtures live under `test/fixtures/codex/events/`. They use snake_case input field names, not Clooks' camelCase normalized names. The current inventory contains the original ten docs-shaped fixtures plus synthetic source-shaped `session-end-other.json` from pinned `rust-v0.153.4` (`3d2ee51ca2d5db578f328aa75e20aa22c0197c9a`). The fixture set is validated by `src/codex-fixtures.test.ts`, which checks eleven-event coverage and basic per-event fields without treating the shapes as runtime-captured payloads. This hardcoded coverage check does not discover new upstream events or independently validate the wire contract. The SessionEnd fixture remains synthetic; independent [native orderly-shutdown evidence](#native-sessionend-shutdown) does not change its provenance. Historical native ten-event evidence below is unchanged. Revalidate each fixture against version-specific evidence before adapter consumption.
+Codex wire fixtures live under `test/fixtures/codex/events/`. They use snake_case input field names, not Clooks' camelCase normalized names. The inventory contains the original ten docs-shaped fixtures plus synthetic source-shaped `session-end-other.json` and `interrupt.json` from pinned `rust-v0.153.4` (`3d2ee51ca2d5db578f328aa75e20aa22c0197c9a`). `src/codex-fixtures.test.ts` checks twelve-event coverage and basic per-event fields. These fixtures are not runtime captures; neither inventory checks nor separate native tests change their provenance.
 
 These historical fixtures remain docs-shaped contract artifacts, not native payload captures. The current PreToolUse unit and compiled E2E suites separately exercise the implemented adapter; passing replay does not upgrade fixture provenance. Live Codex CLI hook spikes should stay opt-in and disposable: use temporary `HOME`, `CODEX_HOME`, and project directories, avoid real `~/.codex` or trust-state changes, and promote only summarized evidence back into docs.
 
@@ -26,7 +26,7 @@ As of the 2026-09-07 source audit, exact tag `rust-v0.153.4` is verified to comm
 
 The original offline feasibility probe verified the retained archive but found neither cargo nor rustc in the cached container; **zero upstream tests executed**. The [pinned toolchain](https://github.com/openai/codex/blob/3d2ee51ca2d5db578f328aa75e20aa22c0197c9a/codex-rs/rust-toolchain.toml) requires Rust `1.95.0`. The one bounded retry stopped during dependency preparation: `cargo fetch --locked` refused the required update to upstream `Cargo.lock`, exiting 101 after 49 seconds. No tests ran in the retry either. The retry allowance is exhausted; upstream execution remains unverified with no `P` evidence. This does not establish general toolchain unavailability or diagnose why the lockfile needed updating. The owned container was removed, and the label-filtered container listing was empty. That historical probe added no native `L` evidence; the separate native probe below establishes narrow native proof. Full genuine-user-turn parity has the concrete [Review limitation](../turn-state.md#codex-source-constraints-and-proposed-mapping); normal best-effort history is approved as a planned mapping with Review as a nonblocking limitation and no special workaround. Provider-isolated history has the completed PreToolUse gate. Prompt-boundary handling is now implemented, with expanded Docker validation passed.
 
-The historical six-case native CLI smoke exercised real Codex 0.153.4 through unchanged generated registration, using a synthetic loopback model in network-disabled Docker, synthetic project trust, hook-trust bypass and `--sandbox danger-full-access`, without real home/auth mounts. Measured capabilities are baseline invocation of SessionStart/UserPromptSubmit/PreToolUse/PostToolUse/ordinary Stop, shell denial with actual request feedback and no denied-call PostToolUse, command rewrite with original-marker absence and rewritten-marker presence, unsupported-ask refusal with no tool effect, context tokens in actual request text, and one same-turn Stop continuation with history-skip. Context uses PreToolUse ALLOW and SessionStart/UserPromptSubmit/PostToolUse SKIP; the public PreToolUse `ctx.skip()` helper does not accept `injectContext`; native skip-context consumption was not tested. Structured text oracles exclude metadata, function arguments and scripted assistant text; positive/mutant helper tests check false-pass resistance and truthful exits. PermissionRequest, PreCompact, PostCompact, SubagentStart and SubagentStop were unverified by that smoke, as were other result arms/codecs, normal trust/approvals, layered activation and recipient readability. Historical fixtures retain their original provenance.
+The historical six-case native CLI smoke exercised real Codex 0.153.4 through unchanged generated registration, using a synthetic loopback model in network-disabled Docker, synthetic project trust, hook-trust bypass and `--sandbox danger-full-access`, without real home/auth mounts. Measured capabilities are baseline invocation of SessionStart/UserPromptSubmit/PreToolUse/PostToolUse/ordinary Stop, shell denial with actual request feedback and no denied-call PostToolUse, command rewrite with original-marker absence and rewritten-marker presence, unsupported-ask refusal with no tool effect, context tokens in actual request text, and one same-turn Stop continuation with history-skip. Context uses PreToolUse ALLOW and SessionStart/UserPromptSubmit/PostToolUse SKIP; the public PreToolUse `ctx.skip()` helper did not then accept `injectContext`; native skip-context consumption was not tested. Structured text oracles exclude metadata, function arguments and scripted assistant text; positive/mutant helper tests check false-pass resistance and truthful exits. PermissionRequest, PreCompact, PostCompact, SubagentStart and SubagentStop were unverified by that smoke, as were other result arms/codecs, normal trust/approvals, layered activation and recipient readability. Historical fixtures retain their original provenance.
 
 ## Authorized real-session evidence
 
@@ -69,11 +69,84 @@ This verifies bounded Clooks denial/token fallback behavior, not native Codex `a
 
 ## Native SessionEnd Shutdown
 
-`test/native-codex/session-end-scenario.ts` starts real pinned Codex 0.153.4 against the loopback synthetic model and lets ordinary `codex exec` completion initiate orderly shutdown. The focused `session-end.smoke.test.ts` and regular `native-conformance.smoke.test.ts` both run this shared scenario; full smoke now requires sixteen cases, including `SESSION-END`, while historical fifteen-case receipts retain their original scope. It does not submit a SessionEnd JSON fixture. Generated eleven-event registration and the current compiled Clooks dispatch the native event to an observer and the actual vendored tmux hook; only the tmux executable is fake, so no real tmux server is touched.
+`test/native-codex/session-end-scenario.ts` starts real pinned Codex 0.153.4 against the loopback synthetic model and lets ordinary `codex exec` completion initiate orderly shutdown. The focused `session-end.smoke.test.ts` and regular `native-conformance.smoke.test.ts` both run this shared scenario; at the time of this receipt, full smoke required sixteen cases, including `SESSION-END`, while earlier fifteen-case receipts retained their original scope. It does not submit a SessionEnd JSON fixture. The then-generated eleven-event registration and tested compiled Clooks dispatched the native event to an observer and the actual vendored tmux hook; only the tmux executable was fake, so no real tmux server was touched.
 
 The focused run `tmp/codex-native-m1/session-end-Dr8SSybz` passed ten tests across two files with 17 assertions in 8.53 seconds, one native launch and final exit 0. The captured SessionEnd carried matching session identity, cwd, transcript path and `reason: other`, without model, permission mode or turn ID. The ordered trace shows SessionStart, Stop, then tmux style reset/current-style removal/automatic-rename restoration before the SessionEnd observer removed its cleanup marker. The process exited 0 without timeout or signal and was reaped; disposable directory removal, container cleanup, publication, sealing and hash checks passed. The receipt identifies tested compiled Clooks SHA256 `d028a1c59857bd6c314128556015d36e7b5ad1b6950a1212c01e65cb32484d00`; focused mode does not export that binary. Separate harness validation `unit-FcVjKCd5` passed 26 tests with 317 assertions in 0.875 seconds and final exit 0. The expanded sixteen-case full smoke was not run for this change.
 
 This proves one native orderly exec shutdown path through generated registration and Clooks cleanup. It does not prove all exit paths, interruption, observer failure behavior, normal trust/approval setup, live tmux rendering, diagnostic delivery or full conformance. The run uses synthetic project trust, hook-trust bypass, danger-full-access and an offline mock model, with no real home/auth mounts. Native raw captures stay in attempt artifacts; the durable contract fixture is not relabeled as a capture.
+
+## Native Handoff, Interrupt, and MCP
+
+Historical receipt `smoke-3h0FR9X0` passed full smoke with final exit 0, all 26 case
+receipts and 28 native launches. Seven parent handoff cases passed; the child
+case passed actual reads in `danger-full-access`, `workspace-write` and
+`read-only`. Interrupt reached the observer and flushed transcript. All six
+non-record MCP shapes were observed and denied before server execution; the
+record replacement executed once and reached PostToolUse and the next model
+request. Evidence is retained under `tmp/codex-native-m1/smoke-3h0FR9X0/`,
+including `final.rc`, `native-launch-count` and `export/completed.json`.
+This receipt applies to its tested snapshot, not later source or stricter
+receipt-validation changes; it does not establish live-model behavior or server
+acceptance of the denied non-record inputs.
+
+Full smoke requires 28 case receipts across 30 native launches, including `LOCAL-REWRITE` and `LOCAL-DENY`; the expanded inventory has passed on pinned Codex 0.153.4. `handoff-scenarios.ts` exercises SessionStart, UserPromptSubmit, PreToolUse and PostToolUse context, plus PreToolUse, PostToolUse and Stop block reasons. Each case requires a pointer in an actual model request, no original payload before the read, and exact file contents in a subsequent native tool result. PreToolUse denial prevents the command effect; PostToolUse denial preserves the already-completed effect. Files use the shared private handoff protocol, including paths containing spaces.
+
+The historical complete 26-case smoke passed on pinned Codex 0.153.4 across 28 native launches, including all three child sandbox modes, with successful publication, binary export, permission sealing and cleanup. The scripted run completed in 193.76 seconds. Per-attempt receipts and command/output captures remain under `tmp/codex-native-m1/smoke-*/`; source fixtures remain synthetic.
+
+`handoff-child-scenarios.ts` exercises SubagentStart context and a one-shot SubagentStop continuation. The child itself reads both files; the parent reading them does not count. All three attempts must pass: `danger-full-access`, `workspace-write`, and `read-only`. An unavailable sandbox fails the case and prevents binary export. Docker's default seccomp profile prevents the unprivileged namespaces needed by Codex's bubblewrap sandbox. Only the disposable full-smoke container uses `seccomp=unconfined`; it retains network isolation, default capabilities, read-only source/native mounts, and non-root test execution. No host home or credentials are mounted.
+
+`interrupt-scenario.ts` sends SIGINT only after the real native process has started a model request. It checks generated three-second registration, the executed Interrupt hook's provider/session/model/permission context, and the flushed interrupted transcript. Interrupted `codex exec` exits 1 by design; success requires the hook evidence and graceful reaping, not exit zero.
+
+`mcp-observation-scenario.ts` connects the real runtime to a local stdio MCP server. Null, array, number, boolean, JSON string, and malformed raw string arguments must reach the PreToolUse hook unchanged. Hook denials must appear on their exact tool calls, with no server execution or PostToolUse. A valid object is rewritten, executed once by the server, and observed unchanged in PostToolUse and the subsequent model request. These probes use a scripted local model provider and synthetic trust, not a live model or host installation.
+
+## Native Local Function-Tool Rewrites
+
+`local-tool-rewrite-scenario.ts` adds `LOCAL-REWRITE` and `LOCAL-DENY` to
+`harness.ts` mandatory cases and `native-conformance.smoke.test.ts`. Each case
+launches real pinned Codex 0.153.4 once in offline Docker against
+the scripted local provider/catalog, using generated `clooks init --agent codex`
+registration and disposable HOME, CODEX_HOME and project directories. Existing
+deadlines remain unchanged. Both cases passed in the expanded full smoke.
+The disposable Codex config must explicitly set `[tools.update_plan]` with
+`enabled = true`: pinned 0.153.4 defaults this tool off, so the model catalog
+alone does not register or advertise it.
+
+The first provider request must advertise the native `update_plan` function
+tool with object arguments supporting `explanation` and `plan`. `LOCAL-REWRITE`
+uses Clooks `ctx.allow({ updatedInput: ... })` to replace the explanation and
+first step while preserving both statuses and the second step. Exact raw and
+normalized PreToolUse inputs must equal the original object; PostToolUse inputs
+must equal the rewritten object, with the matching tool/call identity and the
+real `Plan updated` response.
+
+Pinned source inspection shows that the plan handler uses the registry's
+default function-argument rewrite and emits a native PlanUpdate. Its tool
+response contains only `Plan updated`, JSON exec output omits the explanation,
+and rollout storage excludes PlanUpdate events. The scenario therefore checks
+the native human renderer with color disabled: the rewritten explanation and
+exact ordered steps must appear, and the original explanation and replaced
+step must not. Independently, both the native transcript and subsequent model
+request must contain the exact real tool output on the original call ID.
+Scripted assistant responses supply neither rewritten content nor tool output;
+argument echoes or hook captures alone cannot satisfy the execution oracle.
+
+`LOCAL-DENY` requires the exact attributed feedback
+`Tool call blocked by PreToolUse hook: local-plan-denied-local_deny. Tool: update_plan`
+on its call ID, no PostToolUse, and no rendered plan update. Scope is generic
+local function-tool object rewrites and denial through `update_plan`, not
+non-record observation (#2), all local handlers, approval binding or an
+ask/approve retry. The cases retain synthetic project trust, hook-trust bypass,
+`danger-full-access` and a scripted provider; they do not establish live-model
+behavior or normal interactive trust/approvals.
+
+Measured native proof includes the exact rewritten explanation and step in the
+renderer, preserved plan fields in PostToolUse, and real transcript/model
+feedback matched by call ID. Denial produced the exact reason with no plan
+update or PostToolUse. The complete 28-case/30-launch run passed with final,
+completion, binary export and cleanup statuses zero. This is bounded proof of
+the tested local object contract, not all function tools or full release
+conformance. Exact run receipts and the tested binary hash are recorded in the
+capability-completion plan; no global installation was performed.
 
 ## Native Plugin Onboarding
 
@@ -147,13 +220,14 @@ cache bytes while preserving config overrides and registrations. No test hook
 substitutes for the actual pack in these checks. Pack receipts are required for
 completion publication; missing or false stage flags and altered pack lists fail.
 
-Verified coverage is **11 tests across 2 files, 0 failures, 64 assertions**:
-one orchestration test covering three native cases, plus ten helper tests.
+Verified coverage is **27 tests across 2 files, 0 failures, 80 assertions**:
+one orchestration test covering three native cases, plus 26 helper tests.
 All three cases passed across ten native sessions, including create-hook. Tested Clooks was 0.3.0,
 compiled SHA256
-`d5f4c67f9314100ca074ba044080e77a56089addf30bc8ea7622a760eefca248`.
-The separate tooling and onboarding-helper gate passed 115 tests across three
-files with 1,076 assertions and zero failures.
+`883791fc7e2dcca2b5a62f5dd7a0c310205f35cae4f6b36ab9c512af7c10cc0a`.
+Registration assertions independently require the exact twelve-event inventory,
+one command per event, and three-second SessionEnd/Interrupt timeouts. Negative
+helper cases reject missing/replaced events, duplicate groups and invalid timeouts.
 Final status, container cleanup, completion publication, snapshot verification,
 permission sealing and artifact hash checks all exited zero. The runner retains
 per-attempt requests, TUI transcripts, case receipts, snapshots and final status
@@ -198,7 +272,7 @@ neither substitutes for the other.
 
 ## Tested Binary Export
 
-After successful full smoke and completion publication, the container exports /app/dist/clooks to /export/clooks before sealing. Export requires all sixteen mandatory cases for `--smoke`, including `SESSION-END`. Focused `--session-end` publishes a distinct one-case evidence receipt only: it cannot publish full-smoke completion or export a binary. Successful full-smoke case receipts must match the Clooks hash; export also checks a regular executable source, exclusive creation and post-copy hash equality. binary.json records hash, architecture/platform and original/sealed modes. Unit-only, focused or failed native tests are not binary-producing paths. Test, publication, export, sealing, cleanup and manifest failures remain failures; passed.json alone is insufficient for deployment. Rehash the sealed artifact against retained receipts before any separately approved installation. Permission sealing is not immutable storage.
+After successful full smoke and completion publication, the container exports /app/dist/clooks to /export/clooks before sealing. Export requires all 28 mandatory cases for `--smoke`, including handoff, Interrupt, MCP observation, `LOCAL-REWRITE` and `LOCAL-DENY`; the expanded inventory passed across 30 native launches. Focused `--session-end` publishes a distinct one-case evidence receipt only: it cannot publish full-smoke completion or export a binary. Successful full-smoke case receipts must match the Clooks hash; export also checks a regular executable source, exclusive creation and post-copy hash equality. binary.json records hash, architecture/platform and original/sealed modes. Unit-only, focused or failed native tests are not binary-producing paths. Test, publication, export, sealing, cleanup and manifest failures remain failures; passed.json alone is insufficient for deployment. Rehash the sealed artifact against retained receipts before any separately approved installation. Permission sealing is not immutable storage.
 
 ## Running the Harness
 

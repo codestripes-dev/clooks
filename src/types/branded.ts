@@ -4,6 +4,7 @@ export type EventName =
   | 'UserPromptSubmit'
   | 'SessionStart'
   | 'SessionEnd'
+  | 'Interrupt'
   | 'Stop'
   | 'StopFailure'
   | 'SubagentStop'

@@ -106,6 +106,9 @@ export type SessionStartResult = SkipResult & InjectContext
 /** Return value of a `SessionEnd` hook. Output is ignored upstream; useful for cleanup. */
 export type SessionEndResult = SkipResult
 
+/** Codex root-turn interruption observer; no cancellation veto or context channel. */
+export type InterruptResult = SkipResult
+
 /** Return value of an `InstructionsLoaded` hook. Pure observer. */
 export type InstructionsLoadedResult = SkipResult
 

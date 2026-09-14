@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { createSandbox, formatDiagnostics, type Sandbox } from './helpers/sandbox'
+import { createSandbox, formatDiagnostics, type RunResult, type Sandbox } from './helpers/sandbox'
 
 // Existing GitHub-response fixture is an exact marketplace hook snapshot, not a
 // reimplementation. Wire inputs below are synthetic; no native agent is launched.
@@ -24,6 +24,18 @@ function install() {
   sandbox.writeHook('debug-payload.ts', source)
   expect(sandbox.readFile('.clooks/hooks/debug-payload.ts')).toBe(source)
   sandbox.writeConfig('version: "1.0.0"\ndebug-payload: {}\n')
+}
+
+function expectClaudeSkipDebug(result: RunResult) {
+  const output = JSON.parse(result.stdout)
+  expect(output).toEqual({
+    hookSpecificOutput: {
+      hookEventName: 'PreToolUse',
+      additionalContext: result.stderr.trimEnd(),
+    },
+  })
+  expect(output.hookSpecificOutput.permissionDecision).toBeUndefined()
+  expect(output.hookSpecificOutput.additionalContext).toContain('debug-payload [PreToolUse]')
 }
 
 describe('actual debug-payload compiled contract', () => {
@@ -92,6 +104,11 @@ describe('actual debug-payload compiled contract', () => {
               JSON.stringify(normalized, null, 2),
             )
             expect(output.hookSpecificOutput.permissionDecision).toBeUndefined()
+          } else if (event === 'PreToolUse' && provider === 'claude-code') {
+            expectClaudeSkipDebug(result)
+            expect(JSON.parse(result.stdout).hookSpecificOutput.additionalContext).toContain(
+              JSON.stringify(normalized, null, 2),
+            )
           } else {
             // No allow vote, context injection or closure/compaction control.
             expect(result.stdout, formatDiagnostics(result)).toBe('')
@@ -135,7 +152,8 @@ describe('actual debug-payload compiled contract', () => {
       })
       expect(result.rawExitCode, formatDiagnostics(result)).toBe(0)
       expect(result.signalCode).toBeNull()
-      expect(result.stdout).toBe('')
+      if (provider === 'claude-code') expectClaudeSkipDebug(result)
+      else expect(result.stdout).toBe('')
       expect(result.stderr).toContain('debug-payload [PreToolUse]')
       expect(sandbox.readFile('occupied')).toBe('unchanged')
     })

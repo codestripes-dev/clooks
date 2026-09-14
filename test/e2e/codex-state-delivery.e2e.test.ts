@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { createHash } from 'crypto'
-import { existsSync, mkdirSync, readdirSync, rmSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from 'fs'
 import { join } from 'path'
 import { createSandbox, type RunResult, type Sandbox } from './helpers/sandbox'
 import { registrationEnv } from './helpers/registration'
@@ -286,18 +286,22 @@ export const hook = { meta: { name: '${name}' }, Stop: observe, SubagentStop: ob
   }
 }, 20_000)
 
-function noHandoffFiles() {
-  for (const root of [sandbox.dir, sandbox.home]) {
-    const dir = join(root, '.clooks/tmp')
-    expect(
-      existsSync(dir) ? readdirSync(dir).filter((file) => file.includes('handoff-')) : [],
-    ).toEqual([])
-  }
+function handoffFiles() {
+  return [sandbox.dir, sandbox.home]
+    .flatMap((root) => {
+      const dir = join(root, '.clooks/tmp')
+      return existsSync(dir)
+        ? readdirSync(dir)
+            .filter((file) => file.includes('handoff-'))
+            .map((file) => join(dir, file))
+        : []
+    })
+    .sort()
 }
 
-describe('Codex inline delivery and reminder history', () => {
+describe('Codex file delivery and reminder history', () => {
   for (const event of ['Stop', 'SubagentStop'] as const) {
-    test(`${event}: requested long handoff stays inline, preserves raw reminder history and rejects before delivery`, () => {
+    test(`${event}: handoff preserves raw reminder history and rejection creates no new files`, () => {
       sandbox = createSandbox()
       const reason = 'Recipient-specific reminder.\n'.repeat(100)
       sandbox.writeConfig(`version: "1.0.0"\n${name}: { handoff: true }\n`)
@@ -309,33 +313,42 @@ export const hook = { meta: { name: '${name}' }, ${event}(ctx) {
   writeFileSync(${JSON.stringify(join(sandbox.dir, observation))}, JSON.stringify({
     prior: ctx.turn.priorInterventions, session: ctx.sessionId, agent: ctx.agentId
   }))
-  if (ctx.lastAssistantMessage === 'reject') return { result: 'block', reason: ${JSON.stringify(reason)}, continue: false }
+  if (ctx.lastAssistantMessage === 'reject') return { result: 'block', reason: 'NEW rejected reminder', continue: false }
   return ctx.turn.priorInterventions ? ctx.skip() : ctx.block({ reason: ${JSON.stringify(reason)} })
 } }
 `,
       )
+      const digest = createHash('sha256').update(reason).digest('hex').slice(0, 12)
+      const path = join(sandbox.dir, '.clooks/tmp', `handoff-${name}-${digest}.md`)
       output(replay(event), {
         decision: 'block',
-        reason,
-        systemMessage:
-          'clooks: requested Codex handoff remains inline; recipient file readability is unverified.',
+        reason: `[clooks] Hook "${name}": read ${path} and follow its instructions.`,
       })
+      expect(readFileSync(path, 'utf8')).toBe(reason)
+      const files = handoffFiles()
+      expect(files).toEqual([path])
       expect(sandbox.fileExists(observation)).toBe(true)
       expect(JSON.parse(sandbox.readFile(observation))).toEqual({
         prior: 0,
         session: 'shared-session',
         ...(event === 'SubagentStop' ? { agent: 'child-a' } : {}),
       })
-      noHandoffFiles()
+      expect(handoffFiles()).toEqual(files)
       output(replay(event, { stop_hook_active: true }))
       expect(sandbox.fileExists(observation)).toBe(true)
       expect(JSON.parse(sandbox.readFile(observation)).prior).toBe(1)
-      noHandoffFiles()
+      expect(handoffFiles()).toEqual(files)
       const rejected = replay(event, { last_assistant_message: 'reject', stop_hook_active: true })
       const message = `clooks: Codex ${event} hook "${name}" capability "continue": unsupported field continue on block; result effects refused. ${event === 'Stop' ? 'Continuation' : 'Child continuation'} termination requested; no further continuation is requested.`
       output(rejected, { continue: false, stopReason: message, systemMessage: message })
       expect(sandbox.fileExists(observation)).toBe(true)
-      noHandoffFiles()
+      expect(handoffFiles()).toEqual(files)
+      expect(readFileSync(path, 'utf8')).toBe(reason)
+      const state = JSON.parse(sandbox.readHomeFile(statePath()))
+      const scope = event === 'Stop' ? 'main' : 'agent:child-a'
+      expect(
+        state.scopes[scope][name].map((record: { decision: string }) => record.decision),
+      ).toEqual(['block', 'skip', 'block'])
     }, 20_000)
   }
 })

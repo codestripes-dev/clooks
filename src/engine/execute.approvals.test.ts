@@ -124,6 +124,30 @@ async function waitForStarts(starts: Promise<void>, execution: Promise<unknown>)
 }
 
 describe('opt-in PreToolUse observations', () => {
+  for (const parallel of [false, true]) {
+    test(`non-record snapshots retain null, falsy scalars and arrays, parallel=${parallel}`, async () => {
+      for (const toolInput of [null, false, 0, '', 'raw {', [], [null, { snake_key: false }]]) {
+        const seen: unknown[] = []
+        const result = await run(
+          [
+            hook('observe', (ctx: { toolInput: unknown; originalToolInput: unknown }) => {
+              seen.push(ctx.toolInput, ctx.originalToolInput)
+              return { result: 'ask', reason: 'confirm' }
+            }),
+          ],
+          { input: { toolInput }, cfg: config(['observe'], parallel) },
+        ).result
+        expect(seen).toEqual([toolInput, toolInput])
+        expect(result.preToolUse?.votes).toHaveLength(1)
+        expect(result.preToolUse?.votes[0]?.inputBefore).toEqual(toolInput)
+        expect(result.preToolUse?.votes[0]?.inputAfter).toEqual(toolInput)
+        expect(result.preToolUse?.finalToolInput).toEqual(toolInput)
+        expect(result.preToolUse?.inputChanged).toBe(false)
+        expect(result.lastResult?.updatedInput).toBeUndefined()
+      }
+    })
+  }
+
   test('metadata is absent for legacy, Claude, explicit opt-out, and other events', async () => {
     const invocation = claudeCodeAdapter.normalizeInvocation(
       {
@@ -211,16 +235,16 @@ describe('opt-in PreToolUse observations', () => {
         [hn('b'), 1, 2],
       ])
       expect(preToolUse?.votes[0]?.engineResult).toEqual(first)
-      expect(preToolUse?.votes[0]?.inputBefore.command).toBe('original')
-      expect(preToolUse?.votes[0]?.inputAfter.command).toBe('first-patch')
+      expect(preToolUse?.votes[0]?.inputBefore).toHaveProperty('command', 'original')
+      expect(preToolUse?.votes[0]?.inputAfter).toHaveProperty('command', 'first-patch')
       expect(preToolUse?.votes[2]?.inputBefore).toEqual(seen[0])
       expect(preToolUse?.inputChanged).toBe(true)
       expect(preToolUse?.completed).toBe(true)
       if (patchSource === 'losing-ask') {
         expect(result.lastResult).not.toHaveProperty('updatedInput')
-        expect(preToolUse?.finalToolInput?.command).toBe('first-patch')
+        expect(preToolUse?.finalToolInput).toHaveProperty('command', 'first-patch')
       } else {
-        expect(result.lastResult?.updatedInput).toEqual(preToolUse?.finalToolInput)
+        expect(preToolUse?.finalToolInput).toEqual(result.lastResult?.updatedInput)
       }
     })
   }
@@ -292,9 +316,9 @@ describe('opt-in PreToolUse observations', () => {
       command: 'candidate',
       nested: { values: [1] },
     })
-    expect(observations.votes[0]?.inputAfter.nested).toEqual({ values: [1] })
-    expect(observations.votes[1]?.inputBefore.nested).toEqual({ values: [1] })
-    expect(observations.finalToolInput?.nested).toEqual({ values: [1] })
+    expect(observations.votes[0]?.inputAfter).toHaveProperty('nested', { values: [1] })
+    expect(observations.votes[1]?.inputBefore).toHaveProperty('nested', { values: [1] })
+    expect(observations.finalToolInput).toHaveProperty('nested', { values: [1] })
   })
 
   for (const parallel of [false, true]) {
@@ -340,9 +364,9 @@ describe('opt-in PreToolUse observations', () => {
       expect(observation.engineResult.injectContext).toBe('original author context')
       expect(observation.inputBefore).toEqual({ command: 'original', nested: { value: 1 } })
       expect(observation.inputAfter).toEqual(observation.inputBefore)
-      ;(observation.inputBefore.nested as { value: number }).value = 7
-      expect(observation.inputAfter.nested).toEqual({ value: 1 })
-      expect(result.preToolUse!.finalToolInput?.nested).toEqual({ value: 1 })
+      ;(observation.inputBefore as { nested: { value: number } }).nested.value = 7
+      expect(observation.inputAfter).toHaveProperty('nested', { value: 1 })
+      expect(result.preToolUse!.finalToolInput).toHaveProperty('nested', { value: 1 })
     })
 
     test(`before-hook identity and explicit blocks retain collect-all semantics, parallel=${parallel}`, async () => {

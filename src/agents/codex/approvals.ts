@@ -8,7 +8,7 @@ import type { HookName } from '../../types/branded.js'
 import type { EngineResult, ExecutionResult } from '../../engine/types.js'
 import type { JsonValue, NormalizedInvocation, TranslatedAgentOutput } from '../types.js'
 import { ApprovalStore, type RequiredApproval } from './approval-store.js'
-import { isJsonValue, jsonRecord } from './tool-codecs.js'
+import { isJsonValue, jsonInput, jsonRecord } from './tool-codecs.js'
 
 const CARRIER = 'CLOOKS_APPROVAL_TOKENS='
 const TOKEN = /^ca1_[0-9a-f]{64}$/
@@ -52,8 +52,8 @@ export function inlineEligible(command: string): boolean {
 
 export interface ApprovalAttempt {
   payload: Record<string, unknown>
-  nativeInput: Record<string, JsonValue>
-  originalInput: Record<string, JsonValue>
+  nativeInput: JsonValue
+  originalInput: JsonValue
   presentedTokens: string[]
   baseInvocationHash: string
 }
@@ -73,15 +73,19 @@ export function prepareApprovalAttempt(raw: unknown): ApprovalAttempt {
   const cwd = required('cwd')
   const toolName = required('tool_name')
   const agentId = payload.agent_id === undefined ? null : required('agent_id')
-  const nativeInput = cloneDeep(jsonRecord(payload.tool_input))
+  const nativeInput = toolName.startsWith('mcp__')
+    ? jsonInput(payload.tool_input)
+    : cloneDeep(jsonRecord(payload.tool_input))
   const originalInput = cloneDeep(nativeInput)
   let presentedTokens: string[] = []
+  const shellInput =
+    toolName === 'Bash' || toolName === 'exec_command' ? jsonRecord(originalInput) : null
   if (
-    (toolName === 'Bash' || toolName === 'exec_command') &&
-    typeof originalInput.command === 'string' &&
-    originalInput.command.startsWith(CARRIER)
+    shellInput &&
+    typeof shellInput.command === 'string' &&
+    shellInput.command.startsWith(CARRIER)
   ) {
-    const match = /^CLOOKS_APPROVAL_TOKENS=([^ ]+) (.+)$/.exec(originalInput.command)
+    const match = /^CLOOKS_APPROVAL_TOKENS=([^ ]+) (.+)$/.exec(shellInput.command)
     if (!match)
       throw new Error('Invalid approval carrier; use clooks approve and unchanged arguments')
     presentedTokens = match[1]!.split(',')
@@ -91,7 +95,7 @@ export function prepareApprovalAttempt(raw: unknown): ApprovalAttempt {
       throw new Error(
         'Inline approval requires a direct external command; use clooks approve and unchanged arguments',
       )
-    originalInput.command = match[2]!
+    shellInput.command = match[2]!
   }
   payload.tool_input = originalInput
   return {

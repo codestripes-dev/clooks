@@ -1,8 +1,14 @@
-import { cloneDeep } from 'lodash-es'
+import { cloneDeep, isPlainObject } from 'lodash-es'
 import type { EventName } from '../../types/branded.js'
 import type { JsonValue, NormalizedInvocation } from '../types.js'
 import { InvocationPolicyError } from '../types.js'
-import { isJsonValue, jsonRecord, toolCodec } from './tool-codecs.js'
+import {
+  isJsonValue,
+  jsonInput,
+  jsonRecord,
+  toolCodec,
+  validatePublicToolInput,
+} from './tool-codecs.js'
 
 const EVENTS: readonly EventName[] = [
   'SessionStart',
@@ -16,6 +22,7 @@ const EVENTS: readonly EventName[] = [
   'SubagentStop',
   'Stop',
   'SessionEnd',
+  'Interrupt',
 ]
 
 export function readEventName(payload: Record<string, unknown>): EventName | null {
@@ -79,13 +86,15 @@ export function normalizeInvocation(
     }
   }
   if (!compact) context.permissionMode = requiredString('permission_mode')
+  if (eventName === 'Interrupt') context.model = model
   let agentId: string | null = null
   let agentType: string | undefined
   if (
-    eventName === 'SubagentStart' ||
-    eventName === 'SubagentStop' ||
-    Object.hasOwn(payload, 'agent_id') ||
-    Object.hasOwn(payload, 'agent_type')
+    eventName !== 'Interrupt' &&
+    (eventName === 'SubagentStart' ||
+      eventName === 'SubagentStop' ||
+      Object.hasOwn(payload, 'agent_id') ||
+      Object.hasOwn(payload, 'agent_type'))
   ) {
     agentId = requiredString('agent_id')
     agentType = requiredString('agent_type')
@@ -97,70 +106,27 @@ export function normalizeInvocation(
     eventName === 'PostToolUse'
   ) {
     const nativeToolName = requiredString('tool_name')
-    codec = eventName === 'PreToolUse' ? toolCodec(nativeToolName) : null
+    const opaqueMcp = nativeToolName.startsWith('mcp__')
+    codec =
+      eventName === 'PreToolUse' && (!opaqueMcp || isPlainObject(payload.tool_input))
+        ? toolCodec(nativeToolName)
+        : null
     const publicToolName =
       codec?.canonicalName ?? (nativeToolName === 'exec_command' ? 'Bash' : nativeToolName)
-    let toolInput: Record<string, unknown>
+    let toolInput: unknown
     try {
       toolInput = codec
         ? codec.decode(payload.tool_input as JsonValue)
-        : cloneDeep(jsonRecord(payload.tool_input))
+        : opaqueMcp
+          ? jsonInput(payload.tool_input)
+          : cloneDeep(jsonRecord(payload.tool_input))
     } catch (error) {
       return fail('tool_input', error instanceof Error ? error.message : 'invalid tool input')
     }
-    // These discriminators promise Claude input shapes, not merely an arbitrary record.
-    const knownRequired: Record<string, string[]> = {
-      Bash: ['command'],
-      Write: ['filePath', 'content'],
-      Edit: ['filePath', 'oldString', 'newString'],
-      Read: ['filePath'],
-      Glob: ['pattern'],
-      Grep: ['pattern'],
-      WebFetch: ['url', 'prompt'],
-      WebSearch: ['query'],
-      Agent: ['prompt', 'description', 'subagentType'],
-    }
-    const fields = Object.hasOwn(knownRequired, publicToolName) ? knownRequired[publicToolName] : []
-    if (
-      fields?.some((key) => typeof toolInput[key] !== 'string') ||
-      nativeToolName === 'AskUserQuestion'
-    ) {
-      return fail('tool_input', `no compatible public input shape for ${nativeToolName}`)
-    }
-    const optionalFields: Record<string, Record<string, (value: unknown) => boolean>> = {
-      Bash: {
-        description: (value) => typeof value === 'string',
-        timeout: (value) => typeof value === 'number',
-        runInBackground: (value) => typeof value === 'boolean',
-      },
-      Edit: { replaceAll: (value) => typeof value === 'boolean' },
-      Read: {
-        offset: (value) => typeof value === 'number',
-        limit: (value) => typeof value === 'number',
-      },
-      Glob: { path: (value) => typeof value === 'string' },
-      Grep: {
-        path: (value) => typeof value === 'string',
-        glob: (value) => typeof value === 'string',
-        outputMode: (value) => typeof value === 'string',
-        '-i': (value) => typeof value === 'boolean',
-        multiline: (value) => typeof value === 'boolean',
-      },
-      WebSearch: {
-        allowedDomains: (value) =>
-          Array.isArray(value) && value.every((item) => typeof item === 'string'),
-        blockedDomains: (value) =>
-          Array.isArray(value) && value.every((item) => typeof item === 'string'),
-      },
-      Agent: { model: (value) => typeof value === 'string' },
-    }
-    const optional = Object.hasOwn(optionalFields, publicToolName)
-      ? optionalFields[publicToolName]
-      : undefined
-    for (const [key, validate] of Object.entries(optional ?? {})) {
-      if (toolInput[key] !== undefined && !validate(toolInput[key])) {
-        return fail('tool_input', `${publicToolName}.${key} has an incompatible public input type`)
-      }
+    try {
+      validatePublicToolInput(publicToolName, toolInput)
+    } catch (error) {
+      return fail('tool_input', error instanceof Error ? error.message : 'invalid tool input')
     }
     context.toolName = publicToolName
     context.toolInput = toolInput

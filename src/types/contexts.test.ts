@@ -187,9 +187,10 @@ test('unknown toolName (mcp__custom__tool) handled via UnknownPreToolUseContext'
     toolInput: { anything: 'goes', filePath: '/some/path' },
   } as unknown as UnknownPreToolUseContext
   if (ctx.toolName === 'mcp__custom__tool') {
-    const anything: unknown = ctx.toolInput.anything
-    const ti: Record<string, unknown> = ctx.toolInput
-    const fp: unknown = ctx.toolInput.filePath
+    const ti: unknown = ctx.toolInput
+    if (typeof ti !== 'object' || ti === null || !('anything' in ti)) throw new Error('record')
+    const anything: unknown = ti.anything
+    const fp: unknown = 'filePath' in ti ? ti.filePath : undefined
     void ti
     void fp
     expect(anything).toBe('goes')
@@ -202,7 +203,7 @@ test('ExitPlanMode handled via UnknownPreToolUseContext', () => {
     toolInput: {},
   } as unknown as UnknownPreToolUseContext
   if (ctx.toolName === 'ExitPlanMode') {
-    const ti: Record<string, unknown> = ctx.toolInput
+    const ti: unknown = ctx.toolInput
     expect(ti).toEqual({})
   }
 })

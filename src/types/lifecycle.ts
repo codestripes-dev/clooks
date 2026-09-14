@@ -6,6 +6,7 @@ import type {
   UserPromptSubmitContext,
   SessionStartContext,
   SessionEndContext,
+  InterruptContext,
   StopContext,
   StopFailureContext,
   SubagentStopContext,
@@ -31,6 +32,7 @@ import type {
   UserPromptSubmitResult,
   SessionStartResult,
   SessionEndResult,
+  InterruptResult,
   StopEventResult,
   StopFailureResult,
   SubagentStopResult,
@@ -61,6 +63,7 @@ export interface EventContextMap extends Record<EventName, unknown> {
   UserPromptSubmit: UserPromptSubmitContext
   SessionStart: SessionStartContext
   SessionEnd: SessionEndContext
+  Interrupt: InterruptContext
   Stop: StopContext
   StopFailure: StopFailureContext
   SubagentStop: SubagentStopContext
@@ -87,6 +90,7 @@ export interface EventResultMap extends Record<EventName, unknown> {
   UserPromptSubmit: UserPromptSubmitResult
   SessionStart: SessionStartResult
   SessionEnd: SessionEndResult
+  Interrupt: InterruptResult
   Stop: StopEventResult
   StopFailure: StopFailureResult
   SubagentStop: SubagentStopResult

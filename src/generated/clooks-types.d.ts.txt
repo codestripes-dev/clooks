@@ -1,6 +1,6 @@
 // Clooks v0.3.0 — generated type declarations
 // Do not edit. Regenerate with: clooks types
-type EventName = "PreToolUse" | "PostToolUse" | "UserPromptSubmit" | "SessionStart" | "SessionEnd" | "Stop" | "StopFailure" | "SubagentStop" | "SubagentStart" | "InstructionsLoaded" | "PostToolUseFailure" | "Notification" | "PermissionRequest" | "PermissionDenied" | "ConfigChange" | "WorktreeCreate" | "WorktreeRemove" | "PreCompact" | "PostCompact" | "TeammateIdle" | "TaskCreated" | "TaskCompleted";
+type EventName = "PreToolUse" | "PostToolUse" | "UserPromptSubmit" | "SessionStart" | "SessionEnd" | "Interrupt" | "Stop" | "StopFailure" | "SubagentStop" | "SubagentStart" | "InstructionsLoaded" | "PostToolUseFailure" | "Notification" | "PermissionRequest" | "PermissionDenied" | "ConfigChange" | "WorktreeCreate" | "WorktreeRemove" | "PreCompact" | "PostCompact" | "TeammateIdle" | "TaskCreated" | "TaskCompleted";
 /** Permission mode reported on `ctx.permissionMode`. Read-only — never construct. */
 export type PermissionMode = "default" | "plan" | "acceptEdits" | "dontAsk" | "bypassPermissions" | (string & {});
 /** Why the session started. Available on `SessionStartContext.source`. */
@@ -169,6 +169,7 @@ export type ToolVariantWithOriginal<N extends string, I> = ToolVariant<N, I> & {
  * the ctx-side `*DecisionMethods` types; lifecycle uses its own narrower maps.
  */
 export interface EventBlockOptsMap extends Record<EventName, unknown> {
+	Interrupt: Reason & DebugMessage;
 	PreToolUse: Reason & DebugMessage & InjectContext;
 	PostToolUse: Reason & DebugMessage & InjectContext & UpdatedMcpToolOutput;
 	UserPromptSubmit: Reason & DebugMessage & InjectContext & SessionTitle;
@@ -200,7 +201,8 @@ export interface EventBlockOptsMap extends Record<EventName, unknown> {
  * primitives and the exhaustiveness guarantee.
  */
 export interface EventSkipOptsMap extends Record<EventName, unknown> {
-	PreToolUse: DebugMessage;
+	Interrupt: DebugMessage;
+	PreToolUse: DebugMessage & InjectContext;
 	PostToolUse: DebugMessage & InjectContext & UpdatedMcpToolOutput;
 	UserPromptSubmit: DebugMessage & InjectContext & SessionTitle;
 	SessionStart: DebugMessage & InjectContext;
@@ -234,10 +236,6 @@ export interface EventSkipOptsMap extends Record<EventName, unknown> {
  * decision is co-located with the mutation. The ctx-side `EventBlockOptsMap`
  * carries the wire-faithful primitives.
  *
- * Distinct from the `PreToolUse.skip` exclusion of `injectContext` (in
- * `EventSkipOptsMap` / `LifecycleSkipOptsMap`), which is *by wire reality* —
- * the runtime translator silently drops the field on that arm.
- *
  * `Interrupt` on `PermissionRequest.block` is kept here because it modifies
  * how the block decision is delivered (control flow), not the content.
  *
@@ -246,6 +244,7 @@ export interface EventSkipOptsMap extends Record<EventName, unknown> {
  * JSDoc and `docs/CODE_QUALITY_BACKLOG.md` for the open exhaustiveness item.
  */
 export interface LifecycleBlockOptsMap extends Record<EventName, unknown> {
+	Interrupt: Reason & DebugMessage;
 	PreToolUse: Reason & DebugMessage & InjectContext;
 	PostToolUse: Reason & DebugMessage & InjectContext;
 	UserPromptSubmit: Reason & DebugMessage & InjectContext;
@@ -275,7 +274,8 @@ export interface LifecycleBlockOptsMap extends Record<EventName, unknown> {
  * surface split.
  */
 export interface LifecycleSkipOptsMap extends Record<EventName, unknown> {
-	PreToolUse: DebugMessage;
+	Interrupt: DebugMessage;
+	PreToolUse: DebugMessage & InjectContext;
 	PostToolUse: DebugMessage & InjectContext;
 	UserPromptSubmit: DebugMessage & InjectContext;
 	SessionStart: DebugMessage & InjectContext;
@@ -385,6 +385,8 @@ export type StopFailureResult = SkipResult;
 export type SessionStartResult = SkipResult & InjectContext;
 /** Return value of a `SessionEnd` hook. Output is ignored upstream; useful for cleanup. */
 export type SessionEndResult = SkipResult;
+/** Codex root-turn interruption observer; no cancellation veto or context channel. */
+export type InterruptResult = SkipResult;
 /** Return value of an `InstructionsLoaded` hook. Pure observer. */
 export type InstructionsLoadedResult = SkipResult;
 /** Return value of a `PostToolUse` hook. `block` flags the tool result back to the agent. */
@@ -490,6 +492,7 @@ type PreCompactDecisionMethods = Allow<DebugMessage, PreCompactResult> & Block<E
 type PermissionDeniedDecisionMethods = Retry<DebugMessage, PermissionDeniedResult> & Skip<EventSkipOptsMap["PermissionDenied"], PermissionDeniedResult>;
 type SessionStartDecisionMethods = Skip<EventSkipOptsMap["SessionStart"], SessionStartResult>;
 type SessionEndDecisionMethods = Skip<EventSkipOptsMap["SessionEnd"], SessionEndResult>;
+type InterruptDecisionMethods = Skip<EventSkipOptsMap["Interrupt"], InterruptResult>;
 type InstructionsLoadedDecisionMethods = Skip<EventSkipOptsMap["InstructionsLoaded"], InstructionsLoadedResult>;
 type NotificationDecisionMethods = Skip<EventSkipOptsMap["Notification"], NotificationResult>;
 type SubagentStartDecisionMethods = Skip<EventSkipOptsMap["SubagentStart"], SubagentStartResult>;
@@ -637,7 +640,7 @@ export type PreToolUseContext = {
 }[keyof ToolInputMap & string];
 /**
  * `PreToolUse` context for tools outside `ToolInputMap` (MCP, `ExitPlanMode`).
- * `toolInput` is `Record<string, unknown>` — not narrowed. Cast from raw ctx.
+ * `toolInput` is `unknown`; narrow its shape before accessing fields.
  *
  * @example
  * const ctx = rawCtx as unknown as UnknownPreToolUseContext
@@ -646,7 +649,7 @@ export type PreToolUseContext = {
 export type UnknownPreToolUseContext = Prettify<BaseContext & {
 	event: "PreToolUse";
 	toolUseId: string;
-} & ToolVariantWithOriginal<string, Record<string, unknown>> & PreToolUseDecisionMethods<Record<string, unknown>>>;
+} & ToolVariantWithOriginal<string, unknown> & PreToolUseDecisionMethods<Record<string, unknown>>>;
 /** Fires when the user submits a prompt. */
 export type UserPromptSubmitContext = BaseContext & {
 	event: "UserPromptSubmit";
@@ -677,7 +680,7 @@ export type PermissionRequestContext = {
  */
 export type UnknownPermissionRequestContext = Prettify<BaseContext & PermissionSuggestions & {
 	event: "PermissionRequest";
-} & ToolVariant<string, Record<string, unknown>> & PermissionRequestDecisionMethods<Record<string, unknown>>>;
+} & ToolVariant<string, unknown> & PermissionRequestDecisionMethods<Record<string, unknown>>>;
 /**
  * Fires when the main agent has finished its turn. `block({ reason })` forces
  * the agent to keep going; `reason` becomes the next-turn instruction.
@@ -735,6 +738,12 @@ export type SessionEndContext = BaseContext & {
 	event: "SessionEnd";
 	reason: SessionEndReason;
 } & SessionEndDecisionMethods;
+/** Codex-only root-turn interruption observer. Does not begin or close a turn. */
+export type InterruptContext = BaseContext & {
+	event: "Interrupt";
+	model: string;
+	permissionMode: PermissionMode;
+} & InterruptDecisionMethods;
 /** Fires when a CLAUDE.md or rules file is loaded into context. */
 export type InstructionsLoadedContext = BaseContext & {
 	event: "InstructionsLoaded";
@@ -769,7 +778,7 @@ export type UnknownPostToolUseContext = Prettify<BaseContext & {
 	event: "PostToolUse";
 	toolUseId: string;
 	toolResponse: unknown;
-} & ToolVariant<string, Record<string, unknown>> & PostToolUseDecisionMethods<Record<string, unknown>>>;
+} & ToolVariant<string, unknown> & PostToolUseDecisionMethods<Record<string, unknown>>>;
 type PostToolUseFailureDecisionMethods<_Input> = Skip<EventSkipOptsMap["PostToolUseFailure"], PostToolUseFailureResult>;
 /**
  * Fires after a tool call errors. `ctx.error` carries the error message;
@@ -796,7 +805,7 @@ export type UnknownPostToolUseFailureContext = Prettify<BaseContext & {
 	toolUseId: string;
 	error: string;
 	isInterrupt?: boolean;
-} & ToolVariant<string, Record<string, unknown>> & PostToolUseFailureDecisionMethods<Record<string, unknown>>>;
+} & ToolVariant<string, unknown> & PostToolUseFailureDecisionMethods<Record<string, unknown>>>;
 /** Fires when Claude Code is about to show a notification. */
 export type NotificationContext = BaseContext & {
 	event: "Notification";
@@ -894,6 +903,7 @@ export interface EventContextMap extends Record<EventName, unknown> {
 	UserPromptSubmit: UserPromptSubmitContext;
 	SessionStart: SessionStartContext;
 	SessionEnd: SessionEndContext;
+	Interrupt: InterruptContext;
 	Stop: StopContext;
 	StopFailure: StopFailureContext;
 	SubagentStop: SubagentStopContext;
@@ -919,6 +929,7 @@ export interface EventResultMap extends Record<EventName, unknown> {
 	UserPromptSubmit: UserPromptSubmitResult;
 	SessionStart: SessionStartResult;
 	SessionEnd: SessionEndResult;
+	Interrupt: InterruptResult;
 	Stop: StopEventResult;
 	StopFailure: StopFailureResult;
 	SubagentStop: SubagentStopResult;
@@ -1050,6 +1061,7 @@ export interface ClooksHook<C extends Record<string, unknown> = Record<string, u
 	ConfigChange?: (ctx: ConfigChangeContext, config: C) => MaybeAsync<ConfigChangeResult>;
 	SessionStart?: (ctx: SessionStartContext, config: C) => MaybeAsync<SessionStartResult>;
 	SessionEnd?: (ctx: SessionEndContext, config: C) => MaybeAsync<SessionEndResult>;
+	Interrupt?: (ctx: InterruptContext, config: C) => MaybeAsync<InterruptResult>;
 	InstructionsLoaded?: (ctx: InstructionsLoadedContext, config: C) => MaybeAsync<InstructionsLoadedResult>;
 	PostToolUse?: (ctx: PostToolUseContext, config: C) => MaybeAsync<PostToolUseResult>;
 	PostToolUseFailure?: (ctx: PostToolUseFailureContext, config: C) => MaybeAsync<PostToolUseFailureResult>;

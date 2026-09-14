@@ -1,5 +1,14 @@
-import { afterEach, describe, expect, test } from 'bun:test'
-import { mkdtempSync, mkdirSync, readdirSync, rmSync } from 'fs'
+import { afterEach, describe, expect, spyOn, test } from 'bun:test'
+import { createHash } from 'crypto'
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import { executeHooks } from './execute.js'
@@ -26,6 +35,13 @@ function root() {
   mkdirSync(join(dir, '.clooks'))
   roots.push(dir)
   return dir
+}
+
+function expectHandoff(dir: string, name: string, text: string): string {
+  const digest = createHash('sha256').update(text).digest('hex').slice(0, 12)
+  const path = join(dir, '.clooks/tmp', `handoff-${name}-${digest}.md`)
+  expect(readFileSync(path, 'utf8')).toBe(text)
+  return `[clooks] Hook "${name}": read ${path} and follow its instructions.`
 }
 
 function hook(name: string, handlers: Record<string, unknown>): LoadedHook {
@@ -142,6 +158,206 @@ function run(
     policy,
   )
 }
+
+describe('Codex shared handoff delivery', () => {
+  function policy(event: EventName, dir: string) {
+    const invocation = codexAdapter.normalizeInvocation(
+      {
+        hook_event_name: event,
+        session_id: 'session',
+        turn_id: 'turn',
+        cwd: dir,
+        model: 'model',
+        permission_mode: 'default',
+        transcript_path: null,
+        tool_name: 'Bash',
+        tool_use_id: 'call',
+        tool_input: { command: 'echo original' },
+        tool_response: 'done',
+        prompt: 'prompt',
+        source: 'startup',
+        agent_id: 'child',
+        agent_type: 'worker',
+        agent_transcript_path: null,
+        stop_hook_active: false,
+        last_assistant_message: null,
+      },
+      event,
+    )
+    return codexAdapter.createResultPolicy(invocation)
+  }
+
+  for (const event of [
+    'PreToolUse',
+    'PostToolUse',
+    'UserPromptSubmit',
+    'SessionStart',
+    'SubagentStart',
+  ] as const) {
+    test(`${event} hands off model context without changing the raw result or decision`, async () => {
+      const dir = root()
+      const cfg = config(['note'])
+      cfg.global.handoff = true
+      const raw: EngineResult = { result: 'skip', injectContext: 'model context\n'.repeat(100) }
+      const original = structuredClone(raw)
+      const history = tracker()
+      const stderr = spyOn(process.stderr, 'write').mockImplementation(() => true)
+      try {
+        const result = await run(
+          [hook('note', { [event]: () => raw })],
+          event,
+          cfg,
+          policy(event, dir),
+          history,
+          dir,
+        )
+        expect(result.policyFailure).toBeUndefined()
+        expect(result.lastResult?.injectContext).toBe(
+          expectHandoff(dir, 'note', raw.injectContext!),
+        )
+        cfg.global.handoff = false
+        const inline = await run(
+          [hook('note', { [event]: () => raw })],
+          event,
+          cfg,
+          policy(event, dir),
+          tracker(),
+          dir,
+        )
+        expect(result.lastResult?.result).toBe(inline.lastResult?.result)
+        expect(result.systemMessages).toEqual([])
+        expect(stderr).not.toHaveBeenCalled()
+        expect(raw).toEqual(original)
+        expect(history.records).toEqual([{ name: 'note', decision: 'skip' }])
+        expect(history.commits()).toBe(1)
+      } finally {
+        stderr.mockRestore()
+      }
+    })
+  }
+
+  for (const event of ['PreToolUse', 'PostToolUse', 'Stop', 'SubagentStop'] as const) {
+    test(`${event} hands off block reasons and rejects new content before writing`, async () => {
+      const dir = root()
+      const cfg = config(['note'])
+      cfg.global.handoff = true
+      const raw: EngineResult = { result: 'block', reason: 'continue work\n'.repeat(100) }
+      const history = tracker()
+      const result = await run(
+        [hook('note', { [event]: () => raw })],
+        event,
+        cfg,
+        policy(event, dir),
+        history,
+        dir,
+      )
+      const pointer = expectHandoff(dir, 'note', raw.reason!)
+      expect(result.lastResult).toEqual({ result: 'block', reason: pointer })
+      expect(result.systemMessages).toEqual([])
+      expect(result.policyFailure).toBeUndefined()
+      expect(history.records).toEqual([{ name: 'note', decision: 'block' }])
+      const files = readdirSync(join(dir, '.clooks/tmp')).sort()
+      const rejected = await run(
+        [
+          hook('note', {
+            [event]: () => ({ ...raw, reason: 'NEW rejected content', continue: false }),
+          }),
+        ],
+        event,
+        cfg,
+        policy(event, dir),
+        history,
+        dir,
+      )
+      expect(rejected.policyFailure?.capability).toBe('continue')
+      expect(rejected.lastResult).toBeUndefined()
+      expect(readdirSync(join(dir, '.clooks/tmp')).sort()).toEqual(files)
+      expect(expectHandoff(dir, 'note', raw.reason!)).toBe(pointer)
+      expect(history.records).toEqual([
+        { name: 'note', decision: 'block' },
+        { name: 'note', decision: 'block' },
+      ])
+    })
+  }
+
+  for (const setting of [false, 10, true] as const) {
+    test(`handoff=${setting} preserves inline fallback and measures the exact threshold`, async () => {
+      const dir = root()
+      const cfg = config(['note'])
+      cfg.global.handoff = setting
+      if (setting === true) writeFileSync(join(dir, '.clooks/tmp'), 'not a directory')
+      const stderr = spyOn(process.stderr, 'write').mockImplementation(() => true)
+      try {
+        for (const text of ['123456789', '1234567890', '12345678901']) {
+          const reason = text + '!'
+          const raw = { result: 'block', reason, injectContext: text }
+          const result = await run(
+            [hook('note', { PreToolUse: () => raw })],
+            'PreToolUse',
+            cfg,
+            policy('PreToolUse', dir),
+            tracker(),
+            dir,
+          )
+          expect(result.lastResult?.injectContext).toBe(
+            setting === 10 && text.length > 10 ? expectHandoff(dir, 'note', text) : text,
+          )
+          expect(result.lastResult?.reason).toBe(
+            setting === 10 && reason.length > 10 ? expectHandoff(dir, 'note', reason) : reason,
+          )
+          expect(result.lastResult?.result).toBe('block')
+          expect(raw).toEqual({ result: 'block', reason, injectContext: text })
+          expect(result.systemMessages).toEqual([])
+          expect(result.policyFailure).toBeUndefined()
+        }
+        if (setting === true) {
+          expect(stderr).toHaveBeenCalledTimes(6)
+          for (const [message] of stderr.mock.calls)
+            expect(String(message)).toContain('delivering inline')
+          expect(readFileSync(join(dir, '.clooks/tmp'), 'utf8')).toBe('not a directory')
+        } else {
+          expect(stderr).not.toHaveBeenCalled()
+          if (setting === false) expect(existsSync(join(dir, '.clooks/tmp'))).toBe(false)
+        }
+      } finally {
+        stderr.mockRestore()
+      }
+    })
+  }
+
+  for (const [event, tag] of [
+    ['UserPromptSubmit', 'block'],
+    ['PreToolUse', 'allow'],
+    ['PreToolUse', 'ask'],
+  ] as const) {
+    test(`${event} ${tag} keeps human reasons and debug messages inline`, async () => {
+      const dir = root()
+      const cfg = config(['note'])
+      cfg.global.handoff = true
+      const reason = 'human reason\n'.repeat(100)
+      const debugMessage = 'human debug\n'.repeat(100)
+      const raw = { result: tag, reason, debugMessage }
+      const result = await run(
+        [hook('note', { [event]: () => raw })],
+        event,
+        cfg,
+        policy(event, dir),
+        tracker(),
+        dir,
+      )
+      expect(result.policyFailure).toBeUndefined()
+      expect(result.lastResult?.result).toBe(tag)
+      expect(result.lastResult?.debugMessage).toBe(debugMessage)
+      if (tag === 'allow') {
+        expect(result.lastResult?.reason).toBeUndefined()
+        expect(result.systemMessages).toHaveLength(1)
+        expect(result.systemMessages[0]).toContain(reason)
+      } else expect(result.lastResult?.reason).toBe(reason)
+      expect(existsSync(join(dir, '.clooks/tmp'))).toBe(false)
+      expect(raw).toEqual({ result: tag, reason, debugMessage })
+    })
+  }
+})
 
 describe('result policy before effects', () => {
   test.each([
@@ -403,15 +619,13 @@ describe('result policy before effects', () => {
         invocation.context,
       )
       expect(getterReads).toBe(0)
-      expect(readdirSync(join(dir, '.clooks'))).toEqual([])
       expect(history.commits()).toBe(1)
       if (shape === 'dense') {
+        const pointer = expectHandoff(dir, 'rewrite', 'inline rewrite context')
         expect(calls).toEqual(['rewrite', 'observe'])
         expect(result.policyFailure).toBeUndefined()
         expect(result.lastResult?.updatedInput).toEqual(expected)
-        expect(result.systemMessages).toEqual([
-          'clooks: requested Codex handoff remains inline; recipient file readability is unverified.',
-        ])
+        expect(result.systemMessages).toEqual([])
         const translated = codexAdapter.translateFinalOutput({
           eventName: 'PreToolUse',
           invocation,
@@ -423,13 +637,14 @@ describe('result policy before effects', () => {
           hookEventName: 'PreToolUse',
           permissionDecision: 'allow',
           updatedInput: expected,
-          additionalContext: 'inline rewrite context',
+          additionalContext: pointer,
         })
         expect(history.records).toEqual([
           { name: 'rewrite', decision: 'allow' },
           { name: 'observe', decision: 'allow' },
         ])
       } else {
+        expect(readdirSync(join(dir, '.clooks'))).toEqual([])
         expect(calls).toEqual(['rewrite'])
         expect(result.policyFailure).toMatchObject({
           capability: 'result-shape',

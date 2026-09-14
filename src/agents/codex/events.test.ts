@@ -284,7 +284,7 @@ describe('Codex event result contracts', () => {
   test.each([
     ['PermissionRequest', { result: 'allow', updatedInput: {} }, 'updatedInput'],
     ['PermissionRequest', { result: 'allow', updatedPermissions: [] }, 'updatedPermissions'],
-    ['PermissionRequest', { result: 'block', reason: 'deny', interrupt: false }, 'interrupt'],
+    ['PermissionRequest', { result: 'block', reason: 'deny', interrupt: true }, 'interrupt'],
     ['PostToolUse', { result: 'skip', updatedMCPToolOutput: null }, 'updatedMCPToolOutput'],
     ['UserPromptSubmit', { result: 'allow', sessionTitle: '' }, 'sessionTitle'],
     ['UserPromptSubmit', { result: 'skip', sessionTitle: null }, 'sessionTitle'],
@@ -299,6 +299,56 @@ describe('Codex event result contracts', () => {
     expect(check(event, value)).toMatchObject({
       kind: 'rejected',
       failure: { capability, hookName: 'guard' },
+    })
+  })
+
+  for (const origin of ['handler', 'before-hook'] as const) {
+    test(`PermissionRequest ${origin} accepts interrupt:false without altering the denial`, () => {
+      const value = { result: 'block', reason: ' original denial ', interrupt: false }
+      const checked = check('PermissionRequest', value, origin)
+      expect(checked.kind).toBe('accepted')
+      if (checked.kind !== 'accepted') throw new Error('expected accepted denial')
+      expect(checked.result).toEqual({ result: 'block', reason: value.reason })
+      expect(checked.diagnostics).toEqual([])
+      const translated = codexAdapter.translateFinalOutput({
+        eventName: 'PermissionRequest',
+        result: checked.result,
+        diagnostics: checked.diagnostics,
+        systemMessages: [],
+      })
+      expect(translated.exitCode).toBe(0)
+      expect(translated.stderr).toBeUndefined()
+      expect(JSON.parse(translated.output!)).toEqual({
+        hookSpecificOutput: {
+          hookEventName: 'PermissionRequest',
+          decision: { behavior: 'deny', message: value.reason },
+        },
+      })
+      expect(value).toEqual({ result: 'block', reason: ' original denial ', interrupt: false })
+    })
+
+    for (const interrupt of [true, null, 0, 1, '', 'false', {}, []]) {
+      test(`PermissionRequest ${origin} rejects interrupt=${JSON.stringify(interrupt)}`, () => {
+        expect(
+          check('PermissionRequest', { result: 'block', reason: 'deny', interrupt }, origin),
+        ).toMatchObject({
+          kind: 'rejected',
+          failure: { capability: 'interrupt' },
+        })
+      })
+    }
+  }
+
+  test('interrupt:false remains invalid outside PermissionRequest block', () => {
+    for (const tag of ['allow', 'skip']) {
+      expect(check('PermissionRequest', { result: tag, interrupt: false })).toMatchObject({
+        kind: 'rejected',
+        failure: { capability: 'interrupt' },
+      })
+    }
+    expect(check('Stop', { result: 'block', reason: 'deny', interrupt: false })).toMatchObject({
+      kind: 'rejected',
+      failure: { capability: 'interrupt' },
     })
   })
 

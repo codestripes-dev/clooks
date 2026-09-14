@@ -110,10 +110,10 @@ Two pairs of maps govern which opts each event accepts, split by surface:
 
 All four interfaces `extend Record<EventName, unknown>`. Note: this does NOT fail the build at the map definition site if a new event is added to `EventName` without an entry — the missing key silently inherits `unknown`. The compile error surfaces at the first consumer site (a `*DecisionMethods` arm or `BeforeHookEventVariants` index). The error is still compile-time, but it is *deferred* exhaustiveness, not exhaustiveness at the source-of-truth. See `docs/CODE_QUALITY_BACKLOG.md` for the open item on stricter enforcement.
 
-**Special case — `PreToolUse.skip`.** `EventSkipOptsMap['PreToolUse']` and `LifecycleSkipOptsMap['PreToolUse']` carry only `DebugMessage` (no `InjectContext`). The runtime translator at `src/engine/translate.ts:50-51` returns early on `PreToolUse.skip` (empty stdout), so `injectContext` is silently dropped on the wire. The type system mirrors that wire reality on both surfaces.
+`PreToolUse.skip` accepts `injectContext` on both handler and lifecycle surfaces. It remains an abstention: nonempty context emits `additionalContext` without a permission decision on both agents.
 
 The four wire-gated primitives are distributed per the upstream contract:
-- `InjectContext` — the seven `INJECTABLE_EVENTS` only (`PreToolUse`, `UserPromptSubmit`, `SessionStart`, `PostToolUse`, `PostToolUseFailure`, `Notification`, `SubagentStart`); see `src/config/constants.ts`. Exception: `PreToolUse.skip` carries only `DebugMessage` on both surfaces — the translator drops `injectContext` for that arm.
+- `InjectContext` — the seven `INJECTABLE_EVENTS` only (`PreToolUse`, `UserPromptSubmit`, `SessionStart`, `PostToolUse`, `PostToolUseFailure`, `Notification`, `SubagentStart`); see `src/config/constants.ts`.
 - `Interrupt` — `PermissionRequest.block` only (present on both surfaces).
 - `UpdatedMcpToolOutput` — `PostToolUse` only, ctx-side maps only (silently ignored on non-MCP tools even then). Not present on lifecycle-side maps.
 - `SessionTitle` — `UserPromptSubmit` only, ctx-side maps only. Not present on lifecycle-side maps.

@@ -116,10 +116,23 @@ describe('corrected lifecycle and kitchen examples', () => {
         ['PostCompact', { trigger: 'auto', compact_summary: 'compact-marker' }, 'compact-marker'],
         ['SessionEnd', {}, 'other'],
       ] as const) {
-        const result = invoke(provider, event, fields)
-        expect(result.stdout).toBe('')
-        expect(result.stderr).toContain(`[kitchen-sink] ${event}`)
-        expect(result.stderr).toContain(marker)
+        for (const debug of [false, true]) {
+          const result = invoke(provider, event, fields, debug)
+          if (debug && provider === 'claude-code' && event === 'PreToolUse') {
+            const output = JSON.parse(result.stdout)
+            expect(output).toEqual({
+              hookSpecificOutput: {
+                hookEventName: 'PreToolUse',
+                additionalContext: result.stderr.trimEnd(),
+              },
+            })
+            expect(output.hookSpecificOutput.permissionDecision).toBeUndefined()
+          } else expect(result.stdout).toBe('')
+          if (debug) {
+            expect(result.stderr).toContain(`[kitchen-sink] ${event}`)
+            expect(result.stderr).toContain(marker)
+          } else expect(result.stderr).toBe('')
+        }
       }
     })
   }

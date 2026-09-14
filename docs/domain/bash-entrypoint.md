@@ -67,7 +67,7 @@ The entrypoint and the binary react to a small set of environment variables:
 | `CLOOKS_DEBUG=true` | Enable debug logging — stderr output + JSON request dumps to `CLOOKS_LOGDIR`. |
 | `CLOOKS_LOGDIR=/path` | Directory for `CLOOKS_DEBUG` JSON dumps (default `/tmp/clooks-debug`). |
 | `CLOOKS_AGENT=claude-code` | Optional explicit selector for the current Claude Code adapter. Unset or empty means the same thing for backward compatibility. |
-| `CLOOKS_AGENT=codex` | Explicit selector used by generated Codex registrations. Enables eleven events through event-specific normalization and result policy before hook imports, including observation-only SessionEnd. Earlier ten-event Docker evidence does not establish SessionEnd native enforcement. |
+| `CLOOKS_AGENT=codex` | Explicit selector used by generated Codex registrations. Enables twelve events through event-specific normalization and result policy before hook imports, including observation-only SessionEnd and Interrupt. Native evidence is scoped separately from runtime support. |
 | `CLOOKS_HOME_ROOT=/path` | Override the home directory used for config resolution (mostly for tests). |
 | `CODEX_HOME=/absolute/path` | Select the Codex global registration directory; unset or empty uses `$HOME/.codex`. Does not relocate the shared Clooks launcher or project `.codex/hooks.json`. |
 | `CLOOKS_PROJECT_ROOT=/path` | Skip discovery and treat `/path` as the project root unconditionally. Highest-priority override (wins over `$CLAUDE_PROJECT_DIR` and the cwd walk). Mirrors `prettier --config` / `tsc --project` / `GIT_DIR`. |
@@ -75,9 +75,17 @@ The entrypoint and the binary react to a small set of environment variables:
 
 Claude Code registration does not need to set `CLOOKS_AGENT`; the binary defaults to the Claude Code adapter. Codex registration always sets `CLOOKS_AGENT=codex`. Project Codex registration locates its declaration by a committed project ID, then sets `CLOOKS_PROJECT_ROOT` to that directory only when no nonempty explicit override exists. It preserves the original cwd, so relative overrides resolve as supplied to the engine. Global Codex registration intentionally omits `CLOOKS_PROJECT_ROOT`; the shell still forwards inherited `CLOOKS_PROJECT_ROOT` and `CLAUDE_PROJECT_DIR` unchanged. Before discovery, the Codex runtime uses an invocation-local environment copy with `CLAUDE_PROJECT_DIR` removed, retaining the explicit `CLOOKS_PROJECT_ROOT` override without mutating the process environment. Without that override, global discovery walks from cwd so global hooks can merge with the current project's `.clooks/clooks.yml`.
 
-SessionEnd alone registers `timeout: 3` seconds, budgeting the entire entrypoint/runtime/hook pipeline. Other event registrations retain their existing timeouts. Re-run init for existing installations: migration adds the eleventh event and repairs owned SessionEnd entries without the timeout; repeated canonical init does not rewrite the file. SessionEnd success produces no stdout. Its diagnostics are local stderr only, discarded by native Codex on successful hooks; failures do not veto closure.
+SessionEnd and Interrupt register `timeout: 3` seconds, budgeting each entire entrypoint/runtime/hook pipeline, not individual hooks. Native defaults for both are 1 second with a 3-second maximum; other event registrations retain their existing timeouts. Re-run init for existing installations: migration adds missing events and repairs owned observer entries without the timeout; repeated canonical init does not rewrite the file. SessionEnd success produces no stdout; its local stderr diagnostics are discarded by native Codex on success, and failures do not veto closure. Interrupt observes root-turn interruption and emits only optional stdout `systemMessage` diagnostics, with no decision, injected context or cancellation veto.
 
 ## Approval Token Transport
+
+The launcher forwards MCP input unchanged. The Codex runtime preserves JSON
+null/scalar/array/raw-string input for observation and approval binding; only
+record inputs support partial patches. Shell approval carriers remain record-only.
+Typed PreToolUse skip context and PermissionRequest block's `interrupt:false`
+are runtime capabilities, not launcher controls. Configured handoff uses the
+shared file/pointer path, with inline fallback on write failure; no launcher
+inline-only guard applies. See [current capabilities](cross-agent-hooks.md#current-runtime-capabilities).
 
 `CLOOKS_APPROVAL_TOKENS` is reserved syntax in a pending Codex Bash/exec_command tool command, not a launcher environment switch. The runtime controller parses a byte-zero token prefix and strips it before hook inspection and binding; an inherited hook-process variable never acknowledges approval. Without a real input rewrite, the original native command retains its prefix. The launcher still only captures/replays stdin and translates exit codes; it does not parse, register or consume tokens.
 

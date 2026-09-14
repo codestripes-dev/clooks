@@ -226,6 +226,7 @@ const CODEX_EVENTS = [
   'SubagentStop',
   'Stop',
   'SessionEnd',
+  'Interrupt',
 ]
 
 const CLAUDE_EVENTS = [
@@ -289,7 +290,7 @@ function expectCodexRegistration(
           {
             type: 'command',
             command: expectedCommand,
-            ...(event === 'SessionEnd' ? { timeout: 3 } : {}),
+            ...(event === 'SessionEnd' || event === 'Interrupt' ? { timeout: 3 } : {}),
           },
         ],
       },

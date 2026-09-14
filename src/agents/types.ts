@@ -28,10 +28,7 @@ export type ResultOrigin =
 export interface ToolCodec {
   canonicalName: string
   decode(input: JsonValue): Record<string, unknown>
-  applyPatch(
-    current: Readonly<Record<string, unknown>>,
-    patch: Readonly<Record<string, unknown>>,
-  ): Record<string, unknown>
+  applyPatch(current: unknown, patch: Readonly<Record<string, unknown>>): Record<string, unknown>
   encode(input: Readonly<Record<string, unknown>>): JsonValue
 }
 
@@ -55,7 +52,7 @@ export interface ResultPolicyInput {
   origin: ResultOrigin
   hookName?: HookName
   parallel: boolean
-  currentToolInput?: Readonly<Record<string, unknown>>
+  currentToolInput?: unknown
 }
 
 export interface RuntimePolicyFailure {

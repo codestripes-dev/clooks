@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test'
+import { createHash } from 'crypto'
 import {
   mkdtempSync,
   mkdirSync,
   rmSync,
   writeFileSync,
   readFileSync,
+  readdirSync,
   existsSync,
   utimesSync,
 } from 'fs'
@@ -515,7 +517,7 @@ describe('Codex turn and delivery integration', () => {
     expect(observed).toHaveLength(27)
   })
 
-  test('inline Stop handoff preserves raw history and rejects unsupported delivery without files', async () => {
+  test('Stop handoff preserves raw history and rejects unsupported delivery without new files', async () => {
     const home = process.env.CLOOKS_HOME_ROOT!
     const projectRoot = join(home, 'project')
     mkdirSync(projectRoot)
@@ -525,7 +527,7 @@ describe('Codex turn and delivery integration', () => {
     const hook = makeHook('reminder', {
       Stop: (ctx: { turn: TurnContext }) => {
         prior.push(ctx.turn.priorInterventions)
-        if (reject) return { result: 'block', reason, updatedInput: {} }
+        if (reject) return { result: 'block', reason: 'NEW rejected reminder', updatedInput: {} }
         return ctx.turn.priorInterventions === 0 ? { result: 'block', reason } : { result: 'skip' }
       },
     })
@@ -542,19 +544,22 @@ describe('Codex turn and delivery integration', () => {
     }
     const first = await runCoreWithExitTrap(deps, codexAdapter)
     expect(first.code).toBe(0)
+    expect(first.stderr).toBe('')
+    const digest = createHash('sha256').update(reason).digest('hex').slice(0, 12)
+    const path = join(projectRoot, '.clooks/tmp', `handoff-reminder-${digest}.md`)
     expect(JSON.parse(first.stdout)).toEqual({
       decision: 'block',
-      reason,
-      systemMessage:
-        'clooks: requested Codex handoff remains inline; recipient file readability is unverified.',
+      reason: `[clooks] Hook "reminder": read ${path} and follow its instructions.`,
     })
-    expect(existsSync(join(projectRoot, '.clooks/tmp'))).toBe(false)
+    expect(readFileSync(path, 'utf8')).toBe(reason)
+    const files = readdirSync(join(projectRoot, '.clooks/tmp')).sort()
     expect((await runCoreWithExitTrap(deps, codexAdapter)).stdout).toBe('')
     reject = true
     const refused = await runCoreWithExitTrap(deps, codexAdapter)
     expect(JSON.parse(refused.stdout)).toMatchObject({ continue: false })
     expect(refused.stdout).not.toContain('requested Codex handoff')
-    expect(existsSync(join(projectRoot, '.clooks/tmp'))).toBe(false)
+    expect(readdirSync(join(projectRoot, '.clooks/tmp')).sort()).toEqual(files)
+    expect(readFileSync(path, 'utf8')).toBe(reason)
     expect(prior).toEqual([0, 1, 1])
     const state = await readTurnState(turnStatePath(home, 'shared', 'codex'))
     expect(state.scopes.main?.[hn('reminder')]?.map((entry) => entry.decision)).toEqual([

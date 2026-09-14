@@ -41,11 +41,11 @@ Config-time validation rejects an event-level `handoff: true` or a number on an 
 
 ### Provider delivery eligibility
 
-Focused compiled E2E now checks long Stop/SubagentStop reasons remain inline, unchanged decision/reason output, repeat-reminder history, absence of handoff files, and capability rejection before delivery. This adds test coverage only; it does not establish recipient access or native delivery. Final full Docker validation passed; no production behavior changed.
+Claude and Codex use the shared file protocol for accepted, eligible payloads. Codex no longer applies a blanket inline-only guard: qualifying context on SessionStart, SubagentStart, PreToolUse, PostToolUse and UserPromptSubmit, and block reasons on PreToolUse, PostToolUse, Stop and SubagentStop, can become file pointers. Decision tags are preserved. Human-facing reasons and diagnostics remain inline, and capability rejection occurs before handoff so refused result effects do not create payload files.
 
-`applyHandoff()` now accepts the invocation policy's optional delivery eligibility and an inline-fallback callback. After the normal field/threshold checks, an ineligible field remains unchanged and no handoff file is written. The executor collects the fallback notice for human system-message delivery. Claude omits this extra restriction and retains the existing file protocol.
+`applyHandoff()` still accepts an invocation policy's optional delivery eligibility and an inline-fallback callback. If a policy marks a qualifying field ineligible, the field stays inline without a file write and the executor collects a human system-message notice. Neither current Claude nor Codex policy imposes that extra restriction. File-write failure separately retains the original inline text with a stderr warning.
 
-The implemented Codex event policies mark every handoff field ineligible because recipient file readability is unverified. Requested handoff therefore keeps qualifying context/block text inline, preserves the decision and emits a human warning; `handoff:false` or text below the threshold does not trigger that warning. Allow explanations already use human `systemMessage` annotations and remain inline. Prompt/stop/child results now also remain inline when otherwise eligible for handoff. The earlier PreToolUse gate passed; expanded event Docker validation has passed. Inline output does not claim native delivery or reader access.
+Compiled E2E coverage checks exact pointers and file contents, thresholds, preserved decisions, rejection before writes and inline write-failure fallback. The separate [native handoff scenarios](../testing/codex-native.md#native-handoff-interrupt-and-mcp) verify that parent and child tool reads deliver the full contents into subsequent model requests, including sandboxed child reads. The scripted model requests prove delivery, not that a model will follow the instructions.
 
 ## File protocol
 

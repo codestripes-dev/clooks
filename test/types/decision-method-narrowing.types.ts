@@ -14,8 +14,7 @@
 //       exported `UnknownPermissionRequestContext`; runtime path verified in
 //       `test/e2e/context-decision-methods.e2e.test.ts` Scenario 3.
 //   (k) Stop ctx rejects ctx.skip({ injectContext }) — Stop is non-injectable.
-//   (l) PreToolUse ctx.skip({ injectContext }) is a @ts-expect-error — injectContext
-//       silently dropped by translator on PreToolUse.skip; not in EventSkipOptsMap['PreToolUse'].
+//   (l) PreToolUse ctx.skip({ injectContext }) compiles.
 //   (l-bis) PreToolUse ctx.skip({ debugMessage }) still compiles — DebugMessage is present.
 //   (m) PermissionRequest ctx accepts ctx.block({ reason, interrupt: true }).
 //   (n) Stop ctx rejects ctx.block({ reason, interrupt: true }).
@@ -87,15 +86,17 @@ createContext('WorktreeCreate', { name: 'x', someOtherKey: 1 })
 
 // (e) UnknownPermissionRequestContext shape assertions.
 //     The unknown-tool variant is the loose-typed escape hatch for MCP / future
-//     tools. `toolInput` is `Record<string, unknown>` and the `allow` method's
+//     tools. `toolInput` is `unknown` and the `allow` method's
 //     `updatedInput` accepts any string-keyed patch (no Patch<T> narrowing).
 {
   // toolName is a plain string, not a known-tool literal union.
   const _name: string = unknownPermCtx.toolName
   void _name
 
-  // toolInput is Record<string, unknown> on the unknown variant.
-  const _input: Record<string, unknown> = unknownPermCtx.toolInput
+  // Observation is unknown; the update API remains a record patch.
+  const _input: unknown = unknownPermCtx.toolInput
+  // @ts-expect-error Unknown input requires narrowing before record access.
+  const _record: Record<string, unknown> = unknownPermCtx.toolInput
   void _input
 
   // allow accepts an arbitrary string-keyed patch on the unknown variant.
@@ -125,12 +126,11 @@ createContext('WorktreeCreate', { name: 'x', someOtherKey: 1 })
   stopCtx.skip({ injectContext: 'note' })
 }
 
-// (l) PreToolUse ctx rejects injectContext on skip — the translator silently drops
-//     injectContext on PreToolUse.skip (src/engine/translate.ts:50-51 early-returns
-//     before reading injectContext). EventSkipOptsMap['PreToolUse'] is DebugMessage only.
+// (l) PreToolUse ctx accepts injectContext on skip.
 if (ctx.toolName === 'Bash') {
-  // @ts-expect-error — injectContext silently dropped by translator on PreToolUse.skip; not in EventSkipOptsMap['PreToolUse']
   ctx.skip({ injectContext: 'note' })
+  // @ts-expect-error skip remains an abstention, not an input rewrite
+  ctx.skip({ updatedInput: { command: 'echo changed' } })
 }
 
 // (l-bis) PreToolUse ctx.skip({ debugMessage }) still compiles — DebugMessage is

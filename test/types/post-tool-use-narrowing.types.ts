@@ -134,8 +134,10 @@ if (failCtx.toolName === 'Bash') {
   const _name: string = unknownCtx.toolName
   void _name
 
-  // toolInput is Record<string, unknown> on the unknown variant.
-  const _input: Record<string, unknown> = unknownCtx.toolInput
+  // Unknown tool inputs can also be non-record JSON values.
+  const _input: unknown = unknownCtx.toolInput
+  // @ts-expect-error Unknown input requires narrowing before record access.
+  const _record: Record<string, unknown> = unknownCtx.toolInput
   void _input
 
   // toolResponse is unknown at the prefix.
@@ -154,7 +156,7 @@ if (failCtx.toolName === 'Bash') {
   const _name: string = unknownFailCtx.toolName
   void _name
 
-  const _input: Record<string, unknown> = unknownFailCtx.toolInput
+  const _input: unknown = unknownFailCtx.toolInput
   void _input
 
   // error: string accessible at the prefix.

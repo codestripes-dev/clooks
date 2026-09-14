@@ -363,7 +363,7 @@ describe('Codex supported event decisions and context', () => {
     expect(observed()).toEqual({ toolInput })
   })
 
-  test('PostToolUse rejects non-record input before import after a reachable record control', () => {
+  test('PostToolUse observes MCP JSON shapes but still validates the response', () => {
     sandbox = createSandbox()
     install('PostToolUse', 'observe(ctx.toolInput); return ctx.skip()')
     const toolInput = { opaque_key: [null, false] }
@@ -371,13 +371,9 @@ describe('Codex supported event decisions and context', () => {
     marks()
     expect(observed()).toEqual(toolInput)
     for (const value of [null, false, [], 'arguments']) {
-      failure(
-        replay('PostToolUse', { tool_name: 'mcp__fixture__inspect', tool_input: value }),
-        'PostToolUse',
-        'clooks: Codex PostToolUse hook "runtime" capability "tool_input": tool input must be a JSON record; scalar, array and null inputs are unsupported; hooks were not imported or executed. Rejected-result feedback requested after execution; no rollback is possible.',
-      )
-      expect(sandbox.fileExists(marker)).toBe(false)
-      expect(sandbox.fileExists(observation)).toBe(false)
+      output(replay('PostToolUse', { tool_name: 'mcp__fixture__inspect', tool_input: value }))
+      marks()
+      expect(observed()).toEqual(value)
     }
     failure(
       replay('PostToolUse', { tool_response: undefined }),
@@ -431,7 +427,7 @@ describe('Codex unsupported event fields reject before downstream effects', () =
         event: 'PermissionRequest',
         tag: 'block',
         field: 'interrupt',
-        value: false,
+        value: true,
         positive: {
           hookSpecificOutput: {
             hookEventName: 'PermissionRequest',

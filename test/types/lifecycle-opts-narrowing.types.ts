@@ -25,9 +25,7 @@
 //   (a) Stop is non-injectable; injectContext on event.block is a TS error.
 //   (b) Stop is non-injectable; injectContext on event.skip is a TS error.
 //   (c) PreToolUse IS injectable; event.block({ injectContext }) compiles.
-//   (d) PreToolUse lifecycle.skip rejects injectContext — translator silently drops
-//       on PreToolUse.skip; @ts-expect-error (ctx-side also dropped; see (l) in
-//       decision-method-narrowing.types.ts).
+//   (d) PreToolUse lifecycle.skip accepts injectContext.
 //   (e) Stop does not allow interrupt; passing it on event.block is a TS error.
 //   (f) PermissionRequest allows interrupt; event.block({ interrupt }) compiles.
 //   (g) Stop does not allow updatedMCPToolOutput; passing it on event.block is a TS error.
@@ -75,14 +73,11 @@ if (evt.type === 'PreToolUse') {
   void _r
 }
 
-// (d) PreToolUse lifecycle.skip does NOT accept injectContext — the translator
-//     silently drops injectContext on PreToolUse.skip (src/engine/translate.ts:50-51).
-//     LifecycleSkipOptsMap['PreToolUse'] is DebugMessage only.
-//     Note: the ctx-side EventSkipOptsMap also drops InjectContext for the same reason
-//     (see decision-method-narrowing.types.ts stanza (l)).
+// (d) PreToolUse lifecycle.skip accepts injectContext.
 if (evt.type === 'PreToolUse') {
-  // @ts-expect-error — injectContext silently dropped by translator on PreToolUse.skip; not in LifecycleSkipOptsMap['PreToolUse']
   evt.skip({ injectContext: 'note' })
+  // @ts-expect-error lifecycle skip does not rewrite input
+  evt.skip({ updatedInput: { command: 'echo changed' } })
 }
 
 // ── interrupt ─────────────────────────────────────────────────────────────────
@@ -145,12 +140,11 @@ if (evt.type === 'UserPromptSubmit') {
 // ── Injectable-event coverage (k–n) ───────────────────────────────────────────
 // INJECTABLE_EVENTS in src/config/constants.ts: PreToolUse, UserPromptSubmit,
 // SessionStart, PostToolUse, PostToolUseFailure, Notification, SubagentStart.
-// (c) covers PreToolUse block; PreToolUse skip is @ts-expect-error (see (d)).
+// (c) and (d) cover PreToolUse block and skip.
 // PostToolUse block is @ts-expect-error (see (h) — mutation stripped from lifecycle).
 // UserPromptSubmit injectability is covered in (r). The four below close the
 // remaining gaps on skip so a typo dropping `& InjectContext` from any lifecycle
-// map entry trips. (PreToolUse and PostToolUse are excluded here — their skip-side
-// InjectContext behavior is tested via the @ts-expect-error stanzas above.)
+// map entry trips.
 
 // (k) SessionStart skip accepts injectContext.
 if (evt.type === 'SessionStart') {

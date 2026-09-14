@@ -19,8 +19,8 @@ export interface AcceptedPreToolUseVote extends PreToolUseVote {
   origin: ResultOrigin
   /** Zero-based position in the configured execution order, including non-voting hooks. */
   ordinal: number
-  inputBefore: Record<string, unknown>
-  inputAfter: Record<string, unknown>
+  inputBefore: unknown
+  inputAfter: unknown
 }
 
 export interface ExecutionResult {
@@ -29,7 +29,7 @@ export interface ExecutionResult {
   preToolUse?: {
     votes: AcceptedPreToolUseVote[]
     /** Materialized pipeline input, not necessarily the reducer's emitted updatedInput. */
-    finalToolInput?: Record<string, unknown>
+    finalToolInput?: unknown
     inputChanged: boolean
     completed: boolean
   }

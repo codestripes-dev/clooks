@@ -67,7 +67,6 @@ export function globToRegex(pattern: string): RegExp {
       regex += '\\' + char
       i += 1
     } else {
-      // literal character
       regex += char
       i += 1
     }
@@ -86,10 +85,8 @@ export function normalizePath(filePath: string, cwd: string): string | null {
   // Ensure cwd ends with / to prevent prefix false matches
   if (!cwd.endsWith('/')) cwd = cwd + '/'
 
-  // Guard: file outside project
   if (!filePath.startsWith(cwd)) return null
 
-  // Strip cwd prefix to get project-relative path
   const relative = filePath.slice(cwd.length)
 
   // Guard: filePath equals cwd (directory, not a file) — returns empty string
@@ -224,13 +221,16 @@ export const hook: ClooksHook<Config> = {
     const targetTools = ['Write', 'Edit', 'MultiEdit']
     if (!nativePatch && !targetTools.includes(ctx.toolName)) return ctx.skip()
 
+    const input = raw.toolInput
+    if (input === null || typeof input !== 'object' || Array.isArray(input)) return ctx.skip()
+
     const filePath =
-      'filePath' in ctx.toolInput && typeof ctx.toolInput.filePath === 'string'
-        ? ctx.toolInput.filePath
+      'filePath' in input && typeof input.filePath === 'string'
+        ? input.filePath
         : ''
     const paths = nativePatch
-      ? typeof raw.toolInput.command === 'string' && ctx.cwd
-        ? patchPaths(raw.toolInput.command).map((path) => resolve(ctx.cwd, path))
+      ? 'command' in input && typeof input.command === 'string' && ctx.cwd
+        ? patchPaths(input.command).map((path) => resolve(ctx.cwd, path))
         : []
       : filePath
         ? [filePath]
@@ -241,7 +241,7 @@ export const hook: ClooksHook<Config> = {
       if (relativePath === null) continue
 
       for (const group of BUILTIN_RULES) {
-        if (config[group.id] === false) continue // disabled via config
+        if (config[group.id] === false) continue
         for (const pattern of group.patterns) {
           try {
             if (globToRegex(pattern).test(relativePath)) {
@@ -261,7 +261,6 @@ export const hook: ClooksHook<Config> = {
         try {
           if (!globToRegex(rule.pattern).test(relativePath)) continue
 
-          // Check except patterns
           if (Array.isArray(rule.except)) {
             const excepted = rule.except.some((exc) => {
               try {
@@ -270,7 +269,7 @@ export const hook: ClooksHook<Config> = {
                 return false
               }
             })
-            if (excepted) continue // path is excluded from this rule
+            if (excepted) continue
           }
 
           return ctx.block({

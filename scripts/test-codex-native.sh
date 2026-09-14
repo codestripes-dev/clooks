@@ -155,6 +155,10 @@ fi
 
 cmd=(docker run --pull never --name "$name" --network none --init
   --user root --entrypoint /bin/bash --label clooks.native=m1)
+# Native bubblewrap needs unprivileged user/mount namespaces denied by Docker's
+# default seccomp profile. Relax only this disposable smoke container; retain
+# network isolation, default capabilities, read-only inputs and non-root tests.
+if [[ "$mode" == --smoke ]]; then cmd+=(--security-opt seccomp=unconfined); fi
 for path in src test schemas scripts tsconfig.json bunfig.toml package.json .clooks/vendor/plugin; do
   cmd+=(--mount "type=bind,src=$attempt/input/$path,dst=/app/$path,readonly")
 done
