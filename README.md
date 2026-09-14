@@ -141,12 +141,7 @@ with `--agent claude-code` or `--agent codex`.
 <summary><b>Prebuilt binary</b></summary>
 
 Download the binary for your platform from the [GitHub releases page](https://github.com/codestripes-dev/clooks/releases),
-put it on your PATH, then:
-
-```
-cd /your/project
-clooks init
-```
+and put it on your PATH.
 
 Available targets: `darwin-arm64`, `darwin-x64`, `linux-x64`,
 `linux-x64-baseline`, `linux-arm64`.
@@ -163,12 +158,13 @@ git clone https://github.com/codestripes-dev/clooks
 cd clooks
 bun install && bun run build
 mv dist/clooks ~/.local/bin/
-
-cd /your/project
-clooks init
 ```
 
 </details>
+
+## Project setup
+
+From your project directory, run:
 
 ```text
 clooks init [--agent claude-code|codex|all]
