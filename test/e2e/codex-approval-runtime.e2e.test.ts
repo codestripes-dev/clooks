@@ -288,7 +288,6 @@ describe('compiled Codex runtime approval transports', () => {
         expect(sandbox.readFile('approval-completions.log')).toBe(parallel ? 'B\nA\n' : 'A\nB\n')
         const b = pending(inline(a), 'ask-b', 'confirm B')
         expect(b).not.toBe(a)
-        // A was durably acknowledged inline even though B still blocked the attempt.
         expect(pending(run(), 'ask-b', 'confirm B')).toBe(b)
         if (transport === 'mixed') cli(b)
         permit(transport === 'mixed' ? run() : inline(b), 'confirm B')
@@ -333,7 +332,6 @@ describe('compiled Codex runtime approval transports', () => {
     const changed = { TEST_B_REASON: 'confirm B revised' }
     const newB = pending(run({}, changed), 'ask-b', 'confirm B revised')
     expect(newB).not.toBe(oldB)
-    // A must stay satisfied; changing only B cannot restart the prompt sequence at A.
     expect(pending(run({}, changed), 'ask-b', 'confirm B revised')).toBe(newB)
     rejected(
       run({ tool_input: { command: `CLOOKS_APPROVAL_TOKENS=${oldB} /usr/bin/true` } }, changed),
@@ -352,7 +350,6 @@ describe('compiled Codex runtime approval transports', () => {
     const b = pending(run({ tool_input: { command } }))
     expect(b).not.toBe(a)
     permit(inline(b, command))
-    // The test stands in for the host dispatching the now-permitted CLI command.
     cli(a)
     permit(run(target))
     expect(cli(b, false).error).toContain(deadTokenError)

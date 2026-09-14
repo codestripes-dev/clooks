@@ -998,9 +998,7 @@ export async function commitTurnRecords(
  * Both kinds clear every scope and advance the generation. The generation is
  * monotonic and never returns to a default: an in-flight commit holding an
  * equal generation would otherwise write its pre-boundary records straight back
- * into the freshly cleared state. `kind` exists to distinguish the
- * `UserPromptSubmit` advance from the `SessionStart` reset for logging and for
- * future divergence.
+ * into the freshly cleared state.
  *
  * On any failure the on-disk state is returned unchanged, which means a
  * finished turn keeps looking live — the documented failure direction.
@@ -1011,8 +1009,7 @@ export async function applyTurnBoundary(
   kind: 'advance' | 'reset',
   provider: AgentId = 'claude-code',
 ): Promise<TurnState> {
-  // `kind` is intentionally not branched on yet — both boundaries behave
-  // identically today; the parameter records the caller's intent.
+  // Both boundary kinds clear all scopes and advance the generation.
   void kind
 
   let dir: string
@@ -1123,8 +1120,7 @@ export function createTurnTracker(input: {
       try {
         await commitTurnRecords(input.path, input.homeRoot, captured, batch, input.provider)
       } catch {
-        // commitTurnRecords already swallows its own failures; this is the
-        // belt to its braces, because the caller is on the engine's return path.
+        // Persistence failure must not prevent delivery of the hook result.
       }
     },
   }

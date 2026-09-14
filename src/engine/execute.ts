@@ -57,9 +57,7 @@ export function reducePreToolUseVotes(
 } {
   if (votes.length === 0) return { warnings: [] }
 
-  // Pick the max-rank winner. For equal ranks, the last-seen wins
-  // (execution order), matching today's last-non-skip semantics for
-  // rank ties — ask/ask, allow/allow, etc.
+  // Equal ranks are resolved by execution order: the last vote wins.
   let winner = votes[0]!
   for (const v of votes.slice(1)) {
     if (v.rank >= winner.rank) winner = v
@@ -198,13 +196,7 @@ export function reducePreToolUseVotes(
   return { result: winner.engineResult, warnings }
 }
 
-// --- Turn-state bookkeeping, isolated from control flow ---
-//
-// Turn state must never change what a hook decided or whether the next hook
-// runs. The production tracker already swallows its own failures, but this is
-// the engine's hook-execution choke point and the guarantee belongs here too:
-// relying on a callee's internal discipline makes it depend on a property of
-// another function that a future edit could remove with no signal at this end.
+// Bookkeeping failures must not change hook decisions or interrupt execution.
 
 function turnTrackerFailed(e: unknown): void {
   warnTurnStateOnce(`turn state bookkeeping failed (${e instanceof Error ? e.message : String(e)})`)
@@ -331,7 +323,6 @@ function resolveTimeout(hookName: HookName, config: ClooksConfig): number {
  * Runs matched hooks with circuit breaker logic.
  * Also processes load errors through the circuit breaker — a hook that
  * fails to import is treated as a failure for the current event.
- * Extracted from runEngine() for testability.
  */
 export async function executeHooks(
   matched: LoadedHook[],
@@ -728,11 +719,6 @@ export async function executeHooks(
       const resultObj = result as EngineResult
       const addVote = voteRecorder(resultObj, loaded.name, lifecycleResult.origin)
 
-      // From the raw result, before handoff. Handoff replaces payload text and
-      // never the tag, so either side records the same value today — reading
-      // the raw object keeps the record independent of a transform that could
-      // grow new behavior later.
-
       // Handoff runs before the debug serialization below so debug output shows
       // the pointer, not the payload handoff was meant to keep out of the transcript.
       const hookResult = await applyHandoff(
@@ -757,10 +743,7 @@ export async function executeHooks(
         debugMessages.push(hookResult.debugMessage)
       }
 
-      // Block bails out immediately — stop the group and signal pipeline.
-      // For PreToolUse: outer accumulatedInjectContext.push stays unconditional (authoritative
-      // on crash path per Decision D-2026-04-19-10); blockResult/pipelineBlocked/return are
-      // gated to non-PreToolUse so the collect-all pipeline continues.
+      // PreToolUse blocks are votes; retain context in case a later hook crashes.
       if (hookResult.result === 'block') {
         if (hookResult.injectContext) {
           accumulatedInjectContext.push(hookResult.injectContext)
@@ -1115,9 +1098,7 @@ export async function executeHooks(
           continue
         }
 
-        // Block branch: outer accumulatedInjectContext.push stays unconditional (authoritative
-        // on crash path per Decision D-2026-04-19-10); blockResult/pipelineBlocked are gated
-        // to non-PreToolUse so the collect-all pipeline continues for PreToolUse.
+        // PreToolUse blocks are votes; retain context in case a later hook crashes.
         if (hookResult.result === 'block') {
           if (hookResult.injectContext) {
             accumulatedInjectContext.push(hookResult.injectContext)
@@ -1180,9 +1161,7 @@ export async function executeHooks(
           effectiveMode = 'continue'
         }
 
-        // Runtime fallback: NOTIFY_ONLY events cannot honor "block" — emit the stderr
-        // warning and skip the block assignment. The post-batch circuit-breaker loop
-        // at 663-686 records the failure naturally.
+        // Notify-only crashes cannot block, but still count toward the circuit breaker.
         if (effectiveMode === 'block' && NOTIFY_ONLY_EVENTS.has(eventName)) {
           process.stderr.write(
             `clooks: hook "${settled.hookName}" onError: "block" cannot apply to ${eventName} ` +
@@ -1309,12 +1288,7 @@ export async function executeHooks(
   if (policyFailure) {
     lastResult = undefined
   } else if (eventName === 'PreToolUse') {
-    // Crash-block path still short-circuits (Decision Log D-2026-04-19-05):
-    // if pipelineBlocked is true, a crashed hook under onError:"block"
-    // already set blockResult — use that without running reduction.
-    // This path DOES read accumulatedInjectContext (preserves prior allow-hook
-    // contexts that ran before the crash, matching today's injectable-event
-    // semantics). It does NOT call the reducer.
+    // Crashes bypass vote reduction but preserve context collected before the failure.
     if (pipelineBlocked && blockResult) {
       if (INJECTABLE_EVENTS.has(eventName) && accumulatedInjectContext.length > 0) {
         const accumulated = accumulatedInjectContext.join('\n')
@@ -1323,15 +1297,8 @@ export async function executeHooks(
         lastResult = blockResult
       }
     } else {
-      // Non-crash path: reducer is AUTHORITATIVE. Do NOT read from
-      // accumulatedInjectContext, lastNonSkipResult, or currentToolInput
-      // here. The reducer's per-winner accumulation rules (D2) walk the
-      // votes array and emit the canonical merged result. Joining the
-      // outer accumulator here would double-count context — see the
-      // runner-integration explanation above.
-      // Identity check is "did any hook touch updatedInput," not value-equality.
-      // Reliable because each patch-merge allocates a fresh object — even a
-      // content-equal merge produces a reference-distinct result.
+      // The reducer owns context accumulation; adding the outer accumulator would duplicate it.
+      // Each patch allocates a new object, even when its contents are unchanged.
       const { result: reduced, warnings } = reducePreToolUseVotes(
         preToolUseVotes,
         currentToolInput !== originalToolInput ? currentToolInput : undefined,
@@ -1342,7 +1309,6 @@ export async function executeHooks(
       }
     }
   } else {
-    // --- Non-PreToolUse events: today's behavior unchanged ---
     if (pipelineBlocked && blockResult) {
       // For injectable events, merge accumulated injectContext from prior groups into block result
       if (INJECTABLE_EVENTS.has(eventName) && accumulatedInjectContext.length > 0) {

@@ -58,7 +58,6 @@ export interface ApprovalAttempt {
   baseInvocationHash: string
 }
 
-/** Also used by no-config retirement; intentionally does not require turn/model/tool-use IDs. */
 export function prepareApprovalAttempt(raw: unknown): ApprovalAttempt {
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw))
     throw new Error('Approval identity requires an object payload')

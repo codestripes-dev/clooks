@@ -73,10 +73,7 @@ export const EXIT_STDERR = 2 as const
 export type ExitCode = typeof EXIT_OK | typeof EXIT_HOOK_FAILURE | typeof EXIT_STDERR
 
 /**
- * Injectable dependencies for runEngine.
- * Why DI instead of mock.module?  Bun's mock.module is process-wide and
- * leaks across test files in the same run.  Mocking ./config/index.js and
- * ./loader.js here broke every loadConfig and loader test (16+ failures).
+ * Inject dependencies to avoid Bun's process-wide module mocks leaking between tests.
  */
 export interface RunEngineDeps {
   loadConfig: typeof loadConfig

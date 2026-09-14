@@ -482,10 +482,7 @@ async function runEngineInvocation(
       finishEngine(EXIT_STDERR)
     }
 
-    // Normalized here, before the early exits, so the turn boundary below can
-    // read a session identity the adapter owns rather than a raw wire key.
-    // `normalizeInvocation` is a pure transform, and this same object is reused at
-    // the executeHooks call site — the payload is never normalized twice.
+    // Turn boundaries need normalized session identity even when no hooks match.
     invocation = adapter.normalizeInvocation(payload, eventName)
     state.invocation = invocation
     state.eventName = eventName
@@ -500,10 +497,7 @@ async function runEngineInvocation(
     await pruneHandoffFiles(projectRoot).catch(() => {})
   }
 
-  // Turn state is meaningless without a session identity, and inventing a
-  // fallback would silently merge unrelated sessions into one history. No
-  // identity means no boundary, no snapshot, no recording, and an empty
-  // ctx.turn for every hook in this invocation.
+  // A fallback identity would merge unrelated sessions; disable turn state instead.
   const sessionId =
     typeof normalized.sessionId === 'string' && normalized.sessionId.length > 0
       ? normalized.sessionId
@@ -533,9 +527,7 @@ async function runEngineInvocation(
   // file a second time.
   let boundaryState: TurnState | null = null
 
-  // Placed before both early exits for the same reason the handoff prune is: a
-  // project with no UserPromptSubmit hooks must still get its turn boundary, or
-  // every dedup hook goes permanently silent after its first intervention.
+  // Advance turn state even without matching hooks, or dedup history never resets.
   if (turnPath !== null && turnPolicy !== null) {
     if (turnPolicy.prune) await pruneTurnState(homeRoot, adapter.id).catch(() => {})
     if (turnPolicy.boundary !== null) {
