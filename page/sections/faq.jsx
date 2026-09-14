@@ -11,7 +11,7 @@ function FAQSection({ accent, content }) {
         }}>
           <Copy text={content.title} heading/>
         </h2>
-        {/* Content edits reset disclosure state, including duplicate questions. */}
+        {/* Reset open items when the editor changes the questions. */}
         <div key={JSON.stringify(faqs)}>
           {faqs.map((f, i) => <FAQItem key={i} q={f.q} a={f.a} accent={accent} last={i === faqs.length - 1}/>)}
         </div>

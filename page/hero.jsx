@@ -16,7 +16,6 @@ function InstallBlock({ accent, content, agent, onAgentChange, autoType = true }
     setState(prev => prev.map((s, idx) => idx === i ? { ...s, ...patch } : s));
   }, []);
 
-  // One cancellable animation per command snapshot; editor renders props directly.
   React.useEffect(() => {
     if (!autoType) return;
     let timer;

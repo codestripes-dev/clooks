@@ -354,7 +354,6 @@ export const hook = {meta:{name:'onboarding-observer'}, SessionStart:record, Pos
           'Removal disabled or duplicated runtime',
         )
 
-        // Keep every setup/removal baseline assertion above independent of pack discovery.
         const installs: Record<string, { cache: string; manifest: any }> = {}
         const files = (root: string, prefix = ''): Record<string, string> => {
           const hashes: Record<string, string> = {}

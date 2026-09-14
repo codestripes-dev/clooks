@@ -1057,7 +1057,6 @@ describe('clooks uninstall — interactive mode', () => {
     const program = createTestProgram()
     await program.parseAsync(['uninstall', '--project'], { from: 'user' })
 
-    // .clooks/ should be retained until explicit full is requested
     expect(existsSync(join(tempDir, '.clooks'))).toBe(true)
     expect(confirmMock).not.toHaveBeenCalled()
     await createTestProgram().parseAsync(['uninstall', '--project', '--full'], { from: 'user' })

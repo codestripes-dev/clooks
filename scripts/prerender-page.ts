@@ -3,8 +3,6 @@
 // Copies page/* to dist/, transpiles .jsx → .js (removes Babel Standalone from
 // the runtime), serves dist/ locally, loads it in headless Chrome, waits for
 // React to mount, and writes the settled DOM back as dist/index.html.
-//
-// Local development uses bun run dev:page; the deployed site has no editor code.
 
 import puppeteer from 'puppeteer'
 import { cpSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'

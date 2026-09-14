@@ -49,8 +49,6 @@ export const transpiler = new Bun.Transpiler({
   }),
 })
 
-// Every served asset is explicitly named and read into memory at startup.
-// Refuse symlinks in every relative segment, including parent directories.
 export async function readSafe(root: string, relative: string): Promise<Buffer> {
   const base = await realpath(root)
   const pieces = relative.split('/')

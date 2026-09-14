@@ -5,7 +5,6 @@ import { join } from 'path'
 export const CODEX_PROJECT_MARKER = '.clooks/bin/codex-project-id'
 export const CODEX_PROJECT_ID_PATTERN = /^[a-f0-9]{32}$/
 
-/** Init owns directory creation; existing identity is never silently replaced. */
 export function ensureCodexProjectId(projectRoot: string): { id: string; created: boolean } {
   const path = join(projectRoot, CODEX_PROJECT_MARKER)
   const existing = lstatSync(path, { throwIfNoEntry: false })
@@ -20,7 +19,6 @@ export function ensureCodexProjectId(projectRoot: string): { id: string; created
   return { id, created: true }
 }
 
-// This locates only registration identity. Configuration remains the binary's responsibility.
 export const CODEX_PROJECT_LAUNCHER = `if [ "\${SKIP_CLOOKS:-}" = true ]; then exit 0; fi
 d=$(pwd -P) || exit 2
 git_root=$(git rev-parse --show-toplevel 2>/dev/null < /dev/null) || git_root=

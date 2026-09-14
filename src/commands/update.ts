@@ -116,7 +116,6 @@ export async function updatePluginPack(
     return result
   }
 
-  // Legacy injected discovery remains Claude-only and never acquires default dependencies.
   const options: UpdatePluginOptions =
     typeof discovery === 'function' ? { discoverPluginPacks: discovery } : discovery
   const candidates: Array<{ agent: AgentId; pack: DiscoveredPack }> = []
@@ -252,7 +251,6 @@ export async function updatePluginPack(
         // Existing hook — just overwrite the file, no config changes
         result.updated.push(hookName)
       } else {
-        // A missing file must validate, including repair of an existing registration.
         try {
           const mod = (await import(vendorAbsPath)) as Record<string, unknown>
           validateHookExport(mod, vendorAbsPath)

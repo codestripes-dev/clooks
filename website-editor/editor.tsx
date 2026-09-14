@@ -11,7 +11,7 @@ type Data = PuckData<Record<string, Record<string, unknown>>, Record<string, unk
 
 const labels: Record<string, string> = { visible: 'Visible on website', title: 'Heading', subtitle: 'Muted heading', intro: 'Introduction', label: 'Label', links: 'Setup links / CTAs', href: 'Link destination', terminalTitle: 'Terminal title', copyLabel: 'Copy button label', commands: 'Hero terminal commands', cmd: 'Command', output: 'Command output', doneLabel: 'Completion label', setupIntro: 'Setup instruction', setupCommand: 'Setup command', setupNote: 'Setup note', badges: 'Platform / license badges', snippetLabel: 'Code example label (stacked hero)', pains: 'Problem cards', n: 'Number', k: 'Card heading', d: 'Description', t: 'Step title', slash: 'Agent instruction (no shell prompt)', paths: 'Installation paths', blurb: 'Path description', steps: 'Steps', notes: 'Installation notes', notesLabel: 'Notes label', setup: 'Setup details', faqs: 'Questions and answers', q: 'Question', a: 'Answer', text: 'Text', accent: 'Accent color (#RRGGBB)', heroVariant: 'Hero layout', metadata: 'Search and social metadata', description: 'Description (empty removes)', canonical: 'Canonical URL (empty removes)', image: 'Social image URL (empty removes)' }
 
-// Field structure must survive saving an empty optional array and restarting.
+// Empty arrays cannot supply the field shapes needed to add new items.
 const arrayTemplates: Record<string, Record<string, unknown>> = {
   claude: { cmd: 'claude /clooks:setup', output: '', doneLabel: 'Done' },
   codex: { cmd: "codex '$clooks:setup'", output: '', doneLabel: 'Done' },
@@ -24,7 +24,6 @@ const arrayTemplates: Record<string, Record<string, unknown>> = {
   columns: { label: 'Links', links: [] },
 }
 
-// Puck fields with native controls for color and visibility.
 function fieldsFor(values: Record<string, unknown>): Record<string, Field> {
   return Object.fromEntries(Object.entries(values).filter(([key]) => key !== 'id').map(([key, value]) => {
     const label = labels[key] ?? key
