@@ -9,6 +9,12 @@ import os from 'os'
 import * as platform from '../platform.js'
 import * as registrationState from '../registration-state.js'
 import { createInitCommand } from './init.js'
+import { approvalCompanion } from '../registration-approvals.js'
+import {
+  mcpRegistrationPath,
+  prepareMcpRegistration,
+  hasOwnedMcpServer,
+} from '../registration-mcp.js'
 
 // Mock @clack/prompts BEFORE imports
 mock.module('@clack/prompts', () => ({
@@ -57,6 +63,236 @@ function resetPromptMocks() {
     .mockReset()
     .mockImplementation(() => false)
 }
+
+describe('paired registration removal', () => {
+  for (const scope of ['project', 'global'] as const) {
+    for (const agent of ['claude-code', 'codex'] as const) {
+      for (const remnant of ['server', 'companion'] as const) {
+        test(`${scope} ${agent} ${remnant}-only registration is detected and removed without runtime files`, async () => {
+          const root = scope === 'global' ? fakeHome : tempDir
+          const server = mcpRegistrationPath(root, agent, scope === 'global')
+          if (remnant === 'server') prepareMcpRegistration(server, agent).commit()
+          else {
+            const dir = join(root, agent === 'codex' ? '.codex' : '.claude')
+            mkdirSync(dir, { recursive: true })
+            const path = join(dir, agent === 'codex' ? 'hooks.json' : 'settings.json')
+            writeFileSync(
+              path,
+              JSON.stringify({
+                hooks: {
+                  PreToolUse: [
+                    {
+                      hooks: [
+                        approvalCompanion(
+                          agent,
+                          scope === 'global' ? 'global' : `project:${'a'.repeat(32)}`,
+                        ),
+                      ],
+                    },
+                  ],
+                },
+              }),
+            )
+          }
+          await createTestProgram().parseAsync(
+            ['--json', 'uninstall', `--${scope}`, '--unhook', '--force'],
+            { from: 'user' },
+          )
+          const result = JSON.parse(
+            stdoutSpy.mock.calls.map((call: unknown[]) => String(call[0])).join(''),
+          ).data
+          expect(result.agent).toBe(agent)
+          expect(result.unhooked).toBe(true)
+          expect(result.deleted).toBe(false)
+          expect(hasOwnedMcpServer(server, agent)).toBe(false)
+        })
+      }
+    }
+    test(`${scope} full removal preserves live approval packets and reports retained paths`, async () => {
+      const root = scope === 'global' ? fakeHome : tempDir
+      const live = join(root, '.clooks/.cache/approvals-live')
+      mkdirSync(join(live, 'v1/inflight'), { recursive: true })
+      writeFileSync(join(live, 'v1/inflight/command.json'), 'active packet')
+      writeFileSync(join(root, '.clooks/custom.ts'), 'custom hook')
+      await createTestProgram().parseAsync(
+        ['--json', 'uninstall', `--${scope}`, '--full', '--force', '--agent', 'all'],
+        { from: 'user' },
+      )
+      const result = JSON.parse(
+        stdoutSpy.mock.calls.map((call: unknown[]) => String(call[0])).join(''),
+      ).data
+      expect(result.deleted).toBe(false)
+      expect(result.retainedPaths).toEqual([live])
+      expect(readFileSync(join(live, 'v1/inflight/command.json'), 'utf8')).toBe('active packet')
+      expect(existsSync(join(root, '.clooks/custom.ts'))).toBe(false)
+    })
+    test(`${scope} full removal refuses a runtime symlink before removing target registration state`, async () => {
+      const root = scope === 'global' ? fakeHome : tempDir
+      const outside = join(tempDir, 'outside')
+      mkdirSync(outside)
+      writeFileSync(join(outside, 'sentinel'), 'untouched')
+      fs.symlinkSync(outside, join(root, '.clooks'))
+      setupProject(root)
+      setupCodexProject(root)
+      fs.chmodSync(join(outside, 'bin/entrypoint.sh'), 0o755)
+      writeFileSync(join(outside, '.global-entrypoint-active'), '')
+      registrationState.trackCodexHome(root, join(root, '.codex'))
+      registrationState.publishCodexReceipt(root, join(root, '.codex'))
+      const paths = [
+        '.global-entrypoint-active',
+        '.global-entrypoint-active.codex',
+        '.codex-registration-home',
+      ].map((name) => join(outside, name))
+      paths.push(join(root, '.claude/settings.json'), join(root, '.codex/hooks.json'))
+      const before = paths.map((path) => readFileSync(path))
+      await expect(
+        createTestProgram().parseAsync(
+          ['--json', 'uninstall', `--${scope}`, '--full', '--force', '--agent', 'all'],
+          { from: 'user' },
+        ),
+      ).rejects.toThrow('process.exit called')
+      expect(fs.lstatSync(join(root, '.clooks')).isSymbolicLink()).toBe(true)
+      paths.forEach((path, index) => expect(readFileSync(path)).toEqual(before[index]!))
+      expect(readFileSync(join(outside, 'sentinel'), 'utf8')).toBe('untouched')
+      expect(stdoutSpy.mock.calls.map((call: unknown[]) => String(call[0])).join('')).toContain(
+        'symbolic link',
+      )
+    })
+  }
+
+  test('project unhook preserves the independently registered global server and live coordination', async () => {
+    const project = mcpRegistrationPath(tempDir, 'claude-code', false)
+    const global = mcpRegistrationPath(fakeHome, 'claude-code', true)
+    prepareMcpRegistration(project, 'claude-code').commit()
+    prepareMcpRegistration(global, 'claude-code').commit()
+    const globalBytes = readFileSync(global, 'utf8')
+    const live = join(fakeHome, '.clooks/.cache/approvals-live/v1')
+    mkdirSync(live, { recursive: true })
+    writeFileSync(join(live, 'active'), 'keep')
+    await createTestProgram().parseAsync(
+      ['uninstall', '--project', '--unhook', '--force', '--agent', 'claude-code'],
+      { from: 'user' },
+    )
+    expect(hasOwnedMcpServer(project, 'claude-code')).toBe(false)
+    expect(readFileSync(global, 'utf8')).toBe(globalBytes)
+    expect(readFileSync(join(live, 'active'), 'utf8')).toBe('keep')
+  })
+
+  test('unhook retains an owned server still referenced by an unrelated handler', async () => {
+    setupProject(tempDir)
+    const server = mcpRegistrationPath(tempDir, 'claude-code', false)
+    prepareMcpRegistration(server, 'claude-code').commit()
+    const bytes = readFileSync(server, 'utf8')
+    const settings = readSettings(tempDir)
+    const hooks = settings.hooks as Record<string, unknown[]>
+    hooks.PreToolUse!.push({
+      hooks: [{ type: 'mcp_tool', server: 'clooks', tool: 'foreign-tool' }],
+      extension: 'keep',
+    })
+    writeFileSync(join(tempDir, '.claude/settings.json'), JSON.stringify(settings))
+    await createTestProgram().parseAsync(
+      ['uninstall', '--project', '--unhook', '--force', '--agent', 'claude-code'],
+      { from: 'user' },
+    )
+    expect(readFileSync(server, 'utf8')).toBe(bytes)
+    expect((readSettings(tempDir).hooks as Record<string, unknown[]>).PreToolUse).toEqual([
+      { hooks: [{ type: 'mcp_tool', server: 'clooks', tool: 'foreign-tool' }], extension: 'keep' },
+    ])
+  })
+
+  test('Claude hook removal retires suppression before a concurrent server change aborts cleanup', async () => {
+    setupProject(fakeHome)
+    const flag = join(fakeHome, '.clooks/.global-entrypoint-active')
+    writeFileSync(flag, '')
+    const server = join(fakeHome, '.claude.json')
+    prepareMcpRegistration(server, 'claude-code').commit()
+    const changedConfig = JSON.stringify({
+      mcpServers: {
+        clooks: { command: 'foreign-server', args: ['keep'] },
+        other: { command: 'other-server' },
+      },
+      sessionState: 'concurrent update',
+    })
+    const rename = fs.renameSync
+    spyOn(fs, 'renameSync').mockImplementation((from, to) => {
+      rename(from, to)
+      if (String(to) === join(fakeHome, '.claude/settings.json')) {
+        writeFileSync(server, changedConfig)
+      }
+    })
+    await expect(
+      createTestProgram().parseAsync(
+        ['--json', 'uninstall', '--global', '--unhook', '--force', '--agent', 'claude-code'],
+        { from: 'user' },
+      ),
+    ).rejects.toThrow('process.exit called')
+    expect(readSettings(fakeHome).hooks).toBeUndefined()
+    expect(existsSync(flag)).toBe(false)
+    expect(readFileSync(server, 'utf8')).toBe(changedConfig)
+    expect(stdoutSpy.mock.calls.map((call: unknown[]) => String(call[0])).join('')).toContain(
+      server,
+    )
+    expect(existsSync(join(fakeHome, '.clooks/bin/entrypoint.sh'))).toBe(true)
+  })
+
+  test('failed custom Codex server removal retains cleanup identity and receipt for retry', async () => {
+    const codexHome = join(tempDir, 'custom-codex')
+    process.env.CODEX_HOME = codexHome
+    mkdirSync(join(fakeHome, '.clooks/bin'), { recursive: true })
+    writeFileSync(join(fakeHome, '.clooks/bin/entrypoint.sh'), '#!/bin/sh\n', { mode: 0o755 })
+    registerCodexClooks(codexHome, makeCodexGlobalEntrypointCommand(fakeHome), { owner: 'global' })
+    const server = join(codexHome, 'config.toml')
+    prepareMcpRegistration(server, 'codex').commit()
+    registrationState.trackCodexHome(fakeHome, codexHome)
+    registrationState.publishCodexReceipt(fakeHome, codexHome)
+    const receipt = readFileSync(join(fakeHome, '.clooks/.global-entrypoint-active.codex'), 'utf8')
+    const rename = fs.renameSync
+    const fault = spyOn(fs, 'renameSync').mockImplementation((from, to) => {
+      if (String(to) === server) throw new Error('server removal fault')
+      rename(from, to)
+    })
+    await expect(
+      createTestProgram().parseAsync(
+        ['uninstall', '--global', '--unhook', '--force', '--agent', 'codex'],
+        { from: 'user' },
+      ),
+    ).rejects.toThrow('process.exit called')
+    expect(registrationState.readCodexTrackedHome(fakeHome)).toEqual({ kind: 'home', codexHome })
+    expect(readFileSync(join(fakeHome, '.clooks/.global-entrypoint-active.codex'), 'utf8')).toBe(
+      receipt,
+    )
+    expect(hasOwnedMcpServer(server, 'codex')).toBe(true)
+    fault.mockRestore()
+    await createTestProgram().parseAsync(
+      ['uninstall', '--global', '--unhook', '--force', '--agent', 'codex'],
+      { from: 'user' },
+    )
+    expect(registrationState.readCodexTrackedHome(fakeHome).kind).toBe('missing')
+    expect(hasOwnedMcpServer(server, 'codex')).toBe(false)
+  })
+
+  for (const override of ['', 'default', 'custom']) {
+    test(`Claude override ${override} refuses uninstall prewrite while Codex remains independent`, async () => {
+      setupProject(tempDir)
+      setupCodexProject(tempDir)
+      const path = join(tempDir, '.claude/settings.json')
+      const before = readFileSync(path, 'utf8')
+      process.env.CLAUDE_CONFIG_DIR = override === 'default' ? join(fakeHome, '.claude') : override
+      await expect(
+        createTestProgram().parseAsync(
+          ['uninstall', '--project', '--unhook', '--force', '--agent', 'all'],
+          { from: 'user' },
+        ),
+      ).rejects.toThrow('process.exit called')
+      expect(readFileSync(path, 'utf8')).toBe(before)
+      await createTestProgram().parseAsync(
+        ['uninstall', '--project', '--unhook', '--force', '--agent', 'codex'],
+        { from: 'user' },
+      )
+      expect(readFileSync(path, 'utf8')).toBe(before)
+    })
+  }
+})
 
 function createTestProgram() {
   const program = new Command()
@@ -108,8 +344,10 @@ beforeEach(() => {
     HOME: process.env.HOME,
     CODEX_HOME: process.env.CODEX_HOME,
     CLOOKS_HOME_ROOT: process.env.CLOOKS_HOME_ROOT,
+    CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR,
   }
   process.env.HOME = fakeHome
+  delete process.env.CLAUDE_CONFIG_DIR
   process.env.CODEX_HOME = join(fakeHome, '.codex')
   process.env.CLOOKS_HOME_ROOT = fakeHome
   resetPromptMocks()
@@ -154,6 +392,45 @@ describe('global Codex home recovery', () => {
     writeFileSync(join(fakeHome, '.clooks/hooks/custom.ts'), 'keep custom')
     registerCodexClooks(home, makeCodexGlobalEntrypointCommand(fakeHome))
   }
+
+  test('referenced custom-home server retains recovery identity across default-home retries', async () => {
+    spyOn(os, 'homedir').mockReturnValue(fakeHome)
+    const custom = join(tempDir, 'home-a')
+    process.env.CODEX_HOME = custom
+    await init()
+    const hooksPath = join(custom, 'hooks.json')
+    const data = JSON.parse(readFileSync(hooksPath, 'utf8'))
+    const foreign = { hooks: [{ type: 'mcp_tool', server: 'clooks', tool: 'foreign-tool' }] }
+    data.hooks.PreToolUse.push(foreign)
+    writeFileSync(hooksPath, JSON.stringify(data))
+    const receipt = readFileSync(join(fakeHome, '.clooks/.global-entrypoint-active.codex'))
+    await run()
+    expect(JSON.parse(readFileSync(hooksPath, 'utf8')).hooks).toEqual({ PreToolUse: [foreign] })
+    expect(hasOwnedMcpServer(join(custom, 'config.toml'), 'codex')).toBe(true)
+    expect(registrationState.readCodexTrackedHome(fakeHome)).toEqual({
+      kind: 'home',
+      codexHome: custom,
+    })
+    expect(readFileSync(join(fakeHome, '.clooks/.global-entrypoint-active.codex'))).toEqual(receipt)
+    delete process.env.CODEX_HOME
+    await run()
+    expect(registrationState.readCodexTrackedHome(fakeHome)).toEqual({
+      kind: 'home',
+      codexHome: custom,
+    })
+    await expect(init()).rejects.toThrow('process.exit called')
+    await expect(run('--full')).rejects.toThrow('process.exit called')
+    expect(registrationState.readCodexTrackedHome(fakeHome)).toEqual({
+      kind: 'home',
+      codexHome: custom,
+    })
+    expect(hasOwnedMcpServer(join(custom, 'config.toml'), 'codex')).toBe(true)
+    writeFileSync(hooksPath, '{}\n')
+    await run('--full')
+    expect(hasOwnedMcpServer(join(custom, 'config.toml'), 'codex')).toBe(false)
+    expect(registrationState.readCodexTrackedHome(fakeHome).kind).toBe('missing')
+    expect(existsSync(join(fakeHome, '.clooks'))).toBe(false)
+  })
 
   test('failed publication in A rejects init B, then full B cleans recorded A', async () => {
     spyOn(os, 'homedir').mockReturnValue(fakeHome)

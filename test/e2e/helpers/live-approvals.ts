@@ -1,4 +1,5 @@
 import { join } from 'node:path'
+import { kill } from 'node:process'
 import { expect } from 'bun:test'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
@@ -136,18 +137,29 @@ export function startEngine(
   call: ReturnType<typeof invocation>,
   extraEnvironment: Record<string, string> = {},
 ) {
+  return startCommand(sandbox, [binary], call.payload, {
+    CLOOKS_AGENT: call.identity.provider,
+    ...registrationEnvironment(call.identity),
+    ...extraEnvironment,
+    ...environment(sandbox),
+  })
+}
+
+export function startCommand(
+  sandbox: Sandbox,
+  command: string[],
+  payload: unknown,
+  extraEnvironment: Record<string, string> = {},
+  cwd = sandbox.dir,
+) {
   const started = performance.now()
-  const process = Bun.spawn([binary], {
-    cwd: sandbox.dir,
-    env: {
-      CLOOKS_AGENT: call.identity.provider,
-      ...registrationEnvironment(call.identity),
-      ...extraEnvironment,
-      ...environment(sandbox),
-    },
-    stdin: Buffer.from(JSON.stringify(call.payload)),
+  const process = Bun.spawn(command, {
+    cwd,
+    env: { ...environment(sandbox), ...extraEnvironment },
+    stdin: Buffer.from(JSON.stringify(payload)),
     stdout: 'pipe',
     stderr: 'pipe',
+    detached: true,
     timeout: timeout + 5000,
   })
   let stdout = '',
@@ -174,6 +186,39 @@ export function startEngine(
     stderr,
   }))
   void result.catch(() => {})
+  let groupReleased = false
+  function signalGroup(signal: NodeJS.Signals | 0) {
+    if (groupReleased) return false
+    try {
+      kill(-process.pid, signal)
+      return true
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ESRCH') {
+        groupReleased = true
+        return false
+      }
+      throw error
+    }
+  }
+  void result.then(() => signalGroup(0)).catch(() => {})
+  let closing: Promise<void> | undefined
+  async function closeGroup() {
+    // The shell may have exited while its descendants still hold our output pipes.
+    signalGroup('SIGTERM')
+    const gracefulDeadline = performance.now() + 250
+    while (signalGroup(0) && performance.now() < gracefulDeadline) await Bun.sleep(10)
+    if (signalGroup(0)) signalGroup('SIGKILL')
+    await cleanupAll(
+      () => bounded(result, 'Command process-group streams'),
+      async () => {
+        const deadline = performance.now() + timeout
+        while (signalGroup(0)) {
+          if (performance.now() >= deadline) throw new Error('Command process group did not exit')
+          await Bun.sleep(10)
+        }
+      },
+    )
+  }
   return {
     process,
     result,
@@ -183,23 +228,25 @@ export function startEngine(
     get stderr() {
       return stderr
     },
-    async close() {
-      if (process.exitCode === null) process.kill('SIGKILL')
-      await bounded(result, 'Engine cleanup')
+    close() {
+      return (closing ??= closeGroup())
     },
   }
 }
 
-export async function connectApprovalPeer(sandbox: Sandbox) {
+export async function connectApprovalPeer(
+  sandbox: Sandbox,
+  launch?: { command: string; args: string[]; env?: Record<string, string>; cwd?: string },
+) {
   const client = new Client(
     { name: 'compiled-engine-approvals', version: '1.0.0' },
     { capabilities: { elicitation: { form: {} } } },
   )
   const transport = new StdioClientTransport({
-    command: binary,
-    args: ['mcp'],
-    cwd: sandbox.dir,
-    env: environment(sandbox),
+    command: launch?.command ?? binary,
+    args: launch?.args ?? ['mcp'],
+    cwd: launch?.cwd ?? sandbox.dir,
+    env: { ...environment(sandbox), ...launch?.env },
     stderr: 'pipe',
   })
   let stderr = ''

@@ -20,6 +20,7 @@ Global hooks live in `~/.clooks/` and are loaded by the engine alongside project
     entrypoint.sh     # shared global launcher
   failures/           # failure state for home-only projects
     <hash>.json       # SHA-256(projectRoot)[0:12] → failure state
+  .cache/approvals-live/v1/          # shared invocation IPC, retained by full cleanup
   .global-entrypoint-active         # legacy Claude dedup flag
   .global-entrypoint-active.codex   # versioned Codex registration receipt
   .codex-registration-home         # Codex cleanup identity; never suppresses projects
@@ -73,7 +74,20 @@ See `src/config/types.ts` for the `HookOrigin` type and `src/config/index.ts` fo
 
 ## Entrypoint Dedup
 
-Global invocations intentionally execute the merged home/project/local pipeline, including trusted repository hooks. Existing ordering, shadowing and local overrides apply. Dedup lets a project entrypoint yield to the same agent's global registration; it does not add repository authorization or coordinate invocation identities.
+Global invocations intentionally execute the merged home/project/local pipeline,
+including trusted repository hooks. Existing ordering, shadowing and local
+overrides apply. Dedup lets a project entrypoint yield to the same agent's global
+registration; it does not add repository authorization. Paired yielding publishes explicit
+suppressed completion through the binary, so its MCP companion returns neutral
+without loading hooks. Global/project pairs have separate literal owner keys;
+the MCP process does not mirror the launcher predicate.
+
+Global init prepares paired PreToolUse handlers and a PATH-based `clooks mcp`
+server. Claude uses `HOME/.claude/settings.json` plus `HOME/.claude.json`; Codex
+uses `hooks.json` plus `config.toml` in its effective global home. Other events
+remain command-only. Claude-selected operations reject any defined
+`CLAUDE_CONFIG_DIR` or existing `HOME/.claude/.config.json` before writes; Codex-only
+operations are independent. These checks do not add migration advisories.
 
 Claude retains its empty `~/.clooks/.global-entrypoint-active` flag and existence-based project check. Global init publishes that flag after the Claude registrar succeeds and the launcher is executable. Codex uses a separate versioned receipt at `~/.clooks/.global-entrypoint-active.codex`. New project launchers require matching physical installation and Codex homes, an executable global launcher, readable regular `hooks.json`, and a matching POSIX `cksum` before yielding. Changes to any registration bytes, including unrelated hooks, invalidate freshness until re-init. Missing, malformed, legacy, stale or mismatched state and checksum failures fall through to project execution.
 
@@ -113,11 +127,36 @@ The CLI checksum subprocess has a ten-second deadline and uses `SIGKILL` on time
 
 Selected-Codex/all global init validates both records and the selected home before writes. It then persists recovery identity before retiring any old matching Codex receipt, and does both before repairing the shared launcher. This prevents failed selected-Codex/all re-init from reviving an old receipt merely by making its launcher executable. Recovery-write failure leaves the receipt untouched; receipt-removal failure retains cleanup identity and aborts setup. Registration and executable launcher success precede new receipt publication. Failed checksum/publication leaves the committed registration recoverable.
 
-Claude-only init stays independent of Codex state. It can repair the shared launcher and thereby restore eligibility of an existing matching Codex receipt, even if the later Claude registrar fails. This is an explicit bounded exception to the selected-Codex/all failed-init guarantee; it does not expand receipt retirement to Claude-only setup or change repository permissions.
+Claude-only init stays independent of Codex state but preflights its selected
+settings/server and shared outputs before launcher repair. Invalid Claude
+registration therefore leaves the launcher unchanged; it no longer revives an
+existing Codex receipt as a side effect of rejected preflight. A failure during
+later commits can leave earlier writes in place. Receipt retirement remains
+limited to Codex/all init, without changing repository permissions.
 
 One recorded Codex home is supported per installation home. A different recorded home blocks init until explicitly unhooked; conflicting or malformed records block mutation. An empty legacy receipt identifies the default home and can upgrade only there. Same-home retries are allowed. Unhook in B does not mutate A or erase A's identity. Full global deletion preflights and deduplicates the selected and recorded homes, including a legacy default, before cleanup. No arbitrary directories are scanned; older unrecorded homes need explicit cleanup with their `CODEX_HOME`.
 
-Matching state clears only after inspection of every event proves no owned references remain. Unknown-event references or malformed containers block cleanup with file/field evidence, even after known events were successfully unregistered. A missing hooks file permits matching cleanup. The receipt is removed before the recovery record, so a failed removal still leaves an identity for retry. Invalid state is never silently erased. These are individually atomic file operations with recoverable partial failure, not a transaction across registration files.
+Matching Codex state clears only after hook/server removal and inspection of
+every event for remaining owned hooks, including custom Codex homes. If an
+unrelated handler retains the owned server, its recovery identity also remains.
+Unknown-event references or malformed containers block cleanup with
+file/field evidence. Remaining handlers referencing `clooks` retain its server;
+full runtime deletion also refuses remaining owned server references. The receipt
+is removed before the recovery record, retaining retry identity on failure.
+Invalid state is never silently erased. These are individually committed file
+operations, not a transaction.
+
+Full runtime cleanup preserves `.cache/approvals-live` even after unregistering
+hooks, because a pending invocation can still use that IPC. JSON reports retained
+paths and `deleted:false` when the directory remains; other removable contents
+are deleted. Full removal refuses a runtime-root `.clooks` symlink before any
+registration/state mutation, rather than unlinking it. This preservation
+does not establish successful completion of already-running native calls.
+
+Claude's global dedup flag is retired immediately after successful hook
+unregistration, before committing MCP server removal. Thus a later server-write
+failure does not leave project hooks suppressed by a flag for removed global
+hooks. This ordering is distinct from retaining Codex's cleanup identity.
 
 ## Failure State Strategy
 

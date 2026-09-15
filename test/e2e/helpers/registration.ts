@@ -1,5 +1,46 @@
 import { join, dirname } from 'path'
+import { expect } from 'bun:test'
 import { createSandbox, type Sandbox } from './sandbox'
+
+export function expectPreToolUsePair(
+  groups: unknown,
+  provider: 'claude-code' | 'codex',
+  baseCommand: string,
+) {
+  const entries = groups as Array<{ hooks: Array<{ input?: { owner?: unknown } }> }>
+  const owner = entries[0]?.hooks.find((hook) => hook.input)?.input?.owner
+  expect(owner).toMatch(/^(global|project:[a-f0-9]{32})$/)
+  const agentPrefix = `CLOOKS_AGENT=${provider} `
+  const launcher = baseCommand.startsWith(agentPrefix)
+    ? baseCommand.slice(agentPrefix.length)
+    : baseCommand
+  expect(groups).toEqual([
+    {
+      matcher: '*',
+      hooks: [
+        {
+          type: 'command',
+          command: `CLOOKS_APPROVAL_PROTOCOL=1 CLOOKS_APPROVAL_OWNER=${owner} CLOOKS_APPROVAL_DISPOSITION=run ${agentPrefix}${launcher}`,
+          timeout: 330,
+        },
+        {
+          type: 'mcp_tool',
+          server: 'clooks',
+          tool: 'check',
+          timeout: 330,
+          input: {
+            protocol: 1,
+            provider,
+            owner,
+            session_id: '${session_id}',
+            tool_use_id: '${tool_use_id}',
+            ...(provider === 'codex' ? { turn_id: '${turn_id}' } : {}),
+          },
+        },
+      ],
+    },
+  ])
+}
 
 export function createRegistrationSandbox(): Sandbox {
   const sandbox = createSandbox()

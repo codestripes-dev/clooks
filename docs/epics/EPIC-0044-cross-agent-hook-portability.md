@@ -6,7 +6,7 @@
 
 Make Clooks usable as a general-purpose hook framework across Claude Code and Codex without changing the existing `ClooksHook` authoring surface. The first concrete cross-agent target is Codex: register Clooks as one Codex command hook per supported Codex lifecycle event, normalize Codex hook payloads into Clooks' current event/context model, run the existing Clooks config/loading/execution pipeline, and translate Clooks results back to Codex JSON. The work is adapter-first, not a rewrite: Claude Code remains the primary mature target, while Codex support starts with a conservative supported subset and explicit capability checks.
 
-### Shared live approval follow-on (engine complete; next phase paused)
+### Shared live approval follow-on (registration complete; migration deferred)
 
 The user-approved [shared MCP approvals plan](../plans/shared-mcp-approvals/PLAN-0083-shared-mcp-approvals.md) extends the completed command-adapter work: retain command execution and pair PreToolUse with an MCP interaction handler on both agents. The implemented engine resolves each sequential handler ask before continuing, rather than replay hooks or defer all questions until reduction. This deliberately supersedes the command-only and token-retry choices for live asks, not the broader adapter architecture or durable defer semantics.
 
@@ -14,7 +14,20 @@ Shared approvals M1 through M3 are complete with final Nash code and Harvey QA G
 
 Native evidence retains explicit limits: Claude cold readiness is intermittent; the Codex child diagnostic required a direct normal MCP call and does not establish cold-child support or authorize production warming. External native expiry and loss of both enforcing peers can permit effects, so controlled denial must precede native expiry. Historical failed receipts remain intact. Compiled engine acceptance is not generated-registration native or release conformance.
 
-M4 is not started and is paused for user discussion/testing: "No upgrade guidance yet. We're going to talk about this and test it first." Registration, migration and user-facing upgrade guidance remain proposals, not implemented behavior. Source/test writers remain frozen through the M3 checkpoint commit and precommit. Companion danger-zone review is recorded in the plan's `ATTENTION.md`.
+The M3 checkpoint is committed as `a983b89`. After architecture discussion and
+"Okay. Then lets move on", registration-only M4 work resumed. Current source
+implements init/uninstall, both-agent paired launchers, MCP server files,
+preflight and live-IPC-preserving cleanup. M4A is complete with final Nash source
+GO and Harvey combined source/E2E QA GO. Corrected full gate `run-vu0qxQ` passed
+112 tooling, 4882 source-coverage and 1412 E2E tests; exit 0, identical source
+hashes and all six cleanups 0. The failed `run-PHMTHM` stays failed. Actual Claude
+review covered an earlier immutable snapshot; cleanup fixes were independently
+reviewed afterward. M4B remains deferred, so full M4 is not complete; generated
+native conformance remains M5. Claude-selected operations reject every
+defined `CLAUDE_CONFIG_DIR` and existing legacy `HOME/.claude/.config.json` before
+writes. Codex-only custom-home behavior stays independent. SessionStart migration
+advisories, upgrade guidance, README and skills changes remain deferred under
+the user's earlier restriction. No live config or installed binary is changed.
 
 ## Features
 

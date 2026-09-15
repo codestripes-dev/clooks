@@ -314,6 +314,8 @@ describe('automatic uninstall agent selection', () => {
       for (const agent of ['claude-code', 'codex'] as const) {
         writeFileSync(join(root(scope), registrationPaths[agent]), foreignRegistration)
       }
+      rmSync(join(root(scope), scope === 'global' ? '.claude.json' : '.mcp.json'))
+      rmSync(join(root(scope), '.codex/config.toml'))
       const flags = globalFlags()
       const output = await interactive(scope, 'auto', [])
       expect(output).toContain(`No Clooks hook registrations found in ${scope} scope`)
@@ -528,7 +530,7 @@ describe('shared runtime cleanup', () => {
         expect(JSON.parse(result.stdout).ok).toBe(false)
         expectUnregistered(scope, 'claude-code')
         expect(bytes(scope, 'codex')).toBe(codexBefore)
-        expect(readdirSync(codexDir)).toEqual(['hooks.json'])
+        expect(readdirSync(codexDir).sort()).toEqual(['config.toml', 'hooks.json'])
         expectRuntimeRetained(scope)
         if (scope === 'global') {
           expect(sandbox.homeFileExists('.clooks/.global-entrypoint-active')).toBe(false)
@@ -547,6 +549,7 @@ describe('shared runtime cleanup', () => {
     test(`global stale ${selected} flag clears without registration or deleting other state`, () => {
       initialize('global')
       rmSync(join(sandbox.home, registrationPaths[selected]))
+      rmSync(join(sandbox.home, selected === 'codex' ? '.codex/config.toml' : '.claude.json'))
       const selectedFlag =
         selected === 'codex' ? '.global-entrypoint-active.codex' : '.global-entrypoint-active'
       const otherFlag =

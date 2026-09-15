@@ -69,7 +69,13 @@ export const hook = {
       const result = Bun.spawnSync(['/bin/bash', '-c', command], {
         cwd: sandbox.dir,
         env: { ...registrationEnv(sandbox), CLAUDE_PROJECT_DIR: sandbox.dir },
-        stdin: Buffer.from(loadEvent('pre-tool-use-bash.json')),
+        stdin: Buffer.from(
+          JSON.stringify({
+            ...JSON.parse(loadEvent('pre-tool-use-bash.json')),
+            session_id: crypto.randomUUID(),
+            tool_use_id: crypto.randomUUID(),
+          }),
+        ),
         timeout: 10_000,
       })
       expect(result.exitCode).toBe(0)

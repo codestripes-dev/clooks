@@ -45,6 +45,28 @@ cover private execution and lifetime boundaries. Run the engine suite alongside
 the transport suite through `bun run test:e2e`; generated registration and real
 native-client conformance remain separate from these compiled subprocess tests.
 
+## Generated Approval Registration
+
+Registration has passed the full compiled gate and independent source/QA review;
+real native generated-registration conformance remains separate. Unit boundaries are
+`src/registration-{approvals,mcp}.test.ts`,
+`src/interaction/registration-toml.test.ts` and the existing init/uninstall tests.
+They exercise exact ownership, prewrite rejection, selected-provider independence
+and preservation of unrelated JSON/TOML content.
+
+`test/e2e/interaction-registration.e2e.test.ts` uses disposable homes/projects,
+commands read from generated hooks and an SDK client attached to the generated
+server command. Cases exercise both providers/scopes, consent and no-ask paths,
+scope suppression, retained IPC, partial remnants, repeat init, copied projects,
+disabled native settings, custom Codex homes and Claude layout refusal. Related
+init/uninstall/entrypoint suites retain ordinary-path regression coverage.
+Run through `bun run test:e2e`, not direct host execution. These are compiled
+subprocess proofs; they do not show that a real native client loaded/trusted the
+registration or eliminate cold-child readiness limits. Do not run the installer
+against real client files to obtain a test receipt.
+
+## Build Parity
+
 Production package builds, release cross-compiles and `test/docker-entrypoint.sh` all use `--compile --bytecode --format=esm`. Native Codex tests reach compilation through the same Docker entrypoint. The existing checksum-verified prebuilt override remains unchanged; when validating source-build format, leave `CLOOKS_TEST_BINARY` unset. Docker currently selects floating `oven/bun:1.3`, while release CI reads `.bun-version` (1.3.10); build-flag parity does not imply identical Bun patch versions.
 
 `test/tooling/prebuilt-entrypoint.test.ts` pins all six production package build commands, all five release targets from the parsed workflow, and the Docker compiler's actual arguments while preserving prebuilt selection/failure checks. The standard validation runner hashes and mounts `.github/workflows/release.yml` read-only for that regression. `test/tooling/test-validation.test.ts` pins timing extraction for the new compile trace. These tooling checks alone do not prove runtime compatibility. `test/e2e/smoke.e2e.test.ts` runs the freshly compiled binary for version/help routing, no-config behavior, allow output, an external TypeScript hook with top-level await and a relative import producing exact denial output, and invalid-config fail-closed behavior.

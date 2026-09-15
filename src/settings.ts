@@ -3,6 +3,13 @@ import { dirname, join } from 'path'
 import { CLAUDE_CODE_EVENTS } from './config/constants.js'
 import type { EventName } from './types/branded.js'
 import { readRegistrationFile, writeRegistrationFileAtomic } from './registration-file.js'
+import type { RegistrationGroup } from './registration-file.js'
+import {
+  isApprovalCompanion,
+  registerApprovalPair,
+  unpairedCommand,
+  type ApprovalRegistration,
+} from './registration-approvals.js'
 
 /** Canonical path to the Clooks bash entrypoint. Uses $CLAUDE_PROJECT_DIR so it resolves correctly regardless of cwd. */
 export const CLOOKS_ENTRYPOINT_PATH = '"$CLAUDE_PROJECT_DIR"/.clooks/bin/entrypoint.sh'
@@ -25,6 +32,7 @@ export interface UnregisterResult {
  * absolute global paths (`/home/joe/.clooks/bin/entrypoint.sh`).
  */
 export function isClooksHook(hook: unknown, expectedCommand?: string): boolean {
+  if (isApprovalCompanion(hook, 'claude-code')) return true
   if (
     typeof hook !== 'object' ||
     hook === null ||
@@ -34,7 +42,10 @@ export function isClooksHook(hook: unknown, expectedCommand?: string): boolean {
   ) {
     return false
   }
-  const cmd = (hook as Record<string, string>).command!
+  const cmd = unpairedCommand((hook as Record<string, string>).command!, 'claude-code')
+  const quoted = /^'((?:[^']|'\\'')*)'$/.exec(cmd)
+  const decoded = quoted?.[1]?.replaceAll("'\\''", "'")
+  if (decoded?.startsWith('/') && decoded.endsWith('/.clooks/bin/entrypoint.sh')) return true
   return (
     cmd === expectedCommand ||
     cmd === CLOOKS_ENTRYPOINT_PATH ||
@@ -73,7 +84,11 @@ function makeClooksMatcherGroup(entrypointCommand: string): Record<string, unkno
  * @param settingsDir - Directory containing settings.json (e.g., `join(projectRoot, ".claude")` or `join(homeRoot, ".claude")`)
  * @param entrypointCommand - The command to register (e.g., `"$CLAUDE_PROJECT_DIR"/.clooks/bin/entrypoint.sh` for project, `/home/joe/.clooks/bin/entrypoint.sh` for global)
  */
-export function registerClooks(settingsDir: string, entrypointCommand: string): RegisterResult {
+export function registerClooks(
+  settingsDir: string,
+  entrypointCommand: string,
+  approval?: ApprovalRegistration,
+): RegisterResult {
   const settingsPath = join(settingsDir, 'settings.json')
 
   const { settings, fileExisted } = readSettings(settingsPath)
@@ -86,6 +101,18 @@ export function registerClooks(settingsDir: string, entrypointCommand: string): 
   const updated: EventName[] = []
 
   for (const event of CLAUDE_CODE_EVENTS) {
+    if (event === 'PreToolUse' && approval) {
+      const pair = registerApprovalPair(
+        (hooks[event] ?? []) as RegistrationGroup[],
+        'claude-code',
+        entrypointCommand,
+        approval,
+        (hook) => isClooksHook(hook, entrypointCommand),
+      )
+      hooks[event] = pair.groups
+      ;(pair.changed ? (pair.existed ? updated : added) : skipped).push(event)
+      continue
+    }
     if (!Array.isArray(hooks[event])) {
       hooks[event] = []
     }

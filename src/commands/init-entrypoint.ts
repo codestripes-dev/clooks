@@ -1,5 +1,6 @@
 // Using string concatenation to avoid template literal escaping issues with
 // bash $() command substitutions and ${} variable expansions.
+import { APPROVAL_SUPPRESSION_FUNCTION } from '../registration-approvals.js'
 
 const ENTRYPOINT_PREAMBLE = '#!/usr/bin/env bash\n' + 'set -euo pipefail\n'
 
@@ -18,7 +19,7 @@ const SKIP_CLOOKS_CHECK =
   '\n' +
   '# Bypass: allow disabling all Clooks processing via environment variable.\n' +
   'if [ "${SKIP_CLOOKS:-}" = "true" ]; then\n' +
-  '  exit 0\n' +
+  '  clooks_suppress\n' +
   'fi\n'
 
 /** Persisted registration freshness, not proof that the native global hook will fire. */
@@ -28,7 +29,7 @@ const DEDUP_CHECK =
   '# entrypoint is a noop for that same agent (the global one handles the merged pipeline).\n' +
   'CLOOKS_DEDUP_AGENT="${CLOOKS_AGENT:-claude-code}"\n' +
   'if [ "$CLOOKS_DEDUP_AGENT" = "claude-code" ] && [ -f "$HOME/.clooks/.global-entrypoint-active" ]; then\n' +
-  '  exit 0\n' +
+  '  clooks_suppress\n' +
   'fi\n' +
   'clooks_codex_receipt_matches() {\n' +
   '  local receipt version home codex checksum extra physical_home physical_codex runtime_home actual\n' +
@@ -68,10 +69,10 @@ const DEDUP_CHECK =
   '  [ "$checksum" = "${BASH_REMATCH[1]}:${BASH_REMATCH[2]}" ]\n' +
   '}\n' +
   'if [ "$CLOOKS_DEDUP_AGENT" = "codex" ] && clooks_codex_receipt_matches 2>/dev/null; then\n' +
-  '  exit 0\n' +
+  '  clooks_suppress\n' +
   'fi\n' +
   'if [ "$CLOOKS_DEDUP_AGENT" != "codex" ] && [ -f "$HOME/.clooks/.global-entrypoint-active.$CLOOKS_DEDUP_AGENT" ]; then\n' +
-  '  exit 0\n' +
+  '  clooks_suppress\n' +
   'fi\n'
 
 const ENTRYPOINT_BODY =
@@ -119,10 +120,19 @@ const ENTRYPOINT_BODY =
   'exit 2\n'
 
 export const ENTRYPOINT_SCRIPT =
-  ENTRYPOINT_PREAMBLE + PROJECT_HEADER + SKIP_CLOOKS_CHECK + DEDUP_CHECK + ENTRYPOINT_BODY
+  ENTRYPOINT_PREAMBLE +
+  PROJECT_HEADER +
+  APPROVAL_SUPPRESSION_FUNCTION +
+  SKIP_CLOOKS_CHECK +
+  DEDUP_CHECK +
+  ENTRYPOINT_BODY
 
 /**
  * The global entrypoint must not suppress itself through the project's dedup check.
  */
 export const GLOBAL_ENTRYPOINT_SCRIPT =
-  ENTRYPOINT_PREAMBLE + GLOBAL_HEADER + SKIP_CLOOKS_CHECK + ENTRYPOINT_BODY
+  ENTRYPOINT_PREAMBLE +
+  GLOBAL_HEADER +
+  APPROVAL_SUPPRESSION_FUNCTION +
+  SKIP_CLOOKS_CHECK +
+  ENTRYPOINT_BODY

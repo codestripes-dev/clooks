@@ -13,6 +13,37 @@ export type RegistrationFileOps = Pick<
   | 'unlinkSync'
 >
 
+/** Read-only preflight, including parent collisions, before a multi-file setup starts. */
+export function readRegistrationText(path: string): string | undefined {
+  let parent = dirname(path)
+  while (parent !== dirname(parent)) {
+    const stat = fs.statSync(parent, { throwIfNoEntry: false })
+    if (stat && !stat.isDirectory()) throw new Error(`\`${parent}\` must be a directory.`)
+    parent = dirname(parent)
+  }
+  return regularFile(path, fs) ? fs.readFileSync(path, 'utf8') : undefined
+}
+
+export function prepareRegistrationWrite(
+  path: string,
+  original: string | undefined,
+  contents: string,
+) {
+  const changed = original !== contents
+  return {
+    path,
+    changed,
+    created: original === undefined,
+    commit(): void {
+      if (readRegistrationText(path) !== original)
+        throw new Error(`\`${path}\` changed during registration. Retry the operation.`)
+      if (!changed) return
+      fs.mkdirSync(dirname(path), { recursive: true })
+      writeRegistrationFileAtomic(path, contents)
+    },
+  }
+}
+
 function regularFile(path: string, ops: Pick<RegistrationFileOps, 'lstatSync'>) {
   let stat
   try {

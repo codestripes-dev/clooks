@@ -8,7 +8,7 @@ The entrypoint lives at `.clooks/bin/entrypoint.sh` in the project root. It is r
 
 The script performs six steps in order:
 
-1. **Bypass check** — If `SKIP_CLOOKS=true`, exit 0 immediately (no binary invocation).
+1. **Bypass check** — If `SKIP_CLOOKS=true`, skip hook execution. An unpaired invocation exits 0 immediately; a paired invocation calls the suppression publisher described below.
 2. **Binary location** — Look up `clooks` on PATH via `command -v clooks`.
 3. **Bootstrap detection** — If binary not found on PATH, print install instructions to stderr and exit 0 (allow). Missing binary is a setup state, not a runtime failure — blocking here would deadlock `/clooks:setup`, whose install invocation runs through the same hook.
 4. **Stdin capture** — Read all of stdin into a variable (`STDIN_DATA=$(cat)`) so it can be logged and replayed.
@@ -33,7 +33,7 @@ The binary is a per-user global tool (like `git` or `node`). Hooks and config ar
 
 When configured Clooks receives empty or ASCII JSON-whitespace-only stdin, the engine reports `clooks: received empty stdin; no hook event was supplied.` and `No hook handlers were run.`, followed by conditional guidance: if Claude was launched inside another agent's sandbox, that sandbox may have prevented hook-input delivery; retry the Claude launch with approved permissions outside that sandbox, keeping Clooks enabled. This diagnoses absent input without claiming its cause or repairing transport. Claude module imports can still occur before parsing; Codex retains its existing failure prefix/disposition.
 
-The diagnostic exits 2 with empty stdout. Capture/replay and exit translation are unchanged: replay can turn empty input into a newline, which receives the same diagnostic. The diagnostic itself adds no automatic retry, permission change or hook bypass. Separately, existing Codex approval storage requires identifying otherwise-bypassed no-config invocations for retirement; an unreadable or unidentifiable input cannot silently skip that work. Without that state, the missing-config bypass remains.
+The diagnostic exits 2 with empty stdout. Capture/replay and exit translation are unchanged: replay can turn empty input into a newline, which receives the same diagnostic. The diagnostic itself adds no automatic retry, permission change or hook bypass. Paired PreToolUse identity is read before discovery so early exits can complete their native check; this no longer serves token-store retirement.
 
 Clooks inverts Claude Code's native error handling:
 
@@ -55,7 +55,11 @@ Set `SKIP_CLOOKS=true` to disable all Clooks processing:
 export SKIP_CLOOKS=true
 ```
 
-This is an escape hatch for when the binary is broken and blocking all Claude Code actions. The bypass check runs before binary location, so it works even if the binary path is invalid.
+Unpaired bypass runs before normal binary lookup. Paired bypass instead invokes
+the PATH-resolved binary with `CLOOKS_APPROVAL_DISPOSITION=suppressed` to complete
+its companion neutrally without config discovery or hooks; it is not a way to
+avoid all binary execution. Missing binary retains the existing exit-0 bootstrap
+behavior. Compiled pairing tests do not establish native activation or readiness.
 
 ## Environment Variables
 
@@ -63,39 +67,58 @@ The entrypoint and the binary react to a small set of environment variables:
 
 | Variable | Effect |
 |----------|--------|
-| `SKIP_CLOOKS=true` | Bypass all hook processing (entrypoint exits 0 immediately). |
+| `SKIP_CLOOKS=true` | Bypass hook processing; paired invocations publish suppressed completion through the binary. |
 | `CLOOKS_DEBUG=true` | Enable debug logging — stderr output + JSON request dumps to `CLOOKS_LOGDIR`. |
 | `CLOOKS_LOGDIR=/path` | Directory for `CLOOKS_DEBUG` JSON dumps (default `/tmp/clooks-debug`). |
 | `CLOOKS_AGENT=claude-code` | Optional explicit selector for the current Claude Code adapter. Unset or empty means the same thing for backward compatibility. |
 | `CLOOKS_AGENT=codex` | Explicit selector used by generated Codex registrations. Enables twelve events through event-specific normalization and result policy before hook imports, including observation-only SessionEnd and Interrupt. Native evidence is scoped separately from runtime support. |
+| `CLOOKS_APPROVAL_PROTOCOL=1` / `CLOOKS_APPROVAL_OWNER` | Generated PreToolUse pairing metadata; owner is `global` or `project:<persisted-id>`. |
+| `CLOOKS_APPROVAL_DISPOSITION` | Command-owned `run` or `suppressed`; the MCP process does not repeat launcher dedup decisions. |
 | `CLOOKS_HOME_ROOT=/path` | Override the home directory used for config resolution (mostly for tests). |
 | `CODEX_HOME=/absolute/path` | Select the Codex global registration directory; unset or empty uses `$HOME/.codex`. Does not relocate the shared Clooks launcher or project `.codex/hooks.json`. |
 | `CLOOKS_PROJECT_ROOT=/path` | Skip discovery and treat `/path` as the project root unconditionally. Highest-priority override (wins over `$CLAUDE_PROJECT_DIR` and the cwd walk). Mirrors `prettier --config` / `tsc --project` / `GIT_DIR`. |
 | `$CLAUDE_PROJECT_DIR` | Set by Claude Code itself. Used by clooks as the **primary anchor** for config discovery — the walk-up starts here so an agent that runs `cd /tmp && <action>` cannot bypass project hooks. |
 
-Claude Code registration does not need to set `CLOOKS_AGENT`; the binary defaults to the Claude Code adapter. Codex registration always sets `CLOOKS_AGENT=codex`. Project Codex registration locates its declaration by a committed project ID, then sets `CLOOKS_PROJECT_ROOT` to that directory only when no nonempty explicit override exists. It preserves the original cwd, so relative overrides resolve as supplied to the engine. Global Codex registration intentionally omits `CLOOKS_PROJECT_ROOT`; the shell still forwards inherited `CLOOKS_PROJECT_ROOT` and `CLAUDE_PROJECT_DIR` unchanged. Before discovery, the Codex runtime uses an invocation-local environment copy with `CLAUDE_PROJECT_DIR` removed, retaining the explicit `CLOOKS_PROJECT_ROOT` override without mutating the process environment. Without that override, global discovery walks from cwd so global hooks can merge with the current project's `.clooks/clooks.yml`.
+Unpaired Claude commands may rely on the default adapter; generated paired
+PreToolUse commands explicitly select either `claude-code` or `codex`. Codex
+registration always selects `codex`. Project Codex registration locates its
+declaration by a committed project ID, then sets `CLOOKS_PROJECT_ROOT` only when
+no nonempty explicit override exists. It preserves cwd and relative overrides.
+Global Codex registration omits that override; the shell forwards inherited
+values unchanged. The Codex runtime removes `CLAUDE_PROJECT_DIR` from its local
+discovery environment, preserving explicit `CLOOKS_PROJECT_ROOT`; otherwise it
+walks from cwd to merge home/project config.
 
 SessionEnd and Interrupt register `timeout: 3` seconds, budgeting each entire entrypoint/runtime/hook pipeline, not individual hooks. Native defaults for both are 1 second with a 3-second maximum; other event registrations retain their existing timeouts. Re-run init for existing installations: migration adds missing events and repairs owned observer entries without the timeout; repeated canonical init does not rewrite the file. SessionEnd success produces no stdout; its local stderr diagnostics are discarded by native Codex on success, and failures do not veto closure. Interrupt observes root-turn interruption and emits only optional stdout `systemMessage` diagnostics, with no decision, injected context or cancellation veto.
 
-## Approval Token Transport
+## Live Approval Pairing
 
 The launcher forwards MCP input unchanged. The Codex runtime preserves JSON
 null/scalar/array/raw-string input for observation and approval binding; only
-record inputs support partial patches. Shell approval carriers remain record-only.
+record inputs support partial patches.
 Typed PreToolUse skip context and PermissionRequest block's `interrupt:false`
 are runtime capabilities, not launcher controls. Configured handoff uses the
 shared file/pointer path, with inline fallback on write failure; no launcher
 inline-only guard applies. See [current capabilities](cross-agent-hooks.md#current-runtime-capabilities).
 
-`CLOOKS_APPROVAL_TOKENS` is reserved syntax in a pending Codex Bash/exec_command tool command, not a launcher environment switch. The runtime controller parses a byte-zero token prefix and strips it before hook inspection and binding; an inherited hook-process variable never acknowledges approval. Without a real input rewrite, the original native command retains its prefix. The launcher still only captures/replays stdin and translates exit codes; it does not parse, register or consume tokens.
-
-Only narrowly recognized direct external commands can carry the prefix. Other shell forms and non-shell tools use `clooks approve <token>` followed by unchanged arguments. An agent shell call to that command still runs through ordinary hooks, with no exemption. See [Codex Approvals](codex-approvals.md) for exact syntax, lifecycle and passing Docker validation. The passing [15-case native suite](testing/codex-native.md#hybrid-approval-case-evidence) covers bounded shell and direct-patch approval workflows, including actual-pack `rm -r`, not forced-removal permission or full conformance.
+`registration-approvals.ts` supplies the exact metadata prefix and companion
+template. PreToolUse pairs the command with `clooks.check`, using native session
+and tool-use IDs plus Codex turn ID, literal provider/owner and protocol 1. Both
+handlers have 330-second budgets. Other events remain command-only. The engine
+waits at checkpoints; the launcher does not parse or consume approval tokens.
+The [former token transport](codex-approvals.md) and its native receipts are
+historical, not validation of this generated pairing.
 
 ## Hook Registration
 
-Focused compiled E2E reads actual generated project/global Codex commands from registration, runs them through Bash, and asserts positive hook reach markers plus exact approval-denial JSON, SubagentStart local failure and Stop advisory-only output. This is launcher/runtime coverage, not proof of native discovery, activation or exactly-once execution. No shell or production behavior changed; final full Docker gates passed.
+Paired registration and suppression have passed compiled E2E and independent
+review. Those subprocess tests do not establish native discovery/activation;
+older command-only launcher receipts retain their original snapshot scope.
 
-The entrypoint is registered with the selected agent hook system. Clooks handles event routing and timeouts internally, so upstream registration points at one Clooks command per upstream event rather than at individual hook files.
+The entrypoint is registered with the selected agent hook system. Registration
+points at one Clooks command per event rather than individual hook files, plus
+the PreToolUse MCP companion. Server locations and supported layouts are listed
+in [CLI Architecture](cli-architecture.md#clooks-init--clooks-init---global).
 
 Two registration scopes exist:
 
@@ -111,7 +134,13 @@ CLOOKS_AGENT=codex '/home/joe/.clooks/bin/entrypoint.sh'
 
 The first form abbreviates the fixed project locator script; its sole argument is the declaration's ID, never a checkout path. The second form is global registration and deliberately has no `CLOOKS_PROJECT_ROOT`.
 
-Codex/all project init creates `.clooks/bin/codex-project-id`: one plain 32-lowercase-hex identifier followed by LF. Commit it with the registration and entrypoint. Re-init retains valid bytes; malformed files, directories and symlinks are rejected rather than regenerated. Claude-only and global init do not create this marker. Unhook retains it with the project files. Copies and worktrees retain the ID, so registration contains no machine-local path and needs no relocation repair.
+`registration-project.ts` prepares a 32-lowercase-hex identifier plus LF for each
+selected project agent: `.clooks/bin/claude-project-id` or the reused
+`.clooks/bin/codex-project-id`. Claude's separate marker supplies pairing ownership;
+its launcher still uses `CLAUDE_PROJECT_DIR`. Codex's marker also supplies locator
+identity. Re-init retains valid bytes and rejects malformed or nonregular files.
+Global registration uses owner `global` and creates neither marker. Unhook retains
+project files. Copies/worktrees retain their persisted declaration identity.
 
 The fixed POSIX shell locator starts at physical cwd and scans ancestors for its exact marker bytes. An applicable Git root is the inclusive boundary, even above HOME; otherwise an ancestral physical HOME is the boundary, then `/`. Without an applicable Git root, an encountered `.git` marker is a conservative stopping point when Git discovery is unavailable. The scan completes before execution: repeated matching IDs within the boundary refuse ambiguous ownership, rather than choosing one nested copy. Distinct child IDs do not redirect ancestor declarations. A missing ID or unreadable/missing owning entrypoint emits a diagnostic and exits 2, with no fallback to another declaration. There is no identity-regeneration command or execution/dedup state.
 
@@ -121,13 +150,20 @@ Registered-command shell probes cover forwarding and existing global receipt beh
 
 ## Global Entrypoint and Dedup
 
-The global entrypoint handles merged home, project and local hooks. A project launcher can yield to the same agent's global registration. Claude retains its legacy presence check; Codex requires a fresh registration receipt. Neither check proves that the native agent will invoke the global command.
+The global entrypoint handles merged home, project and local hooks. A project
+launcher can yield to the same agent's global registration. Claude retains its
+legacy presence check; Codex requires a fresh registration receipt. Neither proves
+native activation. When paired, yielding calls `clooks_suppress` rather than
+exiting before the companion receives completion. That helper uses PATH lookup
+and invokes `clooks` with disposition `suppressed`, preserving native stdin and
+identity; exit 0/2 pass through and other failures become exit 2. Unpaired yielding
+still exits 0. The MCP side never re-evaluates shell suppression predicates.
 
 Claude Code uses the legacy flag:
 
 ```bash
 if [ -f "$HOME/.clooks/.global-entrypoint-active" ]; then
-  exit 0
+  clooks_suppress
 fi
 ```
 
@@ -150,7 +186,11 @@ CLI and shell identity agreement applies to traversable original path spellings.
 
 For Codex/all global init, read-only state/home preflight precedes writes. The selected physical Codex home is then retained in `.clooks/.codex-registration-home`, a separate two-line recovery record (`clooks-codex-home-v1`, then the absolute Codex home, both LF-terminated). After that succeeds, any old Codex receipt is retired before shared files or launcher permissions change. This prevents launcher repair from reviving an old receipt when later setup, registration or checksum publication fails. Successful registration with an executable launcher publishes a new receipt atomically. Failed retries can therefore favor extra project execution. Claude keeps its empty flag, published after successful Claude registration. File updates are recoverable individually, not a cross-file transaction.
 
-Claude-only init does not inspect or retire Codex state. Because the launcher is shared, Claude-only repair of a missing or nonexecutable launcher can restore eligibility of an existing matching Codex receipt, even if Claude registration subsequently fails. This bounded exception preserves agent scope; the receipt-retirement guarantee applies to Codex/all init only.
+Claude-only init does not inspect or retire Codex state. Selected Claude settings,
+server and shared outputs are now preflighted before launcher repair: invalid
+Claude registration cannot revive Codex suppression during failed preflight.
+Writes after preflight remain individually committed, so later commit failures
+are not a rollback guarantee. Codex receipt retirement remains Codex/all-only.
 
 The launcher never reads the recovery record. It retains cleanup identity after failed registration/publication and does not suppress execution. One global Codex home is recorded per installation. Unhook that home before switching; global full cleanup inspects both the selected and recorded homes. Unknown-event references retain identity and block switching/deletion until explicitly repaired. Unrecorded historical homes still require explicit cleanup with their old `CODEX_HOME`; Clooks does not search for them.
 

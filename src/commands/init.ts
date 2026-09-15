@@ -28,7 +28,7 @@ import {
   publishCodexReceipt,
 } from '../registration-state.js'
 import { ENTRYPOINT_SCRIPT, GLOBAL_ENTRYPOINT_SCRIPT } from './init-entrypoint.js'
-import { CODEX_PROJECT_MARKER, ensureCodexProjectId } from '../agents/codex/project-launcher.js'
+import { prepareInitRegistrations } from './init-registration.js'
 import EMBEDDED_TYPES_DTS from '../generated/clooks-types.d.ts.txt' with { type: 'text' }
 import _EMBEDDED_SCHEMA from '../../schemas/clooks.schema.json' with { type: 'text' }
 const EMBEDDED_SCHEMA = _EMBEDDED_SCHEMA as unknown as string
@@ -122,6 +122,13 @@ async function initGlobal(cmd: Command, agent: InitAgent): Promise<void> {
     const codexHome = includesAgent(agent, 'codex')
       ? resolveCodexHome(homeRoot, process.env)
       : undefined
+    const prepared = prepareInitRegistrations(
+      homeRoot,
+      homeRoot,
+      selectedAgents(agent),
+      true,
+      codexHome,
+    )
     let previousReceipt: string | undefined
     if (codexHome !== undefined) {
       const tracked = readCodexTrackedHome(homeRoot)
@@ -233,7 +240,13 @@ async function initGlobal(cmd: Command, agent: InitAgent): Promise<void> {
     if (includesAgent(agent, 'claude-code')) {
       const globalEntrypointCommand = join(homeRoot, '.clooks/bin/entrypoint.sh')
       const settingsDir = join(homeRoot, '.claude')
-      const regResult = registerClooks(settingsDir, globalEntrypointCommand)
+      const server = prepared.servers.get('claude-code')!
+      server.commit()
+      ;(server.changed ? (server.created ? created : updated) : skipped).push('~/.claude.json')
+      const regResult = registerClooks(settingsDir, globalEntrypointCommand, {
+        owner: 'global',
+        command: quotePosixSingleArg(globalEntrypointCommand),
+      })
       const flagPath = globalEntrypointFlagPath(homeRoot, 'claude-code')
       const flagLabel = globalEntrypointFlagLabel('claude-code')
       if (!existsSync(flagPath)) {
@@ -259,7 +272,10 @@ async function initGlobal(cmd: Command, agent: InitAgent): Promise<void> {
 
     if (codexHome !== undefined) {
       const codexEntrypointCommand = makeCodexGlobalEntrypointCommand(homeRoot)
-      const regResult = registerCodexClooks(codexHome, codexEntrypointCommand)
+      const server = prepared.servers.get('codex')!
+      server.commit()
+      ;(server.changed ? (server.created ? created : updated) : skipped).push(server.path)
+      const regResult = registerCodexClooks(codexHome, codexEntrypointCommand, { owner: 'global' })
       const receiptPath = globalEntrypointFlagPath(homeRoot, 'codex')
       publishCodexReceipt(homeRoot, codexHome)
       const receiptLabel = globalEntrypointFlagLabel('codex')
@@ -385,6 +401,8 @@ async function initProject(cmd: Command, agent: InitAgent): Promise<void> {
       }
     }
 
+    const prepared = prepareInitRegistrations(projectRoot, home, selectedAgents(agent), false)
+
     // -- Track what we create/skip/update --
     const created: string[] = []
     const skipped: string[] = []
@@ -459,7 +477,15 @@ async function initProject(cmd: Command, agent: InitAgent): Promise<void> {
 
     // -- Step 4: Register selected agents --
     if (includesAgent(agent, 'claude-code')) {
-      const regResult = registerClooks(join(projectRoot, '.claude'), CLOOKS_ENTRYPOINT_PATH)
+      const identity = prepared.identities.get('claude-code')!
+      identity.commit()
+      ;(identity.created ? created : skipped).push(identity.marker)
+      const server = prepared.servers.get('claude-code')!
+      server.commit()
+      ;(server.changed ? (server.created ? created : updated) : skipped).push('.mcp.json')
+      const regResult = registerClooks(join(projectRoot, '.claude'), CLOOKS_ENTRYPOINT_PATH, {
+        owner: identity.owner,
+      })
       const totalEvents =
         regResult.added.length + regResult.updated.length + regResult.skipped.length
       if (regResult.added.length > 0 || regResult.updated.length > 0) {
@@ -476,10 +502,17 @@ async function initProject(cmd: Command, agent: InitAgent): Promise<void> {
     }
 
     if (includesAgent(agent, 'codex')) {
-      const projectId = ensureCodexProjectId(projectRoot)
-      ;(projectId.created ? created : skipped).push(CODEX_PROJECT_MARKER)
+      const projectId = prepared.identities.get('codex')!
+      projectId.commit()
+      ;(projectId.created ? created : skipped).push(projectId.marker)
+      const server = prepared.servers.get('codex')!
+      server.commit()
+      ;(server.changed ? (server.created ? created : updated) : skipped).push('.codex/config.toml')
       const codexEntrypointCommand = makeCodexProjectEntrypointCommand(projectId.id)
-      const regResult = registerCodexClooks(join(projectRoot, '.codex'), codexEntrypointCommand)
+      const regResult = registerCodexClooks(join(projectRoot, '.codex'), codexEntrypointCommand, {
+        owner: projectId.owner,
+        command: makeCodexProjectEntrypointCommand(projectId.id, true),
+      })
       const totalEvents =
         regResult.added.length + regResult.updated.length + regResult.skipped.length
       if (regResult.added.length > 0 || regResult.updated.length > 0) {

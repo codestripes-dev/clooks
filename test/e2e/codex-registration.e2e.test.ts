@@ -13,7 +13,11 @@ import {
 } from 'fs'
 import { dirname, join } from 'path'
 import { type Sandbox } from './helpers/sandbox'
-import { createRegistrationSandbox as createSandbox, registrationEnv } from './helpers/registration'
+import {
+  createRegistrationSandbox as createSandbox,
+  registrationEnv,
+  expectPreToolUsePair,
+} from './helpers/registration'
 import { chmodSync, readdirSync, symlinkSync, readlinkSync } from 'fs'
 import { makeCodexProjectEntrypointCommand } from '../../src/agents/codex/settings'
 
@@ -128,14 +132,14 @@ describe('codex registration preservation E2E', () => {
       expect(JSON.parse(result.stdout).ok).toBe(false)
       expect(sandbox.readFile('.codex/hooks.json')).toBe('{ "keep": true }\n')
       expect(statSync(join(sandbox.dir, '.codex/hooks.json')).mode & 0o777).toBe(0o640)
-      expect(readdirSync(directory)).toEqual(['hooks.json'])
+      expect(readdirSync(directory).sort()).toEqual(['config.toml', 'hooks.json'])
     } finally {
       chmodSync(directory, 0o700)
     }
     expect(sandbox.run(['init', '--agent', 'codex']).exitCode).toBe(0)
     expect(JSON.parse(sandbox.readFile('.codex/hooks.json')).keep).toBe(true)
     expect(statSync(join(sandbox.dir, '.codex/hooks.json')).mode & 0o777).toBe(0o640)
-    expect(readdirSync(directory)).toEqual(['hooks.json'])
+    expect(readdirSync(directory).sort()).toEqual(['config.toml', 'hooks.json'])
     const registered = sandbox.readFile('.codex/hooks.json')
     const unhook = ['uninstall', '--project', '--agent', 'codex', '--unhook', '--force', '--json']
     chmodSync(directory, 0o500)
@@ -145,14 +149,14 @@ describe('codex registration preservation E2E', () => {
       expect(JSON.parse(result.stdout).error).toContain('hooks.json')
       expect(sandbox.readFile('.codex/hooks.json')).toBe(registered)
       expect(statSync(join(sandbox.dir, '.codex/hooks.json')).mode & 0o777).toBe(0o640)
-      expect(readdirSync(directory)).toEqual(['hooks.json'])
+      expect(readdirSync(directory).sort()).toEqual(['config.toml', 'hooks.json'])
     } finally {
       chmodSync(directory, 0o700)
     }
     expect(sandbox.run(unhook).exitCode).toBe(0)
     expect(JSON.parse(sandbox.readFile('.codex/hooks.json'))).toEqual({ keep: true })
     expect(statSync(join(sandbox.dir, '.codex/hooks.json')).mode & 0o777).toBe(0o640)
-    expect(readdirSync(directory)).toEqual(['hooks.json'])
+    expect(readdirSync(directory).sort()).toEqual(['config.toml', 'hooks.json'])
   })
 
   test('first registration write failure leaves no destination and can be retried', () => {
@@ -175,7 +179,7 @@ describe('codex registration preservation E2E', () => {
     }
     expect(sandbox.run(['init', '--agent', 'codex']).exitCode).toBe(0)
     expect(JSON.parse(sandbox.readFile('.codex/hooks.json')).hooks.Stop).toHaveLength(1)
-    expect(readdirSync(directory)).toEqual(['hooks.json'])
+    expect(readdirSync(directory).sort()).toEqual(['config.toml', 'hooks.json'])
   })
 
   test('whitespace files initialize and unknown event values remain opaque', () => {
@@ -273,6 +277,7 @@ function readHomeCodexHooks(): Record<string, unknown> {
 function expectCodexRegistration(
   hooksFile: Record<string, unknown>,
   expectedCommand: string,
+  pairedCommand = expectedCommand,
 ): void {
   expect(Object.keys(hooksFile)).toEqual(['hooks'])
   expect(typeof hooksFile.hooks).toBe('object')
@@ -283,6 +288,10 @@ function expectCodexRegistration(
   expect(Object.keys(hooks).sort()).toEqual([...CODEX_EVENTS].sort())
 
   for (const event of CODEX_EVENTS) {
+    if (event === 'PreToolUse') {
+      expectPreToolUsePair(hooks[event], 'codex', pairedCommand)
+      continue
+    }
     expect(hooks[event]).toEqual([
       {
         matcher: '*',
@@ -308,6 +317,10 @@ function expectClaudeProjectRegistration(): void {
   expect(Object.keys(hooks).sort()).toEqual([...CLAUDE_EVENTS].sort())
 
   for (const event of CLAUDE_EVENTS) {
+    if (event === 'PreToolUse') {
+      expectPreToolUsePair(hooks[event], 'claude-code', CLAUDE_PROJECT_COMMAND)
+      continue
+    }
     expect(hooks[event]).toEqual([
       {
         hooks: [{ type: 'command', command: CLAUDE_PROJECT_COMMAND }],
@@ -316,9 +329,10 @@ function expectClaudeProjectRegistration(): void {
   }
 }
 
-function projectCodexCommand(root = sandbox.dir): string {
+function projectCodexCommand(root = sandbox.dir, paired = false): string {
   return makeCodexProjectEntrypointCommand(
     readFileSync(join(root, '.clooks/bin/codex-project-id'), 'utf8').trim(),
+    paired,
   )
 }
 
@@ -394,7 +408,11 @@ describe('registered Codex shell commands', () => {
       expect(readFileSync(join(retained, '.codex/hooks.json'), 'utf8')).toBe(oldBytes)
       const repaired = readFileSync(join(newRoot, '.codex/hooks.json'), 'utf8')
       expect(repaired).not.toContain(oldRoot)
-      expectCodexRegistration(JSON.parse(repaired), projectCodexCommand(newRoot))
+      expectCodexRegistration(
+        JSON.parse(repaired),
+        projectCodexCommand(newRoot),
+        projectCodexCommand(newRoot, true),
+      )
       expect(sandbox.run(['init', '--agent', 'codex'], { cwd: newRoot }).exitCode).toBe(0)
       expect(readFileSync(join(newRoot, '.codex/hooks.json'), 'utf8')).toBe(repaired)
     })
@@ -510,7 +528,11 @@ describe('codex registration E2E', () => {
       }),
     )
     expect(sandbox.run(['init', '--agent', 'codex']).exitCode).toBe(0)
-    expectCodexRegistration(readProjectCodexHooks(), projectCodexCommand())
+    expectCodexRegistration(
+      readProjectCodexHooks(),
+      projectCodexCommand(),
+      projectCodexCommand(sandbox.dir, true),
+    )
     const bytes = sandbox.readFile('.codex/hooks.json')
     expect(sandbox.run(['init', '--agent', 'codex']).exitCode).toBe(0)
     expect(sandbox.readFile('.codex/hooks.json')).toBe(bytes)
@@ -527,7 +549,11 @@ describe('codex registration E2E', () => {
     expect(sandbox.fileExists('.codex/hooks.json')).toBe(true)
     expect(sandbox.fileExists('.claude/settings.json')).toBe(false)
 
-    expectCodexRegistration(readProjectCodexHooks(), projectCodexCommand())
+    expectCodexRegistration(
+      readProjectCodexHooks(),
+      projectCodexCommand(),
+      projectCodexCommand(sandbox.dir, true),
+    )
   })
 
   test('second init --agent codex is idempotent and does not duplicate Clooks hooks', () => {
@@ -541,7 +567,11 @@ describe('codex registration E2E', () => {
     expect(second.exitCode).toBe(0)
 
     expect(sandbox.readFile('.codex/hooks.json')).toBe(before)
-    expectCodexRegistration(readProjectCodexHooks(), projectCodexCommand())
+    expectCodexRegistration(
+      readProjectCodexHooks(),
+      projectCodexCommand(),
+      projectCodexCommand(sandbox.dir, true),
+    )
   })
 
   test('init --agent all preserves Claude registration and adds Codex registration', () => {
@@ -555,7 +585,11 @@ describe('codex registration E2E', () => {
     expect(sandbox.fileExists('.codex/hooks.json')).toBe(true)
 
     expectClaudeProjectRegistration()
-    expectCodexRegistration(readProjectCodexHooks(), projectCodexCommand())
+    expectCodexRegistration(
+      readProjectCodexHooks(),
+      projectCodexCommand(),
+      projectCodexCommand(sandbox.dir, true),
+    )
   })
 
   test('global init --agent codex registers Codex without project root or Claude global flag', () => {
@@ -1099,7 +1133,7 @@ describe('Codex receipt launcher E2E', () => {
 
 describe('Codex global registration recovery E2E', () => {
   for (const broken of ['missing', 'nonexecutable']) {
-    test(`Claude-only failed init may restore Codex eligibility by repairing a ${broken} shared launcher`, () => {
+    test(`Claude preflight failure preserves the ${broken} shared launcher and Codex state`, () => {
       initializeReceipt()
       const receipt = sandbox.readHomeFile(receiptPath)
       const tracked = sandbox.readHomeFile(trackedPath)
@@ -1112,13 +1146,16 @@ describe('Codex global registration recovery E2E', () => {
       const failed = sandbox.run(['init', '--global', '--agent', 'claude-code', '--json'])
       expect(failed.exitCode).toBe(1)
       expect(JSON.parse(failed.stdout).ok).toBe(false)
+      expect(JSON.parse(failed.stdout).error).toContain(join(sandbox.home, '.claude/settings.json'))
       expect(sandbox.readHomeFile('.claude/settings.json')).toBe('{ bad\n')
       expect(sandbox.homeFileExists('.clooks/.global-entrypoint-active')).toBe(false)
       expect(sandbox.readHomeFile(receiptPath)).toBe(receipt)
       expect(sandbox.readHomeFile(trackedPath)).toBe(tracked)
       expect(sandbox.readHomeFile('.codex/hooks.json')).toBe(hooks)
-      expect(statSync(launcher).mode & 0o111).not.toBe(0)
-      launchReceiptCommand(registeredCommand(sandbox.dir), 'suppressed')
+      if (broken === 'missing') expect(existsSync(launcher)).toBe(false)
+      else expect(statSync(launcher).mode & 0o777).toBe(0o600)
+      expect(sandbox.homeFileExists('.claude.json')).toBe(false)
+      launchReceiptCommand(registeredCommand(sandbox.dir), 'project')
     })
   }
 
@@ -1225,13 +1262,17 @@ describe('Codex global registration recovery E2E', () => {
     }
   }
 
-  test('same-home failed registration preserves committed hooks but retires suppression until retry', () => {
+  test('same-home malformed preflight preserves receipts while checksum mismatch prevents suppression', () => {
     initializeReceipt()
+    const receipt = sandbox.readHomeFile(receiptPath)
+    const tracked = sandbox.readHomeFile(trackedPath)
     sandbox.writeHomeFile('.codex/hooks.json', '{ bad\n')
     const failed = sandbox.run(initGlobalCodex)
     expect(failed.exitCode).toBe(1)
     expect(JSON.parse(failed.stdout).ok).toBe(false)
     expect(sandbox.readHomeFile('.codex/hooks.json')).toBe('{ bad\n')
+    expect(sandbox.readHomeFile(receiptPath)).toBe(receipt)
+    expect(sandbox.readHomeFile(trackedPath)).toBe(tracked)
     launchReceiptCommand(registeredCommand(sandbox.dir), 'project')
     sandbox.writeHomeFile('.codex/hooks.json', '{}\n')
     expect(sandbox.run(initGlobalCodex).exitCode).toBe(0)
@@ -1239,7 +1280,7 @@ describe('Codex global registration recovery E2E', () => {
     launchReceiptCommand(registeredCommand(sandbox.dir), 'suppressed')
   })
 
-  test('failed first all-agent init publishes Claude success only and project Codex still launches', () => {
+  test('malformed all-agent preflight publishes neither provider and project Codex still launches', () => {
     sandbox = createSandbox()
     expect(sandbox.run(['init', '--agent', 'all']).exitCode).toBe(0)
     receiptProbe()
@@ -1248,8 +1289,10 @@ describe('Codex global registration recovery E2E', () => {
     const result = sandbox.run(['init', '--global', '--agent', 'all', '--json'])
     expect(result.exitCode).toBe(1)
     expect(JSON.parse(result.stdout).ok).toBe(false)
-    expect(sandbox.homeFileExists('.claude/settings.json')).toBe(true)
-    expect(sandbox.readHomeFile('.clooks/.global-entrypoint-active')).toBe('')
+    expect(JSON.parse(result.stdout).error).toContain(join(sandbox.home, '.codex/hooks.json'))
+    expect(sandbox.homeFileExists('.claude/settings.json')).toBe(false)
+    expect(sandbox.homeFileExists('.claude.json')).toBe(false)
+    expect(sandbox.homeFileExists('.clooks')).toBe(false)
     expect(sandbox.homeFileExists(receiptPath)).toBe(false)
     expect(sandbox.readHomeFile('.codex/hooks.json')).toBe('{ bad\n')
     launchReceiptCommand(registeredCommand(sandbox.dir), 'project')

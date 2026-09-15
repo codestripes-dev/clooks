@@ -54,6 +54,7 @@
     "typescript-eslint": "^8.56.1"
   },
   "dependencies": {
+    "toml-eslint-parser": "1.0.3",
     "@clack/prompts": "^1.1.0",
     "commander": "14",
     "lodash-es": "^4.18.1",

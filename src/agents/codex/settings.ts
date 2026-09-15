@@ -2,6 +2,14 @@ import { lstatSync, mkdirSync, realpathSync, statSync } from 'fs'
 import { dirname, isAbsolute, join, resolve } from 'path'
 import { readRegistrationFile, writeRegistrationFileAtomic } from '../../registration-file.js'
 import { CODEX_PROJECT_ID_PATTERN, CODEX_PROJECT_LAUNCHER } from './project-launcher.js'
+import { CODEX_PAIRED_PROJECT_LAUNCHER } from './project-launcher.js'
+import type { RegistrationGroup } from '../../registration-file.js'
+import {
+  isApprovalCompanion,
+  registerApprovalPair,
+  unpairedCommand,
+  type ApprovalRegistration,
+} from '../../registration-approvals.js'
 
 export const CODEX_REGISTRATION_EVENTS = [
   'SessionStart',
@@ -87,9 +95,9 @@ export function quotePosixSingleArg(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`
 }
 
-export function makeCodexProjectEntrypointCommand(projectId: string): string {
+export function makeCodexProjectEntrypointCommand(projectId: string, paired = false): string {
   if (!CODEX_PROJECT_ID_PATTERN.test(projectId)) throw new Error('Invalid Codex project ID')
-  return `CLOOKS_AGENT=codex sh -c ${quotePosixSingleArg(CODEX_PROJECT_LAUNCHER)} clooks-project ${quotePosixSingleArg(projectId)}`
+  return `CLOOKS_AGENT=codex sh -c ${quotePosixSingleArg(paired ? CODEX_PAIRED_PROJECT_LAUNCHER : CODEX_PROJECT_LAUNCHER)} clooks-project ${quotePosixSingleArg(projectId)}`
 }
 
 export function makeCodexGlobalEntrypointCommand(homeRoot: string): string {
@@ -98,6 +106,7 @@ export function makeCodexGlobalEntrypointCommand(homeRoot: string): string {
 }
 
 export function isCodexClooksHook(hook: unknown): boolean {
+  if (isApprovalCompanion(hook, 'codex')) return true
   if (
     typeof hook !== 'object' ||
     hook === null ||
@@ -108,9 +117,14 @@ export function isCodexClooksHook(hook: unknown): boolean {
     return false
   }
 
-  const command = (hook as { command: string }).command
+  const command = unpairedCommand((hook as { command: string }).command, 'codex')
   const projectId = / clooks-project '([a-f0-9]{32})'$/.exec(command)?.[1]
-  if (projectId && command === makeCodexProjectEntrypointCommand(projectId)) return true
+  if (
+    projectId &&
+    (command === makeCodexProjectEntrypointCommand(projectId) ||
+      command === makeCodexProjectEntrypointCommand(projectId, true))
+  )
+    return true
   // Only decode the single-argument quoting emitted by our builders, never shell syntax.
   const quoted = "'((?:[^']|'\\\\'')*)'"
   const match = new RegExp(`^CLOOKS_AGENT=codex ${quoted}$`).exec(command)
@@ -188,6 +202,7 @@ function getHooksObject(hooksFile: Record<string, unknown>): Record<string, unkn
 export function registerCodexClooks(
   codexDir: string,
   entrypointCommand: string,
+  approval?: ApprovalRegistration,
 ): CodexRegisterResult {
   const hooksPath = join(codexDir, 'hooks.json')
   const { hooksFile, fileExisted } = readHooksFile(hooksPath)
@@ -198,6 +213,18 @@ export function registerCodexClooks(
   const updated: CodexRegistrationEvent[] = []
 
   for (const event of CODEX_REGISTRATION_EVENTS) {
+    if (event === 'PreToolUse' && approval) {
+      const pair = registerApprovalPair(
+        (hooks[event] ?? []) as RegistrationGroup[],
+        'codex',
+        entrypointCommand,
+        approval,
+        isCodexClooksHook,
+      )
+      hooks[event] = pair.groups
+      ;(pair.changed ? (pair.existed ? updated : added) : skipped).push(event)
+      continue
+    }
     if (!Array.isArray(hooks[event])) {
       hooks[event] = []
     }

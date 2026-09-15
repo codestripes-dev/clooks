@@ -1,6 +1,7 @@
 import { randomBytes } from 'crypto'
 import { lstatSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
+import { APPROVAL_SUPPRESSION_FUNCTION } from '../../registration-approvals.js'
 
 export const CODEX_PROJECT_MARKER = '.clooks/bin/codex-project-id'
 export const CODEX_PROJECT_ID_PATTERN = /^[a-f0-9]{32}$/
@@ -19,8 +20,7 @@ export function ensureCodexProjectId(projectRoot: string): { id: string; created
   return { id, created: true }
 }
 
-export const CODEX_PROJECT_LAUNCHER = `if [ "\${SKIP_CLOOKS:-}" = true ]; then exit 0; fi
-d=$(pwd -P) || exit 2
+const PROJECT_LOCATOR = `d=$(pwd -P) || exit 2
 git_root=$(git rev-parse --show-toplevel 2>/dev/null < /dev/null) || git_root=
 home=$(CDPATH= cd -P "\${HOME:-/}" 2>/dev/null && pwd -P) || home=
 boundary=/
@@ -59,3 +59,6 @@ if [ -z "\${CLOOKS_PROJECT_ROOT:-}" ]; then
   export CLOOKS_PROJECT_ROOT
 fi
 exec bash "$entrypoint"`
+
+export const CODEX_PROJECT_LAUNCHER = `if [ "\${SKIP_CLOOKS:-}" = true ]; then exit 0; fi\n${PROJECT_LOCATOR}`
+export const CODEX_PAIRED_PROJECT_LAUNCHER = `${APPROVAL_SUPPRESSION_FUNCTION}if [ "\${SKIP_CLOOKS:-}" = true ]; then clooks_suppress; fi\n${PROJECT_LOCATOR}`

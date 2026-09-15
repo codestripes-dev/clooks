@@ -69,8 +69,8 @@ Paired PreToolUse metadata is `CLOOKS_APPROVAL_PROTOCOL=1`,
 adapter. The run layer opens pairing before project discovery/config/imports;
 adapter `approvalIdentity` parses the original native IDs. Missing interaction
 does not simulate consent: an actual ask produces a setup/refusal failure, while
-a no-ask invocation needs no user response. Generated metadata/registration
-writers are separate work.
+a no-ask invocation needs no user response. Generated registration is described
+below; its review/testing is separate from the accepted engine boundary.
 
 Sequential execution completes beforeHook, handler and afterHook, then audits
 the detached result. An accepted ask captures the original reason before handoff
@@ -111,6 +111,43 @@ must still resolve its asks because defer is not a universal native veto. The
 standalone `clooks test` command reports raw `ask` and `defer` with exit 0 and
 does not open a live interaction: that exit code is synthetic test classification,
 not consent, native permission or proof that a tool ran.
+
+## Generated Registration
+
+Registration has passed compiled validation and independent review; this is not
+generated-registration native conformance. `registration-approvals.ts`
+creates a PreToolUse command/`mcp_tool` pair with explicit protocol, provider and
+owner and 330-second native budgets. The companion calls `clooks.check` with
+native session/tool-use IDs and Codex turn ID. Other events stay command-only.
+`registration-project.ts` prepares separate Claude/Codex project markers; Codex
+reuses its existing locator marker. Global owner is literal `global`.
+
+`registration-mcp.ts` prepares only the owned `clooks` server. Claude project and
+global files are `.mcp.json` and `HOME/.claude.json`; Codex uses project
+`.codex/config.toml` or the effective global Codex home's `config.toml`. The TOML
+helper parses before range edits, preserves unrelated syntax/comments and edits
+owned command/args/timeouts without whole-file serialization. Init preflights
+selected settings, server destinations, identities and shared outputs before
+committing per file. Foreign server conflicts are not overwritten.
+
+Claude-selected init/uninstall reject any defined `CLAUDE_CONFIG_DIR`, including
+empty/default-valued overrides, and existing `HOME/.claude/.config.json` before
+mutation. Codex-only operations and custom `CODEX_HOME` remain independent;
+`CLOOKS_HOME_ROOT` does not relocate registration or approval IPC.
+
+Suppression is command-authoritative: paired bypass/dedup calls the PATH-resolved
+binary with disposition `suppressed` so the companion completes neutrally. The
+MCP process never duplicates the launcher's selection logic. Uninstall recognizes
+owned command/companion/server remnants, preserves servers still referenced by
+other handlers, and full cleanup retains `.cache/approvals-live`. It reports
+`retainedPaths` and `deleted:false` if the runtime directory remains. No runtime
+migration advisories or automatic installation are introduced.
+
+Full removal refuses a `.clooks` root symlink before mutations. A retained owned
+Codex server keeps its recovery identity when unrelated hooks still reference
+it. Claude global unhook instead retires its dedup flag after hook removal and
+before the fallible server commit, avoiding project suppression if that commit
+fails.
 
 ## Identity And Rendezvous
 

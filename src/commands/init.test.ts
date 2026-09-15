@@ -41,6 +41,8 @@ import os from 'os'
 import * as registrationState from '../registration-state.js'
 import * as fs from 'node:fs'
 import * as codexSettings from '../agents/codex/settings.js'
+import { approvalCommand, approvalCompanion } from '../registration-approvals.js'
+import { hasOwnedMcpServer } from '../registration-mcp.js'
 
 let tempDir: string
 let originalCwd: () => string
@@ -89,10 +91,12 @@ beforeEach(() => {
     HOME: process.env.HOME,
     CODEX_HOME: process.env.CODEX_HOME,
     CLOOKS_HOME_ROOT: process.env.CLOOKS_HOME_ROOT,
+    CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR,
   }
   process.env.HOME = join(tempDir, 'home')
   mkdirSync(process.env.HOME, { recursive: true })
   delete process.env.CODEX_HOME
+  delete process.env.CLAUDE_CONFIG_DIR
   process.env.CLOOKS_HOME_ROOT = process.env.HOME
   originalCwd = process.cwd
   originalStdinIsTTY = process.stdin.isTTY
@@ -172,12 +176,24 @@ describe('clooks init', () => {
     expect(Object.keys(hooks)).toHaveLength(22)
 
     // Every event should have a Clooks matcher group
-    for (const matchers of Object.values(hooks)) {
+    for (const [event, matchers] of Object.entries(hooks)) {
       expect(matchers).toHaveLength(1)
       const mg = matchers[0] as Record<string, unknown>
-      const hookEntries = mg.hooks as Record<string, string>[]
-      expect(hookEntries).toHaveLength(1)
-      expect(hookEntries[0]!.command).toBe(CLOOKS_ENTRYPOINT_PATH)
+      const hookEntries = mg.hooks as Record<string, unknown>[]
+      if (event === 'PreToolUse') {
+        const owner = `project:${readFileSync(join(tempDir, '.clooks/bin/claude-project-id'), 'utf8').trim()}`
+        expect(hookEntries).toEqual([
+          {
+            type: 'command',
+            command: approvalCommand('claude-code', owner, CLOOKS_ENTRYPOINT_PATH),
+            timeout: 330,
+          },
+          approvalCompanion('claude-code', owner),
+        ])
+      } else {
+        expect(hookEntries).toHaveLength(1)
+        expect(hookEntries[0]!.command).toBe(CLOOKS_ENTRYPOINT_PATH)
+      }
     }
   })
 
@@ -524,13 +540,29 @@ describe('clooks init', () => {
         string,
         unknown
       >[]
-      expect(hookEntries).toEqual([
-        {
-          type: 'command',
-          command: expectedCommand,
-          ...(event === 'SessionEnd' || event === 'Interrupt' ? { timeout: 3 } : {}),
-        },
-      ])
+      const projectId = readFileSync(join(tempDir, '.clooks/bin/codex-project-id'), 'utf8').trim()
+      expect(hookEntries).toEqual(
+        event === 'PreToolUse'
+          ? [
+              {
+                type: 'command',
+                command: approvalCommand(
+                  'codex',
+                  `project:${projectId}`,
+                  makeCodexProjectEntrypointCommand(projectId, true),
+                ),
+                timeout: 330,
+              },
+              approvalCompanion('codex', `project:${projectId}`),
+            ]
+          : [
+              {
+                type: 'command',
+                command: expectedCommand,
+                ...(event === 'SessionEnd' || event === 'Interrupt' ? { timeout: 3 } : {}),
+              },
+            ],
+      )
       expect(expectedCommand).toContain('CLOOKS_PROJECT_ROOT=')
     }
   })
@@ -782,12 +814,27 @@ describe('clooks init --global', () => {
 
     const expectedPath = join(fakeHome, '.clooks/bin/entrypoint.sh')
     // Every event should have the absolute entrypoint path
-    for (const matchers of Object.values(hooks)) {
+    for (const [event, matchers] of Object.entries(hooks)) {
       expect(matchers).toHaveLength(1)
       const mg = matchers[0] as Record<string, unknown>
-      const hookEntries = mg.hooks as Record<string, string>[]
-      expect(hookEntries).toHaveLength(1)
-      expect(hookEntries[0]!.command).toBe(expectedPath)
+      const hookEntries = mg.hooks as Record<string, unknown>[]
+      if (event === 'PreToolUse') {
+        expect(hookEntries).toEqual([
+          {
+            type: 'command',
+            command: approvalCommand(
+              'claude-code',
+              'global',
+              codexSettings.quotePosixSingleArg(expectedPath),
+            ),
+            timeout: 330,
+          },
+          approvalCompanion('claude-code', 'global'),
+        ])
+      } else {
+        expect(hookEntries).toHaveLength(1)
+        expect(hookEntries[0]!.command).toBe(expectedPath)
+      }
     }
   })
 
@@ -940,13 +987,24 @@ describe('clooks init --global', () => {
         string,
         unknown
       >[]
-      expect(hookEntries).toEqual([
-        {
-          type: 'command',
-          command: expectedCommand,
-          ...(event === 'SessionEnd' || event === 'Interrupt' ? { timeout: 3 } : {}),
-        },
-      ])
+      expect(hookEntries).toEqual(
+        event === 'PreToolUse'
+          ? [
+              {
+                type: 'command',
+                command: approvalCommand('codex', 'global', expectedCommand),
+                timeout: 330,
+              },
+              approvalCompanion('codex', 'global'),
+            ]
+          : [
+              {
+                type: 'command',
+                command: expectedCommand,
+                ...(event === 'SessionEnd' || event === 'Interrupt' ? { timeout: 3 } : {}),
+              },
+            ],
+      )
     }
   })
 
@@ -1266,14 +1324,16 @@ describe('global init registration recovery', () => {
     expect(fs.readdirSync(home)).toEqual([])
   })
 
-  test('failed Codex registrar preserves recovery identity and successful Claude state', async () => {
+  test('invalid Codex destination prevents all selected-agent writes and recovery mutation', async () => {
     mkdirSync(join(home, '.codex'))
     writeFileSync(join(home, '.codex/hooks.json'), '{broken')
     await expect(run('all')).rejects.toThrow('process.exit called')
     expect(readFileSync(join(home, '.codex/hooks.json'), 'utf-8')).toBe('{broken')
-    expect(existsSync(join(home, '.clooks/.global-entrypoint-active'))).toBe(true)
+    expect(existsSync(join(home, '.clooks/.global-entrypoint-active'))).toBe(false)
     expect(existsSync(join(home, '.clooks/.global-entrypoint-active.codex'))).toBe(false)
-    expect(registrationState.readCodexTrackedHome(home).kind).toBe('home')
+    expect(registrationState.readCodexTrackedHome(home).kind).toBe('missing')
+    expect(existsSync(join(home, '.claude/settings.json'))).toBe(false)
+    expect(existsSync(join(home, '.claude.json'))).toBe(false)
   })
 
   test('failed Claude registrar does not publish a Claude flag', async () => {
@@ -1284,11 +1344,12 @@ describe('global init registration recovery', () => {
     expect(existsSync(join(home, '.clooks/.global-entrypoint-active.codex'))).toBe(false)
   })
 
-  test('publication runs after committed hooks and executable launcher; failure permits same-home retry', async () => {
-    let observed: { hooksExist: boolean; launcherMode: number } | undefined
+  test('publication runs after committed hooks, server and executable launcher; failure permits same-home retry', async () => {
+    let observed: { hooksExist: boolean; serverOwned: boolean; launcherMode: number } | undefined
     const publish = spyOn(registrationState, 'publishCodexReceipt').mockImplementation(() => {
       observed = {
         hooksExist: existsSync(join(home, '.codex/hooks.json')),
+        serverOwned: hasOwnedMcpServer(join(home, '.codex/config.toml'), 'codex'),
         launcherMode: statSync(join(home, '.clooks/bin/entrypoint.sh')).mode,
       }
       throw new Error('publication fault')
@@ -1296,6 +1357,7 @@ describe('global init registration recovery', () => {
     await expect(run()).rejects.toThrow('process.exit called')
     expect(publish).toHaveBeenCalledTimes(1)
     expect(observed?.hooksExist).toBe(true)
+    expect(observed?.serverOwned).toBe(true)
     expect((observed?.launcherMode ?? 0) & 0o111).toBeGreaterThan(0)
     expect(stdoutSpy.mock.calls.map((call: unknown[]) => String(call[0])).join('')).toContain(
       'publication fault',
@@ -1304,6 +1366,49 @@ describe('global init registration recovery', () => {
     expect(registrationState.readCodexReceipt(home).kind).toBe('missing')
     publish.mockRestore()
     await run()
+    expect(registrationState.readCodexReceipt(home).kind).toBe('receipt')
+  })
+
+  test('malformed server preflight preserves existing receipt, recovery and launcher before all-agent writes', async () => {
+    await run()
+    const paths = [
+      '.clooks/.global-entrypoint-active.codex',
+      '.clooks/.codex-registration-home',
+      '.clooks/bin/entrypoint.sh',
+      '.codex/hooks.json',
+    ].map((path) => join(home, path))
+    const before = paths.map((path) => readFileSync(path))
+    const server = join(home, '.codex/config.toml')
+    writeFileSync(server, '[broken')
+    const track = spyOn(registrationState, 'trackCodexHome')
+    await expect(run('all')).rejects.toThrow('process.exit called')
+    expect(track).not.toHaveBeenCalled()
+    paths.forEach((path, index) => expect(readFileSync(path)).toEqual(before[index]!))
+    expect(readFileSync(server, 'utf-8')).toBe('[broken')
+    expect(existsSync(join(home, '.claude.json'))).toBe(false)
+    expect(existsSync(join(home, '.claude/settings.json'))).toBe(false)
+    expect(stdoutSpy.mock.calls.map((call: unknown[]) => String(call[0])).join('')).toContain(
+      server,
+    )
+  })
+
+  test('server commit failure never publishes receipt and same-home retry completes the pair', async () => {
+    const server = join(home, '.codex/config.toml')
+    const rename = fs.renameSync
+    const fault = spyOn(fs, 'renameSync').mockImplementation((from, to) => {
+      if (String(to) === server) throw new Error('server commit fault')
+      rename(from, to)
+    })
+    const publish = spyOn(registrationState, 'publishCodexReceipt')
+    await expect(run()).rejects.toThrow('process.exit called')
+    expect(publish).not.toHaveBeenCalled()
+    expect(registrationState.readCodexReceipt(home).kind).toBe('missing')
+    expect(registrationState.readCodexTrackedHome(home).kind).toBe('home')
+    expect(existsSync(server)).toBe(false)
+    fault.mockRestore()
+    await run()
+    expect(hasOwnedMcpServer(server, 'codex')).toBe(true)
+    expect(readCodexHooks(home).hooks).toHaveProperty('PreToolUse')
     expect(registrationState.readCodexReceipt(home).kind).toBe('receipt')
   })
 
@@ -1450,7 +1555,7 @@ describe('global init registration recovery', () => {
   })
 
   test.each(['missing', 'nonexecutable'])(
-    'Claude-only repair of %s shared launcher preserves old Codex receipt even after Claude failure',
+    'Claude-only invalid destination preserves %s launcher and old Codex state',
     async (condition) => {
       await run('codex')
       const launcher = join(home, '.clooks/bin/entrypoint.sh')
@@ -1475,8 +1580,8 @@ describe('global init registration recovery', () => {
       ;[receiptPath, recoveryPath, hooksPath].forEach((path, index) =>
         expect(readFileSync(path)).toEqual(before[index]!),
       )
-      expect(statSync(launcher).mode & 0o111).toBeGreaterThan(0)
-      expect(readFileSync(launcher, 'utf-8')).toBe(GLOBAL_ENTRYPOINT_SCRIPT)
+      if (condition === 'missing') expect(existsSync(launcher)).toBe(false)
+      else expect(statSync(launcher).mode & 0o111).toBe(0)
       expect(readFileSync(join(home, '.claude/settings.json'), 'utf-8')).toBe('{broken')
       expect(existsSync(join(home, '.clooks/.global-entrypoint-active'))).toBe(false)
     },

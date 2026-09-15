@@ -1,7 +1,7 @@
 import { Command } from 'commander'
-import { existsSync, rmSync, readdirSync, unlinkSync } from 'fs'
+import { existsSync, rmSync, readdirSync, unlinkSync, lstatSync, rmdirSync } from 'fs'
 import { readRegistrationFile, type RegistrationGroup } from '../registration-file.js'
-import { join } from 'path'
+import { dirname, join } from 'path'
 import { getCtx, type OutputContext } from '../tui/context.js'
 import { jsonSuccess } from '../tui/json-envelope.js'
 import {
@@ -13,10 +13,14 @@ import {
   printOutro,
 } from '../tui/output.js'
 import { promptConfirm, promptSelect, isNonInteractive, CancelError } from '../tui/prompts.js'
-import { unregisterClooks, isClooksRegistered, isClooksHook } from '../settings.js'
+import {
+  unregisterClooks,
+  isClooksRegistered as hasClaudeHooks,
+  isClooksHook,
+} from '../settings.js'
 import {
   unregisterCodexClooks,
-  isCodexClooksRegistered,
+  isCodexClooksRegistered as hasCodexHooks,
   isCodexClooksHook,
   CODEX_REGISTRATION_EVENTS,
   resolveCodexHome,
@@ -29,11 +33,76 @@ import {
 import { CLAUDE_CODE_EVENTS } from '../config/constants.js'
 import { findProjectRoot } from '../config/discovery.js'
 import { getHomeDir } from '../platform.js'
+import {
+  assertClaudeRegistrationLayout,
+  hasOwnedMcpServer,
+  mcpRegistrationPath,
+  prepareMcpRegistration,
+} from '../registration-mcp.js'
 
 const UNINSTALL_AGENTS = ['claude-code', 'codex', 'all'] as const
 
 type UninstallAgent = (typeof UNINSTALL_AGENTS)[number]
 type ConcreteUninstallAgent = Exclude<UninstallAgent, 'all'>
+
+function isClooksRegistered(settingsDir: string, global = false): boolean {
+  const hooks = hasClaudeHooks(settingsDir)
+  const server = hasOwnedMcpServer(
+    mcpRegistrationPath(dirname(settingsDir), 'claude-code', global),
+    'claude-code',
+  )
+  return hooks || server
+}
+
+function isCodexClooksRegistered(codexDir: string): boolean {
+  const hooks = hasCodexHooks(codexDir)
+  const server = hasOwnedMcpServer(join(codexDir, 'config.toml'), 'codex')
+  return hooks || server
+}
+
+function assertRuntimeRemovalRoot(directory: string): void {
+  if (lstatSync(directory, { throwIfNoEntry: false })?.isSymbolicLink()) {
+    throw new Error(
+      `Cannot fully uninstall through symbolic link \`${directory}\`; no cleanup was performed.`,
+    )
+  }
+}
+
+/** Never recursively remove the live namespace, even if a new check arrives during cleanup. */
+function removeRuntimeDirectory(directory: string): { deleted: boolean; retainedPaths: string[] } {
+  const retainedPaths: string[] = []
+  const stat = lstatSync(directory, { throwIfNoEntry: false })
+  if (!stat) return { deleted: true, retainedPaths }
+  if (!stat.isDirectory()) {
+    rmSync(directory, { force: true })
+    return { deleted: true, retainedPaths }
+  }
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name)
+    if (entry.name !== '.cache' || !entry.isDirectory()) {
+      rmSync(path, { recursive: true, force: true })
+      continue
+    }
+    for (const cached of readdirSync(path)) {
+      const child = join(path, cached)
+      if (cached === 'approvals-live') retainedPaths.push(child)
+      else rmSync(child, { recursive: true, force: true })
+    }
+    try {
+      rmdirSync(path)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOTEMPTY') throw error
+      if (!retainedPaths.includes(join(path, 'approvals-live'))) retainedPaths.push(path)
+    }
+  }
+  try {
+    rmdirSync(directory)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOTEMPTY') throw error
+    if (retainedPaths.length === 0) retainedPaths.push(directory)
+  }
+  return { deleted: !lstatSync(directory, { throwIfNoEntry: false }), retainedPaths }
+}
 
 interface AgentUninstallCounts {
   claudeEventsRemoved: string[]
@@ -84,7 +153,7 @@ async function resolveUninstallAgent(
 ): Promise<UninstallAgent | null> {
   if (opts.agent !== undefined) return parseUninstallAgent(opts.agent)
 
-  const claude = isClooksRegistered(settingsDir)
+  const claude = isClooksRegistered(settingsDir, scope === 'global')
   const codex = isCodexClooksRegistered(codexDir)
   if (!claude) return codex ? 'codex' : null
   if (!codex) return 'claude-code'
@@ -103,7 +172,12 @@ async function resolveUninstallAgent(
   })
 }
 
-function inspectRegistrations(root: string, agent: ConcreteUninstallAgent, codexHome?: string) {
+function inspectRegistrations(
+  root: string,
+  agent: ConcreteUninstallAgent,
+  codexHome?: string,
+  global = false,
+) {
   const path =
     agent === 'codex'
       ? join(codexHome ?? join(root, '.codex'), 'hooks.json')
@@ -120,24 +194,69 @@ function inspectRegistrations(root: string, agent: ConcreteUninstallAgent, codex
       ),
     )
     .map(([event]) => event)
-  return { path, events }
+  const serverPath = mcpRegistrationPath(root, agent, global, codexHome)
+  const serverOwned = hasOwnedMcpServer(serverPath, agent)
+  const serverReferenced = Object.values(hooks).some((groups) =>
+    (groups as RegistrationGroup[]).some((group) =>
+      group.hooks.some((hook) => hook.type === 'mcp_tool' && hook.server === 'clooks'),
+    ),
+  )
+  return { path, events, serverPath, serverOwned, serverReferenced }
 }
 
 function assertNoRemainingRegistrations(
   root: string,
   agents: ConcreteUninstallAgent[],
   codexHomes?: string[],
+  requireServerRemoval = true,
 ): void {
   for (const agent of agents) {
     for (const codexHome of agent === 'codex' ? (codexHomes ?? [undefined]) : [undefined]) {
-      const { path, events } = inspectRegistrations(root, agent, codexHome)
-      if (events.length > 0) {
+      const { path, events, serverPath, serverOwned } = inspectRegistrations(
+        root,
+        agent,
+        codexHome,
+        codexHomes !== undefined,
+      )
+      if (events.length > 0 || (requireServerRemoval && serverOwned)) {
         throw new Error(
-          `Cannot delete shared Clooks directory: ${path} still contains owned hooks on ${events.join(', ')}. Remove these references and retry.`,
+          `Cannot delete shared Clooks directory: ${path} still contains owned hooks on ${events.join(', ')}${serverOwned ? ` or an owned server in ${serverPath}` : ''}. Remove these references and retry.`,
         )
       }
     }
   }
+}
+
+function prepareServerRemovals(
+  root: string,
+  agents: ConcreteUninstallAgent[],
+  codexHomes?: string[],
+) {
+  if (agents.includes('claude-code')) assertClaudeRegistrationLayout(getHomeDir())
+  return agents.flatMap((agent) =>
+    (agent === 'codex' ? (codexHomes ?? [undefined]) : [undefined]).map((codexHome) => {
+      const inspection = inspectRegistrations(root, agent, codexHome, codexHomes !== undefined)
+      return {
+        agent,
+        codexHome,
+        registration: prepareMcpRegistration(inspection.serverPath, agent, true),
+      }
+    }),
+  )
+}
+
+function removeServers(
+  root: string,
+  prepared: ReturnType<typeof prepareServerRemovals>,
+  global: boolean,
+): boolean {
+  let removed = false
+  for (const { agent, codexHome, registration } of prepared) {
+    if (inspectRegistrations(root, agent, codexHome, global).serverReferenced) continue
+    registration.commit()
+    removed ||= registration.changed
+  }
+  return removed
 }
 
 function globalCodexHomes(homeRoot: string, effectiveHome: string): string[] {
@@ -176,7 +295,7 @@ async function confirmCleanup(
     (target === 'codex' ? (codexHomes ?? [undefined]) : [undefined]).map((codexHome) => ({
       agent: target,
       codexHome,
-      ...inspectRegistrations(root, target, codexHome),
+      ...inspectRegistrations(root, target, codexHome, codexHomes !== undefined),
     })),
   )
   if (!shouldDelete) return agents
@@ -184,7 +303,7 @@ async function confirmCleanup(
   const needsConsent =
     registrations.some(
       (registration) =>
-        registration.events.length > 0 &&
+        (registration.events.length > 0 || registration.serverOwned) &&
         (!shouldUnhook ||
           !selectedAgents(agent).includes(registration.agent) ||
           (registration.agent === 'codex' && registration.codexHome !== codexHomes?.[0])),
@@ -307,6 +426,7 @@ async function uninstallProject(
   const agent = await resolveUninstallAgent(ctx, opts, 'project', settingsDir, codexDir)
   const agents = selectedAgents(agent)
   const initialAgents = agentsForAction(agent, Boolean(opts.force && opts.full))
+  if (initialAgents.includes('claude-code')) assertClaudeRegistrationLayout(getHomeDir())
   const hasSelectedClaudeRegistration =
     includesAgent(agent, 'claude-code') && isClooksRegistered(settingsDir)
   const hasSelectedCodexRegistration =
@@ -377,6 +497,8 @@ async function uninstallProject(
     return
   }
 
+  if (shouldDelete) assertRuntimeRemovalRoot(clooksDir)
+
   const actionAgents = await confirmCleanup(
     ctx,
     projectRoot,
@@ -387,10 +509,13 @@ async function uninstallProject(
   )
   if (!actionAgents) return
 
+  const serverRemovals = prepareServerRemovals(projectRoot, actionAgents)
+
   // d. Execute confirmed actions
   let unhooked = false
   let deleted = false
   let customHooksDeleted: string[] = []
+  let retainedPaths: string[] = []
   const counts = emptyCounts()
 
   if (shouldUnhook || shouldDelete) {
@@ -403,6 +528,7 @@ async function uninstallProject(
       counts.codexEventsRemoved = result.removed
     }
     unhooked = counts.claudeEventsRemoved.length > 0 || counts.codexEventsRemoved.length > 0
+    unhooked = removeServers(projectRoot, serverRemovals, false) || unhooked
   }
 
   if (actionAgents.includes('claude-code')) {
@@ -415,8 +541,7 @@ async function uninstallProject(
   if (shouldDelete) {
     assertNoRemainingRegistrations(projectRoot, actionAgents)
     customHooksDeleted = detectCustomHooks(join(clooksDir, 'hooks'))
-    rmSync(clooksDir, { recursive: true, force: true })
-    deleted = true
+    ;({ deleted, retainedPaths } = removeRuntimeDirectory(clooksDir))
   }
 
   // e. Output
@@ -435,12 +560,15 @@ async function uninstallProject(
         codexEventsRemoved: counts.codexEventsRemoved,
         claudeNonClooksPreserved: counts.claudeNonClooksPreserved,
         codexNonClooksPreserved: counts.codexNonClooksPreserved,
+        ...(retainedPaths.length ? { retainedPaths } : {}),
       }) + '\n',
     )
     return
   }
 
-  if (!unhooked && !deleted) {
+  if (retainedPaths.length)
+    printInfo(ctx, `Preserved approval coordination at ${retainedPaths.join(', ')}.`)
+  if (!unhooked && !deleted && retainedPaths.length === 0) {
     printInfo(ctx, `No ${agentLabel(agent)} Clooks hook registrations found. Nothing changed.`)
     return
   }
@@ -511,15 +639,16 @@ async function uninstallGlobal(ctx: OutputContext, opts: UninstallOptions): Prom
   const agent = await resolveUninstallAgent(ctx, opts, 'global', settingsDir, codexDir)
   const agents = selectedAgents(agent)
   const initialAgents = agentsForAction(agent, Boolean(opts.force && opts.full))
+  if (initialAgents.includes('claude-code')) assertClaudeRegistrationLayout(homeRoot)
   const initialCodexHomes = initialAgents.includes('codex')
     ? globalCodexHomes(homeRoot, codexDir)
     : [codexDir]
   const hasSelectedClaudeRegistration =
-    includesAgent(agent, 'claude-code') && isClooksRegistered(settingsDir)
+    includesAgent(agent, 'claude-code') && isClooksRegistered(settingsDir, true)
   const hasSelectedCodexRegistration =
     includesAgent(agent, 'codex') && isCodexClooksRegistered(codexDir)
   const hasActionClaudeRegistration =
-    initialAgents.includes('claude-code') && isClooksRegistered(settingsDir)
+    initialAgents.includes('claude-code') && isClooksRegistered(settingsDir, true)
   const hasActionCodexRegistration =
     initialAgents.includes('codex') &&
     (opts.force && opts.full ? initialCodexHomes : [codexDir]).some(isCodexClooksRegistered)
@@ -585,6 +714,8 @@ async function uninstallGlobal(ctx: OutputContext, opts: UninstallOptions): Prom
     return
   }
 
+  if (shouldDelete) assertRuntimeRemovalRoot(clooksDir)
+
   if (shouldDelete) codexDir = resolveCodexHome(homeRoot, process.env)
   const codexHomes = shouldDelete ? globalCodexHomes(homeRoot, codexDir) : [codexDir]
   const actionAgents = await confirmCleanup(
@@ -598,19 +729,28 @@ async function uninstallGlobal(ctx: OutputContext, opts: UninstallOptions): Prom
   )
   if (!actionAgents) return
 
+  const serverRemovals = prepareServerRemovals(homeRoot, actionAgents, codexHomes)
+
   // d. Execute confirmed actions
   let unhooked = false
   let deleted = false
   let customHooksDeleted: string[] = []
+  let retainedPaths: string[] = []
   const globalFlagsRemoved: string[] = []
   const counts = emptyCounts()
   const codexRemovals: { path: string; removed: string[] }[] = []
 
   if (shouldUnhook || shouldDelete) {
+    let serversRemoved = false
     if (actionAgents.includes('claude-code')) {
       const result = unregisterClooks(settingsDir)
       counts.claudeEventsRemoved = result.removed
       globalFlagsRemoved.push(...removeGlobalEntrypointFlags(homeRoot, ['claude-code']))
+      serversRemoved = removeServers(
+        homeRoot,
+        serverRemovals.filter((item) => item.agent === 'claude-code'),
+        true,
+      )
     }
     if (actionAgents.includes('codex')) {
       const removedEvents = new Set<string>()
@@ -618,19 +758,30 @@ async function uninstallGlobal(ctx: OutputContext, opts: UninstallOptions): Prom
         const result = unregisterCodexClooks(codexHome)
         codexRemovals.push({ path: join(codexHome, 'hooks.json'), removed: result.removed })
         for (const event of result.removed) removedEvents.add(event)
-        assertNoRemainingRegistrations(homeRoot, ['codex'], [codexHome])
-        if (
-          clearCodexRegistrationState(homeRoot, codexHome) &&
-          !globalFlagsRemoved.includes('codex')
-        ) {
-          globalFlagsRemoved.push('codex')
-        }
       }
       counts.codexEventsRemoved = CODEX_REGISTRATION_EVENTS.filter((event) =>
         removedEvents.has(event),
       )
+      serversRemoved =
+        removeServers(
+          homeRoot,
+          serverRemovals.filter((item) => item.agent === 'codex'),
+          true,
+        ) || serversRemoved
     }
+    if (actionAgents.includes('codex'))
+      for (const codexHome of codexHomes) {
+        assertNoRemainingRegistrations(homeRoot, ['codex'], [codexHome], false)
+        // A retained shared server still needs its recorded home for a later cleanup.
+        if (hasOwnedMcpServer(join(codexHome, 'config.toml'), 'codex')) continue
+        if (
+          clearCodexRegistrationState(homeRoot, codexHome) &&
+          !globalFlagsRemoved.includes('codex')
+        )
+          globalFlagsRemoved.push('codex')
+      }
     unhooked =
+      serversRemoved ||
       counts.claudeEventsRemoved.length > 0 ||
       counts.codexEventsRemoved.length > 0 ||
       globalFlagsRemoved.length > 0
@@ -649,8 +800,7 @@ async function uninstallGlobal(ctx: OutputContext, opts: UninstallOptions): Prom
   if (shouldDelete) {
     assertNoRemainingRegistrations(homeRoot, actionAgents, codexHomes)
     customHooksDeleted = detectCustomHooks(join(clooksDir, 'hooks'))
-    rmSync(clooksDir, { recursive: true, force: true })
-    deleted = true
+    ;({ deleted, retainedPaths } = removeRuntimeDirectory(clooksDir))
   }
 
   // e. Output
@@ -670,12 +820,15 @@ async function uninstallGlobal(ctx: OutputContext, opts: UninstallOptions): Prom
         claudeNonClooksPreserved: counts.claudeNonClooksPreserved,
         codexNonClooksPreserved: counts.codexNonClooksPreserved,
         globalFlagsRemoved,
+        ...(retainedPaths.length ? { retainedPaths } : {}),
       }) + '\n',
     )
     return
   }
 
-  if (!unhooked && !deleted) {
+  if (retainedPaths.length)
+    printInfo(ctx, `Preserved approval coordination at ${retainedPaths.join(', ')}.`)
+  if (!unhooked && !deleted && retainedPaths.length === 0) {
     printInfo(
       ctx,
       `No ${agentLabel(agent)} global Clooks hook registrations found. Nothing changed.`,

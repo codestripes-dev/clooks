@@ -51,7 +51,7 @@ The adapter architecture is intended to preserve Clooks hook authoring for the s
 - **Clooks target events:** `SessionStart`, `SubagentStart`, `PreToolUse`, `PermissionRequest`, `PostToolUse`, `PreCompact`, `PostCompact`, `UserPromptSubmit`, `SubagentStop`, `Stop`, `SessionEnd`, `Interrupt`. Shared Claude-side event names establish scope, not capability parity; Interrupt is Codex-only.
 - **Config:** `~/.codex/hooks.json`, `~/.codex/config.toml`, `<repo>/.codex/hooks.json`, or `<repo>/.codex/config.toml`
 - **Trust:** project-local `.codex/` layers load only when the project is trusted; non-managed hooks must be reviewed/trusted before running
-- **Handlers:** upstream supports command and [`mcp_tool` handlers](https://learn.chatgpt.com/docs/hooks#mcp-tool-hooks); `prompt` and `agent` handlers are parsed but skipped. Clooks remains a synchronous command-handler integration. An MCP handler is distinct from observing model-issued MCP tool calls.
+- **Handlers:** upstream supports command and [`mcp_tool` handlers](https://learn.chatgpt.com/docs/hooks#mcp-tool-hooks); `prompt` and `agent` handlers are parsed but skipped. Clooks registration pairs PreToolUse with an MCP companion while other events stay command-only. Compiled registration validation does not prove native activation. An MCP handler is distinct from observing model-issued MCP tool calls.
 - **Execution:** multiple matching command hooks for one event are launched concurrently
 - **Feature flag:** current docs describe hooks as enabled by default; `[features].hooks = false` disables them. Enabled configuration alone does not establish native review or activation.
 - **Timeout:** seconds, defaulting to 600 for most events. Native SessionEnd and Interrupt default to 1 second with a 3-second maximum; Clooks registers 3 seconds for each entire event pipeline, not per hook.
@@ -149,9 +149,9 @@ The runtime implementation carries an invocation-bound result policy as well as 
 The live-checkpoint integration adds optional arguments 11/12 for interaction
 and invocation signal. Adapter `approvalIdentity`, `approvalOperation` and
 `serializedApprovalOperation` keep native identity, candidate encoding and actual
-output inspection separate. `RunEngineDeps` injects interaction creation and
-cancellation. These internal interfaces are under integration test, not new
-hook-author methods or evidence of generated native registration.
+output inspection separate. `RunEngineDeps` injects interaction creation,
+cancellation and approval-lifetime ownership. These compiled-test-validated
+internal interfaces are not new hook-author methods or proof of native registration.
 
 Diagnostic composition is adapter-owned and structured: `composeDiagnostics()` receives the result plus trace, degraded and debug messages, and returns a result, stderr lines and system messages. The engine explicitly selects `translateFailure()` when execution returns `policyFailure`, even if diagnostic composition or final adjustment supplies allow. Codex places trace text in context for SessionStart, SubagentStart, PreToolUse, PostToolUse and UserPromptSubmit; other events use human system messages for trace. Degraded notices use system messages and debug lines remain local stderr. Its event-bound policy supplies raw preflight; shared configured handoff is enabled, and private turn policy and provider storage are connected. Claude sends debug lines to stderr and appends them to context only for injectable events; non-injectable events retain an empty or skip aggregate without a synthetic allow decision. Its default turn policy is unchanged. The expansion and its `deferRuntimeErrorAudit` correction have their own passing Docker unit, E2E and static gates, separate from the earlier PreToolUse gate.
 
@@ -161,7 +161,11 @@ Global Codex init/uninstall resolve the effective state home physically, followi
 
 Before changing selected-Codex/all global runtime files, init validates existing state, atomically records the selected Codex home in `.clooks/.codex-registration-home`, and retires any old matching Codex receipt. Recording must succeed before retirement. Retiring before launcher repair prevents a later failed registration from making an old receipt newly eligible. Only successful registration and an executable launcher permit publishing `.clooks/.global-entrypoint-active.codex`. This receipt records canonical installation/Codex homes and the POSIX `cksum` of committed `hooks.json`; the recovery record never suppresses project execution. A failed receipt publication retains cleanup identity and blocks switching homes until matching cleanup succeeds.
 
-That failed-init guarantee applies to selected-Codex/all setup. Claude-only init stays independent and may repair the shared launcher, restoring eligibility of an existing matching Codex receipt even if the later Claude registrar fails. This is an explicit bounded exception, not a change to repository permissions or a broader Codex-state cleanup policy.
+Current init preflights selected hook/server destinations, project identities and
+shared outputs before writes. Claude-only init remains independent of Codex
+state, but malformed Claude registration now fails before launcher repair and
+cannot revive receipt eligibility through that preflight failure. Subsequent
+file commits remain nontransactional. This is not a broader Codex cleanup policy.
 
 New project launchers reject absent, empty legacy, malformed, stale or mismatched receipts and fall through to project execution when checksum checks fail. A set `CLOOKS_HOME_ROOT` must resolve to the installation home for suppression eligibility; empty, relative or different overrides disable that eligibility. Any registration-byte change invalidates freshness, including changes to unrelated hooks. Rerun both project and global init to upgrade older existence-only scripts and legacy state; unrelated checkouts are not rewritten.
 
@@ -171,7 +175,19 @@ Codex behavior notes are summarized here because planning and research artifacts
 
 Registration data is validated before transformation. Invalid managed containers or JSON produce actionable errors without rewriting the original registration file; detection inspects all events and refuses ambiguous structures. Unknown metadata and untraversed event values are retained. Both agents use atomic file replacement with mode preservation and reject registration-file symlinks, including dangling links. This is per-file recoverability, not a multi-agent transaction.
 
-Codex ownership recognizes the exact generated project locator with its canonical ID argument and the supported quoted global command. There is no compatibility parser for unreleased absolute project commands. Echo mentions, extra arguments, and additional shell operations stay user-owned. Init converges owned duplicates within a registration file to one canonical command per registered event; surviving mixed groups retain unrelated hooks and metadata, while options on removed owned entries are not promised preservation. Claude likewise preserves unrelated hooks during unhook and recognizes its established generated and legacy forms, including exact scope-derived unquoted global commands.
+Paired registration has passed compiled validation and review. Each PreToolUse
+command and `clooks.check` companion gets 330 seconds and explicit provider,
+owner and protocol metadata. Project Claude has a separate persisted owner
+marker; Codex reuses its locator marker. Claude server files are project
+`.mcp.json` and global `HOME/.claude.json`; Codex uses `config.toml` beside its
+hooks file. Claude-selected operations reject any defined `CLAUDE_CONFIG_DIR`
+or existing `HOME/.claude/.config.json` before mutation; Codex-only/custom-home
+behavior remains independent. Paired suppression publishes a neutral terminal
+disposition through the binary, not an MCP-side dedup predicate. Uninstall handles
+owned server/companion remnants and preserves live approval IPC during full
+cleanup. No migration advisories or automatic configuration writes are added.
+
+Codex ownership recognizes the exact generated project locator with its canonical ID argument and the supported quoted global command, including exact paired metadata prefixes. There is no compatibility parser for unreleased absolute project commands. Echo mentions, extra arguments, and additional shell operations stay user-owned. Init converges owned PreToolUse entries into a command/companion pair and other events into one canonical command; surviving mixed groups retain unrelated hooks and metadata. Claude likewise preserves unrelated hooks during unhook and recognizes its established generated and legacy command forms plus exact owned companions.
 
 Codex project registration is portable: Codex/all project init creates one committed `.clooks/bin/codex-project-id`, retained on re-init and cloned with the checkout. Its launcher searches bounded ancestors for that declaration's exact ID, refuses repeated matches, and executes the owning Bash entrypoint without changing cwd or consuming stdin. It dynamically anchors `CLOOKS_PROJECT_ROOT` only when no explicit override exists. Distinct nested declarations retain ownership; a copied registration cannot target a still-existing old checkout outside the search boundary. See [Bash Entrypoint](bash-entrypoint.md#hook-registration) for Git/home boundaries, missing-artifact diagnostics and marker lifecycle. Global commands still forward deliberate `CLOOKS_PROJECT_ROOT` and inherited `CLAUDE_PROJECT_DIR`; the Codex `discoveryEnvironment()` helper removes the inherited Claude key from an invocation-local copy while retaining explicit overrides. Compiled tests assert actual hook decisions and execution receipts across clones, moves, nested roots and linked worktrees; these do not by themselves establish native hook review/activation.
 
@@ -330,7 +346,7 @@ Some features only work with specific agents:
 - `additionalContext` — supported by Claude Code and by several Codex events, but exact event support must be checked per event.
 - `ask` / `defer` — distinct `PreToolUse` decisions. The current shared engine integration resolves asks through live checkpoints; missing interaction refuses rather than emitting native ask or issuing retry tokens. Claude defer retains its mode-dependent semantics and is not a universal native veto; Codex defer remains refused. The retained Codex source snapshot marks native ask unsupported/fail-open. Live checkpoint integration and generated-registration conformance have separate validation gates.
 - `updatedPermissions` / `interrupt` on `PermissionRequest` — Claude Code capability; pinned Codex rejects non-null permission updates or `interrupt:true` with no decision, leaving normal review absent another handler decision. Clooks accepts PermissionRequest block's `interrupt:false` and emits an ordinary denial without that field.
-- Handler types — Claude Code supports additional hook types. Codex documents command and [MCP tool handlers](https://learn.chatgpt.com/docs/hooks#mcp-tool-hooks), while parsing and skipping `prompt` and `agent`. Clooks' Codex integration scope remains command handlers.
+- Handler types — Claude Code supports additional hook types. Codex documents command and [MCP tool handlers](https://learn.chatgpt.com/docs/hooks#mcp-tool-hooks), while parsing and skipping `prompt` and `agent`. Clooks uses command handlers plus a generated PreToolUse MCP companion, with compiled validation distinct from native conformance.
 
 Clooks should expose these as agent-specific capabilities, not core contract features. Authors can branch on `ctx.provider`, but identity alone is not a capability negotiation API.
 

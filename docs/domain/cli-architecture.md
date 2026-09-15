@@ -14,7 +14,7 @@ Both stdin catches use `formatStdinError`: only the dedicated error receives the
 
 1. **Engine mode** — An agent hook system pipes a JSON event on stdin with no arguments. The selected adapter writes provider-specific output. Claude has its existing runtime; Codex implements twelve events, including observation-only SessionEnd and Codex-only Interrupt.
 2. **CLI mode** — A developer types a subcommand (e.g., `clooks config`). Commander.js parses arguments and runs the command's action handler.
-3. **MCP mode** — `clooks mcp` runs the shared approval server over stdio. Commander routes the command, but stdout is reserved for MCP protocol traffic and shutdown awaits server cleanup. Engine checkpoints are implemented; generated registration remains separate work.
+3. **MCP mode** — `clooks mcp` runs the shared approval server over stdio. Commander routes the command, but stdout is reserved for MCP protocol traffic and shutdown awaits server cleanup. Engine checkpoints are implemented; generated registration is described below with its separate validation boundary.
 
 ### Dispatch logic
 
@@ -254,9 +254,39 @@ The former Codex token runtime issued pending confirmations and consumed registe
 
 Project setup command. Creates `.clooks/` directory, writes default `clooks.yml`, generates the bash entrypoint, and registers it with the selected agent hook system.
 
+Paired registration has passed compiled validation and independent review;
+native generated-registration conformance remains separate.
+`prepareInitRegistrations()` preflights every selected hook file, MCP
+server destination, project identity and shared output before setup writes. A
+malformed selected registration or server-name conflict therefore does not repair
+the launcher as a side effect. Prepared writes commit per file, not as a transaction.
+
+Claude-selected init/uninstall support only the default layout: any defined
+`CLAUDE_CONFIG_DIR` (including empty or the default path) or existing
+`HOME/.claude/.config.json` is rejected before mutation. Codex-only operations
+remain independent. No new Claude receipt framework is introduced.
+
+PreToolUse gets a command plus `mcp_tool` companion (`clooks.check`), each with a
+330-second native timeout. Other events stay command-only. Registration paths:
+
+| Agent/scope | Hooks | MCP server |
+| --- | --- | --- |
+| Claude project | `<project>/.claude/settings.json` | `<project>/.mcp.json` |
+| Claude global | `<HOME>/.claude/settings.json` | `<HOME>/.claude.json` |
+| Codex project | `<project>/.codex/hooks.json` | `<project>/.codex/config.toml` |
+| Codex global | `<effective CODEX_HOME>/hooks.json` | `<effective CODEX_HOME>/config.toml` |
+
+`registration-mcp.ts` manages only the `clooks` server, executing `clooks mcp`
+through PATH. Foreign/conflicting entries are not overwritten. Claude JSON
+preserves unrelated values; the Codex TOML helper uses parsed token/range edits
+for owned fields, retaining unrelated content, comments and native disable/trust
+settings. Codex server defaults are ten-second startup and 330-second tool
+timeouts. Repeated canonical writes preserve bytes. Disk configuration does not
+prove native connection, trust or activation.
+
 Agent routing is explicit through `--agent claude-code`, `--agent codex`, or `--agent all`. Omitting `--agent` is equivalent to `--agent claude-code` for backward compatibility: project init writes `.claude/settings.json`, and global init writes `~/.claude/settings.json`.
 
-`--agent codex` still creates the shared `.clooks/` runtime files, but registers project `.codex/hooks.json` or the effective global Codex home's `hooks.json` instead of Claude settings. Global init and uninstall resolve a nonempty `CODEX_HOME`, otherwise `HOME/.codex`. Overrides must be absolute and contain no CR/LF; resolution uses physical directory identity, including the nearest existing ancestor of a missing directory, without creating it. Project registration ignores `CODEX_HOME`. `CLOOKS_HOME_ROOT` remains a runtime override and never selects an installation location. Codex registration writes one Clooks command hook per supported registration event and warns that Codex may require hook review/trust before project hooks run. `--agent all` performs shared setup once, then registers both agents. Global Codex output uses the actual resolved registration path, including created/updated/skipped JSON strings.
+`--agent codex` still creates the shared `.clooks/` runtime files, but registers Codex hooks and MCP server files instead of Claude settings. Global init and uninstall resolve a nonempty `CODEX_HOME`, otherwise `HOME/.codex`. Overrides must be absolute and contain no CR/LF; resolution uses physical directory identity, including the nearest existing ancestor of a missing directory, without creating it. Project registration ignores `CODEX_HOME`. `CLOOKS_HOME_ROOT` remains a runtime override and never selects an installation location. Codex registration writes one Clooks command per supported event, plus the PreToolUse companion, and retains the native hook-review/trust distinction. `--agent all` performs shared setup once, then registers both agents. Global Codex output uses the actual resolved registration paths.
 
 With `--global`, operates on `HOME/.clooks/`: creates the home directory structure, writes global `clooks.yml`, generates an executable global entrypoint, and registers the selected global agent files. Claude Code publishes its legacy `.global-entrypoint-active` flag only after successful Claude registration. Codex publishes a versioned `.global-entrypoint-active.codex` receipt only after successful Codex registration and executable launcher creation. The receipt records the physical installation and Codex homes plus POSIX `cksum` of committed registration bytes; it detects stale registration, not native hook activation.
 
@@ -264,13 +294,28 @@ Before any Codex/all global init writes, read-only preflight validates the effec
 
 The recovery record never suppresses project execution. Newly generated project scripts require a matching, fresh receipt and usable global launcher; legacy empty Codex flags are insufficient. Existing project scripts require project re-init to obtain these checks. Receipt freshness cannot establish that native Codex hooks are enabled, reviewed, or firing. External activation and Codex runtime implementation remain separate concerns.
 
-Claude-only global init remains independent: it neither reads nor retires Codex state, and ignores `CODEX_HOME`. Because the launcher is shared, its repair can restore the eligibility of an existing valid Codex receipt even if Claude registration subsequently fails. This is an explicit exception to the selected Codex/all failure behavior above, not evidence of Codex registration or native activation during a Claude-only attempt.
+Claude-only global init neither reads nor retires Codex state and ignores
+`CODEX_HOME`. It now preflights Claude settings and server files before launcher
+repair, so malformed Claude registration cannot restore Codex receipt eligibility
+as a side effect of a rejected preflight. A later commit failure can still leave
+earlier writes in place; successful shared-launcher repair can affect an existing
+matching Codex receipt without proving native activation.
 
 Both registrars reject invalid nonempty JSON roots, hook maps, managed-event arrays, and traversed group/hook containers with a path/field-specific error and repair-and-retry guidance. Rejection leaves registration bytes unchanged. Missing containers and empty or whitespace files remain valid initialization inputs. Unknown fields and untraversed event values are preserved as JSON values. Detection and uninstall counters use the shared strict reader across all events, so ambiguous unknown-event containers produce errors rather than an absence result. Normal unhook only removes owned hooks from the existing supported event catalog.
 
 Registration writes use `src/registration-file.ts`: an exclusive temporary file in the destination directory is created with initial access permissions no broader than the existing destination, before any bytes are written. After writing, existing permission bits are restored and the closed file is renamed over the destination. New destinations use ordinary `0666` permissions filtered by the process umask. Failed writes preserve the previous destination and clean up only the attempt's own temporary file, best effort. Reads and writes reject symlink destinations, including dangling links, and other nonregular files. No-op registration and unhook preserve exact file bytes. Successful changes may reformat JSON. This guarantees atomic visibility per file, not power-loss durability, concurrent-writer merging, or a transaction across both agents.
 
-Ownership requires a command hook and a bounded generated command form. Codex project init creates or retains the committed `.clooks/bin/codex-project-id` marker and registers a fixed locator with that ID; Claude-only/global init creates no project marker. The locator searches registration identity, not configuration, and passes its located root to existing core discovery unless an explicit override exists. See [Bash Entrypoint](bash-entrypoint.md#hook-registration) for boundaries and ambiguous-copy diagnostics. Codex recognition accepts only the exact new project form and the supported quoted global command, with no compatibility parser for unreleased absolute project commands. Init converges owned duplicates within a registration file into one canonical command per event, preserving unrelated hooks, empty unrelated groups, and metadata on surviving mixed groups. Options on removed owned hooks or owned-only groups are not retained by that canonicalization. Claude retains its existing registration migration behavior and removes individual owned hooks during unhook. Its detector accepts the project variable form, legacy relative form, shell-safe absolute paths, and an exact context-supplied command for historical unquoted global paths containing spaces or punctuation. Generic shell mentions and extra arguments are not ownership evidence. CLI selectors, result arrays, and legacy Claude JSON count aliases are unchanged.
+Command ownership requires a bounded generated form; companion ownership requires
+the `clooks.check` shape and exact provider/owner/native-ID input template.
+Project init creates or retains separate `.clooks/bin/claude-project-id` and
+`.clooks/bin/codex-project-id` markers for selected agents. The existing Codex
+marker also remains the portable locator identity; global init uses owner
+`global`, not a project marker. See [Bash Entrypoint](bash-entrypoint.md#hook-registration).
+Init converges owned PreToolUse entries to one canonical command/companion group
+and other events to their existing command form, preserving unrelated hooks and
+metadata on surviving mixed groups. Command detectors recognize the exact paired
+prefix around supported launcher forms, not arbitrary shell mentions. Existing
+CLI selectors and legacy Claude JSON count aliases remain unchanged.
 
 ### `clooks config` / `clooks config --resolved`
 
@@ -362,13 +407,36 @@ When neither provider is registered, automatic selection reports no registration
 
 With `--project --unhook`, the command removes Clooks-owned registrations for the selected agent from `.claude/settings.json`, `.codex/hooks.json`, or both, while preserving unrelated hooks. With `--global --unhook`, it does the same for `HOME/.claude/settings.json` and the effective Codex home's `hooks.json`. Codex state clears only for the matching home after an all-event remaining-reference check. Unhooking home B neither edits recorded home A nor erases A's receipt/recovery identity. Unknown-event references retain identity and block switching until explicitly repaired; a missing registration file allows matching state cleanup.
 
+The current registration implementation also detects companion-only and
+server-only remnants. Unhook removes owned companions and the selected owned
+MCP server only when no remaining handler in that registration references
+`clooks`; foreign servers and unrelated references are preserved. Hook and server
+destinations are preflighted before mutation. Global Codex cleanup removes the
+server before clearing matching receipt/recovery state, including custom homes.
+If an unrelated handler requires retaining the owned server, its recorded home
+and recovery state are retained too.
+
 Cleanup scope follows the final deletion decision, whether supplied by `--full --force` or an interactive answer. Before deleting the shared `.clooks/` directory, the command inspects both agents and requires cleanup of all owned references. Interactive deletion asks for additional all-agent consent when another agent was not selected or an earlier unhook was declined. Declining or cancelling that required confirmation leaves all registrations and runtime files in that scope unchanged, including any earlier approved unhook. After agent selection is resolved, `--full --force` authorizes all-reference cleanup within the explicit project/global scope.
+
+Full cleanup deliberately preserves `.cache/approvals-live` rather than deleting
+ongoing IPC. It removes other runtime contents and removes empty parents only;
+JSON includes `retainedPaths` when something remains and reports `deleted:false`
+if the runtime directory still exists. Full removal refuses a root `.clooks`
+symlink before registration or state mutation; it does not unlink the root or
+traverse its target. Preservation is not proof that an in-flight native call
+will complete, and uninstall does not bypass remaining-reference checks.
 
 Global full deletion includes distinct effective and recorded Codex homes, with an empty legacy flag contributing the default home. Malformed/unreadable state and conflicting identities block cleanup before writes. The global additional-consent prompt names Claude's settings path and every known Codex hooks path. Prior consent to selected home B does not authorize recorded home A, even with the same Codex selector. This is a bounded set, not a directory scan or many-home registry; older unrecorded homes need explicit unhook with their own `CODEX_HOME`.
 
 All registration files needed for an action are preflighted before writes. Invalid other-agent data blocks full deletion, but does not block independent selected-agent unhook. Owned commands on unsupported events block deletion with their file path and event names; uninstall does not expand the supported event catalog to remove them. A second all-event inspection immediately before directory deletion rejects remaining references, including ones introduced during cleanup. These checks do not provide a transaction against concurrent external writers.
 
-Cleanup commits one registration file at a time. Each successful global unregister is followed by removal of its corresponding dedup flag, including stale selected flags whose registration file is absent. A later unregister or flag-removal failure returns an error and retains the shared runtime and custom hooks; earlier successful cleanup remains committed and retry is safe. Preserved-group counts are computed for every action agent, even when it had only unrelated hooks or stale flags. Unselected-agent counts remain zero.
+Cleanup commits one registration file at a time. Successful Claude global hook
+unregister is followed by retirement of its dedup flag before the fallible MCP
+server commit. A failed server removal must not leave that flag suppressing the
+project pipeline after global hooks are gone. Codex instead retains recovery
+identity while an owned server remains. Later failures return an error and keep
+the runtime/custom hooks; earlier successful writes are not rolled back.
+Preserved-group counts include every action agent; unselected counts remain zero.
 
 Without a scope flag, uninstall presents an interactive scope picker (project, global, or both). Choosing both executes project scope first, then global scope, resolving omitted agents independently in each scope. Decisions and cancellation are scoped to the current operation: completed project cleanup is not rolled back when global cleanup is declined or cancelled. No-change messages identify the scope or root to avoid implying cross-scope rollback. `--force` skips all confirmation prompts and requires explicit scope (`--project`/`--global`) and action (`--unhook`/`--full`) flags. Noninteractive use still requires force and explicit scope/action. `--json` outputs a structured result envelope with legacy Claude fields plus separate Claude/Codex counts. Its `agent` and `agents` fields report the explicit or detected selection, even when deletion requires both agents; no detected registration is `agent: null`, `agents: []`. Per-agent counts report the actual action. Never loads or validates `clooks.yml` — works even when config is broken.
 
