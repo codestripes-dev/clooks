@@ -34,6 +34,30 @@ export function packets(home: string): Packets[] {
     })
 }
 
+export function claimPids(home: string, report: (message: string) => void): number[] {
+  const root = join(home, '.clooks/.cache/approvals-live/v1')
+  const pids: number[] = []
+  try {
+    for (const entry of readdirSync(root, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue
+      for (const role of ['command', 'check']) {
+        const path = join(root, entry.name, `${role}.json`)
+        try {
+          const { pid } = JSON.parse(readFileSync(path, 'utf8'))
+          assert.ok(Number.isSafeInteger(pid) && pid > 0, 'Invalid claimed PID')
+          pids.push(pid)
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
+            report(`${path}: ${String(error)}`)
+        }
+      }
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') report(`${root}: ${String(error)}`)
+  }
+  return pids
+}
+
 function nativeInput(journal: Row[]) {
   const pre = journal.filter((row) => row.event === 'native-pre')
   assert.equal(pre.length, 1, 'Expected one original native tool invocation')
@@ -166,13 +190,10 @@ export function assertOutcome(
     expected,
   )
   const replies = journal.filter((row) => row.event === 'ui-response')
+  const requests = journal.filter((row) => row.event === 'ui-request')
   const promptCount = c.mode === 'noask' ? 0 : declineAt || 2
   assert.equal(replies.length, promptCount, 'Missing or duplicate approval prompt')
-  assert.equal(
-    journal.filter((row) => row.event === 'ui-request').length,
-    promptCount,
-    'Unexpected native elicitation request',
-  )
+  assert.equal(requests.length, promptCount, 'Unexpected native elicitation request')
   assert.equal(Object.keys(box).filter((name) => /^question-\d+$/.test(name)).length, promptCount)
   assert.equal(
     Object.keys(box).filter((name) => /^reply-\d+$/.test(name)).length,
@@ -183,9 +204,20 @@ export function assertOutcome(
     assert.deepEqual((replies[i]!.question as any).operation, c.operation)
     assert.equal(replies[i]!.action, declineAt === i + 1 ? 'decline' : 'accept')
     assert.equal((replies[i]!.question as any).ordinal, i + 1)
+    const askIndex = journal.findIndex((row) => row.event === `${(i + 1) * 2}-ask`)
+    assert.ok(journal.indexOf(requests[i]!) > askIndex, 'Elicitation preceded its ask hook')
+    assert.ok(
+      journal.indexOf(replies[i]!) > journal.indexOf(requests[i]!),
+      'Response preceded elicitation',
+    )
     if (declineAt !== i + 1) {
       assert.equal(box[`reply-${i + 1}`]?.confirmed, true)
       assert.equal(box[`reply-${i + 1}`]?.nonce, box.start.nonce)
+      assert.ok(
+        journal.findIndex((row) => row.event === String((i + 1) * 2 + 1)) >
+          journal.indexOf(replies[i]!),
+        `Hook ${(i + 1) * 2 + 1} ran before its approval response`,
+      )
     }
   }
   for (const name of ['check', 'done', 'check-done']) assert.deepEqual(box[name]?.key, key)

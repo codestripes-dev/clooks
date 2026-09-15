@@ -156,6 +156,22 @@ test('production outcome requires native identity, exactly one call, both prompt
   expect(check).toThrow('replay')
 })
 
+test.each([3, 5])('outcome rejects hook %i advancing before its approval response', (number) => {
+  const f = fixture()
+  f.finish()
+  const [hook] = f.journal.splice(
+    f.journal.findIndex((row) => row.event === String(number)),
+    1,
+  )
+  const responseIndex = f.journal.findIndex(
+    (row) => row.event === 'ui-response' && (row.question as any).ordinal === (number - 1) / 2,
+  )
+  f.journal.splice(responseIndex, 0, hook!)
+  expect(() =>
+    assertOutcome(f.c, [f.box], f.journal, f.anchor, 'native-effect\n', f.native),
+  ).toThrow(`Hook ${number} ran before`)
+})
+
 test.each([1, 2])(
   'decline at %i requires actual decline, stopped hooks and invocation-bound denial',
   (ordinal) => {
@@ -196,6 +212,17 @@ test.each([1, 2])(
       'Command blocked by PreToolUse hook: Approval was not positively confirmed'
     const check = () => assertOutcome(f.c, [f.box], f.journal, f.anchor, undefined, f.native)
     expect(check).not.toThrow()
+    if (ordinal === 2) {
+      const [hook] = f.journal.splice(
+        f.journal.findIndex((row) => row.event === '3'),
+        1,
+      )
+      const index = f.journal.findIndex((row) => row.event === 'ui-response')
+      f.journal.splice(index, 0, hook!)
+      expect(check).toThrow('Hook 3 ran before')
+      f.journal.splice(index, 1)
+      f.journal.splice(index + 1, 0, hook!)
+    }
     f.journal.at(-1)!.action = 'accept'
     expect(check).toThrow()
   },
@@ -265,9 +292,8 @@ test('malformed cleanup evidence cannot skip process-group teardown or replace t
     ).rejects.toBe(primary)
     const cleanup = JSON.parse(readFileSync(join(root, 'cleanup.json'), 'utf8'))
     expect(cleanup.primaryFailure).toContain(primary.message)
-    expect(cleanup.evidenceErrors).toHaveLength(2)
+    expect(cleanup.evidenceErrors).toHaveLength(1)
     expect(cleanup.evidenceErrors[0]).toContain('command evidence')
-    expect(cleanup.evidenceErrors[1]).toContain('owned process evidence')
     expect(cleanup.nativeAlive).toBe(false)
     expect(cleanup.groupAlive).toBe(false)
     expect(cleanup.exited).toBe(true)
@@ -275,6 +301,50 @@ test('malformed cleanup evidence cannot skip process-group teardown or replace t
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+test('malformed claim does not hide valid claim or detached journal child during cleanup', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'clooks-generated-pids-'))
+  const children = [0, 1].map(() =>
+    Bun.spawn([process.execPath, '-e', 'setInterval(() => {}, 1000)'], {
+      detached: true,
+      stdin: 'ignore',
+      stdout: 'ignore',
+      stderr: 'ignore',
+    }),
+  )
+  try {
+    const runtime = invalidPacketRuntime(root)
+    const directory = join(runtime.home, '.clooks/.cache/approvals-live/v1', 'a'.repeat(64))
+    writeFileSync(join(directory, 'command.json'), '{invalid')
+    writeFileSync(join(directory, 'check.json'), JSON.stringify({ pid: children[0]!.pid }))
+    writeFileSync(
+      join(root, 'production.jsonl'),
+      JSON.stringify({ event: 'detached-test-child', at: Date.now(), pid: children[1]!.pid }) +
+        '\n',
+    )
+    const primary = new Error('original native driver failure')
+    await expect(
+      launch(runtime, [process.execPath, '-e', 'setInterval(() => {}, 1000)'], {}, async () => {
+        throw primary
+      }),
+    ).rejects.toBe(primary)
+    await Promise.all(children.map((child) => child.exited))
+    const cleanup = JSON.parse(readFileSync(join(root, 'cleanup.json'), 'utf8'))
+    expect(cleanup.primaryFailure).toContain(primary.message)
+    expect(cleanup.evidenceErrors.some((error: string) => error.includes('command.json'))).toBe(
+      true,
+    )
+    expect(cleanup.pids).toEqual(children.map((child) => ({ pid: child.pid, alive: false })))
+    expect(cleanup.forcedContainment).toEqual(children.map((child) => child.pid))
+    expect(cleanup.nativeAlive).toBe(false)
+    expect(cleanup.groupAlive).toBe(false)
+  } finally {
+    for (const child of children)
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
+    await Promise.all(children.map((child) => child.exited))
+    rmSync(root, { recursive: true, force: true })
+  }
+}, 10000)
 
 test('packet export failures remain secondary and do not prevent subsequent case finalization', () => {
   const root = mkdtempSync(join(tmpdir(), 'clooks-generated-export-'))

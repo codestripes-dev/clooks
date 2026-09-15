@@ -26,6 +26,7 @@ import { packCatalog } from '../native-codex/pack-scenarios'
 import { holdBoundary } from './boundary'
 import type { GeneratedRuntime } from './generated'
 import {
+  claimPids as productionClaimPids,
   packets as productionPackets,
   respond as productionRespond,
 } from '../fixtures/production-approvals/evidence'
@@ -887,15 +888,6 @@ export async function launch(
       : journal(r.root)
           .filter((row) => row.event === 'command-start')
           .map((row) => row.pid)
-  const ownedPids = () =>
-    r.kind === 'generated'
-      ? [
-          ...productionPackets(r.home)
-            .flatMap((box) => [box.command?.pid, box.check?.pid])
-            .filter((pid): pid is number => typeof pid === 'number'),
-          ...productionRows(r.root).map((row) => row.pid),
-        ]
-      : journal(r.root).map((row) => row.pid)
   const driveAbort = new AbortController()
   const driven = drive?.(child, driveAbort.signal)
   try {
@@ -974,9 +966,16 @@ export async function launch(
     await Promise.race([exit, Bun.sleep(2000)])
     if (alive(-child.pid)) signal(-child.pid, 'SIGKILL')
     await exit
-    const pids = [...new Set(collect('owned process evidence', ownedPids, []))].filter(
-      (pid) => pid !== process.pid,
-    )
+    const ownedPids =
+      r.kind === 'generated'
+        ? [
+            ...productionClaimPids(r.home, (error) =>
+              evidenceErrors.push(`claim evidence: ${error}`),
+            ),
+            ...collect('journal evidence', () => productionRows(r.root).map((row) => row.pid), []),
+          ]
+        : collect('owned process evidence', () => journal(r.root).map((row) => row.pid), [])
+    const pids = [...new Set(ownedPids)].filter((pid) => pid !== process.pid)
     const cleanupBy = Date.now() + 2000
     while (pids.some(alive) && Date.now() < cleanupBy) await Bun.sleep(20)
     const abandoned = pids.filter(alive)
