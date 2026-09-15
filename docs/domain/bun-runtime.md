@@ -1,6 +1,6 @@
 # Bun Runtime
 
-Reference document for Bun as Clooks' runtime, covering compile targets, performance characteristics, and known gotchas. Verified March 2026.
+Reference document for Bun as Clooks' runtime, covering compile targets, performance characteristics, and known gotchas. Performance tables below are historical March 2026 microbenchmarks, not current Clooks latency measurements.
 
 ## Overview
 
@@ -13,7 +13,13 @@ Clooks uses Bun as its runtime — both for the compiled CLI binary and for exec
 - `src/engine.ts` — Hook execution engine. Reads stdin JSON, loads hooks from config, matches events against handlers, executes matching hooks with circuit breaker logic, and writes the response to stdout. Uses fail-closed error handling (exit code 2 on any failure), with circuit breaker degradation for repeatedly failing hooks (see `docs/domain/config.md` § Circuit Breaker).
 - `src/index.ts` — Module root. Exports the `VERSION` constant.
 - `dist/clooks` — Compiled binary output (gitignored). Produced by `bun run build`.
-- `package.json` — Build script: `mkdir -p dist && bun build --compile --outfile dist/clooks src/cli.ts`.
+- `package.json` — Production build scripts generate artifacts, typecheck, then compile with `--compile --bytecode --format=esm`.
+
+## Production Bytecode Format
+
+Production builds, the five release targets in `.github/workflows/release.yml`, and source compilation in `test/docker-entrypoint.sh` use `bun build --compile --bytecode --format=esm`. Native Codex tests delegate to that same Docker entrypoint. Explicit ESM preserves the unchanged CLI's top-level await; this combination was verified on Bun 1.3.10. Bytecode enablement changes build configuration only, not hook loading, caching, or runtime behavior.
+
+Release CI reads `.bun-version` (1.3.10). The existing Docker image uses floating `oven/bun:1.3`, so Docker validation does not establish an exact patch-version match with release builds. Neither version selection is changed by bytecode enablement.
 
 ## Compile Targets
 
@@ -40,21 +46,20 @@ Bun supports cross-compilation from any host via `bun build --compile --target <
 
 ## Performance
 
-### Startup Time
+### Historical Startup Microbenchmarks
 
-Measured on Bun 1.3.10, Linux x86_64 (WSL2), 20 runs each:
+Measured on Bun 1.3.10, Linux x86_64 (WSL2), 20 runs each, using minimal scripts rather than the current Clooks CLI and dependency graph:
 
 | Mode | Time | Notes |
 |------|------|-------|
-| `bun run script.ts` (interpreted) | **7ms median** | No meaningful difference from compiled |
-| `bun build --compile` binary (hello world) | **7ms median** (min 6, max 9) | Compiled benefit is portability, not speed |
+| `bun run script.ts` (interpreted) | **7ms median** | No meaningful difference in this fixture |
+| `bun build --compile` binary (hello world) | **7ms median** (min 6, max 9) | Minimal fixture; not a bytecode comparison |
 | `bun build --compile` binary (stdin JSON parse + output) | **8ms median** (min 7, max 9) | Real work adds ~1ms |
 | Cold start (first invocation after boot) | 100-300ms (estimated) | OS must page in 59-100MB binary. Not measured directly. |
 
-For Clooks, the realistic expectation:
-- **First hook invocation of a session:** 100-300ms (cold start, estimated)
-- **Subsequent invocations:** ~8ms (binary already in page cache)
-- **No hooks match this event (fast exit):** ~8ms (read config, no matches, exit)
+These toy measurements do not establish current Clooks first-invocation, warm-invocation, or no-matching-hook latency. Measure the actual binary, dependency graph, provider and hook workload before setting expectations.
+
+For profiling, use equivalent fresh disposable project/HOME state per invocation, prepare it outside the timed interval, and validate outputs before accepting samples. Measure total elapsed time in the parent and local monotonic phase durations in the child; do not subtract absolute timestamps across processes. Instrumentation adds overhead, and any residual between the parent total and child spans includes uninstrumented startup, shutdown, I/O, and scheduling, not just OS time. Only non-overlapping phase means are additive; medians are not.
 
 ### Compilation Speed
 
@@ -162,23 +167,24 @@ This is why Windows is deferred for v1.
 
 The project build script (`package.json` `build` command) runs `tsc --noEmit` before `bun build` to catch these errors:
 
-    "build": "tsc --noEmit && mkdir -p dist && bun build --compile --outfile dist/clooks src/cli.ts"
+    bun run typecheck
+    bun build --compile --bytecode --format=esm --outfile dist/clooks src/cli.ts
 
-This is a hard requirement. Never bypass `tsc --noEmit` in the build pipeline.
+These are the typecheck and compile stages; `bun run build` also runs the existing type/schema generators first. Typechecking is a hard requirement. Never bypass `tsc --noEmit` in the build pipeline.
 
 ## Patterns
 
 ### Cross-Compilation in CI
 
-Use `bun build --compile --target <target>` to cross-compile from any host. GoReleaser has native Bun builder support (`builder: bun` in `.goreleaser.yaml`).
+Use `bun build --compile --bytecode --format=esm --target <target>` to cross-compile from any host. Clooks' release workflow invokes Bun directly.
 
 Example build matrix:
 ```bash
-bun build --compile --target bun-darwin-arm64 --outfile dist/clooks-darwin-arm64 src/cli.ts
-bun build --compile --target bun-darwin-x64 --outfile dist/clooks-darwin-x64 src/cli.ts
-bun build --compile --target bun-linux-x64-modern --outfile dist/clooks-linux-x64 src/cli.ts
-bun build --compile --target bun-linux-x64-baseline --outfile dist/clooks-linux-x64-baseline src/cli.ts
-bun build --compile --target bun-linux-arm64 --outfile dist/clooks-linux-arm64 src/cli.ts
+bun build --compile --bytecode --format=esm --target bun-darwin-arm64 --outfile dist/clooks-darwin-arm64 src/cli.ts
+bun build --compile --bytecode --format=esm --target bun-darwin-x64 --outfile dist/clooks-darwin-x64 src/cli.ts
+bun build --compile --bytecode --format=esm --target bun-linux-x64-modern --outfile dist/clooks-linux-x64 src/cli.ts
+bun build --compile --bytecode --format=esm --target bun-linux-x64-baseline --outfile dist/clooks-linux-x64-baseline src/cli.ts
+bun build --compile --bytecode --format=esm --target bun-linux-arm64 --outfile dist/clooks-linux-arm64 src/cli.ts
 ```
 
 ### TypeScript Execution
@@ -186,16 +192,16 @@ bun build --compile --target bun-linux-arm64 --outfile dist/clooks-linux-arm64 s
 Bun runs TypeScript natively — no transpile step needed. This means:
 - Hook scripts (`.ts` files) can be loaded and executed directly by the compiled Clooks binary via dynamic `import()`
 - No `tsc` or `ts-node` dependency
-- No performance benefit to pre-compiling `.ts` to `.js` — Bun's transpiler adds zero measurable overhead
+- The historical small-hook fixtures showed no measurable `.ts` versus `.js` difference. This does not rule out workload-specific benefits from precompilation, bundling or caching; none is implemented by the production bytecode change.
 
 ### Dynamic Import from Compiled Binary
 
 The compiled Clooks binary dynamically imports user-authored `.ts` hook files at runtime. Key characteristics (verified on Bun 1.3.10):
 
-**Performance:**
+**Historical small-hook microbenchmarks (not current Clooks end-to-end timings):**
 - Single hook import adds ~2ms over binary startup (~9ms total)
 - Multiple hooks imported in parallel (`Promise.all`) cost the same as one (~9ms total)
-- No `.ts` vs `.js` performance difference
+- No measurable `.ts` vs `.js` performance difference in those fixtures
 
 **npm Dependency Resolution:**
 - Bare specifiers (`import { parse } from "yaml"`) **do not work** from dynamically imported files. The compiled binary runs from a virtual filesystem (`/$bunfs/root/`), breaking Node-style `node_modules` resolution.
@@ -222,9 +228,9 @@ const config = Bun.TOML.parse(readFileSync("clooks.toml", "utf-8"))
 const config = Bun.JSONC.parse(readFileSync("clooks.jsonc", "utf-8"))
 ```
 
-**Clooks uses `Bun.YAML.parse`** — a native Zig parser built into the Bun runtime. Zero external dependencies, no caching needed.
+**Clooks uses `Bun.YAML.parse`** — a native Zig parser built into the Bun runtime. The parser adds no external dependency; this does not mean the CLI has no dependencies or needs no workload-specific optimization.
 
-**Performance for a realistic 10-hook config (cold start, compiled binary):**
+**Historical parser microbenchmark with a 10-hook config (cold start, minimal compiled harness, not the current Clooks binary):**
 
 | Parser | First Parse | End-to-End Binary | Dependencies |
 |--------|-----------|------------------|-------------|
@@ -235,7 +241,7 @@ const config = Bun.JSONC.parse(readFileSync("clooks.jsonc", "utf-8"))
 | js-yaml | 2.4ms | 18ms | 2 bundled modules |
 | yaml (npm) | 13ms | 30ms | 73 bundled modules |
 
-`Bun.YAML.parse` is ~15x faster than js-yaml for cold-start parse and eliminates the only production dependency. No caching strategy is needed — the native parser matches TOML/JSONC performance. See `docs/research/yaml-parser-comparison.md` for the full comparison.
+In this fixture, `Bun.YAML.parse` parsed ~15x faster than js-yaml and avoided a separate YAML dependency. These measurements do not establish the cost of current config validation, schema construction, hook imports, or the value of caching. See `docs/research/yaml-parser-comparison.md` for the historical comparison.
 
 ### Hook Testing with Bun
 

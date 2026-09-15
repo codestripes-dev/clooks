@@ -112,11 +112,11 @@ jobs:
           # on each individually so a single failed cross-compile fails
           # the step.
           pids=()
-          bun build --compile --target bun-darwin-arm64       --outfile dist/clooks-darwin-arm64       src/cli.ts & pids+=($!)
-          bun build --compile --target bun-darwin-x64         --outfile dist/clooks-darwin-x64         src/cli.ts & pids+=($!)
-          bun build --compile --target bun-linux-x64-modern   --outfile dist/clooks-linux-x64          src/cli.ts & pids+=($!)
-          bun build --compile --target bun-linux-x64-baseline --outfile dist/clooks-linux-x64-baseline src/cli.ts & pids+=($!)
-          bun build --compile --target bun-linux-arm64        --outfile dist/clooks-linux-arm64        src/cli.ts & pids+=($!)
+          bun build --compile --bytecode --format=esm --target bun-darwin-arm64       --outfile dist/clooks-darwin-arm64       src/cli.ts & pids+=($!)
+          bun build --compile --bytecode --format=esm --target bun-darwin-x64         --outfile dist/clooks-darwin-x64         src/cli.ts & pids+=($!)
+          bun build --compile --bytecode --format=esm --target bun-linux-x64-modern   --outfile dist/clooks-linux-x64          src/cli.ts & pids+=($!)
+          bun build --compile --bytecode --format=esm --target bun-linux-x64-baseline --outfile dist/clooks-linux-x64-baseline src/cli.ts & pids+=($!)
+          bun build --compile --bytecode --format=esm --target bun-linux-arm64        --outfile dist/clooks-linux-arm64        src/cli.ts & pids+=($!)
           fail=0
           for pid in "${pids[@]}"; do
             if ! wait "$pid"; then

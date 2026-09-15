@@ -25,6 +25,7 @@ const inputs = [
   'schemas',
   'scripts',
   'package.json',
+  '.github/workflows/release.yml',
   'bun.lock',
   'tsconfig.json',
   'bunfig.toml',
@@ -211,7 +212,9 @@ export function phaseTimings(log: string, bunElapsed?: string) {
   }
   const typecheck = startOf('./node_modules/.bin/tsc --noEmit')
   const mkdir = startOf('mkdir -p dist')
-  const compile = startOf('bun build --compile --outfile dist/clooks src/cli.ts')
+  const compile = startOf(
+    'bun build --compile --bytecode --format=esm --outfile dist/clooks src/cli.ts',
+  )
   const test = trace.find((match) => match[2]?.startsWith('exec bun test '))
   const duration = bunElapsed?.match(/^(\d+(?:\.\d+)?)(ms|s)$/)
   return {

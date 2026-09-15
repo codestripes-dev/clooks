@@ -54,6 +54,7 @@ function fixture(fileCount = 2) {
     'schemas/example.json',
     'scripts/example.ts',
     'package.json',
+    '.github/workflows/release.yml',
     'bun.lock',
     'tsconfig.json',
     'bunfig.toml',
@@ -157,7 +158,7 @@ if (args[0] === 'run' && scenario.startsWith('direct-')) {
   if (scenario !== 'missing-timing') {
     console.error('__CLOOKS_VALIDATION_TRACE__ 1700000000.000000 ./node_modules/.bin/tsc --noEmit')
     console.error('__CLOOKS_VALIDATION_TRACE__ 1700000001.000000 mkdir -p dist')
-    console.error('__CLOOKS_VALIDATION_TRACE__ 1700000001.010000 bun build --compile --outfile dist/clooks src/cli.ts')
+    console.error('__CLOOKS_VALIDATION_TRACE__ 1700000001.010000 bun build --compile --bytecode --format=esm --outfile dist/clooks src/cli.ts')
     console.error('__CLOOKS_VALIDATION_TRACE__ 1700000002.010000 exec bun test ' + files.join(' '))
   }
   if (scenario !== 'quiet-output') {
@@ -481,7 +482,7 @@ test('phase timings use trace boundaries and the unchanged Bun test duration', (
   const log = [
     '__CLOOKS_VALIDATION_TRACE__ 1700000000.000000 ./node_modules/.bin/tsc --noEmit',
     '__CLOOKS_VALIDATION_TRACE__ 1700000001.000000 mkdir -p dist',
-    '__CLOOKS_VALIDATION_TRACE__ 1700000001.010000 bun build --compile --outfile dist/clooks src/cli.ts',
+    '__CLOOKS_VALIDATION_TRACE__ 1700000001.010000 bun build --compile --bytecode --format=esm --outfile dist/clooks src/cli.ts',
     '__CLOOKS_VALIDATION_TRACE__ 1700000002.010000 exec bun test ./test/e2e/',
   ].join('\n')
   expect(phaseTimings(log, '1.25s')).toEqual({ typecheckMs: 1000, compileMs: 1000, testMs: 1250 })

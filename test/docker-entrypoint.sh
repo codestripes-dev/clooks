@@ -26,7 +26,7 @@ if [[ -n ${CLOOKS_TEST_BINARY:-} ]]; then
   cp "$CLOOKS_TEST_BINARY" dist/clooks
   chmod 0755 dist/clooks
 else
-  bun build --compile --outfile dist/clooks src/cli.ts
+  bun build --compile --bytecode --format=esm --outfile dist/clooks src/cli.ts
 fi
 
 # Run tests — default to test/e2e/ if no args given
