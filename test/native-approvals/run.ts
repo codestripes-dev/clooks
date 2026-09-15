@@ -19,6 +19,11 @@ import { observeBoundary } from './boundary'
 
 assert.equal(process.env.CLOOKS_E2E_DOCKER, 'true', 'Run via test:approvals-native in Docker')
 assert.notEqual(process.getuid!(), 0)
+if (process.argv.includes('--generated')) {
+  const { runGenerated } = await import('./generated')
+  await runGenerated(process.argv.slice(2))
+  process.exit(0)
+}
 if (process.argv.includes('--transport')) {
   assert.equal(process.argv.length, 3)
   await checkStdinClosure()

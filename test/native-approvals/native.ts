@@ -24,6 +24,12 @@ import { respond } from '../fixtures/interactive-approvals/responder'
 import { startFixture } from '../native-codex/fixture-server'
 import { packCatalog } from '../native-codex/pack-scenarios'
 import { holdBoundary } from './boundary'
+import type { GeneratedRuntime } from './generated'
+import {
+  packets as productionPackets,
+  respond as productionRespond,
+} from '../fixtures/production-approvals/evidence'
+import { rows as productionRows } from '../fixtures/production-approvals/records'
 
 export const fixtures = '/app/test/fixtures/interactive-approvals'
 export const save = (path: string, value: unknown) =>
@@ -200,6 +206,7 @@ export function setup(
       : { toolName: 'Bash', input: { command: cmd } },
   )
   return {
+    kind: 'illustrative' as const,
     root,
     provider,
     project,
@@ -217,7 +224,7 @@ export function setup(
     globalHooks,
   }
 }
-type Runtime = ReturnType<typeof setup>
+type Runtime = ReturnType<typeof setup> | GeneratedRuntime
 function anthropic(body: any, content: any, stop: string) {
   const message = {
     id: 'msg_m1',
@@ -458,8 +465,10 @@ export async function claude(r: Runtime) {
       ? {}
       : { checkpoints: { command: 'bun', args: [join(fixtures, 'mcp.ts')] } },
   }
-  save(join(r.root, 'mcp.json'), mcpConfig)
-  if (r.interactiveConfig === 'disk' || r.scoped) save(join(r.project, '.mcp.json'), mcpConfig)
+  if (r.kind === 'illustrative') {
+    save(join(r.root, 'mcp.json'), mcpConfig)
+    if (r.interactiveConfig === 'disk' || r.scoped) save(join(r.project, '.mcp.json'), mcpConfig)
+  }
   const argv = [
     ...(interactive ? ['expect', '/app/test/native-approvals/interactive.exp'] : []),
     '/native/claude',
@@ -612,7 +621,8 @@ export async function codex(r: Runtime) {
     ],
     r.root,
   )
-  save(join(r.config, 'hooks.json'), r.scoped ? r.globalHooks : r.hooks)
+  if (r.kind === 'illustrative')
+    save(join(r.config, 'hooks.json'), r.scoped ? r.globalHooks : r.hooks)
   save(join(r.config, 'models.json'), packCatalog)
   let config = `model = "gpt-5.1-codex"
 model_catalog_json = ${JSON.stringify(join(r.config, 'models.json'))}
@@ -623,6 +633,10 @@ trust_level = "trusted"
 [features]
 enable_request_compression = false
 remote_plugin = false
+${
+  r.kind === 'generated'
+    ? ''
+    : `
 [mcp_servers.checkpoints]
 enabled = ${!r.env.APPROVAL_CASE!.endsWith('disabled')}
 command = "bun"
@@ -633,6 +647,8 @@ tool_timeout_sec = 330
 ${r.scoped ? 'APPROVAL_LOG_ROOT' : 'APPROVAL_ROOT'} = ${JSON.stringify(r.root)}
 APPROVAL_CASE = ${JSON.stringify(r.env.APPROVAL_CASE)}
 ${r.scoped ? 'APPROVAL_SHARED_HOME = "1"' : ''}
+`
+}
 [model_providers.native_fixture]
 name = "Local fixture"
 base_url = "http://127.0.0.1:${model.port}/v1"
@@ -693,7 +709,10 @@ stream_idle_timeout_ms = 15000
           }
           if (message.method === 'mcpServer/elicitation/request') {
             assert.ok(!responseAbort.signal.aborted, 'Elicitation after native turn ended')
-            assert.equal(message.params.serverName, 'checkpoints')
+            assert.equal(
+              message.params.serverName,
+              r.kind === 'generated' ? 'clooks' : 'checkpoints',
+            )
             if (r.env.APPROVAL_CASE === 'native-interrupt') {
               const prompt = JSON.parse(message.params.message)
               assert.equal(prompt.ordinal, 1)
@@ -709,19 +728,21 @@ stream_idle_timeout_ms = 15000
               }).catch(fail)
             } else {
               responseTasks.push(
-                (r.env.APPROVAL_CASE!.startsWith('boundary-')
-                  ? holdBoundary(
-                      message.params.message,
-                      r.root,
-                      r.env.APPROVAL_CASE!,
-                      responseAbort.signal,
-                    )
-                  : respond(message.params.message, {
-                      directory: r.root,
-                      mode: r.env.APPROVAL_CASE,
-                      ...(r.scoped ? { sharedHome: r.home } : {}),
-                      signal: responseAbort.signal,
-                    })
+                (r.kind === 'generated'
+                  ? productionRespond(message.params.message, r.c, responseAbort.signal)
+                  : r.env.APPROVAL_CASE!.startsWith('boundary-')
+                    ? holdBoundary(
+                        message.params.message,
+                        r.root,
+                        r.env.APPROVAL_CASE!,
+                        responseAbort.signal,
+                      )
+                    : respond(message.params.message, {
+                        directory: r.root,
+                        mode: r.env.APPROVAL_CASE,
+                        ...(r.scoped ? { sharedHome: r.home } : {}),
+                        signal: responseAbort.signal,
+                      })
                 )
                   .then((result) => {
                     responseAbort.signal.throwIfAborted()
@@ -858,20 +879,46 @@ export async function launch(
   if (!drive) child.stdout!.on('data', (bytes) => appendFileSync(join(r.root, 'stdout.log'), bytes))
   let primary: unknown
   let preTeardown: any
+  const commandPids = () =>
+    r.kind === 'generated'
+      ? productionPackets(r.home)
+          .filter((box) => box.command)
+          .map((box) => box.command.pid as number)
+      : journal(r.root)
+          .filter((row) => row.event === 'command-start')
+          .map((row) => row.pid)
+  const ownedPids = () =>
+    r.kind === 'generated'
+      ? [
+          ...productionPackets(r.home)
+            .flatMap((box) => [box.command?.pid, box.check?.pid])
+            .filter((pid): pid is number => typeof pid === 'number'),
+          ...productionRows(r.root).map((row) => row.pid),
+        ]
+      : journal(r.root).map((row) => row.pid)
   const driveAbort = new AbortController()
   const driven = drive?.(child, driveAbort.signal)
   try {
     await Promise.race([driven ?? exit, deadline])
     if (!drive && r.env.APPROVAL_CASE !== 'native-interrupt')
       assert.equal(JSON.parse(readFileSync(join(r.root, 'exit.json'), 'utf8')).code, 0)
-    const commandPids = journal(r.root)
-      .filter((row) => row.event === 'command-start')
-      .map((row) => row.pid)
     const settledBy = Date.now() + 2000
-    while (commandPids.some(alive) && Date.now() < settledBy) await Bun.sleep(20)
+    while (commandPids().some(alive) && Date.now() < settledBy) await Bun.sleep(20)
     preTeardown = {
-      commands: commandPids.map((pid) => ({ pid, alive: alive(pid) })),
+      commands: commandPids().map((pid) => ({ pid, alive: alive(pid) })),
       at: Date.now(),
+    }
+    if (r.kind === 'generated') {
+      const boxes = productionPackets(r.home)
+      assert.equal(boxes.length, 1)
+      assert.ok(
+        boxes[0]!.done && boxes[0]!['check-done'],
+        'Production peers must settle before native teardown',
+      )
+      preTeardown.productionCompletions = boxes.map((box) => ({
+        done: box.done,
+        checkDone: box['check-done'],
+      }))
     }
     if (!boundary)
       assert.ok(
@@ -902,6 +949,15 @@ export async function launch(
     driveAbort.abort(new Error('Native launch ended'))
     await driven?.catch(() => {})
     const signalErrors: string[] = []
+    const evidenceErrors: string[] = []
+    const collect = <T>(label: string, read: () => T, fallback: T): T => {
+      try {
+        return read()
+      } catch (error) {
+        evidenceErrors.push(`${label}: ${String(error)}`)
+        return fallback
+      }
+    }
     const signal = (pid: number, value: NodeJS.Signals) => {
       try {
         signalProcess(pid, value)
@@ -909,14 +965,16 @@ export async function launch(
         signalErrors.push(String(error))
       }
     }
-    const before = journal(r.root)
-      .filter((row) => row.event === 'command-start')
-      .map((row) => ({ pid: row.pid, alive: alive(row.pid) }))
+    const before = collect(
+      'command evidence',
+      () => commandPids().map((pid) => ({ pid, alive: alive(pid) })),
+      [],
+    )
     if (alive(-child.pid)) signal(-child.pid, 'SIGTERM')
     await Promise.race([exit, Bun.sleep(2000)])
     if (alive(-child.pid)) signal(-child.pid, 'SIGKILL')
     await exit
-    const pids = [...new Set(journal(r.root).map((row) => row.pid))].filter(
+    const pids = [...new Set(collect('owned process evidence', ownedPids, []))].filter(
       (pid) => pid !== process.pid,
     )
     const cleanupBy = Date.now() + 2000
@@ -931,15 +989,22 @@ export async function launch(
       before,
       forcedContainment: abandoned,
       signalErrors,
+      evidenceErrors,
       primaryFailure: primary ? String(primary) : null,
       nativeAlive: alive(child.pid),
       groupAlive: alive(-child.pid),
       pids: pids.map((pid) => ({ pid, alive: alive(pid) })),
     }
-    save(join(r.root, 'cleanup.json'), cleanup)
+    try {
+      save(join(r.root, 'cleanup.json'), cleanup)
+    } catch (error) {
+      if (!primary) throw error
+      console.error(`Secondary cleanup receipt failure: ${String(error)}`)
+    }
     if (!primary)
       assert.ok(
         !signalErrors.length &&
+          !evidenceErrors.length &&
           (boundary || !abandoned.length) &&
           !cleanup.nativeAlive &&
           !cleanup.groupAlive &&

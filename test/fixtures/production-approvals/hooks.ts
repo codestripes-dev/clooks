@@ -1,0 +1,16 @@
+import type { ClooksHook } from '../../../src/types'
+import { record } from './records'
+
+export function checkpoint(number: number): ClooksHook {
+  return {
+    meta: { name: `hook-${number}` },
+    PreToolUse(ctx) {
+      const ask = (number === 2 || number === 4) && process.env.APPROVAL_CASE !== 'noask'
+      record(process.env.APPROVAL_ROOT!, ask ? `${number}-ask` : String(number), {
+        input: ctx.toolInput,
+        provider: ctx.provider,
+      })
+      return ask ? ctx.ask({ reason: `Checkpoint ${number}` }) : ctx.skip()
+    },
+  }
+}

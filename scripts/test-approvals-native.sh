@@ -21,6 +21,17 @@ done
 cp -a "$root/test" "$attempt/input/test"
 cp -a "$root/node_modules" "$attempt/input/node_modules"
 cp "$root/package.json" "$root/bun.lock" "$attempt/input/"
+generated=false
+for arg in "$@"; do
+  [[ $arg != --generated ]] || generated=true
+done
+if [[ $generated == true ]]; then
+  cp -a "$root/src" "$root/schemas" "$attempt/input/"
+  mkdir -p "$attempt/input/.clooks/vendor"
+  cp -a "$root/.clooks/vendor/plugin" "$attempt/input/.clooks/vendor/"
+  cp "$root/tsconfig.json" "$root/bunfig.toml" "$attempt/input/"
+  git -C "$root" rev-parse HEAD > "$attempt/input/source-commit"
+fi
 cp "$root/scripts/test-approvals-native.sh" "$attempt/runner.sh"
 chmod -R a-w "$attempt/input" "$attempt/native"
 (cd "$attempt" && find input native -type f -print0 | sort -z | xargs -0 sha256sum) > "$attempt/inputs.sha256"
@@ -62,8 +73,11 @@ cmd=(docker run --pull never --name "$name" --label clooks.native=approvals-m1
   --mount "type=bind,src=$attempt/input/test,dst=/app/test,readonly"
   --mount "type=bind,src=$attempt/input/node_modules,dst=/app/node_modules,readonly"
   --mount "type=bind,src=$attempt/native,dst=/native,readonly"
-  --mount "type=bind,src=$attempt/export,dst=/export"
-  "$image" /app/test/native-approvals/container.sh "$@")
+  --mount "type=bind,src=$attempt/export,dst=/export")
+if [[ $generated == true ]]; then
+  cmd+=(--mount "type=bind,src=$attempt/input,dst=/snapshot,readonly")
+fi
+cmd+=("$image" /app/test/native-approvals/container.sh "$@")
 printf '%q ' "${cmd[@]}" > "$attempt/command.sh"
 printf '\n' >> "$attempt/command.sh"
 echo "Artifacts: $attempt"

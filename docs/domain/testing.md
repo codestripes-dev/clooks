@@ -6,7 +6,7 @@ How Clooks validates its core safety invariant — fail-closed behavior — thro
 
 ## Compiled Build Format
 
-For `bun run test:approvals-native`, see [native interactive approval probes](testing/interactive-approvals.md): these exercise illustrative fixtures through real clients, not the compiled production Clooks engine.
+For `bun run test:approvals-native`, see [native interactive approval probes](testing/interactive-approvals.md): default/baseline mode uses illustrative fixtures; `--generated` builds current Clooks and uses actual init-generated project registration through real clients, with eight-case native project smoke evidence.
 
 The production [shared interactive approval transport](interactive-approvals.md)
 has separate command/channel and MCP server test boundaries. Its internal runtime
@@ -47,8 +47,7 @@ native-client conformance remain separate from these compiled subprocess tests.
 
 ## Generated Approval Registration
 
-Registration has passed the full compiled gate and independent source/QA review;
-real native generated-registration conformance remains separate. Unit boundaries are
+Registration unit boundaries are
 `src/registration-{approvals,mcp}.test.ts`,
 `src/interaction/registration-toml.test.ts` and the existing init/uninstall tests.
 They exercise exact ownership, prewrite rejection, selected-provider independence
@@ -64,6 +63,19 @@ Run through `bun run test:e2e`, not direct host execution. These are compiled
 subprocess proofs; they do not show that a real native client loaded/trusted the
 registration or eliminate cold-child readiness limits. Do not run the installer
 against real client files to obtain a test receipt.
+
+The separate [generated native smoke](testing/interactive-approvals.md#generated-project-registration)
+runs as `bun run test:approvals-native --generated` with explicit Claude/Codex
+binary paths. It defaults to eight project-only cases: two approvals, decline at
+either checkpoint and no ask for each provider; explicit named subsets are
+supported. Frozen production inputs are typechecked and bytecode-compiled inside
+Docker, and actual init-generated pairs/server files are checked unchanged.
+Production hooks, native identity/effects, refusal and cleanup are asserted with
+a scripted local model and replies. All eight native project cases passed on the
+retained snapshot with final/cleanup exits 0, beyond compiled replay or helper
+validation. This does not prove
+global/combined scopes, non-shell tools, cancellation, performance, human consent,
+cold-readiness guarantees or release conformance.
 
 ## Build Parity
 

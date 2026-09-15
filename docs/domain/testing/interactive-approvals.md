@@ -1,10 +1,13 @@
 # Native Interactive Approval Probes
 
 `test/fixtures/interactive-approvals/` contains illustrative command checkpoints,
-not the production Clooks engine. Native clients, hook schedulers, MCP connections
-and final tools execute for real. In automated probes, the loopback model and
-elicitation replies are scripted. Passing automated cases do not establish human
-consent, model reasoning, normal trust policies, production ordering, or release
+not the production Clooks engine. The separate `--generated` mode below uses
+`test/fixtures/production-approvals/` with compiled Clooks and actual init-generated
+project registration, with eight-case native project smoke evidence below.
+Native clients, hook schedulers, MCP connections and final tools execute for real.
+Illustrative passes do not establish production ordering. In automated probes,
+the loopback model and elicitation replies are scripted. Passing automated cases
+do not establish human consent, model reasoning, normal trust policies, or release
 conformance. Human TTY manual evidence with no scripted elicitation responder
 can establish human replies for the observed case; the model remains scripted,
 and that evidence does not establish production behavior.
@@ -17,11 +20,67 @@ Run from the repository root with explicitly supplied existing executables:
       CLOOKS_CODEX_BINARY=/absolute/path/to/codex \
       bun run test:approvals-native --baseline
 
-`--baseline` selects two approvals in each handler order for both providers.
-Omit it to select the implemented inventory, or supply exact case names such as
-`codex-long-command-first`. `--transport` instead runs the SDK stdin-closure
-regression. Unknown, duplicate and empty selections fail. `passed.json` covers
+In illustrative mode, `--baseline` selects two approvals in each handler order
+for both providers. Omit it to select the illustrative inventory, or supply exact
+case names such as `codex-long-command-first`. `--transport` instead runs the SDK
+stdin-closure regression. Unknown, duplicate and empty selections fail. `passed.json` covers
 only the named executed cases, never unimplemented scenarios.
+
+### Generated Project Registration
+
+Run the compiled-production mode with the same explicit native executables:
+
+    CLOOKS_CLAUDE_BINARY=/absolute/path/to/claude \
+      CLOOKS_CODEX_BINARY=/absolute/path/to/codex \
+      bun run test:approvals-native --generated
+
+This defaults to exactly eight cases. Explicit subsets use
+`<claude|codex>-generated-<approve|decline-first|decline-second|noask>`, for example
+`bun run test:approvals-native --generated codex-generated-noask` with the same
+environment assignments. `approve` answers both checkpoints positively.
+Duplicate/unknown cases and illustrative flags such as `--baseline` are rejected.
+
+`test/native-approvals/generated.ts` runs actual compiled
+`clooks init --agent <agent> --json`, selecting `claude-code` or `codex`, in
+disposable Git projects. The
+generated command/MCP pair, server entry, project identity and entrypoint are
+captured and checked byte-unchanged after each case. `native.ts` uses a distinct
+generated branch for the existing model/RPC/cleanup machinery: no illustrative
+server or CLI pair replaces init's registration. Claude uses print mode and
+Codex uses app-server, not a human TTY approval session. Fixture-only observers,
+scripted responders, local-model settings and native trust stay separate in
+disposable local/user settings. Both init and native launch omit
+`CLAUDE_CONFIG_DIR` and `CLOOKS_HOME_ROOT`; Claude uses default-layout
+`HOME/.claude.json`, not `config/.claude.json`.
+
+Only generated mode snapshots production build inputs, including the required
+`.clooks/vendor/plugin` imports, and typechecks/compiles Clooks inside Docker with
+`--compile --bytecode --format=esm`. The resulting `/export/build/clooks` is
+selected on each disposable PATH; build logs, source
+and binary hashes, Bun version and source commit accompany the frozen input
+manifest. Illustrative mode does not compile production Clooks.
+
+The production fixtures execute five real hooks, with asks at 2 and 4 except
+in `noask`. Assertions bind native session/tool IDs (plus Codex turn ID), owner,
+nonce and displayed operation to the production mailbox. Before each reply,
+later hooks/effects must be absent. Approval requires exactly one original-call
+effect after hook 5; declines require attributed native refusal, stopped later
+hooks and no effect/PostToolUse; no ask requires zero prompts/questions/replies.
+Both peers must publish completion before native teardown. Helper regressions
+in `generated.test.ts` check selection and false-pass resistance, not native
+enforcement.
+
+Each case retains `init.json`, `generated-registration.json`, native observations
+and `observed-packets.json`. Aggregate `results.json` preserves failures;
+`passed.json` is written only when all selected cases pass and labels
+`productionEngine`, `generatedRegistration` and `scriptedUI`. Inspect final exit,
+hash checks and cleanup as well.
+
+All eight project cases passed with Claude Code 2.1.272 and Codex CLI 0.154.0,
+with successful cleanup and no native retries or warming. This is native
+project-only shell evidence, not merely compiled replay. It does not establish
+global/combined scopes, non-shell tools, cancellation, performance, human consent
+or release conformance. Existing cold-readiness and external-expiry limits remain.
 
 ### Claude Interactive Config Discriminators
 
@@ -168,7 +227,8 @@ companion denial does not prove both handlers expired.
 
 ## Isolation And Evidence
 
-Fixture evidence establishes implementation readiness, not release readiness or
+The following illustrative-fixture contracts are separate from generated mode
+above. Illustrative evidence establishes implementation readiness, not release readiness or
 compiled production enforcement. Cold-child MCP availability and external
 expiry/dual-loss limits remain explicit; no production warming is prescribed.
 The container helper set includes the runner receipt-label regressions in

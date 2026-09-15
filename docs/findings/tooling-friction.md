@@ -2,6 +2,23 @@
 
 Build issues, slow commands, flaky CI, broken toolchain steps, or other tooling problems that blocked or slowed progress.
 
+### Repository shell lint reports an existing trap warning and traverses excluded artifacts
+
+**Severity:** friction
+**Date:** 2026-09-15
+**Context:** Optional shell lint during generated native approval smoke validation.
+
+The validation owner reports `bun run lint:sh` fails on pre-existing ShellCheck
+SC2329 at `scripts/test-codex-native.sh:31` (trap function reported never invoked).
+Its `find` also traverses excluded `./tmp` exports and emits permission warnings.
+Targeted `shellcheck scripts/test-approvals-native.sh test/native-approvals/container.sh`
+passes; the full Docker validation separately passes. The targeted result does
+not turn the repository-wide lint failure into a pass.
+
+**Disposition:** Unresolved, outside the smoke scope. No lint/script correction
+or artifact permission changes made; retain the existing warning and traversal
+issue for a separately scoped fix.
+
 ### Claude interactive MCP connection logs do not establish first-turn hook readiness
 
 **Severity:** friction
