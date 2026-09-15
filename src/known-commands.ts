@@ -3,6 +3,7 @@ export const KNOWN_COMMANDS = new Set([
   'approve',
   'config',
   'init',
+  'mcp',
   'new-hook',
   'test',
   'types',

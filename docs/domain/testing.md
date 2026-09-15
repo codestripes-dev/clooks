@@ -6,6 +6,45 @@ How Clooks validates its core safety invariant — fail-closed behavior — thro
 
 ## Compiled Build Format
 
+For `bun run test:approvals-native`, see [native interactive approval probes](testing/interactive-approvals.md): these exercise illustrative fixtures through real clients, not the compiled production Clooks engine.
+
+The production [shared interactive approval transport](interactive-approvals.md)
+has separate command/channel and MCP server test boundaries. Its internal runtime
+overrides support deterministic clock, liveness and disposable-HOME tests;
+`createApprovalServer` supports the SDK's in-memory transport. CLI command tests
+exercise shutdown awaiting, signal forwarding and stderr-only help/startup
+failure behavior. Compiled SDK subprocess coverage must use `bun run test:e2e`
+and the standard binary sandbox, not direct source imports or the native fixture
+runner. Focused regressions cover terminal-write cancellation/drain and isolation
+of unrelated checks from late cancelled RPC responses. Engine integration and
+generated registration are not established by these transport tests. Token-runtime
+receipts below are historical; retained store/CLI tests do not prove the new
+engine checkpoint flow.
+
+`src/interaction/{protocol,channel,storage,server}.test.ts` exercise protocol
+validation, exact consent exchanges, bounded retention and SDK/stream lifecycle.
+The compiled suite is `test/e2e/interactive-transport.e2e.test.ts`: it connects an
+official SDK client to the compiled `mcp` command and uses the real command-side
+channel in a disposable subprocess. Cases cover initialization without engine
+config execution, neutral unmatched/no-ask/suppressed completion, approvals and
+declines, invalid protocol denial, active-check cancellation/EOF/signals and
+protocol-only stdout. This is compiled transport evidence, not native client
+enforcement or engine ask integration.
+
+Run the focused gate with
+`bun run test:e2e ./test/e2e/interactive-transport.e2e.test.ts ./test/e2e/smoke.e2e.test.ts ./test/e2e/agent-adapter.e2e.test.ts`.
+Keep source/test inputs frozen while it runs, and retain source hashes and cleanup
+results with the receipt. This selection does not establish engine checkpoint
+integration or native client conformance; use the full validation gate separately.
+
+`test/e2e/interactive-approvals.e2e.test.ts` exercises the compiled engine with
+paired command/MCP interactions. It covers checkpoint ordering, declines,
+operation reconfirmation, cancellation and ordinary-path regression controls.
+Source tests in `src/engine/{execute.approvals,run.approvals,live-approvals}.test.ts`
+cover private execution and lifetime boundaries. Run the engine suite alongside
+the transport suite through `bun run test:e2e`; generated registration and real
+native-client conformance remain separate from these compiled subprocess tests.
+
 Production package builds, release cross-compiles and `test/docker-entrypoint.sh` all use `--compile --bytecode --format=esm`. Native Codex tests reach compilation through the same Docker entrypoint. The existing checksum-verified prebuilt override remains unchanged; when validating source-build format, leave `CLOOKS_TEST_BINARY` unset. Docker currently selects floating `oven/bun:1.3`, while release CI reads `.bun-version` (1.3.10); build-flag parity does not imply identical Bun patch versions.
 
 `test/tooling/prebuilt-entrypoint.test.ts` pins all six production package build commands, all five release targets from the parsed workflow, and the Docker compiler's actual arguments while preserving prebuilt selection/failure checks. The standard validation runner hashes and mounts `.github/workflows/release.yml` read-only for that regression. `test/tooling/test-validation.test.ts` pins timing extraction for the new compile trace. These tooling checks alone do not prove runtime compatibility. `test/e2e/smoke.e2e.test.ts` runs the freshly compiled binary for version/help routing, no-config behavior, allow output, an external TypeScript hook with top-level await and a relative import producing exact denial output, and invalid-config fail-closed behavior.
@@ -82,7 +121,12 @@ for scope and snapshot identity; historical gates do not validate later changes.
 
 `test/e2e/codex-approvals.e2e.test.ts` uses isolated homes/projects and the compiled binary for configuration loading, fixture hooks, CLI routing, registration and output. Test-only hooks import the source store to seed and finalize records; the `approve` command exercises the compiled store implementation. No production issuance command exists. The suite checks preserved ordinary hook blocks, exact consumption failures, fixed expiry, state preservation on rejection, home isolation, corruption and non-root storage failures. Run with `bun run test:e2e ./test/e2e/codex-approvals.e2e.test.ts`; this is local store/CLI coverage, not native Codex or runtime ask evidence.
 
-## Codex Approval Runtime Coverage
+## Historical Codex Approval Runtime Coverage
+
+This section describes the former token-retry runtime and its preserved receipts.
+The current engine work replaces runtime token use with live checkpoints; old
+passes do not validate that replacement. CLI/store components remain until
+physical retirement, independently of their removal from the active run path.
 
 The hybrid runtime is implemented separately from the store/CLI tests above. Full frozen-source Docker validation passed, including tooling regressions, unit coverage and compiled E2E, with matching before/after source hashes and successful container cleanup. The controller, executor and run-layer unit suites and both approval E2E files were included; this establishes Clooks runtime behavior, not native Codex approval workflows. `src/agents/codex/approvals.test.ts` exercises canonical binding, carrier eligibility/removal, ordered pipeline/config identity, independent per-ask confirmation changes, mixed transports, emitted-input binding, failure precedence and serialized-output checks. `src/engine/execute.approvals.test.ts` checks opt-in detached vote metadata, configured-order parallel observations, raw history, unchanged reducer context/patch behavior and incomplete execution under crashes, load failures, timeout, policy rejection and degradation.
 

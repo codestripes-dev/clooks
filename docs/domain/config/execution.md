@@ -25,15 +25,43 @@ The policy sees the raw value, hook identity, origin, execution mode and current
 
 The optional `validateRawResult()` preflight runs inside protected policy evaluation **before** deep cloning. Codex uses descriptor-based shape checks to reject accessors, symbol/non-enumerable properties, cycles, sparse or extended arrays, non-finite numbers and other values that cloning/JSON would lose; undefined object fields remain no-ops. Its concrete policy permits PreToolUse allow/block/skip and handler-only ask, supported string context/debug fields and sequential allow/ask rewrites through an approved codec. Ask accepts any string reason, including empty; other-event handler asks, defer, unsupported fields and blank block reasons are refused. A dynamically returned beforeHook ask instead receives the shared lifecycle's warning/no-op treatment and the handler continues, with no confirmation or independent denial. Policy rejection of a supplied before-hook-origin ask is defensive; production lifecycle handling does not forward it. Allow reasons become human system-message annotations; they are removed from the accepted control result. These rules do not tighten Claude's permissive author surface.
 
-Codex PreToolUse opts into `collectPreToolUseVotes`. The executor adds private `ExecutionResult.preToolUse` metadata: accepted votes with alias, origin, configured ordinal, detached accepted result and before/after tool inputs, plus final materialized input, an input-changed flag and completion status. Parallel entries follow configured processing order, not settlement order. Runtime/load/policy failures and incomplete execution make the metadata ineligible for discharging pending asks, including errors otherwise continued or degraded. This does not change ordinary failure accounting, scheduling or the reducer; Claude's default policy does not collect these observations.
+The current live-checkpoint integration collects private `ExecutionResult.preToolUse`
+metadata for both providers: accepted votes, raw accepted results and input
+snapshots, approved questions, final materialized input and completion status.
+Collection applies to every PreToolUse, not an optional policy flag.
+Optional executor arguments 11/12 carry `ApprovalInteraction` and invocation
+`AbortSignal`; the existing tenth policy argument is unchanged. Compiled engine
+validation does not establish native generated-registration conformance.
 
-After the unchanged reduction, the Codex controller resolves every accepted ask and shows the first unresolved confirmation. Earlier acknowledgements survive intermediate denials. Only when all current asks are acknowledged does it change the final reduced ask tag to allow, preserving its fields rather than reducing remapped votes. Losing-ask contexts remain excluded. Materialized sequential patches are not automatically emitted: a losing-ask patch alone does not make a patchless winning ask emit updatedInput; a contributing allow patch or winning ask patch can. Binding uses the actual encoded emitted operation plus per-ask observations. Serialization validation precedes atomic consumption; successful no-ask/early exits retire existing base acknowledgements without adding an approval requirement. See [Codex Approvals](../codex-approvals.md). Full frozen-source Docker validation passed. The passing [15-case native suite](../testing/codex-native.md#hybrid-approval-case-evidence) covers bounded shell and direct-patch approval workflows, rewrite execution/denial controls and actual-pack `rm -r`; it does not establish forced-removal permission or full conformance.
+`InvocationResultPolicy.mutableToolInput` preserves the legacy Claude shared
+input view through policy wrapping; policies without that flag receive detached
+views. Ordinary Claude allow-patch merging retains its legacy semantics, while
+ask patches are strictly validated before presenting an operation for consent.
+
+Sequential asks wait after lifecycle/policy audit and before committing their
+candidate input or starting the next hook. Parallel hooks retain concurrent
+startup; their asks follow whole-batch audit in configured order. A known denial
+suppresses questions, but defer does not. Failures of consent or transport latch
+outside `onError`/`maxFailures`; user decline is not a hook crash. Approved asks
+carry private `resolvedAsk` bookkeeping and contribute as allows to reduction,
+without rewriting raw history. `ctx.turn` stays at the invocation-start snapshot:
+the committed raw ask is visible to the next invocation, not the next hook in
+this pipeline, subject to [turn-state persistence limits](../turn-state.md).
+After final serialization, changed operations
+are reconfirmed in checkpoint order without rerunning hooks. See
+[Shared Interactive Approval Transport](../interactive-approvals.md#engine-checkpoints).
+The former token-retry reducer/consumption path and its native receipts are
+[historical](../codex-approvals.md), not evidence for this new execution flow.
 
 A rejection is retained as `policyFailure` outside ordinary reduction and error degradation. It stops later execution and result effects, so a losing vote, subsequent allow, trace or maxFailures setting cannot erase it. Exceptions in policy evaluation become a policy failure rather than a configurable hook crash. Raw-history classification is also protected: a throwing result getter records one raw error and latches a policy failure. Settlement-processing exceptions close and resolve the parallel batch instead of leaving its promise pending. Provider-owned diagnostic composition remains separate from author-result checking.
 
 Parallel batches check their closed state before storing any settlement. Capture precedes ordinary crash/block abort consumption, preserving accounting for already-captured outcomes. Author-capability and parallel-contract audits remain immediate; with Codex's deferred runtime-error audit, ordinary error accounting precedes auditing the selected blocking error. Each started lifecycle records its raw decision once; at abort, each still-pending lifecycle records one abandoned error. Later fulfillment or rejection cannot amend the batch, add diagnostics, create handoff files, vote or append history. A lifecycle timeout likewise records one raw error and discards its eventual completion. Each executor invocation owns its policy failure, input candidates and history bookkeeping, including when invocations overlap. History describes raw returns rather than accepted or delivered decisions; a rejected valid raw tag remains that tag. Unintelligible handler values record an error. Hook code remains trusted code: neither result policy nor JavaScript abort signals can undo its own arbitrary I/O.
 
 Accepted PreToolUse skip contexts accumulate in configured vote order, not parallel completion order, alongside eligible winning-decision contexts. Skip remains abstention with the lowest rank; ties still select the last vote. Allow collects allow/skip context; ask collects its own plus allow/skip context; block collects its own plus allow/ask/skip context. Losing ask context is excluded when ask wins, and losing block context is always excluded. All-skip reductions retain every nonempty skip context, even when the last skip is empty. Defer still drops all context and warns for discarded loser context.
+
+In the live-checkpoint path, these rules operate after approved asks are treated
+as allow votes. Thus approved ask context is eligible alongside other allows;
+the raw-ask reducer arm is not a substitute for obtaining consent.
 
 ### Ordering
 

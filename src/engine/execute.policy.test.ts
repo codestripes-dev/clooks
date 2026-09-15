@@ -148,7 +148,7 @@ function run(
   return executeHooks(
     hooks,
     event,
-    { event, ...input },
+    { event, toolName: 'test', toolInput: {}, ...input },
     cfg,
     join(dir, '.clooks/.failures'),
     dir,
@@ -156,6 +156,7 @@ function run(
     undefined,
     history.value,
     policy,
+    { request: async () => ({ kind: 'approved' }), close: async () => {} },
   )
 }
 
@@ -346,7 +347,7 @@ describe('Codex shared handoff delivery', () => {
         dir,
       )
       expect(result.policyFailure).toBeUndefined()
-      expect(result.lastResult?.result).toBe(tag)
+      expect(result.lastResult?.result).toBe(tag === 'ask' ? 'allow' : tag)
       expect(result.lastResult?.debugMessage).toBe(debugMessage)
       if (tag === 'allow') {
         expect(result.lastResult?.reason).toBeUndefined()
@@ -426,7 +427,7 @@ describe('result policy before effects', () => {
       expect(seen.sort()).toEqual(['allow', 'vote'])
       expect(result.lastResult).toEqual(
         decision === 'ask'
-          ? { result: 'ask', reason: 'Confirm operation', injectContext: 'Sibling context' }
+          ? { result: 'allow', injectContext: 'Sibling context' }
           : { result: 'defer' },
       )
       expect([...history.records].sort((a, b) => a.name.localeCompare(b.name))).toEqual([
@@ -701,7 +702,7 @@ describe('result policy before effects', () => {
     )
     expect(explicit).toEqual(omitted)
     expect(explicit.lastResult).toEqual({
-      result: 'ask',
+      result: 'allow',
       reason: 'review',
       injectContext: 'A\nB',
       updatedInput: { command: 'new', other: 2 },
@@ -748,7 +749,7 @@ describe('result policy before effects', () => {
   })
 
   for (const [event, value, field] of [
-    ['PreToolUse', { result: 'ask', injectContext: 'long context' }, 'result'],
+    ['PreToolUse', { result: 'ask', reason: 'confirm', injectContext: 'long context' }, 'result'],
     ['PermissionRequest', { result: 'allow', updatedInput: {} }, 'updatedInput'],
     ['PermissionRequest', { result: 'allow', updatedPermissions: [] }, 'updatedPermissions'],
     ['PermissionRequest', { result: 'block', reason: 'deny', interrupt: false }, 'interrupt'],
@@ -1526,7 +1527,7 @@ describe('bounded parallel settlement', () => {
                 if (++starts === 2) started.release()
                 await barriers[name as 'a' | 'b'].promise
                 if (name !== first && lateThrows) throw new Error('late crash')
-                return { result: 'ask', injectContext: `context ${name}` }
+                return { result: 'ask', reason: 'confirm', injectContext: `context ${name}` }
               },
             }),
           ),

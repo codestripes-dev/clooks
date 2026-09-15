@@ -1,0 +1,86 @@
+#!/usr/bin/expect -f
+set timeout 45
+match_max 200000
+spawn -noecho {*}$argv
+stty rows 40 columns 160
+expect -re {Claude Code}
+set ready 0
+set path "$env(APPROVAL_ROOT)/debug.log"
+for {set attempt 0} {$attempt < 500} {incr attempt} {
+  if {[file exists $path]} {
+    set handle [open $path r]
+    set debug [read $handle]
+    close $handle
+    if {[string first {MCP server "checkpoints": Connection established with capabilities:} $debug] >= 0} {set ready 1; break}
+  }
+  after 20
+}
+if {!$ready} {puts stderr "Native MCP did not connect before user turn"; catch {exec kill -KILL [exp_pid]}; catch {wait}; exit 1}
+set connectionObservedAt [clock milliseconds]
+expect {
+  -exact "\u276f\u00a0" {}
+  timeout { puts stderr "Native input prompt did not render"; catch {exec kill -KILL [exp_pid]}; catch {wait}; exit 124 }
+  eof { puts stderr "Native exited before input prompt"; catch {wait}; exit 1 }
+}
+set promptObservedAt [clock milliseconds]
+set mcpStatusObservedAt 0
+if {$env(APPROVAL_UI_READINESS) eq "mcp-status"} {
+# Inspect the native state view without reconnecting or submitting a model turn.
+send -- "/mcp\r"
+expect {
+  -re {Manage.*MCP.*servers} {}
+  timeout { puts stderr "Native MCP status view did not open"; catch {exec kill -KILL [exp_pid]}; catch {wait}; exit 124 }
+  eof { puts stderr "Native exited before MCP status view"; catch {wait}; exit 1 }
+}
+expect {
+  -exact {checkpoints} {}
+  timeout { puts stderr "Native MCP status omitted checkpoints"; catch {exec kill -KILL [exp_pid]}; catch {wait}; exit 124 }
+  eof { puts stderr "Native exited before MCP server status"; catch {wait}; exit 1 }
+}
+expect {
+  -re {\u2714[^\r]*1[^\r]*tool} {}
+  timeout { puts stderr "Native MCP status did not become connected"; catch {exec kill -KILL [exp_pid]}; catch {wait}; exit 124 }
+  eof { puts stderr "Native exited before connected MCP status"; catch {wait}; exit 1 }
+}
+set mcpStatusObservedAt [clock milliseconds]
+send -- "\033"
+expect {
+  -exact "\u276f\u00a0" {}
+  timeout { puts stderr "Native input prompt did not return"; catch {exec kill -KILL [exp_pid]}; catch {wait}; exit 124 }
+  eof { puts stderr "Native exited before returning to input"; catch {wait}; exit 1 }
+}
+}
+send -- "Run the local test once."
+expect {
+  -re {once[.]} {}
+  timeout { puts stderr "Native did not render typed input"; catch {exec kill -KILL [exp_pid]}; catch {wait}; exit 124 }
+  eof { puts stderr "Native exited before rendering input"; catch {wait}; exit 1 }
+}
+set inputEchoObservedAt [clock milliseconds]
+set submittedAt [clock milliseconds]
+set handle [open "$env(APPROVAL_ROOT)/interactive-ready.json" {WRONLY CREAT EXCL}]
+puts $handle [format {{"kind":"%s","connectionObservedAt":%s,"promptObservedAt":%s,"mcpStatusObservedAt":%s,"inputEchoObservedAt":%s,"submittedAt":%s}} $env(APPROVAL_UI_READINESS) $connectionObservedAt $promptObservedAt $mcpStatusObservedAt $inputEchoObservedAt $submittedAt]
+close $handle
+send -- "\r"
+set secondTurnSent 0
+expect {
+  -re {NATIVE_INTERACTIVE_PRIMED} {
+    if {!$secondTurnSent} {
+      set secondTurnSent 1
+      send -- "Run the local test once.\r"
+    }
+    exp_continue
+  }
+  -re {NATIVE_INTERACTIVE_COMPLETE} {
+    send -- "\003"
+    after 200
+    send -- "\003"
+    expect eof
+  }
+  -re {Yes, I trust this folder} { send -- "\r"; exp_continue }
+  -re {Yes, I accept} { send -- "\r"; exp_continue }
+  timeout { puts stderr "Native interactive probe timed out"; catch {exec kill -KILL [exp_pid]}; catch {wait}; exit 124 }
+  eof { puts stderr "Native interactive probe exited before completion"; catch {wait}; exit 1 }
+}
+set status [wait]
+exit [lindex $status 3]

@@ -23,6 +23,11 @@ import {
   readVendoredPluginEntries,
 } from '../../claude-settings.js'
 import type { StaleAdvisory } from '../../claude-settings.js'
+import {
+  approvalIdentity,
+  approvalOperation,
+  serializedApprovalOperation,
+} from '../approval-operation.js'
 
 export const claudeCodePluginDeps = {
   discoverPluginPacks: defaultDiscoverPluginPacks,
@@ -135,6 +140,9 @@ function translateFinalClaudeCodeOutput(input: TranslateFinalOutputInput): Trans
 }
 
 export const claudeCodeAdapter: AgentAdapter = {
+  approvalIdentity: (raw, owner, protocol) => approvalIdentity('claude-code', raw, owner, protocol),
+  approvalOperation,
+  serializedApprovalOperation,
   id: 'claude-code',
   supportsRuntime: true,
   supportsClaudePluginAdvisories: true,
@@ -255,7 +263,10 @@ export const claudeCodeAdapter: AgentAdapter = {
     return { result, stderr, systemMessages: [] }
   },
 
-  translateFailure({ failure }) {
+  translateFailure({ eventName, failure }) {
+    if (eventName === 'PreToolUse') {
+      return translateClaudeCodeResult(eventName, { result: 'block', reason: failure.message })
+    }
     return { exitCode: EXIT_STDERR, stderr: failure.message }
   },
 

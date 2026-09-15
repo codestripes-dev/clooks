@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { join } from 'node:path'
 import { createSandbox, formatDiagnostics, type Sandbox } from './helpers/sandbox'
+import { invocation, runWithConsent } from './helpers/live-approvals'
 
 // Compiled CLI replay of source-shaped MCP envelopes, not native server delivery.
 let sandbox: Sandbox
@@ -54,12 +55,6 @@ function observations() {
     .split('\n')
     .map((line) => JSON.parse(line))
 }
-function token(output: ReturnType<typeof replay>): string {
-  expect(output.hookSpecificOutput?.permissionDecision).toBe('deny')
-  const found = /ca1_[a-f0-9]{64}/.exec(output.hookSpecificOutput.permissionDecisionReason)?.[0]
-  expect(found).toBeDefined()
-  return found!
-}
 
 describe('compiled MCP JSON input observation', () => {
   for (const parallel of [false, true]) {
@@ -106,21 +101,27 @@ describe('compiled MCP JSON input observation', () => {
     })
   })
   for (const input of values) {
-    test(`approval binds exact shape ${JSON.stringify(input)} and preserves falsy votes`, () => {
+    test(`live approval preserves exact shape ${JSON.stringify(input)} including falsy values`, async () => {
       install("return ctx.ask({ reason: 'confirm MCP' })")
-      const pending = token(replay(input))
-      expect(token(replay(input))).toBe(pending)
-      const registered = sandbox.run(['approve', pending, '--json'], {
-        env: env(),
-        timeout: 10_000,
-      })
-      expect(registered.exitCode, formatDiagnostics(registered)).toBe(0)
-      expect(token(replay({}))).not.toBe(pending)
-      expect(replay(input)).toEqual({
+      const live = await runWithConsent(
+        sandbox,
+        invocation(sandbox, 'codex', {
+          toolName: 'mcp__fixture__inspect',
+          input,
+        }),
+        (prompt) => {
+          expect(prompt.question.operation).toEqual({ toolName: 'mcp__fixture__inspect', input })
+          return { action: 'accept', content: { confirmed: true } }
+        },
+      )
+      expect(live.result.rawExitCode, formatDiagnostics(live.result)).toBe(0)
+      expect(live.result.stderr).toBe('')
+      expect(live.prompts).toHaveLength(1)
+      expect(JSON.parse(live.result.stdout)).toEqual({
         systemMessage:
           'clooks: PreToolUse allow reason (human annotation only; original allow-reason recipient unavailable; native policy retained): confirm MCP',
       })
-      expect(token(replay(input))).not.toBe(pending)
+      expect(observations()).toHaveLength(1)
       expect(observations().every((row) => row.event === 'PreToolUse')).toBe(true)
       expect(observations()[0]).toEqual({ event: 'PreToolUse', input, original: input })
     })

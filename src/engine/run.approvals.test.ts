@@ -1,29 +1,41 @@
-import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { codexAdapter } from '../agents/codex/adapter.js'
 import { claudeCodeAdapter } from '../agents/claude-code/adapter.js'
-import { ApprovalStore } from '../agents/codex/approval-store.js'
-import { prepareApprovalAttempt } from '../agents/codex/approvals.js'
 import type { AgentAdapter } from '../agents/types.js'
+import type { ApprovalInteraction, ApprovalQuestion } from '../interaction/types.js'
 import type { ClooksConfig } from '../config/schema.js'
 import type { LoadedHook } from '../loader.js'
 import { hn, ms } from '../test-utils.js'
-import { runEngineCore } from './run.js'
+import { runEngine, runEngineCore } from './run.js'
 import type { RunEngineDeps } from './types.js'
+import { createApprovalInteraction } from '../interaction/channel.js'
+import { approvalRoot, Mailbox } from '../interaction/storage.js'
+import {
+  attachedSchema,
+  digest,
+  questionPacketSchema,
+  startSchema,
+} from '../interaction/protocol.js'
 
 let root: string
-let store: ApprovalStore
 let config: ClooksConfig
 let hooks: LoadedHook[]
-let reads: number
-const savedHome = process.env.CLOOKS_HOME_ROOT
-const savedCode = process.exitCode
+let questions: ApprovalQuestion[]
+let journal: string[]
+let interaction: ApprovalInteraction
+let saved: NodeJS.ProcessEnv
+let savedCode: typeof process.exitCode
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'clooks-run-approvals-'))
+  saved = { ...process.env }
+  savedCode = process.exitCode
+  root = mkdtempSync(join(tmpdir(), 'clooks-live-run-'))
   process.env.CLOOKS_HOME_ROOT = root
-  store = new ApprovalStore(root)
+  process.env.CLOOKS_APPROVAL_OWNER = 'project:test'
+  process.env.CLOOKS_APPROVAL_PROTOCOL = '1'
+  delete process.env.CLOOKS_APPROVAL_DISPOSITION
   config = {
     version: '1',
     global: {
@@ -37,21 +49,31 @@ beforeEach(() => {
     events: {},
   }
   hooks = []
-  reads = 0
+  questions = []
+  journal = []
+  interaction = {
+    async request(question) {
+      questions.push(structuredClone(question))
+      journal.push(`ask:${question.hookName}`)
+      return { kind: 'approved' }
+    },
+    async close() {
+      journal.push('close')
+    },
+  }
 })
 afterEach(() => {
-  if (savedHome === undefined) delete process.env.CLOOKS_HOME_ROOT
-  else process.env.CLOOKS_HOME_ROOT = savedHome
+  process.env = saved
   process.exitCode = savedCode
   rmSync(root, { recursive: true, force: true })
 })
-function raw(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+function raw(overrides: Record<string, unknown> = {}) {
   return {
     hook_event_name: 'PreToolUse',
     session_id: 's',
     cwd: root,
     tool_name: 'exec_command',
-    tool_input: { command: 'rm -rf scratch' },
+    tool_input: { command: 'original' },
     turn_id: 't',
     tool_use_id: 'id',
     model: 'm',
@@ -59,19 +81,17 @@ function raw(overrides: Record<string, unknown> = {}): Record<string, unknown> {
     ...overrides,
   }
 }
-function add(name: string, handler: (context: Record<string, unknown>) => unknown) {
-  const hookPath = join(root, `${name}.ts`)
-  writeFileSync(hookPath, `// fixture entry ${name}\n`)
+function add(name: string, handler: (ctx: Record<string, unknown>) => unknown) {
   config.hooks[hn(name)] = {
     config: {},
     parallel: false,
     origin: 'project',
-    resolvedPath: hookPath,
+    resolvedPath: join(root, name),
   }
   hooks.push({
     name: hn(name),
     config: {},
-    hookPath,
+    hookPath: join(root, name),
     configPath: join(root, 'clooks.yml'),
     hook: { meta: { name }, PreToolUse: handler } as LoadedHook['hook'],
   })
@@ -79,50 +99,78 @@ function add(name: string, handler: (context: Record<string, unknown>) => unknow
 function deps(input: unknown = raw()): RunEngineDeps {
   return {
     readStdin: async () => {
-      reads++
+      journal.push('read')
       return input
     },
-    loadConfig: async () => ({ config, shadows: [], hasProjectConfig: true }),
-    loadAllHooks: async () => ({ loaded: hooks, loadErrors: [], dangling: [] }),
-    discoverProjectRoot: async () => ({
-      projectRoot: root,
-      signal: 'walk-up',
-      from: root,
-      checked: [root],
-      boundary: 'git-root',
-      boundaryPath: root,
-    }),
+    loadConfig: async () => {
+      journal.push('config')
+      return { config, shadows: [], hasProjectConfig: true }
+    },
+    loadAllHooks: async () => {
+      journal.push('load')
+      return { loaded: hooks, loadErrors: [], dangling: [] }
+    },
+    discoverProjectRoot: async () => {
+      journal.push('discover')
+      return {
+        projectRoot: root,
+        signal: 'walk-up',
+        from: root,
+        checked: [root],
+        boundary: 'git-root',
+        boundaryPath: root,
+      }
+    },
+    createApprovalInteraction: async (options) => {
+      journal.push('open')
+      expect(options.identity.owner).toBe('project:test')
+      return interaction
+    },
   }
 }
 class Exit extends Error {}
 async function run(
   dependencies = deps(),
   adapter: AgentAdapter = codexAdapter,
-  outputFailure = false,
-  onOutputFailure?: () => void,
+  onFlush?: (complete: (error?: Error | null) => void) => void,
+  throughEntryPoint = false,
 ) {
   let stdout = ''
   let stderr = ''
-  let code: string | number | undefined = 0
+  let code: unknown = 0
   const exit = spyOn(process, 'exit').mockImplementation((value) => {
-    code = value ?? undefined
+    code = value
+    journal.push('exit')
     throw new Exit()
   })
-  const out = spyOn(process.stdout, 'write').mockImplementation((value) => {
-    if (outputFailure) {
-      outputFailure = false
-      onOutputFailure?.()
-      throw new Error('output unavailable')
-    }
-    stdout += String(value)
-    return true
-  })
+  const out = spyOn(process.stdout, 'write').mockImplementation(
+    (
+      value: string | Uint8Array,
+      encodingOrCallback?: BufferEncoding | ((error?: Error | null) => void),
+      callback?: (error?: Error | null) => void,
+    ) => {
+      if (value === '' && onFlush) {
+        const complete = typeof encodingOrCallback === 'function' ? encodingOrCallback : callback
+        if (!complete) throw new Error('Missing stream completion callback')
+        onFlush(complete)
+        return true
+      }
+      stdout += String(value)
+      journal.push('output')
+      return true
+    },
+  )
   const err = spyOn(process.stderr, 'write').mockImplementation((value) => {
     stderr += String(value)
     return true
   })
   try {
-    await runEngineCore(adapter, dependencies)
+    if (throughEntryPoint) {
+      process.env.CLOOKS_AGENT = adapter.id
+      await runEngine(dependencies)
+    } else {
+      await runEngineCore(adapter, dependencies)
+    }
   } catch (error) {
     if (!(error instanceof Exit)) throw error
   } finally {
@@ -132,521 +180,677 @@ async function run(
   }
   return { stdout, stderr, code, json: stdout ? JSON.parse(stdout) : {} }
 }
-function token(output: Awaited<ReturnType<typeof run>>): string {
-  expect(output.json.hookSpecificOutput?.permissionDecision).toBe('deny')
-  const id = /ca1_[a-f0-9]{64}/.exec(output.stdout)?.[0]
-  expect(id).toBeDefined()
-  return id!
-}
-function seed(input = raw()) {
-  const record = store.issueOrReuse({
-    baseInvocationHash: prepareApprovalAttempt(input).baseInvocationHash,
-    decisionHash: 'a'.repeat(64),
-    confirmationHash: 'b'.repeat(64),
+function gate() {
+  let release!: () => void
+  const promise = new Promise<void>((resolve) => {
+    release = resolve
   })
-  store.acknowledge(record.token)
-  return record.token
+  return { promise, release }
 }
 
-describe('hybrid approval engine integration', () => {
-  test.each([
-    {
-      fields: { session_id: '' },
-      capability: 'session_id',
-      detail: 'session_id must be a nonempty string',
-    },
-    {
-      fields: { agent_id: null, agent_type: 'worker' },
-      capability: 'agent_id',
-      detail: 'agent_id must be a nonempty string',
-    },
-    {
-      fields: { agent_id: true, agent_type: 'worker' },
-      capability: 'agent_id',
-      detail: 'agent_id must be a nonempty string',
-    },
-    {
-      fields: { tool_input: [] },
-      capability: 'tool_input',
-      detail: 'tool input must be a JSON record; scalar, array and null inputs are unsupported',
-    },
-  ])(
-    'preserves exact $capability diagnostics before imports, including config failure',
-    async ({ fields, capability, detail }) => {
-      for (const configFailure of [false, true]) {
-        const dependencies = deps(raw(fields))
-        let imports = 0
-        dependencies.loadAllHooks = async () => {
-          imports++
-          throw new Error('must not import')
-        }
-        if (configFailure)
-          dependencies.loadConfig = async () => {
-            throw new Error('bad config')
-          }
-        const output = await run(dependencies)
-        const reason = `clooks: Codex PreToolUse hook "runtime" capability "${capability}": ${detail}; hooks were not imported or executed. Pending call denial requested.`
-        expect(output.json).toEqual({
-          systemMessage: reason,
-          hookSpecificOutput: {
-            hookEventName: 'PreToolUse',
-            permissionDecision: 'deny',
-            permissionDecisionReason: reason,
-          },
-        })
-        expect(output.code).toBe(0)
-        expect(output.stderr).toBe('')
-        expect(imports).toBe(0)
-      }
-      expect(reads).toBe(2)
-    },
+test('Claude legacy allow spreads scalar patches and removes existing null values', async () => {
+  add('legacy', () => ({ result: 'allow', updatedInput: 'ok' }))
+  const output = await run(
+    deps(raw({ tool_name: 'Bash', tool_input: { command: 'original', absent: null } })),
+    claudeCodeAdapter,
   )
-  test('valid envelope with malformed carrier keeps approval-input refusal before imports', async () => {
-    const dependencies = deps(
-      raw({ tool_input: { command: 'CLOOKS_APPROVAL_TOKENS=bad rm scratch' } }),
-    )
-    let imports = 0
-    dependencies.loadAllHooks = async () => {
-      imports++
-      throw new Error('must not import')
-    }
-    const output = await run(dependencies)
-    const reason =
-      'clooks: Codex PreToolUse hook "runtime" capability "approval-input": Malformed or excessive approval tokens; use clooks approve; hooks were not imported or executed. Pending call denial requested.'
-    expect(output.json).toEqual({
-      systemMessage: reason,
-      hookSpecificOutput: {
-        hookEventName: 'PreToolUse',
-        permissionDecision: 'deny',
-        permissionDecisionReason: reason,
-      },
-    })
-    expect(imports).toBe(0)
-    expect(reads).toBe(1)
-    expect(output.code).toBe(0)
-    expect(output.stderr).toBe('')
+  expect(output.json.hookSpecificOutput.permissionDecision).toBe('allow')
+  expect(output.json.hookSpecificOutput.updatedInput).toEqual({
+    command: 'original',
+    0: 'o',
+    1: 'k',
   })
-  test.each(['adjust', 'serialize'] as const)(
-    'pending denial survives permissive %s output',
-    async (stage) => {
-      add('a', () => ({ result: 'ask', reason: 'pending' }))
-      const adapter: AgentAdapter = { ...codexAdapter }
-      if (stage === 'adjust')
-        adapter.adjustResultBeforeFinalOutput = () => ({
-          result: { result: 'allow' },
-          systemMessages: [],
-        })
-      else adapter.translateFinalOutput = () => ({ exitCode: 0 })
-      const denied = await run(deps(), adapter)
-      expect(denied.json.hookSpecificOutput.permissionDecision).toBe('deny')
-      expect(denied.stdout).toContain('removed a pending Codex denial')
-    },
-  )
-  test('runs all asks, supports inline plus registration, keeps carrier out of public and private normalized input', async () => {
-    const seen: unknown[] = []
-    add('a', (context) => {
-      seen.push(context.toolInput)
-      return { result: 'ask', reason: 'first', injectContext: 'loser' }
-    })
-    add('b', () => ({ result: 'ask', reason: 'second', injectContext: 'winner' }))
-    const a = token(await run())
-    const normalize = codexAdapter.normalizeInvocation
-    const adapter: AgentAdapter = {
-      ...codexAdapter,
-      normalizeInvocation(payload, event) {
-        expect(payload.tool_input).toEqual({ command: 'rm -rf scratch' })
-        const normalized = normalize(payload, event)
-        expect(normalized.private.raw.tool_input).toEqual({ command: 'rm -rf scratch' })
-        return normalized
-      },
-    }
-    const inline = raw({ tool_input: { command: `CLOOKS_APPROVAL_TOKENS=${a} rm -rf scratch` } })
-    const b = token(await run(deps(inline), adapter))
-    expect(a).not.toBe(b)
-    store.acknowledge(b)
-    const allowed = await run(deps(raw({ turn_id: 'next', tool_use_id: 'retry' })))
-    expect(allowed.json.hookSpecificOutput).toEqual({
-      hookEventName: 'PreToolUse',
-      additionalContext: 'winner',
-    })
-    expect(allowed.stdout).not.toContain('loser')
-    expect(allowed.stdout).not.toContain('updatedInput')
-    expect(seen).toEqual(Array(3).fill({ command: 'rm -rf scratch' }))
-    expect(() => store.acknowledge(a)).toThrow('consumed')
-    expect(() => store.acknowledge(b)).toThrow('consumed')
-    expect(reads).toBe(3)
-  })
-  test.each([false, true])(
-    'preserves losing-ask patch behavior, winning patch=%s',
-    async (winningPatch) => {
-      add('a', () => ({
-        result: 'ask',
-        reason: 'a',
-        updatedInput: { command: 'rewritten' },
-        injectContext: 'lost',
-      }))
-      add('b', (context) => {
-        expect(context.toolInput).toEqual({ command: 'rewritten' })
-        return {
-          result: 'ask',
-          reason: 'b',
-          ...(winningPatch ? { updatedInput: { command: 'final' } } : {}),
-        }
-      })
-      store.acknowledge(token(await run()))
-      store.acknowledge(token(await run()))
-      const allowed = await run()
-      expect(allowed.json.hookSpecificOutput?.updatedInput).toEqual(
-        winningPatch ? { command: 'final' } : undefined,
-      )
-      expect(allowed.json.hookSpecificOutput?.permissionDecision).toBe(
-        winningPatch ? 'allow' : undefined,
-      )
-      expect(allowed.stdout).not.toContain('lost')
-    },
-  )
-  test('allow loser patch still contributes and successful permit retires older base approvals', async () => {
-    const old = seed()
-    add('allow', () => ({
-      result: 'allow',
-      updatedInput: { command: 'rewritten' },
-      injectContext: 'allow context',
-    }))
-    add('ask', () => ({ result: 'ask', reason: '' }))
-    store.acknowledge(token(await run()))
-    const allowed = await run()
-    expect(allowed.json.hookSpecificOutput.updatedInput).toEqual({ command: 'rewritten' })
-    expect(allowed.stdout).toContain('allow context')
-    expect(() => store.acknowledge(old)).toThrow('consumed')
-  })
-  test('entry-byte, effective config and alias changes reissue confirmation', async () => {
-    add('a', () => ({ result: 'ask', reason: 'a' }))
-    const a = token(await run())
-    store.acknowledge(a)
-    writeFileSync(hooks[0]!.hookPath, '// updated entry')
-    const b = token(await run())
-    expect(b).not.toBe(a)
-    store.acknowledge(b)
-    hooks[0]!.config = { changed: true }
-    const c = token(await run())
-    expect(c).not.toBe(b)
-  })
-  test.each(['block', 'crash', 'degraded', 'policy'] as const)(
-    '%s cannot discharge asks or consume acknowledgements',
-    async (mode) => {
-      add('ask', () => ({ result: 'ask', reason: 'ask' }))
-      const id = token(await run())
-      store.acknowledge(id)
-      add('other', () => {
-        if (mode === 'crash' || mode === 'degraded') throw new Error('broken')
-        return mode === 'policy' ? { result: 'defer' } : { result: 'block', reason: 'explicit' }
-      })
-      if (mode === 'degraded') config.global.maxFailures = 1
-      const denied = await run()
-      expect(denied.json.hookSpecificOutput.permissionDecision).toBe('deny')
-      expect(denied.stdout).not.toContain('Approval token:')
-      expect(store.acknowledge(id).consumedAt).toBeNull()
-    },
-  )
-  test.each(['adjust', 'serialize', 'mismatch', 'deny', 'commit', 'emit'] as const)(
-    'fails closed at %s; only emission failure burns approvals',
-    async (failure) => {
-      add('ask', () => ({ result: 'ask', reason: 'ask', updatedInput: { command: 'approved' } }))
-      const id = token(await run())
-      store.acknowledge(id)
-      const adapter: AgentAdapter = { ...codexAdapter }
-      let reached = 0
-      if (failure === 'adjust')
-        adapter.adjustResultBeforeFinalOutput = () => {
-          reached++
-          throw new Error('adjustment failed')
-        }
-      if (failure === 'serialize')
-        adapter.translateFinalOutput = () => {
-          reached++
-          throw new Error('serialization failed')
-        }
-      if (failure === 'mismatch')
-        adapter.translateFinalOutput = () => {
-          reached++
-          return {
-            exitCode: 0,
-            output:
-              '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","updatedInput":{"command":"wrong"}}}',
-          }
-        }
-      if (failure === 'deny')
-        adapter.adjustResultBeforeFinalOutput = () => {
-          reached++
-          return {
-            result: { result: 'block', reason: 'adjusted denial' },
-            systemMessages: [],
-          }
-        }
-      const commit =
-        failure === 'commit'
-          ? spyOn(ApprovalStore.prototype, 'finalizePermit').mockImplementation(() => {
-              reached++
-              throw new Error('commit failed')
-            })
-          : undefined
-      let denied: Awaited<ReturnType<typeof run>>
-      try {
-        denied = await run(deps(), adapter, failure === 'emit', () => {
-          reached++
-        })
-      } finally {
-        commit?.mockRestore()
-      }
-      expect(denied.json.hookSpecificOutput.permissionDecision).toBe('deny')
-      expect(reached).toBe(1)
-      const diagnostic = {
-        adjust: 'adjustment failed',
-        serialize: 'serialization failed',
-        mismatch: 'Serialized tool input differs',
-        deny: 'adjusted denial',
-        commit: 'commit failed',
-        emit: 'output unavailable',
-      }[failure]
-      expect(denied.stdout).toContain(diagnostic)
-      expect(denied.stdout).not.toContain('Approval token:')
-      expect(denied.json.hookSpecificOutput).not.toHaveProperty('updatedInput')
-      if (failure === 'emit') expect(() => store.acknowledge(id)).toThrow('consumed')
-      else {
-        expect(store.acknowledge(id).consumedAt).toBeNull()
-        const retry = await run()
-        expect(retry.json.hookSpecificOutput.permissionDecision).toBe('allow')
-        expect(retry.json.hookSpecificOutput.updatedInput).toEqual({ command: 'approved' })
-        expect(() => store.acknowledge(id)).toThrow('consumed')
-      }
-    },
-  )
-  test('successful adjustment cannot replace the bound operation through the real translator', async () => {
-    add('ask', () => ({ result: 'ask', reason: 'ask', updatedInput: { command: 'approved' } }))
-    const id = token(await run())
-    store.acknowledge(id)
-    let adjusted = 0
-    let serialized = 0
-    const adapter: AgentAdapter = {
-      ...codexAdapter,
-      adjustResultBeforeFinalOutput(input) {
-        adjusted++
-        expect(input.result?.result).toBe('allow')
-        return {
-          result: { ...input.result!, updatedInput: { command: 'changed by adjustment' } },
-          systemMessages: [],
-        }
-      },
-      translateFinalOutput(input) {
-        serialized++
-        return codexAdapter.translateFinalOutput(input)
-      },
-    }
-    const denied = await run(deps(), adapter)
-    expect(adjusted).toBe(1)
-    expect(serialized).toBe(1)
-    expect(denied.json.hookSpecificOutput.permissionDecision).toBe('deny')
-    expect(denied.stdout).toContain('Serialized tool input differs')
-    expect(denied.stdout).not.toContain('Approval token:')
-    expect(denied.json.hookSpecificOutput).not.toHaveProperty('updatedInput')
-    expect(store.acknowledge(id).consumedAt).toBeNull()
-    const retry = await run()
-    expect(retry.json.hookSpecificOutput.updatedInput).toEqual({ command: 'approved' })
-    expect(retry.json.hookSpecificOutput.permissionDecision).toBe('allow')
-    expect(() => store.acknowledge(id)).toThrow('consumed')
-  })
+  expect(questions).toEqual([])
 })
 
-describe('approval retirement early exits', () => {
-  test.each([
-    'no-config',
-    'no-hooks',
-    'no-match',
-    'no-ask',
-    'config-degraded',
-    'hook-degraded',
-  ] as const)('%s retires matching base acknowledgements only', async (path) => {
-    const id = seed()
-    const other = seed(raw({ session_id: 'other' }))
-    let input = raw()
-    if (path === 'no-config') {
-      input = {
-        hook_event_name: 'PreToolUse',
-        session_id: 's',
-        cwd: root,
-        tool_name: 'exec_command',
-        tool_input: { command: 'rm -rf scratch' },
+for (const parallel of [false, true]) {
+  test(`Claude operation binding preserves mutable context input, parallel=${parallel}`, async () => {
+    let observed: unknown
+    add('mutate', (ctx) => {
+      ;(ctx.toolInput as Record<string, unknown>).command = 'hacked'
+      return { result: 'allow' }
+    })
+    add('observe', (ctx) => {
+      observed = (ctx.toolInput as Record<string, unknown>).command
+      return { result: 'allow' }
+    })
+    for (const hook of Object.values(config.hooks)) hook.parallel = parallel
+    const output = await run(deps(raw({ tool_name: 'Bash' })), claudeCodeAdapter)
+    expect(observed).toBe('hacked')
+    expect(output.json.hookSpecificOutput.permissionDecision).toBe('allow')
+    expect(output.json.hookSpecificOutput.updatedInput).toBeUndefined()
+    expect(questions).toEqual([])
+  })
+}
+
+test('Claude invalid event ordering remains a fatal error, with paired cleanup', async () => {
+  add('post-only', () => ({ result: 'allow' }))
+  hooks[0]!.hook = { meta: { name: 'post-only' }, PostToolUse: () => ({ result: 'skip' }) }
+  add('pre', () => ({ result: 'allow' }))
+  config.events.PreToolUse = { order: [hn('post-only'), hn('pre')] }
+  const output = await run(deps(raw({ tool_name: 'Bash' })), claudeCodeAdapter, undefined, true)
+  expect(output.code).toBe(2)
+  expect(output.stdout).toBe('')
+  expect(output.stderr).toContain('clooks: fatal error:')
+  expect(output.stderr).toContain('does not handle this event')
+  expect(journal).toContain('close')
+  expect(journal).not.toContain('output')
+})
+
+test('Claude failure-store write errors remain fatal, with paired cleanup', async () => {
+  mkdirSync(join(root, '.clooks', '.failures'), { recursive: true })
+  add('crash', () => {
+    throw new Error('hook failure')
+  })
+  const output = await run(deps(raw({ tool_name: 'Bash' })), claudeCodeAdapter, undefined, true)
+  expect(output.code).toBe(2)
+  expect(output.stdout).toBe('')
+  expect(output.stderr).toContain('clooks: fatal error:')
+  expect(output.stderr).toContain('.failures')
+  expect(journal).toContain('close')
+  expect(journal).not.toContain('output')
+})
+
+for (const adapter of [codexAdapter, claudeCodeAdapter]) {
+  test(`${adapter.id} missing ask reason keeps an explicit reason diagnostic`, async () => {
+    add('bad-ask', () => ({ result: 'ask' }))
+    const output = await run(
+      deps(raw({ tool_name: adapter.id === 'codex' ? 'exec_command' : 'Bash' })),
+      adapter,
+    )
+    expect(output.json.hookSpecificOutput.permissionDecision).toBe('deny')
+    expect(output.json.hookSpecificOutput.permissionDecisionReason).toContain(
+      'ask reason must be a string',
+    )
+    if (adapter.id === 'codex')
+      expect(output.json.hookSpecificOutput.permissionDecisionReason).toContain(
+        'capability "reason"',
+      )
+    expect(questions).toEqual([])
+  })
+}
+
+for (const event of ['PreToolUse', 'Stop']) {
+  for (const paired of [false, true]) {
+    test(`graceful lifecycle ownership event=${event} paired=${paired}`, async () => {
+      if (!paired) {
+        delete process.env.CLOOKS_APPROVAL_OWNER
+        delete process.env.CLOOKS_APPROVAL_PROTOCOL
       }
-    }
-    if (path === 'no-match') {
-      add('stop', () => ({ result: 'skip' }))
-      delete (hooks[0]!.hook as unknown as Record<string, unknown>).PreToolUse
-    }
-    if (path === 'no-ask') add('allow', () => ({ result: 'allow' }))
-    if (path === 'hook-degraded') {
-      config.global.maxFailures = 1
-      add('broken', () => {
-        throw new Error('broken')
+      const active: boolean[] = []
+      const dependencies = deps(raw({ hook_event_name: event }))
+      dependencies.onApprovalLifecycle = (value) => active.push(value)
+      interaction.close = async () => {
+        expect(active.at(-1)).toBe(true)
+        journal.push('close')
+      }
+      await run(dependencies)
+      expect(active).toEqual(paired && event === 'PreToolUse' ? [true, false] : [false])
+      expect(journal.includes('close')).toBe(paired && event === 'PreToolUse')
+    })
+  }
+}
+
+for (const failure of [false, true]) {
+  test(`pending output flush is awaited after interaction closure, failure=${failure}`, async () => {
+    const originalLength = Object.getOwnPropertyDescriptor(process.stdout, 'writableLength')
+    Object.defineProperty(process.stdout, 'writableLength', { configurable: true, get: () => 1 })
+    const flushing = gate()
+    let complete!: (error?: Error | null) => void
+    let settled = false
+    const error = new Error('output stream failed')
+    const pending = run(deps(), codexAdapter, (callback) => {
+      complete = callback
+      flushing.release()
+    })
+      .then(
+        (output) => ({ output }),
+        (error: unknown) => ({ error }),
+      )
+      .finally(() => {
+        settled = true
       })
+    try {
+      await flushing.promise
+      await new Promise((resolve) => setImmediate(resolve))
+      expect(journal.filter((entry) => entry === 'close')).toHaveLength(1)
+      expect(journal).not.toContain('exit')
+      expect(settled).toBe(false)
+      complete(failure ? error : undefined)
+      const result = await pending
+      if (failure) {
+        expect(result).toEqual({ error })
+        expect(journal).not.toContain('exit')
+      } else {
+        expect('output' in result && result.output.code).toBe(0)
+        expect(journal).toContain('exit')
+      }
+    } finally {
+      complete?.()
+      await pending
+      if (originalLength) Object.defineProperty(process.stdout, 'writableLength', originalLength)
+      else Reflect.deleteProperty(process.stdout, 'writableLength')
     }
-    const dependencies = deps(input)
+  })
+}
+
+for (const adapter of [codexAdapter, claudeCodeAdapter]) {
+  test(`${adapter.id}: five hooks execute once around two live checkpoints`, async () => {
+    for (let i = 1; i <= 5; i++)
+      add(String(i), () => {
+        journal.push(`hook:${i}`)
+        return i === 2 || i === 4
+          ? { result: 'ask', reason: `confirm ${i}`, injectContext: `context ${i}` }
+          : { result: 'allow' }
+      })
+    const output = await run(deps(), adapter)
+    expect(journal.filter((v) => /^(hook|ask):/.test(v))).toEqual([
+      'hook:1',
+      'hook:2',
+      'ask:2',
+      'hook:3',
+      'hook:4',
+      'ask:4',
+      'hook:5',
+    ])
+    expect(output.json.hookSpecificOutput.additionalContext).toBe('context 2\ncontext 4')
+    expect(journal.indexOf('close')).toBeLessThan(journal.indexOf('output'))
+  })
+  test(`${adapter.id}: decline is terminal and not a crashing hook`, async () => {
+    let later = 0
+    config.global.onError = 'continue'
+    config.global.maxFailures = 1
+    add('ask', () => ({ result: 'ask', reason: 'confirm' }))
+    add('later', () => {
+      later++
+      return { result: 'allow' }
+    })
+    interaction.request = async () => ({ kind: 'declined', message: 'No' })
+    const output = await run(deps(), adapter)
+    expect(output.stdout + output.stderr).toContain('declined')
+    expect(output.json.hookSpecificOutput?.permissionDecision).toBe('deny')
+    expect(later).toBe(0)
+    expect(journal.filter((v) => v === 'close')).toHaveLength(1)
+  })
+  test(`${adapter.id}: changed operation reconfirms affected asks in configured order`, async () => {
+    add('a', () => ({ result: 'ask', reason: 'A', updatedInput: { command: 'middle' } }))
+    add('b', () => ({ result: 'ask', reason: 'B' }))
+    add('rewrite', () => ({ result: 'allow', updatedInput: { command: 'final' } }))
+    const output = await run(deps(), adapter)
+    expect(questions.map((q) => [q.hookName, q.ordinal, q.operation.input])).toEqual([
+      ['a', 1, { command: 'middle' }],
+      ['b', 2, { command: 'middle' }],
+      ['a', 3, { command: 'final' }],
+      ['b', 4, { command: 'final' }],
+    ])
+    expect(output.json.hookSpecificOutput.updatedInput).toEqual({ command: 'final' })
+  })
+  test(`${adapter.id}: unpaired ask denies without opening storage`, async () => {
+    delete process.env.CLOOKS_APPROVAL_OWNER
+    delete process.env.CLOOKS_APPROVAL_PROTOCOL
+    add('ask', () => ({ result: 'ask', reason: 'confirm' }))
+    const output = await run(deps(), adapter)
+    expect(output.stdout + output.stderr).toContain('Live approval unavailable')
+    expect(output.json.hookSpecificOutput?.permissionDecision).toBe('deny')
+    expect(journal).not.toContain('open')
+  })
+}
+test('Claude unchanged raw input differs from normalized context without a fabricated rewrite', async () => {
+  const input = { snake_key: { nested_key: null }, file_path: 'file' }
+  add('ask', (ctx) => {
+    expect(ctx.toolInput).toEqual({ snakeKey: { nestedKey: null }, filePath: 'file' })
+    return { result: 'ask', reason: 'inspect' }
+  })
+  const output = await run(
+    deps(raw({ tool_name: 'mcp__inspect', tool_input: input })),
+    claudeCodeAdapter,
+  )
+  expect(questions[0]!.operation.input).toEqual(input)
+  expect(output.json.hookSpecificOutput.updatedInput).toBeUndefined()
+})
+test('Claude mixed defer reconfirms original native input, retaining defer', async () => {
+  add('ask', () => ({ result: 'ask', reason: 'confirm', updatedInput: { command: 'changed' } }))
+  add('defer', () => ({ result: 'defer' }))
+  const output = await run(deps(), claudeCodeAdapter)
+  expect(questions.map((q) => q.operation.input)).toEqual([
+    { command: 'changed' },
+    { command: 'original' },
+  ])
+  expect(output.json.hookSpecificOutput).toEqual({
+    hookEventName: 'PreToolUse',
+    permissionDecision: 'defer',
+  })
+})
+for (const stage of ['adjust', 'serialize'] as const) {
+  test(`final ${stage} divergence requires confirmation of actual wire operation`, async () => {
+    add('ask', () => ({ result: 'ask', reason: 'confirm' }))
+    const adapter: AgentAdapter = { ...codexAdapter }
+    if (stage === 'adjust')
+      adapter.adjustResultBeforeFinalOutput = ({ result }) => ({
+        result: { ...result!, updatedInput: { command: 'actual' } },
+        systemMessages: [],
+      })
+    else
+      adapter.translateFinalOutput = (input) =>
+        codexAdapter.translateFinalOutput({
+          ...input,
+          result: { ...input.result!, updatedInput: { command: 'actual' } },
+        })
+    const output = await run(deps(), adapter)
+    expect(questions.map((q) => q.operation.input)).toEqual([
+      { command: 'original' },
+      { command: 'actual' },
+    ])
+    expect(output.json.hookSpecificOutput.updatedInput).toEqual({ command: 'actual' })
+  })
+}
+for (const adapter of [claudeCodeAdapter, codexAdapter]) {
+  for (const failure of ['declined', 'throw'] as const) {
+    test(`${adapter.id}: final reconfirmation ${failure} denies after cleanup, never fatally exits`, async () => {
+      let askExecutions = 0
+      let rewriteExecutions = 0
+      add('ask', () => {
+        askExecutions++
+        return { result: 'ask', reason: 'original consent' }
+      })
+      add('rewrite', () => {
+        rewriteExecutions++
+        return { result: 'allow', updatedInput: { command: 'changed after consent' } }
+      })
+      interaction.request = async (question) => {
+        questions.push(structuredClone(question))
+        journal.push(`ask:${question.ordinal}`)
+        if (question.ordinal === 1) return { kind: 'approved' }
+        if (failure === 'throw') throw new Error('reconfirmation transport failed')
+        return { kind: 'declined', message: 'rewrite not authorized' }
+      }
+      const output = await run(deps(), adapter)
+      expect(
+        questions.map((question) => [question.ordinal, question.reason, question.operation.input]),
+      ).toEqual([
+        [1, 'original consent', { command: 'original' }],
+        [2, 'original consent', { command: 'changed after consent' }],
+      ])
+      expect(askExecutions).toBe(1)
+      expect(rewriteExecutions).toBe(1)
+      expect(output.code).toBe(0)
+      expect(output.stderr).not.toContain('fatal error')
+      expect(output.json.hookSpecificOutput.permissionDecision).toBe('deny')
+      expect(output.json.hookSpecificOutput.permissionDecisionReason).toContain(
+        failure === 'throw' ? 'reconfirmation transport failed' : 'rewrite not authorized',
+      )
+      expect(output.json.hookSpecificOutput.updatedInput).toBeUndefined()
+      expect(journal.filter((entry) => entry === 'close')).toHaveLength(1)
+      expect(journal.indexOf('ask:2')).toBeLessThan(journal.indexOf('close'))
+      expect(journal.indexOf('close')).toBeLessThan(journal.indexOf('output'))
+    })
+  }
+}
+for (const path of [
+  'no-config',
+  'empty',
+  'no-match',
+  'suppressed',
+  'config-error',
+  'import-error',
+] as const) {
+  test(`paired ${path} closes exactly once`, async () => {
+    const dependencies = deps()
     if (path === 'no-config') dependencies.loadConfig = async () => null
-    if (path === 'config-degraded') {
+    if (path === 'no-match') {
+      add('other', () => undefined)
+      hooks[0]!.hook = { meta: { name: hn('other') } } as LoadedHook['hook']
+    }
+    if (path === 'suppressed') process.env.CLOOKS_APPROVAL_DISPOSITION = 'suppressed'
+    if (path === 'config-error')
       dependencies.loadConfig = async () => {
         throw new Error('bad config')
       }
-      expect((await run(dependencies)).json.hookSpecificOutput.permissionDecision).toBe('deny')
-      expect((await run(dependencies)).json.hookSpecificOutput.permissionDecision).toBe('deny')
-      expect(store.acknowledge(id).consumedAt).toBeNull()
-    }
-    const allowed = await run(dependencies)
-    expect(allowed.json.hookSpecificOutput?.permissionDecision).not.toBe('deny')
-    expect(() => store.acknowledge(id)).toThrow('consumed')
-    expect(store.acknowledge(other).consumedAt).toBeNull()
-    expect(reads).toBe(path === 'config-degraded' ? 3 : 1)
+    if (path === 'import-error')
+      dependencies.loadAllHooks = async () => {
+        throw new Error('bad import')
+      }
+    await run(dependencies)
+    expect(journal.filter((v) => v === 'close')).toHaveLength(1)
+    if (path === 'suppressed') expect(journal).not.toContain('discover')
   })
-  test.each([false, true])(
-    'absent store preserves no-config reads, advisory=%s',
-    async (advisory) => {
-      const dependencies = deps(null)
-      dependencies.loadConfig = async () => null
-      if (advisory)
-        dependencies.discoverProjectRoot = async () => ({
-          projectRoot: root,
-          signal: 'cwd-fallback',
-          from: root,
-          checked: [root],
-        })
-      expect((await run(dependencies)).stdout).toBe('')
-      expect(reads).toBe(advisory ? 1 : 0)
-      expect(store.exists()).toBe(false)
-    },
-  )
-  test.each(['malformed', 'throw', 'undefined-throw', 'missing-identity'] as const)(
-    'existing-store advisory caches %s and never rereads stdin',
-    async (failure) => {
-      const id = seed()
-      const dependencies = deps(failure === 'missing-identity' ? raw({ session_id: '' }) : [])
-      dependencies.loadConfig = async () => null
-      dependencies.discoverProjectRoot = async () => ({
-        projectRoot: root,
-        signal: 'cwd-fallback',
-        from: root,
-        checked: [root],
-      })
-      if (failure === 'throw' || failure === 'undefined-throw')
-        dependencies.readStdin = async () => {
-          reads++
-          throw failure === 'throw' ? new Error('stdin failed') : undefined
-        }
-      const refused = await run(dependencies)
-      if (failure === 'missing-identity') expect(refused.stdout).toContain('Pending call denial')
-      else {
-        expect(refused.stderr).toContain('local failure')
-        expect(refused.code).toBe(2)
-        expect(refused.stdout).toBe('')
-      }
-      expect(reads).toBe(1)
-      expect(store.acknowledge(id).consumedAt).toBeNull()
-    },
-  )
-  test.each(['SessionStart', 'PostToolUse'] as const)(
-    'known %s does not access approval storage',
-    async (event) => {
-      const exists = spyOn(ApprovalStore.prototype, 'exists').mockImplementation(() => {
-        throw new Error('unavailable')
-      })
-      try {
-        const output = await run(
-          deps(raw({ hook_event_name: event, source: 'startup', tool_response: {} })),
-        )
-        expect(output.stdout).toBe('')
-        expect(exists).not.toHaveBeenCalled()
-      } finally {
-        exists.mockRestore()
-      }
-    },
-  )
-  test('no-config non-PreToolUse ignores inaccessible store after identifying cached event', async () => {
-    const exists = spyOn(ApprovalStore.prototype, 'exists').mockImplementation(() => {
-      throw new Error('unavailable')
+}
+test('transport setup failure denies asks but no-ask completion remains available', async () => {
+  const dependencies = deps()
+  dependencies.createApprovalInteraction = async () => {
+    throw new Error('disk unavailable')
+  }
+  expect((await run(dependencies)).code).toBe(0)
+  add('ask', () => ({ result: 'ask', reason: 'confirm' }))
+  const output = await run(dependencies)
+  expect(output.stdout).toContain('disk unavailable')
+  expect(output.json.hookSpecificOutput.permissionDecision).toBe('deny')
+  expect(output.stdout).toContain('clooks init --agent codex')
+})
+test('suppression stays authoritative when transport setup fails', async () => {
+  process.env.CLOOKS_APPROVAL_DISPOSITION = 'suppressed'
+  const dependencies = deps()
+  dependencies.createApprovalInteraction = async () => {
+    throw new Error('cannot publish')
+  }
+  const output = await run(dependencies)
+  expect(journal).not.toContain('discover')
+  expect(journal).not.toContain('load')
+  expect(output.json.hookSpecificOutput.permissionDecision).toBe('deny')
+})
+test('suppressed disposition alone refuses before discovery or hooks', async () => {
+  process.env.CLOOKS_APPROVAL_DISPOSITION = 'suppressed'
+  delete process.env.CLOOKS_APPROVAL_OWNER
+  delete process.env.CLOOKS_APPROVAL_PROTOCOL
+  let executed = 0
+  add('guard', () => {
+    executed++
+    return { result: 'allow' }
+  })
+  const output = await run()
+  expect(executed).toBe(0)
+  expect(journal).not.toContain('discover')
+  expect(journal).not.toContain('load')
+  expect(journal).not.toContain('open')
+  expect(output.json.hookSpecificOutput.permissionDecision).toBe('deny')
+})
+for (const lateRejects of [false, true]) {
+  test(`parallel cancellation drains held sibling before cleanup, rejects=${lateRejects}`, async () => {
+    const controller = new AbortController()
+    const started = gate()
+    const releaseA = gate()
+    const releaseB = gate()
+    let starts = 0
+    let later = 0
+    let settled = false
+    let siblingSettled = false
+    add('a', async () => {
+      if (++starts === 2) started.release()
+      await releaseA.promise
+      return { result: 'ask', reason: 'A' }
     })
-    try {
-      const dependencies = deps({ hook_event_name: 'PostToolUse' })
-      dependencies.loadConfig = async () => null
-      expect((await run(dependencies)).stdout).toBe('')
-      expect(reads).toBe(1)
-    } finally {
-      exists.mockRestore()
-    }
-  })
-  test('existing corrupt store refuses no-ask success, but explicit denial does not consult it', async () => {
-    seed()
-    writeFileSync(store.path, 'corrupt')
-    expect((await run()).json.hookSpecificOutput.permissionDecision).toBe('deny')
-    add('deny', () => ({ result: 'block', reason: 'explicit' }))
-    expect((await run()).json.hookSpecificOutput.permissionDecisionReason).toBe('explicit')
-  })
-  test('Claude never accesses Codex approvals', async () => {
-    const exists = spyOn(ApprovalStore.prototype, 'exists').mockImplementation(() => {
-      throw new Error('Codex store')
+    add('b', async () => {
+      if (++starts === 2) started.release()
+      await releaseB.promise
+      siblingSettled = true
+      if (lateRejects) throw new Error('late sibling rejection')
+      return { result: 'ask', reason: 'B' }
     })
+    add('later', () => {
+      later++
+      return { result: 'allow' }
+    })
+    config.hooks[hn('a')]!.parallel = true
+    config.hooks[hn('b')]!.parallel = true
+    const dependencies = deps()
+    dependencies.signal = controller.signal
+    const pending = run(dependencies, { ...codexAdapter, resolveTurnPolicy: () => null }).finally(
+      () => {
+        settled = true
+      },
+    )
     try {
-      expect((await run(deps(raw()), claudeCodeAdapter)).stdout).toBe('')
-      expect(exists).not.toHaveBeenCalled()
+      await started.promise
+      controller.abort()
+      releaseA.release()
+      await new Promise((resolve) => setImmediate(resolve))
+      expect(settled).toBe(false)
+      expect(siblingSettled).toBe(false)
+      expect(journal).not.toContain('close')
+      expect(journal).not.toContain('output')
+      expect(questions).toEqual([])
+      releaseB.release()
+      const output = await pending
+      expect(siblingSettled).toBe(true)
+      expect(later).toBe(0)
+      expect(output.json.hookSpecificOutput.permissionDecision).toBe('deny')
+      expect(journal.filter((entry) => entry === 'close')).toHaveLength(1)
+      const snapshot = [...journal]
+      await new Promise((resolve) => setImmediate(resolve))
+      expect(journal).toEqual(snapshot)
     } finally {
-      exists.mockRestore()
+      releaseA.release()
+      releaseB.release()
+      await pending
     }
   })
-  test.each(['claude-ask', 'SessionStart', 'PostToolUse'] as const)(
-    'matched %s executes and never calls approval store methods',
-    async (event) => {
-      let executed = 0
-      add('matched', () => {
-        executed++
-        return { result: 'ask', reason: 'native Claude confirmation' }
-      })
-      if (event !== 'claude-ask') {
-        const hook = hooks[0]!.hook as unknown as Record<string, unknown>
-        delete hook.PreToolUse
-        hook[event] = () => {
-          executed++
-          return { result: 'skip', injectContext: 'matched context' }
-        }
-      }
-      const spies = [
-        spyOn(ApprovalStore.prototype, 'exists'),
-        spyOn(ApprovalStore.prototype, 'issueOrReuse'),
-        spyOn(ApprovalStore.prototype, 'acknowledge'),
-        spyOn(ApprovalStore.prototype, 'resolveAttempt'),
-        spyOn(ApprovalStore.prototype, 'finalizePermit'),
-      ]
-      for (const spy of spies)
-        spy.mockImplementation(() => {
-          throw new Error('unexpected approval I/O')
-        })
-      try {
-        const output = await run(
-          deps(
-            event === 'claude-ask'
-              ? raw()
-              : raw({ hook_event_name: event, source: 'startup', tool_response: {} }),
-          ),
-          event === 'claude-ask' ? claudeCodeAdapter : codexAdapter,
-        )
-        expect(executed).toBe(1)
-        expect(output.code).toBe(0)
-        if (event === 'claude-ask')
-          expect(output.json.hookSpecificOutput.permissionDecision).toBe('ask')
-        else
-          expect(output.json.hookSpecificOutput).toEqual({
-            hookEventName: event,
-            additionalContext: 'matched context',
-          })
-        for (const spy of spies) expect(spy).not.toHaveBeenCalled()
-      } finally {
-        for (const spy of spies) spy.mockRestore()
-      }
+}
+test('parallel cancellation drain is bounded by the existing hook timeout', async () => {
+  const controller = new AbortController()
+  const started = gate()
+  const releaseA = gate()
+  const releaseB = gate()
+  let starts = 0
+  let later = 0
+  let settled = false
+  add('a', async () => {
+    if (++starts === 2) started.release()
+    await releaseA.promise
+    return { result: 'ask', reason: 'A' }
+  })
+  add('b', async () => {
+    if (++starts === 2) started.release()
+    await releaseB.promise
+    return { result: 'ask', reason: 'late B' }
+  })
+  add('later', () => {
+    later++
+    return { result: 'allow' }
+  })
+  config.hooks[hn('a')]!.parallel = true
+  config.hooks[hn('b')]!.parallel = true
+  config.global.timeout = ms(200)
+  const dependencies = deps()
+  dependencies.signal = controller.signal
+  const pending = run(dependencies, { ...codexAdapter, resolveTurnPolicy: () => null }).finally(
+    () => {
+      settled = true
     },
   )
+  try {
+    await started.promise
+    controller.abort()
+    releaseA.release()
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(settled).toBe(false)
+    expect(journal).not.toContain('close')
+    const output = await pending
+    expect(output.json.hookSpecificOutput.permissionDecision).toBe('deny')
+    expect(later).toBe(0)
+    expect(questions).toEqual([])
+    const snapshot = [...journal]
+    releaseB.release()
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(journal).toEqual(snapshot)
+  } finally {
+    releaseA.release()
+    releaseB.release()
+    await pending
+  }
+})
+test('close failure is awaited and cannot emit permissive bytes', async () => {
+  const entered = gate()
+  const finish = gate()
+  add('ask', () => ({ result: 'ask', reason: 'confirm' }))
+  interaction.close = async () => {
+    entered.release()
+    await finish.promise
+    throw new Error('publication failed')
+  }
+  const pending = run()
+  await entered.promise
+  expect(journal).not.toContain('output')
+  finish.release()
+  const output = await pending
+  expect(output.json.hookSpecificOutput.permissionDecision).toBe('deny')
+  expect(output.stdout).toContain('publication failed')
+})
+for (const phase of ['pre-aborted', 'config', 'import', 'handler', 'ask'] as const) {
+  test(`cancellation at ${phase} drains orchestration before return`, async () => {
+    const controller = new AbortController()
+    const entered = gate()
+    const finish = gate()
+    const dependencies = deps()
+    dependencies.signal = controller.signal
+    add('a', async () => {
+      journal.push('hook:a')
+      if (phase === 'handler') {
+        entered.release()
+        await finish.promise
+      }
+      return { result: 'ask', reason: 'confirm' }
+    })
+    add('b', () => {
+      journal.push('hook:b')
+      return { result: 'allow' }
+    })
+    if (phase === 'config')
+      dependencies.loadConfig = async () => {
+        entered.release()
+        await finish.promise
+        return { config, shadows: [], hasProjectConfig: true }
+      }
+    if (phase === 'import')
+      dependencies.loadAllHooks = async () => {
+        entered.release()
+        await finish.promise
+        return { loaded: hooks, loadErrors: [], dangling: [] }
+      }
+    if (phase === 'ask')
+      interaction.request = async () => {
+        entered.release()
+        await finish.promise
+        return { kind: 'approved' }
+      }
+    if (phase === 'pre-aborted') controller.abort()
+    let settled = false
+    const pending = run(dependencies).finally(() => {
+      settled = true
+    })
+    if (phase !== 'pre-aborted') {
+      await entered.promise
+      controller.abort()
+      await new Promise((resolve) => setImmediate(resolve))
+      expect(settled).toBe(false)
+      expect(journal).not.toContain('close')
+      expect(journal).not.toContain('output')
+      finish.release()
+    }
+    const output = await pending
+    if (phase !== 'pre-aborted') {
+      expect(output.json.hookSpecificOutput.permissionDecision).toBe('deny')
+      expect(journal.filter((v) => v === 'close')).toHaveLength(1)
+    }
+    expect(journal).not.toContain('hook:b')
+    if (phase === 'pre-aborted') {
+      expect(journal).not.toContain('read')
+      expect(journal).not.toContain('discover')
+    }
+    const snapshot = [...journal]
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(journal).toEqual(snapshot)
+  })
+}
+test('old token storage is inert and shell carriers remain literal input', async () => {
+  const directory = join(root, '.clooks/approvals')
+  mkdirSync(directory, { recursive: true })
+  const path = join(directory, 'codex.sqlite')
+  writeFileSync(path, 'old data')
+  const command = 'CLOOKS_APPROVAL_TOKENS=ca1_deadbeef echo literal'
+  add('ask', (ctx) => {
+    expect(ctx.toolInput).toEqual({ command })
+    return { result: 'ask', reason: 'confirm' }
+  })
+  const output = await run(deps(raw({ tool_input: { command } })))
+  expect(output.code).toBe(0)
+  expect(output.json.hookSpecificOutput?.permissionDecision).toBeUndefined()
+  expect(questions).toHaveLength(1)
+  expect(questions[0]!.operation.input).toEqual({ command })
+  expect(readFileSync(path, 'utf8')).toBe('old data')
+})
+test('real channel publication failure drains queued acceptance before run emits denial', async () => {
+  const controller = new AbortController()
+  const paused = gate()
+  const resume = gate()
+  const dependencies = deps()
+  dependencies.signal = controller.signal
+  let box: Mailbox
+  let settled = false
+  let requestSettled = false
+  let later = 0
+  add('ask', () => ({ result: 'ask', reason: 'confirm' }))
+  add('later', () => {
+    later++
+    return { result: 'allow' }
+  })
+  dependencies.createApprovalInteraction = async (options) => {
+    const channel = await createApprovalInteraction(options, {
+      home: root,
+      pause: async () => {
+        paused.release()
+        await resume.promise
+      },
+    })
+    box = new Mailbox(approvalRoot(root), options.identity)
+    const start = box.bound('start', startSchema)!
+    const peer = box.claim('check', Date.now())
+    box.publish('attached', {
+      version: 1,
+      key: options.identity,
+      nonce: start.nonce,
+      checkId: peer.id,
+    })
+    return {
+      async request(question, signal) {
+        try {
+          return await channel.request(question, signal)
+        } finally {
+          requestSettled = true
+        }
+      },
+      async close() {
+        await channel.close()
+      },
+    }
+  }
+  const originalPublish = Mailbox.prototype.publish
+  const publish = spyOn(Mailbox.prototype, 'publish').mockImplementation(function (
+    this: Mailbox,
+    name,
+    packet,
+  ) {
+    if (name === 'done') throw new Error('done publication fault')
+    originalPublish.call(this, name, packet)
+  })
+  const pending = run(dependencies).finally(() => {
+    settled = true
+  })
+  try {
+    await paused.promise
+    const packet = box!.bound('question-1', questionPacketSchema)!
+    const attached = box!.bound('attached', attachedSchema)!
+    box!.publish('reply-1', {
+      version: 1,
+      key: packet.key,
+      nonce: packet.nonce,
+      checkId: attached.checkId,
+      ordinal: 1,
+      digest: digest(packet.question),
+      confirmed: true,
+    })
+    controller.abort()
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(settled).toBe(false)
+    expect(requestSettled).toBe(false)
+    expect(journal).not.toContain('output')
+    resume.release()
+    const output = await pending
+    expect(requestSettled).toBe(true)
+    expect(later).toBe(0)
+    expect(output.json.hookSpecificOutput.permissionDecision).toBe('deny')
+  } finally {
+    resume.release()
+    await pending
+    publish.mockRestore()
+  }
 })

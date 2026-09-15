@@ -130,8 +130,8 @@ The handler returns a decision object — the value of `ctx.allow()`, `ctx.block
 | `success` | Implementation event completed successfully. | 0 |
 | `continue` | Continuation event: keep going. | 0 |
 | `retry` | Implementation event: retry. | 0 |
-| `ask` | `PreToolUse`: defer to user confirmation. Permissive. | 0 |
-| `defer` | `PreToolUse`: hand off to a later hook or user. Permissive. | 0 |
+| `ask` | Raw PreToolUse consent request; no live question is opened by this harness. | 0 |
+| `defer` | Raw PreToolUse defer decision, distinct from consent. | 0 |
 | `block` | Hook refuses the action. | 1 |
 | `failure` | Implementation event reports failure. | 1 |
 | `stop` | Continuation event: halt. | 1 |
@@ -141,7 +141,11 @@ The handler returns a decision object — the value of `ctx.allow()`, `ctx.block
 
 Exit codes are designed for shell composition: 0 means "the hook ran cleanly and made a decision the harness understood as permissive or neutral"; 1 means "the hook ran cleanly and decided to refuse or report failure"; 2 is reserved for harness or hook errors and is never an author-intended outcome.
 
-`ask` and `defer` are exit 0 because they are permissive author-intended branches for `PreToolUse` hooks that want user confirmation rather than a hard refusal. Treating them as exit 1 would break shell loops that mean to allow ask'd flows.
+`ask` and `defer` retain synthetic exit 0 for the existing test-command contract.
+Neither means consent was obtained, native permission was granted, or a target
+tool executed. The runtime's live checkpoint wait belongs to the engine, not this
+single-hook harness. Defer is not an approval response and has separate native
+mode restrictions. Do not use a harness exit 0 as authorization to execute a tool.
 
 The full mapping lives in `src/commands/test.ts:31` (`exitCodeForResult`).
 

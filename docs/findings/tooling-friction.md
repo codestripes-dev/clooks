@@ -2,6 +2,16 @@
 
 Build issues, slow commands, flaky CI, broken toolchain steps, or other tooling problems that blocked or slowed progress.
 
+### Claude interactive MCP connection logs do not establish first-turn hook readiness
+
+**Severity:** friction
+**Date:** 2026-09-15
+**Context:** Isolated native approval probes with Claude Code 2.1.272, Codex CLI 0.154.0 and MCP SDK 1.26.0; local model and approval replies are scripted.
+
+Claude reported a connected MCP server before first-turn hooks skipped it as not connected. Normal disk config, removing only `--tools`, and an unchanged same-home fresh-session restart still denied `MCP peer unavailable`, with no MCP call or effect. In `tmp/approvals-native/run-8DWosWUB` (rc 0), the first call denied but a distinct second call in the same process/session/server completed two approvals and one native effect. Conversely, `run-Ct839KZ6` completed approvals and an effect on its first turn; the diagnostic's required-denial assertion failed and the run retained rc 1. That diagnostic did not reproduce the first-denial precondition, rather than demonstrating a native approval failure.
+
+**Disposition:** Bounded diagnosis stopped without a readiness fix. First-turn availability is intermittent in this fixture, not universally broken. Connection logs are insufficient readiness evidence; per-turn state publication is a hypothesis, not a proved merge bug or documented solution. Retain native failures and distinguish second-turn diagnostic success from reliable first-turn interaction. No production go, real configuration changes or further experiments are implied. See [native probe limitations](../domain/testing/interactive-approvals.md#claude-interactive-config-discriminators); detailed receipts remain in the owned run directories.
+
 ### Codex sandbox drops Bun child-process stdin over sockets
 
 **Severity:** friction

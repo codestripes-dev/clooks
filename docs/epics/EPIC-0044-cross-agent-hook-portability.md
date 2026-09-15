@@ -6,6 +6,16 @@
 
 Make Clooks usable as a general-purpose hook framework across Claude Code and Codex without changing the existing `ClooksHook` authoring surface. The first concrete cross-agent target is Codex: register Clooks as one Codex command hook per supported Codex lifecycle event, normalize Codex hook payloads into Clooks' current event/context model, run the existing Clooks config/loading/execution pipeline, and translate Clooks results back to Codex JSON. The work is adapter-first, not a rewrite: Claude Code remains the primary mature target, while Codex support starts with a conservative supported subset and explicit capability checks.
 
+### Shared live approval follow-on (engine complete; next phase paused)
+
+The user-approved [shared MCP approvals plan](../plans/shared-mcp-approvals/PLAN-0083-shared-mcp-approvals.md) extends the completed command-adapter work: retain command execution and pair PreToolUse with an MCP interaction handler on both agents. The implemented engine resolves each sequential handler ask before continuing, rather than replay hooks or defer all questions until reduction. This deliberately supersedes the command-only and token-retry choices for live asks, not the broader adapter architecture or durable defer semantics.
+
+Shared approvals M1 through M3 are complete with final Nash code and Harvey QA GO. Transport and ordered engine checkpoints are implemented, including operation reconfirmation and approval-scoped cancellation without changing ordinary fatal exits or legacy input behavior. Final `run-sXbso1` passed 112 tooling tests, 4727 source tests with coverage and 1378 E2E tests, with matching source hashes and all six cleanups successful. Actual Claude review covered an earlier immutable snapshot; confirmed findings and the constructor correction were independently reviewed afterward. The engine no longer uses token retries; retained token CLI/store components await physical retirement. Generated registration is not implemented by these milestones.
+
+Native evidence retains explicit limits: Claude cold readiness is intermittent; the Codex child diagnostic required a direct normal MCP call and does not establish cold-child support or authorize production warming. External native expiry and loss of both enforcing peers can permit effects, so controlled denial must precede native expiry. Historical failed receipts remain intact. Compiled engine acceptance is not generated-registration native or release conformance.
+
+M4 is not started and is paused for user discussion/testing: "No upgrade guidance yet. We're going to talk about this and test it first." Registration, migration and user-facing upgrade guidance remain proposals, not implemented behavior. Source/test writers remain frozen through the M3 checkpoint commit and precommit. Companion danger-zone review is recorded in the plan's `ATTENTION.md`.
+
 ## Features
 
 - [`FEAT-0044-cross-agent-hooks.md`](../planned/FEAT-0044-cross-agent-hooks.md) -- primary feature. Cross-agent hook portability via `clooks init --agent <name>`.

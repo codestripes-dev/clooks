@@ -28,6 +28,10 @@ import type { TurnTracker } from './turn-state.js'
 import type { FailureLocation } from '../failures.js'
 import type { TurnContext, TurnDecision } from '../types/turn.js'
 import { cloneDeep, omitBy, isNull } from 'lodash-es'
+import type { ApprovalInteraction, ApprovalQuestion } from '../interaction/types.js'
+import { operationSchema } from '../interaction/protocol.js'
+import { materializePatch, jsonRecord } from '../agents/codex/tool-codecs.js'
+import { requestApproval } from './live-approvals.js'
 
 // --- PreToolUse vote collector types and helpers ---
 
@@ -55,6 +59,11 @@ export function reducePreToolUseVotes(
   result?: EngineResult
   warnings: string[]
 } {
+  votes = votes.map((vote) =>
+    vote.resolvedAsk
+      ? { ...vote, rank: 0, engineResult: { ...vote.engineResult, result: 'allow' } }
+      : vote,
+  )
   if (votes.length === 0) return { warnings: [] }
 
   // Equal ranks are resolved by execution order: the last vote wins.
@@ -344,6 +353,8 @@ export async function executeHooks(
   disabledNames?: Set<HookName>,
   turnTracker?: TurnTracker,
   policy: InvocationResultPolicy = legacyResultPolicy,
+  interaction?: ApprovalInteraction,
+  signal: AbortSignal = new AbortController().signal,
 ): Promise<ExecutionResult> {
   const debug = process.env.CLOOKS_DEBUG === 'true'
   const debugMessages: string[] = []
@@ -359,8 +370,8 @@ export async function executeHooks(
   let lastResult: EngineResult | undefined
   let policyFailure: RuntimePolicyFailure | undefined
   let effectsOpen = true
-  const collectPreToolUseVotes =
-    eventName === 'PreToolUse' && policy.collectPreToolUseVotes === true
+  const collectPreToolUseVotes = eventName === 'PreToolUse'
+  const approvals: ApprovalQuestion[] = []
   const acceptedVotes: AcceptedPreToolUseVote[] = []
   let executionFailed = loadErrors.length > 0
   const rejectUnreadableResult = (hookName: HookName) => {
@@ -394,6 +405,7 @@ export async function executeHooks(
     collectPreToolUseVotes
       ? {
           preToolUse: {
+            approvals,
             votes: acceptedVotes,
             finalToolInput: cloneDeep(currentToolInput),
             inputChanged: currentToolInput !== originalToolInput,
@@ -402,6 +414,15 @@ export async function executeHooks(
         }
       : {}
   const audit = (value: unknown, origin: ResultOrigin, hookName: HookName, parallel: boolean) => {
+    if (signal.aborted) {
+      policyFailure ??= {
+        eventName,
+        hookName,
+        capability: 'cancelled',
+        message: 'clooks: invocation cancelled',
+      }
+      effectsOpen = false
+    }
     if (!effectsOpen) return undefined
     const checked = checkDetachedResult(
       policy,
@@ -500,6 +521,49 @@ export async function executeHooks(
 
   // --- PreToolUse-specific state (populated by runners when eventName === 'PreToolUse') ---
   const preToolUseVotes: PreToolUseVote[] = []
+  const interactionFailed = (error: unknown, hookName?: HookName) => {
+    policyFailure ??= {
+      eventName,
+      hookName,
+      capability: 'approval',
+      message: `clooks: ${error instanceof Error ? error.message : String(error)}`,
+    }
+    effectsOpen = false
+  }
+  async function resolveAsk(
+    result: EngineResult,
+    hookName: HookName,
+    candidate: unknown,
+  ): Promise<boolean> {
+    if (preToolUseVotes.some((vote) => vote.rank === 3) || pipelineBlocked) return false
+    try {
+      const operation = policy.approvalOperation
+        ? policy.approvalOperation(candidate, candidate !== originalToolInput)
+        : operationSchema.parse({ toolName: normalized.toolName, input: candidate })
+      const question: ApprovalQuestion = {
+        hookName,
+        ordinal: approvals.length + 1,
+        reason: result.reason?.trim() ? result.reason : 'Hook requested confirmation.',
+        operation,
+      }
+      await requestApproval(interaction, question, signal)
+      approvals.push(cloneDeep(question))
+      return true
+    } catch (error) {
+      interactionFailed(error, hookName)
+      return false
+    }
+  }
+  function candidateInput(result: EngineResult, next?: Record<string, unknown>) {
+    if (next !== undefined) return next
+    if (result.updatedInput === undefined) return currentToolInput
+    if (result.result !== 'ask') {
+      // Unvalidated legacy allows retain their historical spread/null semantics.
+      if (!result.updatedInput) return currentToolInput
+      return omitBy({ ...(currentToolInput ?? {}), ...result.updatedInput }, isNull)
+    }
+    return materializePatch(jsonRecord(currentToolInput), result.updatedInput)
+  }
 
   // --- Order and partition ---
   const orderedHooks = orderHooksForEvent(
@@ -518,11 +582,12 @@ export async function executeHooks(
   function voteRecorder(result: EngineResult, hookName: HookName, origin: ResultOrigin) {
     const acceptedResult = collectPreToolUseVotes ? cloneDeep(result) : undefined
     const inputBefore = collectPreToolUseVotes ? cloneDeep(currentToolInput) : undefined
-    return (engineResult: EngineResult) => {
-      preToolUseVotes.push({ engineResult, rank: rankPreToolUseResult(engineResult) })
+    return (engineResult: EngineResult, resolvedAsk = false) => {
+      preToolUseVotes.push({ engineResult, rank: rankPreToolUseResult(engineResult), resolvedAsk })
       if (acceptedResult && collectPreToolUseVotes) {
         acceptedVotes.push({
           engineResult: acceptedResult,
+          resolvedAsk,
           rank: rankPreToolUseResult(acceptedResult),
           hookName,
           origin,
@@ -539,6 +604,10 @@ export async function executeHooks(
     // Per-group AbortController — never aborted for sequential groups
     const sharedController = new AbortController()
     for (const hook of group.hooks) {
+      if (signal.aborted) {
+        interactionFailed(new Error('Approval interaction cancelled'))
+        return
+      }
       const loaded = hook.loaded
       const { maxFailures, maxFailuresMessage } = resolveMaxFailures(loaded.name, config)
 
@@ -546,14 +615,18 @@ export async function executeHooks(
       const context: Record<string, unknown> = { ...normalized }
       if (currentToolInput !== undefined) {
         context.toolInput =
-          policy === legacyResultPolicy ? currentToolInput : cloneDeep(currentToolInput)
+          policy === legacyResultPolicy || policy.mutableToolInput
+            ? currentToolInput
+            : cloneDeep(currentToolInput)
       }
       if (originalToolInput !== undefined) {
         context.originalToolInput =
-          policy === legacyResultPolicy ? originalToolInput : cloneDeep(originalToolInput)
+          policy === legacyResultPolicy || policy.mutableToolInput
+            ? originalToolInput
+            : cloneDeep(originalToolInput)
       }
       context.parallel = false
-      context.signal = sharedController.signal
+      context.signal = AbortSignal.any([sharedController.signal, signal])
       // Freshly allocated per hook: a shared object would let one hook's push
       // onto `prior` rewrite what a later hook sees.
       context.turn = safeMaterializeTurn(turnTracker, loaded.name, eventName)
@@ -570,6 +643,10 @@ export async function executeHooks(
           lifecycleMetaCache,
         )
       } catch (e) {
+        if (signal.aborted) {
+          interactionFailed(new Error('Approval interaction cancelled'))
+          return
+        }
         // Recorded before any mode resolution: the record describes what the
         // hook did, not what the engine decided to do about it.
         recordRaw(loaded.name, undefined, true)
@@ -727,6 +804,19 @@ export async function executeHooks(
       // Single cast at the boundary where dynamically-imported hook code returns.
       const resultObj = result as EngineResult
       const addVote = voteRecorder(resultObj, loaded.name, lifecycleResult.origin)
+      let resolvedAsk = false
+      if (eventName === 'PreToolUse' && resultObj.result === 'ask') {
+        let candidate: unknown
+        try {
+          candidate = candidateInput(resultObj, checked?.nextToolInput)
+        } catch (error) {
+          interactionFailed(error, loaded.name)
+          return
+        }
+        resolvedAsk = await resolveAsk(resultObj, loaded.name, candidate)
+        if (!effectsOpen) return
+        if (resolvedAsk) currentToolInput = candidate
+      }
 
       // Handoff runs before the debug serialization below so debug output shows
       // the pointer, not the payload handoff was meant to keep out of the transcript.
@@ -739,6 +829,10 @@ export async function executeHooks(
         policy.handoff,
         reportInlineHandoff,
       )
+      if (signal.aborted) {
+        interactionFailed(new Error('Approval interaction cancelled'))
+        return
+      }
       if (!effectsOpen) return
 
       if (debug) {
@@ -783,18 +877,7 @@ export async function executeHooks(
       // Ask — PreToolUse: push vote and continue; non-PreToolUse: fall through to allow path.
       if (hookResult.result === 'ask') {
         if (eventName === 'PreToolUse') {
-          // Ask hooks can carry updatedInput. Merge it into pipeline state
-          // so subsequent sequential hooks and the reducer see the accumulated input.
-          if (checked?.nextToolInput !== undefined) {
-            currentToolInput = checked.nextToolInput
-          } else if (hookResult.updatedInput) {
-            const base = (currentToolInput ?? {}) as Record<string, unknown>
-            currentToolInput = omitBy({ ...base, ...hookResult.updatedInput }, isNull) as Record<
-              string,
-              unknown
-            >
-          }
-          addVote(hookResult)
+          addVote(hookResult, resolvedAsk)
           continue
         }
         // Non-PreToolUse: treat as non-skip (updates lastNonSkipResult below)
@@ -821,7 +904,14 @@ export async function executeHooks(
       // Patch-merge: hooks return a partial patch. Spread it onto the running tool
       // input and strip `null` values (explicit-unset sentinel). `undefined` is
       // already absent after spread, which is the "no patch on this key" case.
-      if (checked?.nextToolInput !== undefined) {
+      if (eventName === 'PreToolUse') {
+        try {
+          currentToolInput = candidateInput(hookResult, checked?.nextToolInput)
+        } catch (error) {
+          interactionFailed(error, loaded.name)
+          return
+        }
+      } else if (checked?.nextToolInput !== undefined) {
         currentToolInput = checked.nextToolInput
       } else if (hookResult.updatedInput) {
         const base = (currentToolInput ?? {}) as Record<string, unknown>
@@ -898,14 +988,18 @@ export async function executeHooks(
       const context: Record<string, unknown> = { ...normalized }
       if (currentToolInput !== undefined) {
         context.toolInput =
-          policy === legacyResultPolicy ? currentToolInput : cloneDeep(currentToolInput)
+          policy === legacyResultPolicy || policy.mutableToolInput
+            ? currentToolInput
+            : cloneDeep(currentToolInput)
       }
       if (originalToolInput !== undefined) {
         context.originalToolInput =
-          policy === legacyResultPolicy ? originalToolInput : cloneDeep(originalToolInput)
+          policy === legacyResultPolicy || policy.mutableToolInput
+            ? originalToolInput
+            : cloneDeep(originalToolInput)
       }
       context.parallel = true
-      context.signal = controller.signal
+      context.signal = AbortSignal.any([controller.signal, signal])
       context.turn = safeMaterializeTurn(turnTracker, loaded.name, eventName)
 
       const timeout = resolveTimeout(loaded.name, config)
@@ -914,293 +1008,289 @@ export async function executeHooks(
       return { promise, hookName: loaded.name }
     })
 
-    // Custom short-circuit batch runner
-    const { results } = await new Promise<{
-      results: (SettledHookResult | undefined)[]
-      shortCircuited: boolean
-    }>((resolve) => {
-      if (hookTasks.length === 0) {
-        resolve({ results: [], shortCircuited: false })
-        return
-      }
-
-      let resolved = false
-      let settledCount = 0
-      const results: (SettledHookResult | undefined)[] = new Array(hookTasks.length)
-
-      const abortBatch = () => {
-        executionFailed = true
-        resolved = true
-        for (let j = 0; j < hookTasks.length; j++) {
-          if (!results[j]) recordRaw(hookTasks[j]!.hookName, undefined, true)
+    try {
+      // Custom short-circuit batch runner
+      const { results } = await new Promise<{
+        results: (SettledHookResult | undefined)[]
+        shortCircuited: boolean
+      }>((resolve) => {
+        if (hookTasks.length === 0) {
+          resolve({ results: [], shortCircuited: false })
+          return
         }
-        controller.abort()
-        resolve({ results, shortCircuited: true })
-      }
 
-      const captureSettlement = (settled: SettledHookResult, i: number) => {
-        // Capture available outcomes before ordinary abort selection, without
-        // admitting any result after the batch closes. Policy rejection closes immediately.
-        if (resolved) return undefined
-        try {
-          if (settled.status === 'fulfilled') {
-            const lr = settled.value as LifecycleResult
-            recordRaw(settled.hookName, lr.result)
-            const checked = audit(lr.result, lr.origin, settled.hookName, true)
-            settled.value = { ...lr, result: checked?.result }
-            const raw = lr.result as EngineResult | null | undefined
-            if (
-              effectsOpen &&
-              (raw?.updatedInput !== undefined ||
-                checked?.result?.updatedInput !== undefined ||
-                checked?.nextToolInput !== undefined)
-            ) {
-              const message = `clooks: hook "${settled.hookName}" returned updatedInput in parallel mode — this is a contract violation. Parallel hooks cannot modify tool input.`
-              settled.contractViolation = message
-              executionFailed = true
-              settled.generatedError = audit(
-                { result: 'block', reason: message },
-                'parallel-contract',
-                settled.hookName,
-                true,
-              )?.result
-            }
-          } else {
-            recordRaw(settled.hookName, undefined, true)
-            const rawGeneratedError: EngineResult = {
-              result: 'block',
-              reason: formatDiagnostic(
-                settled.hookName,
-                eventName,
-                settled.reason,
-                'block',
-                usesTargetMap.get(settled.hookName),
-                hookPathMap.get(settled.hookName),
-              ),
-            }
-            settled.generatedError = policy.deferRuntimeErrorAudit
-              ? rawGeneratedError
-              : audit(rawGeneratedError, 'engine-error', settled.hookName, true)?.result
+        let resolved = false
+        let settledCount = 0
+        const results: (SettledHookResult | undefined)[] = new Array(hookTasks.length)
+
+        const abortBatch = () => {
+          executionFailed = true
+          resolved = true
+          for (let j = 0; j < hookTasks.length; j++) {
+            if (!results[j]) recordRaw(hookTasks[j]!.hookName, undefined, true)
           }
-          results[i] = settled
-          settledCount++
-
-          if (policyFailure) abortBatch()
-          return settled
-        } catch {
-          rejectUnreadableResult(settled.hookName)
-          recordRaw(settled.hookName, undefined, true)
-          results[i] = settled
-          abortBatch()
-          return undefined
+          controller.abort()
+          resolve({ results, shortCircuited: true })
         }
-      }
 
-      hookTasks.forEach((task, i) => {
-        task.promise
-          .then(
-            (value) =>
-              captureSettlement({ status: 'fulfilled', value, hookName: task.hookName }, i),
-            (reason) =>
-              captureSettlement({ status: 'rejected', reason, hookName: task.hookName }, i),
-          )
-          .then((settled) => {
-            if (resolved || !settled) return
-            try {
-              if (shouldShortCircuit(settled)) {
-                abortBatch()
-              } else if (settledCount === hookTasks.length) {
-                resolved = true
-                resolve({ results, shortCircuited: false })
+        const captureSettlement = (settled: SettledHookResult, i: number) => {
+          // Capture available outcomes before ordinary abort selection, without
+          // admitting any result after the batch closes. Policy rejection closes immediately.
+          if (resolved) return undefined
+          try {
+            if (settled.status === 'fulfilled') {
+              const lr = settled.value as LifecycleResult
+              recordRaw(settled.hookName, lr.result)
+              const checked = audit(lr.result, lr.origin, settled.hookName, true)
+              settled.value = { ...lr, result: checked?.result }
+              const raw = lr.result as EngineResult | null | undefined
+              if (
+                effectsOpen &&
+                (raw?.updatedInput !== undefined ||
+                  checked?.result?.updatedInput !== undefined ||
+                  checked?.nextToolInput !== undefined)
+              ) {
+                const message = `clooks: hook "${settled.hookName}" returned updatedInput in parallel mode — this is a contract violation. Parallel hooks cannot modify tool input.`
+                settled.contractViolation = message
+                executionFailed = true
+                settled.generatedError = audit(
+                  { result: 'block', reason: message },
+                  'parallel-contract',
+                  settled.hookName,
+                  true,
+                )?.result
               }
-            } catch {
-              rejectUnreadableResult(settled.hookName)
-              abortBatch()
+            } else {
+              recordRaw(settled.hookName, undefined, true)
+              const rawGeneratedError: EngineResult = {
+                result: 'block',
+                reason: formatDiagnostic(
+                  settled.hookName,
+                  eventName,
+                  settled.reason,
+                  'block',
+                  usesTargetMap.get(settled.hookName),
+                  hookPathMap.get(settled.hookName),
+                ),
+              }
+              settled.generatedError = policy.deferRuntimeErrorAudit
+                ? rawGeneratedError
+                : audit(rawGeneratedError, 'engine-error', settled.hookName, true)?.result
             }
-          })
+            results[i] = settled
+            settledCount++
+
+            if (policyFailure) abortBatch()
+            return settled
+          } catch {
+            rejectUnreadableResult(settled.hookName)
+            recordRaw(settled.hookName, undefined, true)
+            results[i] = settled
+            abortBatch()
+            return undefined
+          }
+        }
+
+        hookTasks.forEach((task, i) => {
+          task.promise
+            .then(
+              (value) =>
+                captureSettlement({ status: 'fulfilled', value, hookName: task.hookName }, i),
+              (reason) =>
+                captureSettlement({ status: 'rejected', reason, hookName: task.hookName }, i),
+            )
+            .then((settled) => {
+              if (resolved || !settled) return
+              try {
+                if (shouldShortCircuit(settled)) {
+                  abortBatch()
+                } else if (settledCount === hookTasks.length) {
+                  resolved = true
+                  resolve({ results, shortCircuited: false })
+                }
+              } catch {
+                rejectUnreadableResult(settled.hookName)
+                abortBatch()
+              }
+            })
+        })
       })
-    })
 
-    // --- Merge results ---
-    if (!effectsOpen) return
-    const batchInjectContext: string[] = []
-    const deferredRuntimeBlocks: SettledHookResult[] = []
+      // --- Merge results ---
+      if (!effectsOpen) return
+      const batchInjectContext: string[] = []
+      const deferredRuntimeBlocks: SettledHookResult[] = []
 
-    for (let i = 0; i < results.length; i++) {
-      const settled = results[i]
-      if (!settled) {
-        // Abandoned by a short circuit. The lifecycle started, so it is
-        // recorded; its outcome is simply unknown.
-        const abandoned = hookTasks[i]
-        if (abandoned) recordRaw(abandoned.hookName, undefined, true)
-        continue
-      }
+      for (let i = 0; i < results.length; i++) {
+        const settled = results[i]
+        if (!settled) {
+          // Abandoned by a short circuit. The lifecycle started, so it is
+          // recorded; its outcome is simply unknown.
+          const abandoned = hookTasks[i]
+          if (abandoned) recordRaw(abandoned.hookName, undefined, true)
+          continue
+        }
 
-      if (settled.status === 'fulfilled') {
-        const lr = settled.value as LifecycleResult
-        const val = lr.result as EngineResult | undefined
+        if (settled.status === 'fulfilled') {
+          const lr = settled.value as LifecycleResult
+          const val = lr.result as EngineResult | undefined
 
-        if (settled.contractViolation) {
-          const violationMsg = settled.contractViolation
-          systemMessages.push(violationMsg)
-          blockResult = settled.generatedError
-          pipelineBlocked = true
-          failureState = recordFailure(failureState, settled.hookName, eventName, violationMsg)
-          failuresDirty = true
-          const { maxFailures, maxFailuresMessage } = resolveMaxFailures(settled.hookName, config)
-          const newCount = getFailureCount(failureState, settled.hookName, eventName)
-          if (maxFailures !== 0 && newCount >= maxFailures) {
-            degradedMessages.push(
-              interpolateMessage(maxFailuresMessage, {
-                hook: settled.hookName,
-                event: eventName,
-                count: newCount,
-                error: violationMsg,
-              }),
+          if (settled.contractViolation) {
+            const violationMsg = settled.contractViolation
+            systemMessages.push(violationMsg)
+            blockResult = settled.generatedError
+            pipelineBlocked = true
+            failureState = recordFailure(failureState, settled.hookName, eventName, violationMsg)
+            failuresDirty = true
+            const { maxFailures, maxFailuresMessage } = resolveMaxFailures(settled.hookName, config)
+            const newCount = getFailureCount(failureState, settled.hookName, eventName)
+            if (maxFailures !== 0 && newCount >= maxFailures) {
+              degradedMessages.push(
+                interpolateMessage(maxFailuresMessage, {
+                  hook: settled.hookName,
+                  event: eventName,
+                  count: newCount,
+                  error: violationMsg,
+                }),
+              )
+            }
+            continue
+          }
+
+          // Add lifecycle debug logging
+          if (debug && lr.blockedByBefore) {
+            debugMessages.push(`hook="${settled.hookName}" beforeHook: blocked (parallel)`)
+          }
+          if (debug && lr.overriddenByAfter) {
+            debugMessages.push(`hook="${settled.hookName}" afterHook: overridden result (parallel)`)
+          }
+          if (debug && lr.beforeDebug) {
+            debugMessages.push(
+              `hook="${settled.hookName}" beforeHook: ${lr.beforeDebug} (parallel)`,
             )
           }
-          continue
-        }
+          if (debug && lr.afterDebug) {
+            debugMessages.push(`hook="${settled.hookName}" afterHook: ${lr.afterDebug} (parallel)`)
+          }
 
-        // Add lifecycle debug logging
-        if (debug && lr.blockedByBefore) {
-          debugMessages.push(`hook="${settled.hookName}" beforeHook: blocked (parallel)`)
-        }
-        if (debug && lr.overriddenByAfter) {
-          debugMessages.push(`hook="${settled.hookName}" afterHook: overridden result (parallel)`)
-        }
-        if (debug && lr.beforeDebug) {
-          debugMessages.push(`hook="${settled.hookName}" beforeHook: ${lr.beforeDebug} (parallel)`)
-        }
-        if (debug && lr.afterDebug) {
-          debugMessages.push(`hook="${settled.hookName}" afterHook: ${lr.afterDebug} (parallel)`)
-        }
+          if (!val) {
+            continue
+          }
+          const addVote = voteRecorder(val, settled.hookName, lr.origin)
 
-        if (!val) {
-          continue
-        }
-        const addVote = voteRecorder(val, settled.hookName, lr.origin)
+          // Handoff applies per hook, before reduction merges text and discards
+          // hook identity. The loop is sequential, so writes do not race.
+          const hookResult = await applyHandoff(
+            val,
+            settled.hookName,
+            eventName,
+            config,
+            handoffRoot,
+            policy.handoff,
+            reportInlineHandoff,
+          )
+          if (signal.aborted) {
+            interactionFailed(new Error('Approval interaction cancelled'))
+            return
+          }
+          if (!effectsOpen) return
 
-        // Handoff applies per hook, before reduction merges text and discards
-        // hook identity. The loop is sequential, so writes do not race.
-        const hookResult = await applyHandoff(
-          val,
-          settled.hookName,
-          eventName,
-          config,
-          handoffRoot,
-          policy.handoff,
-          reportInlineHandoff,
-        )
-        if (!effectsOpen) return
+          if (hookResult.result === 'skip') {
+            if (hookResult.injectContext) {
+              batchInjectContext.push(hookResult.injectContext)
+            }
+            if (hookResult.updatedMCPToolOutput !== undefined) {
+              lastNonSkipResult = hookResult
+            }
+            if (eventName === 'PreToolUse') {
+              addVote(hookResult)
+            }
+            continue
+          }
 
-        if (hookResult.result === 'skip') {
+          // PreToolUse blocks are votes; retain context in case a later hook crashes.
+          if (hookResult.result === 'block') {
+            if (hookResult.injectContext) {
+              accumulatedInjectContext.push(hookResult.injectContext)
+            }
+            if (eventName === 'PreToolUse') {
+              addVote(hookResult)
+              continue
+            }
+            blockResult = hookResult
+            pipelineBlocked = true
+            continue
+          }
+
+          // Ask — PreToolUse: push vote and continue; non-PreToolUse: fall through to allow path.
+          if (hookResult.result === 'ask') {
+            if (eventName === 'PreToolUse') {
+              addVote(hookResult)
+              continue
+            }
+            // Non-PreToolUse: treat as non-skip (updates lastNonSkipResult below)
+            lastNonSkipResult = hookResult
+            continue
+          }
+
+          // Defer — PreToolUse: push vote and continue; non-PreToolUse: fall through to allow path.
+          if (hookResult.result === 'defer') {
+            if (eventName === 'PreToolUse') {
+              addVote(hookResult)
+              continue
+            }
+            // Non-PreToolUse: treat as non-skip (updates lastNonSkipResult below)
+            lastNonSkipResult = hookResult
+            continue
+          }
+
+          // Allow or other non-skip result
           if (hookResult.injectContext) {
             batchInjectContext.push(hookResult.injectContext)
           }
-          if (hookResult.updatedMCPToolOutput !== undefined) {
-            lastNonSkipResult = hookResult
-          }
-          if (eventName === 'PreToolUse') {
-            addVote(hookResult)
-          }
-          continue
-        }
 
-        // PreToolUse blocks are votes; retain context in case a later hook crashes.
-        if (hookResult.result === 'block') {
-          if (hookResult.injectContext) {
-            accumulatedInjectContext.push(hookResult.injectContext)
+          if (debug && hookResult.debugMessage) {
+            debugMessages.push(hookResult.debugMessage)
           }
-          if (eventName === 'PreToolUse') {
-            addVote(hookResult)
-            continue
-          }
-          blockResult = hookResult
-          pipelineBlocked = true
-          continue
-        }
 
-        // Ask — PreToolUse: push vote and continue; non-PreToolUse: fall through to allow path.
-        if (hookResult.result === 'ask') {
-          if (eventName === 'PreToolUse') {
-            addVote(hookResult)
-            continue
-          }
-          // Non-PreToolUse: treat as non-skip (updates lastNonSkipResult below)
           lastNonSkipResult = hookResult
-          continue
-        }
-
-        // Defer — PreToolUse: push vote and continue; non-PreToolUse: fall through to allow path.
-        if (hookResult.result === 'defer') {
           if (eventName === 'PreToolUse') {
             addVote(hookResult)
-            continue
           }
-          // Non-PreToolUse: treat as non-skip (updates lastNonSkipResult below)
-          lastNonSkipResult = hookResult
-          continue
         }
 
-        // Allow or other non-skip result
-        if (hookResult.injectContext) {
-          batchInjectContext.push(hookResult.injectContext)
-        }
+        if (settled.status === 'rejected') {
+          const onErrorMode = resolveOnError(settled.hookName, eventName, config)
 
-        if (debug && hookResult.debugMessage) {
-          debugMessages.push(hookResult.debugMessage)
-        }
-
-        lastNonSkipResult = hookResult
-        if (eventName === 'PreToolUse') {
-          addVote(hookResult)
-        }
-      }
-
-      if (settled.status === 'rejected') {
-        const onErrorMode = resolveOnError(settled.hookName, eventName, config)
-
-        // Runtime fallback: hook-level "trace" on a non-injectable event → "continue"
-        let effectiveMode = onErrorMode
-        if (effectiveMode === 'trace' && !INJECTABLE_EVENTS.has(eventName)) {
-          systemMessages.push(
-            `Hook "${settled.hookName}" has onError: "trace" but ${eventName} does not support additionalContext. Falling back to "continue".`,
-          )
-          effectiveMode = 'continue'
-        }
-
-        // Notify-only crashes cannot block, but still count toward the circuit breaker.
-        if (effectiveMode === 'block' && NOTIFY_ONLY_EVENTS.has(eventName)) {
-          process.stderr.write(
-            `clooks: hook "${settled.hookName}" onError: "block" cannot apply to ${eventName} ` +
-              `(notify-only event — output and exit code ignored upstream). ` +
-              `Skipping; failure counted toward maxFailures.\n`,
-          )
-        } else if (effectiveMode === 'block') {
-          const { maxFailures } = resolveMaxFailures(settled.hookName, config)
-          const currentCount = getFailureCount(failureState, settled.hookName, eventName)
-          const projectedCount = currentCount + 1
-          if (maxFailures === 0 || projectedCount < maxFailures) {
-            // Under threshold — block
-            blockResult = settled.generatedError
-            pipelineBlocked = true
-            if (policy.deferRuntimeErrorAudit) deferredRuntimeBlocks.push(settled)
+          // Runtime fallback: hook-level "trace" on a non-injectable event → "continue"
+          let effectiveMode = onErrorMode
+          if (effectiveMode === 'trace' && !INJECTABLE_EVENTS.has(eventName)) {
+            systemMessages.push(
+              `Hook "${settled.hookName}" has onError: "trace" but ${eventName} does not support additionalContext. Falling back to "continue".`,
+            )
+            effectiveMode = 'continue'
           }
-          // At/above threshold case handled in circuit breaker loop below
-        } else if (effectiveMode === 'continue') {
-          systemMessages.push(
-            formatDiagnostic(
-              settled.hookName,
-              eventName,
-              settled.reason,
-              'continue',
-              usesTargetMap.get(settled.hookName),
-              hookPathMap.get(settled.hookName),
-            ),
-          )
-          if (debug) {
-            debugMessages.push(
+
+          // Notify-only crashes cannot block, but still count toward the circuit breaker.
+          if (effectiveMode === 'block' && NOTIFY_ONLY_EVENTS.has(eventName)) {
+            process.stderr.write(
+              `clooks: hook "${settled.hookName}" onError: "block" cannot apply to ${eventName} ` +
+                `(notify-only event — output and exit code ignored upstream). ` +
+                `Skipping; failure counted toward maxFailures.\n`,
+            )
+          } else if (effectiveMode === 'block') {
+            const { maxFailures } = resolveMaxFailures(settled.hookName, config)
+            const currentCount = getFailureCount(failureState, settled.hookName, eventName)
+            const projectedCount = currentCount + 1
+            if (maxFailures === 0 || projectedCount < maxFailures) {
+              // Under threshold — block
+              blockResult = settled.generatedError
+              pipelineBlocked = true
+              if (policy.deferRuntimeErrorAudit) deferredRuntimeBlocks.push(settled)
+            }
+            // At/above threshold case handled in circuit breaker loop below
+          } else if (effectiveMode === 'continue') {
+            systemMessages.push(
               formatDiagnostic(
                 settled.hookName,
                 eventName,
@@ -1210,81 +1300,117 @@ export async function executeHooks(
                 hookPathMap.get(settled.hookName),
               ),
             )
-          }
-        } else if (effectiveMode === 'trace') {
-          traceMessages.push(
-            formatTraceMessage(
-              settled.hookName,
-              settled.reason,
-              usesTargetMap.get(settled.hookName),
-              hookPathMap.get(settled.hookName),
-            ),
-          )
-        }
-      }
-    }
-
-    // Merge batch injectContext into pipeline accumulator
-    if (batchInjectContext.length > 0) {
-      accumulatedInjectContext.push(...batchInjectContext)
-    }
-
-    // --- Update circuit breaker state SEQUENTIALLY after all hooks settle ---
-    for (let i = 0; i < results.length; i++) {
-      const settled = results[i]
-      if (!settled) continue
-
-      if (settled.status === 'fulfilled') {
-        // Contract violations already recorded above
-        if (settled.contractViolation) continue
-
-        // Success — clear any failure state (any successful invocation, matching sequential runner)
-        if (getFailureCount(failureState, settled.hookName, eventName) > 0) {
-          failureState = clearFailure(failureState, settled.hookName, eventName)
-          failuresDirty = true
-        }
-      }
-
-      if (settled.status === 'rejected') {
-        const onErrorMode = resolveOnError(settled.hookName, eventName, config)
-        if (onErrorMode === 'block') {
-          const errorMessage =
-            settled.reason instanceof Error ? settled.reason.message : String(settled.reason)
-          failureState = recordFailure(failureState, settled.hookName, eventName, errorMessage)
-          failuresDirty = true
-
-          // Check threshold for degraded mode
-          const { maxFailures, maxFailuresMessage } = resolveMaxFailures(settled.hookName, config)
-          const newCount = getFailureCount(failureState, settled.hookName, eventName)
-          if (maxFailures !== 0 && newCount >= maxFailures) {
-            const msg = interpolateMessage(maxFailuresMessage, {
-              hook: settled.hookName,
-              event: eventName,
-              count: newCount,
-              error: errorMessage,
-            })
-            degradedMessages.push(msg)
+            if (debug) {
+              debugMessages.push(
+                formatDiagnostic(
+                  settled.hookName,
+                  eventName,
+                  settled.reason,
+                  'continue',
+                  usesTargetMap.get(settled.hookName),
+                  hookPathMap.get(settled.hookName),
+                ),
+              )
+            }
+          } else if (effectiveMode === 'trace') {
+            traceMessages.push(
+              formatTraceMessage(
+                settled.hookName,
+                settled.reason,
+                usesTargetMap.get(settled.hookName),
+                hookPathMap.get(settled.hookName),
+              ),
+            )
           }
         }
-        // onError: "continue" and "trace" do NOT call recordFailure
       }
-    }
 
-    // Write failures once at end of batch
-    if (failuresDirty) {
-      await writeFailures(failurePath, failureState)
-      failuresDirty = false
-    }
-    // Preserve all captured failure accounting before a selected runtime refusal closes effects.
-    for (const settled of deferredRuntimeBlocks) {
-      const checked = audit(settled.generatedError, 'engine-error', settled.hookName, true)
-      if (!effectsOpen) break
-      if (blockResult === settled.generatedError) blockResult = checked?.result
+      // Merge batch injectContext into pipeline accumulator
+      if (batchInjectContext.length > 0) {
+        accumulatedInjectContext.push(...batchInjectContext)
+      }
+
+      // --- Update circuit breaker state SEQUENTIALLY after all hooks settle ---
+      for (let i = 0; i < results.length; i++) {
+        const settled = results[i]
+        if (!settled) continue
+
+        if (settled.status === 'fulfilled') {
+          // Contract violations already recorded above
+          if (settled.contractViolation) continue
+
+          // Success — clear any failure state (any successful invocation, matching sequential runner)
+          if (getFailureCount(failureState, settled.hookName, eventName) > 0) {
+            failureState = clearFailure(failureState, settled.hookName, eventName)
+            failuresDirty = true
+          }
+        }
+
+        if (settled.status === 'rejected') {
+          const onErrorMode = resolveOnError(settled.hookName, eventName, config)
+          if (onErrorMode === 'block') {
+            const errorMessage =
+              settled.reason instanceof Error ? settled.reason.message : String(settled.reason)
+            failureState = recordFailure(failureState, settled.hookName, eventName, errorMessage)
+            failuresDirty = true
+
+            // Check threshold for degraded mode
+            const { maxFailures, maxFailuresMessage } = resolveMaxFailures(settled.hookName, config)
+            const newCount = getFailureCount(failureState, settled.hookName, eventName)
+            if (maxFailures !== 0 && newCount >= maxFailures) {
+              const msg = interpolateMessage(maxFailuresMessage, {
+                hook: settled.hookName,
+                event: eventName,
+                count: newCount,
+                error: errorMessage,
+              })
+              degradedMessages.push(msg)
+            }
+          }
+          // onError: "continue" and "trace" do NOT call recordFailure
+        }
+      }
+
+      // Write failures once at end of batch
+      if (failuresDirty) {
+        await writeFailures(failurePath, failureState)
+        failuresDirty = false
+      }
+      // Preserve all captured failure accounting before a selected runtime refusal closes effects.
+      for (const settled of deferredRuntimeBlocks) {
+        const checked = audit(settled.generatedError, 'engine-error', settled.hookName, true)
+        if (!effectsOpen) break
+        if (blockResult === settled.generatedError) blockResult = checked?.result
+      }
+      // Resolve only after the whole batch has been audited and effective blocks selected.
+      if (!effectsOpen || pipelineBlocked || preToolUseVotes.some((vote) => vote.rank === 3)) return
+      for (const accepted of acceptedVotes) {
+        if (accepted.engineResult.result !== 'ask' || accepted.resolvedAsk) continue
+        accepted.resolvedAsk = await resolveAsk(
+          accepted.engineResult,
+          accepted.hookName,
+          currentToolInput,
+        )
+        if (!effectsOpen) return
+        const vote = preToolUseVotes[acceptedVotes.indexOf(accepted)]!
+        vote.resolvedAsk = accepted.resolvedAsk
+      }
+    } finally {
+      if (signal.aborted) {
+        // External cancellation owns the invocation lifetime, unlike an ordinary
+        // batch refusal. Drain bounded lifecycles without reopening result effects.
+        interactionFailed(new Error('Approval interaction cancelled'))
+        await Promise.allSettled(hookTasks.map((task) => task.promise))
+      }
     }
   }
 
   // --- Group dispatch loop ---
   for (const group of groups) {
+    if (signal.aborted) {
+      interactionFailed(new Error('Approval interaction cancelled'))
+      break
+    }
     if (group.type === 'parallel') {
       await executeParallelGroup(group)
     } else {

@@ -45,15 +45,11 @@ import type {
 } from '../agents/index.js'
 import { claudeCodePluginDeps } from '../agents/claude-code/adapter.js'
 import { discoverCodexPluginPacks } from '../agents/codex/plugin-discovery.js'
-import { ApprovalStore } from '../agents/codex/approval-store.js'
-import {
-  prepareApprovalAttempt,
-  captureApprovalPipeline,
-  resolveApprovals,
-  validateApprovalOutput,
-  type ApprovalAttempt,
-  type ApprovalPermit,
-} from '../agents/codex/approvals.js'
+import { createApprovalInteraction } from '../interaction/channel.js'
+import type { ApprovalInteraction } from '../interaction/types.js'
+import { canonical, checkSignal } from '../interaction/protocol.js'
+import { ApprovalFailure, confirmFinalApprovals, approvalSetupMessage } from './live-approvals.js'
+import { legacyResultPolicy } from './result-policy.js'
 
 interface InvocationState {
   eventName: EventName | null
@@ -61,7 +57,9 @@ interface InvocationState {
   rawReadAttempted: boolean
   rawInput?: unknown
   rawReadError?: unknown
-  approvalAttempt?: ApprovalAttempt
+  interaction?: ApprovalInteraction
+  interactionError?: unknown
+  output?: TranslatedAgentOutput
 }
 
 /**
@@ -120,34 +118,83 @@ export async function runEngineCore(
   adapter: AgentAdapter,
   deps: RunEngineDeps = defaultDeps,
 ): Promise<void> {
+  try {
+    await runEngineCoreOwned(adapter, deps)
+  } finally {
+    deps.onApprovalLifecycle?.(false)
+  }
+}
+
+async function runEngineCoreOwned(adapter: AgentAdapter, deps: RunEngineDeps): Promise<void> {
   const state: InvocationState = {
     eventName: null,
     rawReadAttempted: false,
   }
   let exitCode: ExitCode | undefined
   try {
+    checkSignal(deps.signal)
     await runEngineInvocation(adapter, deps, state)
   } catch (error) {
     if (error instanceof EngineCompletion) {
       exitCode = error.code
-    } else if (adapter.inputStage === 'before-hooks') {
+    } else if (
+      deps.signal?.aborted ||
+      adapter.inputStage === 'before-hooks' ||
+      error instanceof ApprovalFailure
+    ) {
       const failure =
         error instanceof InvocationPolicyError
           ? error.failure
           : {
               eventName: state.eventName,
-              capability: 'runtime',
+              capability: error instanceof ApprovalFailure ? 'approval' : 'runtime',
               message: `clooks: runtime failure: ${error instanceof Error ? error.message : String(error)}`,
             }
-      exitCode = emitTranslatedOutput(
-        adapter.translateFailure({
-          eventName: state.eventName,
-          invocation: state.invocation,
-          failure,
-        }),
-      )
+      state.output = adapter.translateFailure({
+        eventName: state.eventName,
+        invocation: state.invocation,
+        failure,
+      })
+      exitCode = state.output.exitCode
     } else {
       throw error
+    }
+  } finally {
+    try {
+      await state.interaction?.close()
+    } catch (error) {
+      state.output = adapter.translateFailure({
+        eventName: state.eventName,
+        invocation: state.invocation,
+        failure: {
+          eventName: state.eventName,
+          capability: 'approval-close',
+          message: `clooks: approval completion failed: ${error instanceof Error ? error.message : String(error)}`,
+        },
+      })
+      exitCode = state.output.exitCode
+    }
+  }
+  if (deps.signal?.aborted) {
+    state.output = adapter.translateFailure({
+      eventName: state.eventName,
+      invocation: state.invocation,
+      failure: {
+        eventName: state.eventName,
+        capability: 'cancelled',
+        message: 'clooks: invocation cancelled',
+      },
+    })
+    exitCode = state.output.exitCode
+  }
+  if (state.output) {
+    emitTranslatedOutput(state.output)
+    // Await stream flush before process.exit; callbacks also surface write failures.
+    for (const stream of [process.stdout, process.stderr]) {
+      if (stream.writableLength > 0)
+        await new Promise<void>((resolve, reject) =>
+          stream.write('', (error) => (error ? reject(error) : resolve())),
+        )
     }
   }
   if (exitCode !== undefined) process.exit(exitCode)
@@ -167,6 +214,7 @@ async function runEngineInvocation(
   state: InvocationState,
 ): Promise<void> {
   const readRawOnce = async (): Promise<unknown> => {
+    checkSignal(deps.signal)
     if (!state.rawReadAttempted) {
       state.rawReadAttempted = true
       try {
@@ -177,59 +225,13 @@ async function runEngineInvocation(
       }
     }
     if (Object.hasOwn(state, 'rawReadError')) throw state.rawReadError
+    checkSignal(deps.signal)
     return state.rawInput
   }
-  const approvalStore = adapter.id === 'codex' ? new ApprovalStore() : undefined
-  const emitFinalOutput = async (
-    translated: TranslatedAgentOutput,
-    permit?: ApprovalPermit,
-    eligible = true,
-  ): Promise<ExitCode> => {
-    if (
-      approvalStore &&
-      eligible &&
-      translated.exitCode === EXIT_OK &&
-      (state.eventName === null || state.eventName === 'PreToolUse')
-    ) {
-      const output = translated.output ? JSON.parse(translated.output) : {}
-      const denied =
-        output.hookSpecificOutput?.permissionDecision === 'deny' ||
-        output.continue === false ||
-        output.decision === 'block'
-      const identifyEvent = async () => {
-        if (state.eventName === null) {
-          const raw = await readRawOnce()
-          if (raw === null || typeof raw !== 'object' || Array.isArray(raw))
-            throw new Error('Cannot identify invocation for approval retirement')
-          state.eventName = adapter.readEventName(raw as Record<string, unknown>)
-          if (state.eventName === null)
-            throw new Error('Cannot identify event for approval retirement')
-        }
-      }
-      // Check existence before reading otherwise-unused stdin on early success paths.
-      let existing = false
-      if (!denied && !permit) {
-        try {
-          existing = approvalStore.exists()
-        } catch (error) {
-          await identifyEvent()
-          if (state.eventName === 'PreToolUse') throw error
-        }
-      }
-      if (!denied && (permit || existing)) {
-        await identifyEvent()
-        if (state.eventName === 'PreToolUse') {
-          const attempt = state.approvalAttempt ?? prepareApprovalAttempt(await readRawOnce())
-          if (permit) validateApprovalOutput(attempt, permit, translated)
-          approvalStore.finalizePermit(
-            attempt.baseInvocationHash,
-            permit?.expectedDecisionHash ?? null,
-            permit?.requiredTokens ?? [],
-          )
-        }
-      }
-    }
-    return emitTranslatedOutput(translated)
+  const emitFinalOutput = async (translated: TranslatedAgentOutput): Promise<ExitCode> => {
+    checkSignal(deps.signal)
+    state.output = translated
+    return translated.exitCode
   }
   const readInvocation = async (): Promise<NormalizedInvocation> => {
     if (state.invocation) return state.invocation
@@ -259,30 +261,53 @@ async function runEngineInvocation(
         message: 'clooks: stdin payload missing or unrecognized hook_event_name field',
       })
     }
-    if (adapter.id === 'codex' && state.eventName === 'PreToolUse') {
-      try {
-        state.approvalAttempt = prepareApprovalAttempt(payload)
-      } catch (error) {
-        // Preserve existing envelope diagnostics; only valid envelopes get carrier errors.
-        adapter.normalizeInvocation(payload, state.eventName)
-        throw new InvocationPolicyError({
-          eventName: state.eventName,
-          capability: 'approval-input',
-          message: `${error instanceof Error ? error.message : String(error)}; hooks were not imported or executed.`,
-        })
-      }
-    }
-    // Normalization clones carrier-free raw input; native execution retains its original
-    // prefix unless the reducer actually emits a replacement.
-    state.invocation = adapter.normalizeInvocation(
-      state.approvalAttempt?.payload ?? payload,
-      state.eventName,
-    )
+    state.invocation = adapter.normalizeInvocation(payload, state.eventName)
     return state.invocation
+  }
+  // Pair before discovery/config/imports so every early exit completes its native check.
+  const suppressed = process.env.CLOOKS_APPROVAL_DISPOSITION === 'suppressed'
+  if (
+    process.env.CLOOKS_APPROVAL_OWNER !== undefined ||
+    process.env.CLOOKS_APPROVAL_PROTOCOL !== undefined ||
+    process.env.CLOOKS_APPROVAL_DISPOSITION !== undefined
+  ) {
+    try {
+      const raw = await readRawOnce()
+      if (raw === null || typeof raw !== 'object' || Array.isArray(raw))
+        throw new Error('Invalid paired input')
+      state.eventName = adapter.readEventName(raw as Record<string, unknown>)
+      if (state.eventName === 'PreToolUse') {
+        const disposition = process.env.CLOOKS_APPROVAL_DISPOSITION ?? 'run'
+        if (disposition !== 'run' && disposition !== 'suppressed')
+          throw new Error('Invalid approval disposition')
+        const identity = adapter.approvalIdentity(
+          raw as Record<string, unknown>,
+          process.env.CLOOKS_APPROVAL_OWNER ?? '',
+          process.env.CLOOKS_APPROVAL_PROTOCOL ?? '',
+        )
+        deps.onApprovalLifecycle?.(true)
+        state.interaction = await (deps.createApprovalInteraction ?? createApprovalInteraction)({
+          identity,
+          disposition,
+          signal: deps.signal,
+        })
+        checkSignal(deps.signal)
+        if (disposition === 'suppressed') finishEngine(await emitFinalOutput({ exitCode: EXIT_OK }))
+      }
+    } catch (error) {
+      if (error instanceof EngineCompletion) throw error
+      checkSignal(deps.signal)
+      state.interactionError = error
+      if (suppressed)
+        throw new ApprovalFailure(
+          `clooks: suppressed invocation could not publish completion: ${error instanceof Error ? error.message : String(error)}`,
+        )
+    }
   }
   const discovery = await (deps.discoverProjectRoot ?? discoverProjectRoot)({
     env: adapter.discoveryEnvironment(process.env),
   })
+  checkSignal(deps.signal)
   const projectRoot = discovery.projectRoot
   const homeRoot = process.env.CLOOKS_HOME_ROOT ?? homedir()
 
@@ -303,8 +328,10 @@ async function runEngineInvocation(
   )
   let result: LoadConfigResult | null
   try {
+    checkSignal(deps.signal)
     result = await deps.loadConfig(projectRoot, { homeRoot })
   } catch (e) {
+    checkSignal(deps.signal)
     const message = e instanceof Error ? e.message : String(e)
     const earlyInvocation =
       adapter.inputStage === 'before-hooks' ? await readInvocation() : undefined
@@ -356,6 +383,7 @@ async function runEngineInvocation(
     )
     finishEngine(exitCode)
   }
+  checkSignal(deps.signal)
 
   if (result === null) {
     // Read only enough stdin to decide whether the no-config advisory should
@@ -384,10 +412,12 @@ async function runEngineInvocation(
   if (adapter.inputStage === 'before-hooks') await readInvocation()
 
   const configState = await readFailures(configFailurePath)
+  checkSignal(deps.signal)
   if (getFailureCount(configState, CONFIG_ERROR_HOOK, CONFIG_ERROR_EVENT) > 0) {
     const cleared = clearFailure(configState, CONFIG_ERROR_HOOK, CONFIG_ERROR_EVENT)
     await writeFailures(configFailurePath, cleared)
   }
+  checkSignal(deps.signal)
 
   let config = result!.config
   let shadows = result!.shadows
@@ -407,6 +437,7 @@ async function runEngineInvocation(
     discoverCodexPluginPacks: deps.discoverCodexPluginPacks,
     vendorAndRegisterPack: deps.vendorAndRegisterPack,
   })
+  checkSignal(deps.signal)
   config = prepared.config
   shadows = prepared.shadows
   hasProjectConfig = prepared.hasProjectConfig ?? hasProjectConfig
@@ -420,6 +451,7 @@ async function runEngineInvocation(
     loadErrors,
     dangling = [],
   } = await deps.loadAllHooks(config, projectRoot, homeRoot)
+  checkSignal(deps.signal)
 
   if (debug) {
     engineDebugLines.push(
@@ -459,6 +491,7 @@ async function runEngineInvocation(
   // Parsed here (before the hooks-empty early-exit) so that eventName is
   // available for SessionStart-gated advisory emission below, even in the
   // "no hooks configured at all" case (e.g. pure enable-without-install drift).
+  checkSignal(deps.signal)
   let invocation = state.invocation
   if (!invocation) {
     let input: unknown
@@ -489,7 +522,26 @@ async function runEngineInvocation(
   }
   const eventName = invocation.eventName
   const normalized: Record<string, unknown> = { ...invocation.context, provider: adapter.id }
-  const policy = adapter.createResultPolicy(invocation)
+  const adapterPolicy = adapter.createResultPolicy(invocation)
+  const policy = {
+    ...adapterPolicy,
+    mutableToolInput: adapterPolicy === legacyResultPolicy || adapterPolicy.mutableToolInput,
+    approvalOperation: (input: unknown, changed: boolean) =>
+      adapter.approvalOperation(invocation, input, changed),
+  }
+  const interaction = state.interaction ?? {
+    async request() {
+      const scope = process.env.CLOOKS_APPROVAL_OWNER === 'global' ? '--global ' : ''
+      const repair = process.env.CLOOKS_APPROVAL_OWNER
+        ? `Run clooks init ${scope}--agent ${adapter.id} in the registered scope, then restart the client.`
+        : approvalSetupMessage
+      return {
+        kind: 'unavailable' as const,
+        message: `${repair}${state.interactionError ? ` (${state.interactionError instanceof Error ? state.interactionError.message : String(state.interactionError)})` : ''}`,
+      }
+    },
+    async close() {},
+  }
 
   // Runs before the hooks-empty/no-match early exits so a project with no
   // SessionStart hooks still prunes. A prune failure never affects the run.
@@ -682,6 +734,7 @@ async function runEngineInvocation(
     }
   }
 
+  checkSignal(deps.signal)
   const execution = await executeHooks(
     matched,
     eventName,
@@ -693,36 +746,13 @@ async function runEngineInvocation(
     disabledNames,
     turnTracker,
     policy,
+    interaction,
+    deps.signal,
   )
+  checkSignal(deps.signal)
   const { degradedMessages, debugMessages, traceMessages, systemMessages, policyFailure } =
     execution
-  let initialResult = execution.lastResult
-  let approvalPermit: ApprovalPermit | undefined
-  if (
-    approvalStore &&
-    state.approvalAttempt &&
-    !policyFailure &&
-    initialResult?.result !== 'block'
-  ) {
-    const hasAsks =
-      execution.preToolUse?.votes.some((vote) => vote.engineResult.result === 'ask') ||
-      initialResult?.result === 'ask'
-    if (hasAsks || state.approvalAttempt.presentedTokens.length > 0) {
-      const pipeline =
-        hasAsks && execution.preToolUse?.completed
-          ? await captureApprovalPipeline(matched, config, disabledNames)
-          : { global: config.global, event: config.events.PreToolUse ?? null, hooks: [] }
-      const resolved = resolveApprovals(
-        state.approvalAttempt,
-        invocation,
-        execution,
-        pipeline,
-        approvalStore,
-      )
-      initialResult = resolved.result
-      approvalPermit = resolved.permit
-    }
-  }
+  const initialResult = execution.lastResult
   const composed = adapter.composeDiagnostics({
     eventName,
     result: initialResult,
@@ -748,29 +778,48 @@ async function runEngineInvocation(
     ...startupWarnings,
     ...systemMessages,
   ]
-  const translated = policyFailure
-    ? adapter.translateFailure({ eventName, invocation, failure: policyFailure })
-    : adapter.translateFinalOutput({
-        eventName,
-        invocation,
-        policyFailure,
-        result: lastResult,
-        systemMessages: allSystemMessages,
-        diagnostics: [],
-      })
+  let translated: TranslatedAgentOutput
+  try {
+    translated = policyFailure
+      ? adapter.translateFailure({ eventName, invocation, failure: policyFailure })
+      : adapter.translateFinalOutput({
+          eventName,
+          invocation,
+          policyFailure,
+          result: lastResult,
+          systemMessages: allSystemMessages,
+          diagnostics: [],
+        })
 
-  if (
-    state.approvalAttempt &&
-    initialResult?.result === 'block' &&
-    JSON.parse(translated.output ?? '{}').hookSpecificOutput?.permissionDecision !== 'deny'
-  ) {
-    throw new Error('Final output removed a pending Codex denial')
+    if (
+      eventName === 'PreToolUse' &&
+      !policyFailure &&
+      (initialResult?.result === 'block' || execution.preToolUse?.approvals.length)
+    ) {
+      const operation = adapter.serializedApprovalOperation(invocation, translated)
+      if (initialResult?.result === 'block' && operation !== null)
+        throw new Error('Final output removed a denial')
+      if (operation !== null && execution.preToolUse?.approvals.length) {
+        await confirmFinalApprovals(
+          execution,
+          state.interaction,
+          operation,
+          deps.signal ?? new AbortController().signal,
+        )
+        if (
+          canonical(adapter.serializedApprovalOperation(invocation, translated)) !==
+          canonical(operation)
+        )
+          throw new Error('Final approval operation changed')
+      }
+    }
+  } catch (error) {
+    if (execution.preToolUse?.approvals.length) {
+      throw new ApprovalFailure(error instanceof Error ? error.message : String(error))
+    }
+    throw error
   }
-  await emitFinalOutput(
-    translated,
-    approvalPermit,
-    !policyFailure && initialResult?.result !== 'block',
-  )
+  await emitFinalOutput(translated)
 
   if (translated.exitCode !== EXIT_OK || lastResult === undefined) {
     finishEngine(translated.exitCode)

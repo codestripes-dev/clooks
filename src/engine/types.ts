@@ -8,8 +8,12 @@ import type { vendorAndRegisterPack } from '../plugin-vendor.js'
 import type { discoverProjectRoot } from '../config/discovery.js'
 import type { ResultOrigin, RuntimePolicyFailure } from '../agents/types.js'
 import type { HookName } from '../types/branded.js'
+import type { ApprovalQuestion } from '../interaction/types.js'
+import type { createApprovalInteraction } from '../interaction/channel.js'
 
 export interface PreToolUseVote {
+  /** Consent changes reduction only; engineResult and raw history retain the ask. */
+  resolvedAsk?: boolean
   engineResult: EngineResult
   rank: number // deny=3, defer=2, ask=1, allow=0, skip=-1
 }
@@ -27,6 +31,7 @@ export interface ExecutionResult {
   lastResult?: EngineResult
   policyFailure?: RuntimePolicyFailure
   preToolUse?: {
+    approvals: ApprovalQuestion[]
     votes: AcceptedPreToolUseVote[]
     /** Materialized pipeline input, not necessarily the reducer's emitted updatedInput. */
     finalToolInput?: unknown
@@ -76,6 +81,10 @@ export type ExitCode = typeof EXIT_OK | typeof EXIT_HOOK_FAILURE | typeof EXIT_S
  * Inject dependencies to avoid Bun's process-wide module mocks leaking between tests.
  */
 export interface RunEngineDeps {
+  /** True only while run owns a validated paired PreToolUse lifecycle, including cleanup. */
+  onApprovalLifecycle?: (active: boolean) => void
+  createApprovalInteraction?: typeof createApprovalInteraction
+  signal?: AbortSignal
   loadConfig: typeof loadConfig
   loadAllHooks: typeof loadAllHooks
   readStdin: () => Promise<unknown>

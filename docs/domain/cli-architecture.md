@@ -1,27 +1,30 @@
 # CLI Architecture
 
-How the clooks binary dispatches between hook engine mode and interactive CLI mode, and the patterns used by commands, TUI wrappers, and JSON output.
+How the clooks binary dispatches between hook engine, interactive CLI and MCP stdio modes, and the patterns used by commands, TUI wrappers, and JSON output.
 
 ## Empty Hook Input
 
 The default engine reader in `src/engine/stdin.ts` reads `Bun.stdin.bytes()` once. Zero bytes or only ASCII JSON whitespace (space, tab, LF, CR) raise `EmptyStdinError`; all other bytes go unchanged to `new Blob([bytes]).json()`. BOM, nonbreaking space and malformed UTF-8 are not classified as empty. Injected `RunEngineDeps.readStdin` readers still return parsed `Promise<unknown>` values.
 
-Both stdin catches use `formatStdinError`: only the dedicated error receives the empty-input diagnostic; ordinary failures retain the existing JSON parse prefix and error message. Configured empty input exits 2 with empty stdout and no hook handler execution. Claude still imports modules before its late read; Codex still reads before imports and retains its translated failure prefix/disposition. Final newline ownership is unchanged. Missing configuration bypasses unused input validation except when existing Codex approval storage requires identifying the invocation for retirement. The raw-read cache retains payloads and errors even after an advisory-only cwd-fallback read; stdin is never reread for retirement.
+Both stdin catches use `formatStdinError`: only the dedicated error receives the empty-input diagnostic; ordinary failures retain the existing JSON parse prefix and error message. Configured empty input exits 2 with empty stdout and no hook handler execution. Unpaired Claude retains its late read; Codex reads before imports. The paired PreToolUse path reads native identity before discovery/configuration so it can open and close the live interaction. The raw-read cache retains payloads and errors even after an advisory-only cwd-fallback read; the run path no longer reads for token-store retirement.
 
-## Dual-Mode Dispatch
+## Mode Dispatch
 
-`src/cli.ts` is the compiled binary's entrypoint. It serves two roles from a single executable:
+`src/cli.ts` is the compiled binary's entrypoint. It serves three roles from a single executable:
 
 1. **Engine mode** — An agent hook system pipes a JSON event on stdin with no arguments. The selected adapter writes provider-specific output. Claude has its existing runtime; Codex implements twelve events, including observation-only SessionEnd and Codex-only Interrupt.
 2. **CLI mode** — A developer types a subcommand (e.g., `clooks config`). Commander.js parses arguments and runs the command's action handler.
+3. **MCP mode** — `clooks mcp` runs the shared approval server over stdio. Commander routes the command, but stdout is reserved for MCP protocol traffic and shutdown awaits server cleanup. Engine checkpoints are implemented; generated registration remains separate work.
 
 ### Dispatch logic
 
-The dispatch reads `process.argv.slice(2)` and applies these rules in order:
+The dispatch reads `process.argv.slice(2)`, scans the first argument not starting
+with `-`, and selects MCP mode early when that argument is `mcp`. This selection
+also governs version output and signals before router import. Dispatch then uses:
 
-1. **Version check** — If args include `--version` or `-v`, print `clooks <VERSION>` and exit 0. This fires before any other logic, so `clooks -v config` prints the version (not the config). Version is handled here, not in Commander, to avoid ambiguity with subcommand flags.
+1. **Version check** — If args include `--version` or `-v`, print `clooks <VERSION>` and exit 0, using stderr for MCP mode and stdout otherwise. This precedes command dispatch, so `clooks -v config` prints the version (not the config). Version is handled here, not in Commander, to avoid ambiguity with subcommand flags.
 2. **First positional scan** — Find the first arg that does not start with `-`. This handles global flags before the subcommand (e.g., `clooks --json config` finds `config`, not `--json`).
-3. **Known subcommand** — If the first positional is in `KNOWN_COMMANDS`, set `currentMode = 'cli'`, dynamic-import `router.ts`, and call `runCLI(args)`.
+3. **Known subcommand** — If the first positional is in `KNOWN_COMMANDS`, dynamic-import `router.ts`. Ordinary commands set `currentMode = 'cli'` and call `runCLI(args)`; MCP retains its mode and passes the shutdown signal to `runCLI`.
 4. **Has args but no known subcommand** — Same as above. Covers `--help`, misspelled subcommands, and unknown flags. Commander handles the error/help display.
 5. **No args, piped stdin** (`!process.stdin.isTTY`) — Engine mode. Call `runEngine()`.
 6. **No args, TTY stdin** — CLI mode. Call `runCLI(args)` with empty args, which triggers Commander's help output.
@@ -45,9 +48,17 @@ The normalization boundary is `normalizeInvocation(payload, eventName)`. It retu
 
 An invocation-specific result policy reaches the executor as its optional tenth argument. The executor audits author-capability and parallel-contract results immediately before their effects. Codex's `deferRuntimeErrorAudit` instead lets ordinary error capture, onError selection and counter accounting precede audits of selected blocking errors. Any latched `policyFailure` returns separately from reduced results. The engine selects `translateFailure` when that failure exists, otherwise `translateFinalOutput`; even an allow returned by diagnostic composition or final adjustment cannot select normal translation after rejection. Failure translation receives the private invocation and failure, and its exit code is authoritative: an adapter may express a refusal as exit-0 JSON. No private envelope is spread into hook contexts, result JSON or diagnostic text. This is an internal extension; there is no new public agent/raw field or decision method.
 
-`composeDiagnostics` is provider-owned and returns `{ result, stderr, systemMessages }`. The core emits local stderr and supplies system messages to final translation. Claude preserves its existing routing. Codex PreToolUse puts trace messages into context, degraded notices into human system messages and debug lines only on stderr. Configured no-hook, no-match and result-undefined paths invoke final translation and retain its exit code. The no-config bypass does not fully normalize unused payloads; existing Codex approval storage requires only the identifying fields needed for retirement.
+`composeDiagnostics` is provider-owned and returns `{ result, stderr, systemMessages }`. The core emits local stderr and supplies system messages to final translation. Claude preserves its existing routing. Codex PreToolUse puts trace messages into context, degraded notices into human system messages and debug lines only on stderr. Configured no-hook, no-match and result-undefined paths invoke final translation and retain its exit code. The no-config bypass does not fully normalize unused payloads; paired PreToolUse identity parsing is separate from full hook-context normalization and no longer serves token retirement.
 
-Codex PreToolUse prepares carrier-free input before normalization, including private raw metadata. After execution, the approval controller uses detached, configured-order accepted votes and pipeline identity to issue the first pending confirmation or discharge the final reduced ask. Diagnostic composition and final adjustment follow resolution. The final-output helper validates serialized input against an approval permit before atomic consumption and output; every successful PreToolUse exit also retires existing acknowledgements by base invocation, including config-degraded and no-config exits. Blocks retain approvals. Absent-store no-ask paths avoid opening/creating the database, and no-config keeps its otherwise-unused-input fast path. Identity/storage/serialization failures cannot count as acknowledgement; output failure after consumption loses the tokens. Claude never accesses approval storage. Runtime integration passed full frozen-source Docker validation. The passing [15-case native suite](testing/codex-native.md#hybrid-approval-case-evidence) covers bounded shell and direct-patch approval workflows, rewrite execution/denial controls and actual-pack `rm -r`; it does not establish forced-removal permission or full conformance.
+The current run path uses shared live checkpoints instead of Codex token issuance,
+retry discharge or consumption. Explicit paired metadata selects identity and
+disposition before discovery/configuration; ordinary `CLOOKS_AGENT` selection is
+unchanged. The executor waits at asks, then the run layer inspects the actual
+serialized operation and reconfirms changed approvals before closing and emitting
+output. Typed `ApprovalFailure` selects approval-error translation without
+catching unrelated Claude fatal errors as permission refusals. The former carrier-stripping,
+token-consumption and base-retirement behavior is documented as
+[historical](codex-approvals.md); its native suite does not validate the new flow.
 
 For `before-hooks` adapters, `runEngineCore()` catches invocation/runtime errors using the retained event and private invocation and calls `translateFailure()`. Internal `EngineCompletion` carries intentional exits so they are not mistaken for runtime failures; the selected exit code reaches the process after the catch boundary. Codex normalizes twelve events before imports. Invalid input or unsupported result capabilities use event-specific denial/block/termination requests where supported and local stderr/exit 2 otherwise. SessionEnd requires no model, permission mode or turn ID; it has no turn-state policy, emits no stdout on success and routes diagnostics locally to stderr. Its failure cannot veto closure. Interrupt requires model, permission mode and native turn ID, preserves the existing turn boundary and exposes no child identity. It emits only optional stdout `systemMessage` diagnostics, with no decision, context or cancellation veto. Both observers register a three-second total pipeline timeout. Provider-specific hook/load/config failure paths and private `resolveTurnPolicy()` are connected. The earlier PreToolUse integration and expanded ten-event boundary passed Docker validation; generated-error accounting uses `deferRuntimeErrorAudit`. This is not a full native-capability or enforcement claim. See [Cross-Agent Hooks](cross-agent-hooks.md#current-runtime-capabilities).
 
@@ -61,10 +72,44 @@ The set must stay in sync with the commands registered in `router.ts`. This is e
 
 `cli.ts` installs global handlers for `SIGINT`, `SIGTERM`, `uncaughtException`, and `unhandledRejection` before any dispatch logic runs. The signal handlers branch on `currentMode`:
 
-- **Engine mode** (`currentMode === 'engine'`) — Write a diagnostic to stderr and exit with code 2 (`EXIT_STDERR`). This is the existing process-failure channel; whether the upstream agent can block the operation depends on the event. It is not a verified universal Codex enforcement guarantee.
+- **Engine mode** (`currentMode === 'engine'`) — Write a diagnostic to stderr. During an active paired PreToolUse approval lifetime, abort and await the run layer's refusal/cleanup; otherwise exit immediately with code 2 (`EXIT_STDERR`). Whether the upstream agent blocks depends on the event; this is not a universal Codex enforcement guarantee.
 - **CLI mode** (`currentMode === 'cli'`) — Exit with code 0. Interactive commands should exit cleanly on Ctrl-C.
+- **MCP mode** (`currentMode === 'mcp'`) — Abort the server signal without immediate process exit. The awaited server lifecycle closes checks and transport; shutdown does not emit a CLI JSON envelope.
 
-`uncaughtException` and `unhandledRejection` always exit with code 2 regardless of mode.
+`uncaughtException` and `unhandledRejection` report diagnostics on stderr.
+MCP sets exit code 2 and aborts for awaited cleanup. Active paired PreToolUse
+aborts through the run layer; outside those lifetimes, fatal errors exit 2
+immediately. MCP startup failures retain the stderr/exit-code path.
+
+`RunEngineDeps.onApprovalLifecycle(active)` is the narrow CLI ownership signal,
+set when paired PreToolUse opens its interaction and reset by `runEngineCore`
+in `finally` around `runEngineCoreOwned`. Ordinary engine signal/fatal exits,
+including non-approval Codex Stop, do not wait for a general hook drain. The MCP
+server lifecycle is independent of this command-side ownership.
+
+### MCP Command
+
+`src/commands/mcp.ts` dynamically imports `runApprovalServer` and awaits it.
+MCP help, version and argument errors use stderr, including `--json mcp`;
+`--json` does not wrap MCP messages in the ordinary CLI output envelope. The
+router uses an invocation-specific Commander instance when given a shutdown
+signal, and MCP parser exits set `process.exitCode` rather than terminating
+before cleanup. Ordinary CLI output conventions remain unchanged.
+
+The server listens for EOF, transport failure, SIGINT and SIGTERM, cancels active
+checks and awaits settlement before closing the transport and retained cleanup
+cursor. Generic SDK protocol reports such as late cancelled RPC responses do not
+trigger server-wide shutdown; fatal framing/read errors use the stdio transport
+error callback separately. The
+`serveApprovalStreams` helper separates stream lifecycle from process signal
+registration for tests; it still uses the SDK's stdio framing. Listener and
+cursor cleanup runs through `finally` even when SDK close rejects; the awaited
+failure is not converted into successful shutdown. Its SDK runtime is not imported by
+the command-side approval channel. See
+[Shared Interactive Approval Transport](interactive-approvals.md) for the internal
+API and current limits. This command does not install or repair registration,
+start hooks, or itself implement engine checkpoint ordering. That integration is
+owned by the run/executor path, not MCP command dispatch.
 
 ## Commander.js Setup
 
@@ -89,11 +134,14 @@ Key details:
 
 - **`{ from: 'user' }`** — `program.parseAsync(args, { from: 'user' })` tells Commander the args are pre-sliced (no `node` or script path prefix). Required for Bun compiled binaries where `process.argv[0]` is `"bun"` and `process.argv[1]` is a virtual path.
 - **`exitOverride()`** — Prevents Commander from calling `process.exit()` directly. Instead it throws `CommanderError`, which `runCLI()` catches and translates to the appropriate exit code.
-- **Version not registered** — Commander does not register `.version()`. Version is handled in `cli.ts` fast path to avoid ambiguity (see Dual-Mode Dispatch above).
+- **Version not registered** — Commander does not register `.version()`. Version is handled in `cli.ts` fast path to avoid ambiguity (see Mode Dispatch above).
 
 ### runCLI error handling
 
-`runCLI(args)` wraps `parseAsync` in a try/catch that handles:
+`runCLI(args)` wraps `parseAsync` in a try/catch. The ordinary CLI rules below
+are unchanged. In MCP mode, Commander errors set
+the exit code and return; other failures propagate to MCP-aware entrypoint
+cleanup rather than using the interactive cancellation path.
 
 1. `CommanderError` — Exit with the error's exit code (0 for help, non-zero for parse errors).
 2. `CancelError` — User cancelled a prompt. Exit 0 (the cancel message was already printed by `withCancel()` in `prompts.ts`).
@@ -200,7 +248,7 @@ Noninteractive registration of an existing short-lived Codex approval record. `s
 
 Lookup uses `${CLOOKS_HOME_ROOT ?? homedir()}/.clooks/approvals/codex.sqlite`, independent of cwd and `CODEX_HOME`, without searching alternate homes. Human success includes the original expiry as an ISO timestamp. JSON success is `{ ok: true, command: "approve", data: { token, acknowledgedAt, expiresAt } }`, with integer Unix-millisecond times. Repeated registration preserves both timestamps. Operation errors use `printError` and exit 1; missing arguments use Commander usage errors. No TTY or interactive prompt is required.
 
-The Codex PreToolUse runtime now issues pending confirmations and resolves registered or inline acknowledgements. If the shell invocation registering A itself receives ask B, an approved inline retry can discharge B and then register A; it does not consume A or bypass explicit blocks. See [Codex Approvals](codex-approvals.md) for carrier eligibility, exact binding, lifecycle and passing compiled Docker coverage. The passing [15-case native suite](testing/codex-native.md#hybrid-approval-case-evidence) covers bounded shell and direct-patch approval workflows, including actual-pack `rm -r`, not forced-removal permission or full conformance.
+The former Codex token runtime issued pending confirmations and consumed registered or inline acknowledgements. Those CLI/store components remain physically present, but the engine now resolves asks through [live checkpoints](interactive-approvals.md#engine-checkpoints). [Codex Approvals](codex-approvals.md) and the [15-case native suite](testing/codex-native.md#hybrid-approval-case-evidence) document historical token behavior, not current engine guidance or generated-registration conformance.
 
 ### `clooks init` / `clooks init --global`
 

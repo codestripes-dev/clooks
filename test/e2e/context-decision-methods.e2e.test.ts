@@ -1,5 +1,6 @@
 import { describe, test, expect, afterEach } from 'bun:test'
 import { createSandbox, type Sandbox } from './helpers/sandbox'
+import { invocation, runWithConsent } from './helpers/live-approvals'
 
 // E2E coverage for ctx decision methods on tool-keyed events.
 //
@@ -11,8 +12,7 @@ import { createSandbox, type Sandbox } from './helpers/sandbox'
 //   `as unknown as UnknownPermissionRequestContext` and returns
 //   `ctx.allow({ updatedInput })` with a loose-typed patch.
 // Scenario 4: Bash PreToolUse — `ctx.ask({ reason, updatedInput })`
-//   emits permissionDecision:'ask' with permissionDecisionReason and
-//   patch-merged updatedInput on the wire.
+//   obtains live consent before emitting allow and patch-merged updatedInput.
 
 let sandbox: Sandbox
 
@@ -295,7 +295,7 @@ ti-continue-method: {}
     expect(result.stdout.trim()).toBe('')
   })
 
-  test('Scenario 4: PreToolUse Bash ctx.ask({ reason, updatedInput }) emits ask + reason + patch-merged updatedInput', () => {
+  test('Scenario 4: PreToolUse Bash ctx.ask obtains consent for the patch-merged replacement', async () => {
     sandbox = createSandbox()
     sandbox.writeHook(
       'pretooluse-ask-method.ts',
@@ -315,13 +315,25 @@ export const hook = {
 version: "1.0.0"
 pretooluse-ask-method: {}
 `)
-    const result = sandbox.run([], {
-      stdin: preToolUseEvent({ command: 'ls', timeout: 30000 }),
-    })
+    const { result, prompts } = await runWithConsent(
+      sandbox,
+      invocation(sandbox, 'claude-code', {
+        input: { command: 'ls', timeout: 30000 },
+      }),
+      (prompt) => {
+        expect(prompt.question.reason).toBe('verify timeout')
+        expect(prompt.question.operation).toEqual({
+          toolName: 'Bash',
+          input: { command: 'ls', timeout: 60000 },
+        })
+        return { action: 'accept', content: { confirmed: true } }
+      },
+    )
+    expect(prompts).toHaveLength(1)
     expect(result.exitCode).toBe(0)
     const output = JSON.parse(result.stdout)
     expect(output.hookSpecificOutput.hookEventName).toBe('PreToolUse')
-    expect(output.hookSpecificOutput.permissionDecision).toBe('ask')
+    expect(output.hookSpecificOutput.permissionDecision).toBe('allow')
     expect(output.hookSpecificOutput.permissionDecisionReason).toBe('verify timeout')
     // Patch-merge proof on the ask path: timeout overridden by patch,
     // command preserved from the running tool input.

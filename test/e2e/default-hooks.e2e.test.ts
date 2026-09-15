@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process'
 import { chmodSync, existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createSandbox, formatDiagnostics, type Sandbox } from './helpers/sandbox'
+import { invocation, runWithConsent } from './helpers/live-approvals'
 
 const packs: Record<string, string> = {
   'prefer-builtin-tools': 'clooks-core-hooks',
@@ -108,6 +109,17 @@ function denied(output: ReturnType<typeof run>, reason: string) {
   expect(output.hookSpecificOutput.permissionDecision).toBe('deny')
   expect(output.hookSpecificOutput.permissionDecisionReason).toContain(reason)
   expect(JSON.stringify(output)).not.toMatch(/capability|failed|errored|unsupported result/)
+}
+function approvalDenied(output: ReturnType<typeof run>, kind: 'declined' | 'unavailable') {
+  expect(output.hookSpecificOutput).toEqual({
+    hookEventName: 'PreToolUse',
+    permissionDecision: 'deny',
+    permissionDecisionReason: expect.stringContaining(
+      kind === 'declined'
+        ? 'Approval declined: Approval was not positively confirmed'
+        : 'Approval unavailable: Live approval unavailable.',
+    ),
+  })
 }
 function permitted(output: ReturnType<typeof run>, provider: Provider, allow = false) {
   if (provider === 'codex' || !allow) expect(output).toBeNull()
@@ -788,88 +800,45 @@ describe('actual patch paths, move inspection and confirmation', () => {
 })
 
 describe('actual removal, script equivalence and tmux hooks', () => {
-  test.each(['inline', 'registered'] as const)(
-    'Codex: actual removal ask supports %s approval and rejects replay',
-    (transport) => {
+  test.each(['claude-code', 'codex'] as const)(
+    '%s: actual removal hook requires a fresh live answer on each invocation',
+    async (provider) => {
       sandbox = createSandbox()
       configure({ 'no-rm-rf': {} })
       sandbox.writeFile('src/owned.ts', 'unchanged')
-      const env = {
-        CLOOKS_AGENT: 'codex',
-        CODEX_HOME: join(sandbox.home, '.codex'),
-        CLOOKS_HOME_ROOT: sandbox.home,
-      }
-      let attempt = 0
-      const invoke = (command = 'rm -rf src') => {
-        const result = sandbox.run([], {
-          stdin: JSON.stringify({
-            hook_event_name: 'PreToolUse',
-            session_id: 'actual-removal-approval',
-            turn_id: `turn-${++attempt}`,
-            tool_use_id: `call-${attempt}`,
-            cwd: sandbox.dir,
-            transcript_path: null,
-            model: 'fixture',
-            permission_mode: 'default',
-            tool_name: 'exec_command',
-            tool_input: { command },
+      for (const accept of [true, false]) {
+        const live = await runWithConsent(
+          sandbox,
+          invocation(sandbox, provider, {
+            input: { command: 'rm -rf src' },
           }),
-          env,
-          timeout: 10_000,
-        })
-        expect(result.rawExitCode, formatDiagnostics(result)).toBe(0)
-        expect(result.signalCode).toBeNull()
-        expect(result.stderr, formatDiagnostics(result)).toBe('')
-        // This suite replays wire input; it never executes the deletion command.
+          (prompt) => {
+            expect(prompt.question.reason).toContain('[rm-rf-strict]')
+            expect(prompt.question.operation.input).toEqual({ command: 'rm -rf src' })
+            return accept
+              ? { action: 'accept', content: { confirmed: true } }
+              : { action: 'decline' }
+          },
+        )
+        expect(live.result.rawExitCode, formatDiagnostics(live.result)).toBe(0)
+        expect(live.result.signalCode).toBeNull()
+        expect(live.result.stderr, formatDiagnostics(live.result)).toBe('')
+        expect(live.prompts).toHaveLength(1)
+        const output = JSON.parse(live.result.stdout)
+        if (!accept) approvalDenied(output, 'declined')
+        else if (provider === 'claude-code') {
+          expect(output.hookSpecificOutput.permissionDecision).toBe('allow')
+          expect(output.hookSpecificOutput.permissionDecisionReason).toContain('[rm-rf-strict]')
+        } else {
+          expect(output.hookSpecificOutput).toBeUndefined()
+          expect(Object.keys(output)).toEqual(['systemMessage'])
+          expect(output.systemMessage).toContain('native policy retained')
+          expect(output.systemMessage).toContain('[rm-rf-strict]')
+        }
+        // Hook envelopes never execute the deletion command.
         expect(sandbox.readFile('src/owned.ts')).toBe('unchanged')
-        return result.stdout ? JSON.parse(result.stdout) : null
+        expect(sandbox.homeFileExists('.clooks/approvals/codex.sqlite')).toBe(false)
       }
-      const first = invoke()
-      denied(first, '[rm-rf-strict]')
-      const reason = first.hookSpecificOutput.permissionDecisionReason as string
-      const tokens = [...new Set(reason.match(/ca1_[0-9a-f]{64}/g) ?? [])]
-      expect(tokens).toHaveLength(1)
-      const token = tokens[0]!
-      const pending = invoke()
-      denied(pending, token)
-      expect(pending.hookSpecificOutput.permissionDecisionReason).toMatch(
-        /wait for explicit approval/i,
-      )
-      if (transport === 'registered') {
-        const registration = sandbox.run(['--json', 'approve', token], { env, timeout: 10_000 })
-        expect(registration.rawExitCode, formatDiagnostics(registration)).toBe(0)
-        expect(registration.signalCode).toBeNull()
-        expect(registration.stderr).toBe('')
-        expect(JSON.parse(registration.stdout)).toMatchObject({
-          ok: true,
-          command: 'approve',
-          data: { token },
-        })
-      }
-      const retry = `CLOOKS_APPROVAL_TOKENS=${token} rm -rf src`
-      const approved = invoke(transport === 'inline' ? retry : 'rm -rf src')
-      expect(approved.hookSpecificOutput).toBeUndefined()
-      expect(Object.keys(approved)).toEqual(['systemMessage'])
-      expect(approved.systemMessage).toContain('native policy retained')
-      expect(approved.systemMessage).toContain('[rm-rf-strict]')
-      const replay = invoke(retry)
-      expect(replay.hookSpecificOutput.hookEventName).toBe('PreToolUse')
-      expect(replay.hookSpecificOutput.permissionDecision).toBe('deny')
-      expect(replay.hookSpecificOutput.updatedInput).toBeUndefined()
-      expect(replay.hookSpecificOutput.permissionDecisionReason).toContain(
-        'Unknown, expired or consumed approval token',
-      )
-      const fresh = invoke()
-      denied(fresh, '[rm-rf-strict]')
-      const freshTokens = [
-        ...new Set(
-          (fresh.hookSpecificOutput.permissionDecisionReason as string).match(
-            /ca1_[0-9a-f]{64}/g,
-          ) ?? [],
-        ),
-      ]
-      expect(freshTokens).toHaveLength(1)
-      expect(freshTokens[0]).not.toBe(token)
     },
   )
 
@@ -889,18 +858,16 @@ describe('actual removal, script equivalence and tmux hooks', () => {
       sandbox.writeFile('src/owned.ts', 'unchanged')
       const output = shell(provider, command, { 'no-rm-rf': expected })
       if (expected === 'skip') permitted(output, provider)
-      else if (expected === 'ask' && provider === 'claude-code') {
-        expect(output.hookSpecificOutput.permissionDecision).toBe('ask')
-        expect(output.hookSpecificOutput.permissionDecisionReason).toContain(rule)
+      else if (expected === 'ask') {
+        approvalDenied(output, 'unavailable')
+        expect(output.hookSpecificOutput.permissionDecisionReason).toMatch(/registration|restart/i)
+        expect(output.hookSpecificOutput.permissionDecisionReason).not.toMatch(
+          /ca1_|clooks approve/,
+        )
       } else {
         denied(output, rule)
         const reason = output.hookSpecificOutput.permissionDecisionReason
-        if (expected === 'ask') {
-          expect(reason).toMatch(/ca1_[0-9a-f]{64}/)
-          expect(reason).toContain('clooks approve ')
-          expect(reason).toMatch(/wait for explicit approval/i)
-          expect(reason).not.toContain('confirmation is unavailable')
-        } else expect(reason).not.toMatch(/ca1_[0-9a-f]{64}/)
+        expect(reason).not.toMatch(/ca1_[0-9a-f]{64}/)
       }
       expect(sandbox.readFile('src/owned.ts')).toBe('unchanged')
     })

@@ -29,12 +29,14 @@
     "test:e2e": "bun test/tooling/run-validation.ts e2e",
     "test:validation": "bun test/tooling/run-validation.ts all",
     "test:codex-native": "bash scripts/test-codex-native.sh --smoke",
+    "test:approvals-native": "bash scripts/test-approvals-native.sh",
     "deploy:local": "bun run build && cp dist/clooks $(command -v clooks)",
     "typecheck": "tsc --noEmit",
     "prepare": "[ \"$CF_PAGES\" = \"1\" ] || lefthook install"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@modelcontextprotocol/sdk": "1.26.0",
     "@puckeditor/core": "0.21.2",
     "@types/lodash-es": "^4.17.12",
     "@types/react": "18",

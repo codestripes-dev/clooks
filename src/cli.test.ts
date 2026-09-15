@@ -7,6 +7,7 @@ describe('KNOWN_COMMANDS', () => {
     expect(KNOWN_COMMANDS.has('add')).toBe(true)
     expect(KNOWN_COMMANDS.has('config')).toBe(true)
     expect(KNOWN_COMMANDS.has('init')).toBe(true)
+    expect(KNOWN_COMMANDS.has('mcp')).toBe(true)
   })
 
   test('does not contain deferred commands', () => {

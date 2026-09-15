@@ -56,7 +56,7 @@ function vote(name: string, ordinal: number, reason = name): AcceptedPreToolUseV
 function execution(votes = [vote('a', 0), vote('b', 1)]): ExecutionResult {
   return {
     lastResult: cloneDeep(votes.at(-1)?.engineResult),
-    preToolUse: { votes, completed: true, inputChanged: false },
+    preToolUse: { votes, approvals: [], completed: true, inputChanged: false },
     debugMessages: [],
     systemMessages: [],
     traceMessages: [],
@@ -346,7 +346,7 @@ describe('approval resolution', () => {
     expect(() => resolve(ex)).toThrow('Incomplete')
     delete ex.preToolUse
     expect(() => resolve(ex)).toThrow('Incomplete')
-    ex.preToolUse = { votes: [], completed: true, inputChanged: false }
+    ex.preToolUse = { votes: [], approvals: [], completed: true, inputChanged: false }
     expect(() => resolve(ex)).toThrow('Missing accepted')
     expect(store.exists()).toBe(false)
   })

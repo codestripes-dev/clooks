@@ -101,9 +101,20 @@ Exactly one class is never recorded: hooks whose module failed to import. They a
 
 Hooks in the same invocation do not appear in each other's `prior`. The snapshot is read once per invocation, before any hook runs, and every hook sees the same one — otherwise two hooks in a parallel batch would see different histories depending on scheduling.
 
+Live approval checkpoints preserve this boundary. A returned ask is recorded once
+as `ask`, regardless of its later approval outcome; it does not become an `allow`
+or a second lifecycle. After commit, the next invocation can observe that raw ask
+in its applicable history, subject to the persistence limits below. Resuming a
+later hook after consent does not refresh its invocation-start snapshot.
+
 ## Storage
 
-Codex runtime approvals use a separate SQLite database and fixed five-minute lifecycle, not this best-effort history store. Prompt/turn boundaries do not clear approvals; approval binding excludes changing turn/tool-use IDs but retains session and referenced-agent identity. Raw hook asks remain `ask` in history even when the controller emits a pending denial or discharges the final ask after acknowledgement. They do not become history interventions. Successful PreToolUse exits consume required approvals and retire other acknowledged records for the same base invocation, including no-config/no-match/no-ask exits. Approval-storage errors refuse the operation rather than degrading to empty history. See [Codex Approvals](codex-approvals.md). The history semantics below are unchanged.
+Live approvals use separate invocation-bound IPC state, not this best-effort
+history store. Consent and transport failures cannot degrade to an empty history
+and continue an ask. See [Shared Interactive Approval Transport](interactive-approvals.md).
+The former SQLite token lifecycle is [historical](codex-approvals.md) and no longer
+used by the run path. Raw asks do not become history interventions; the history
+semantics below are unchanged.
 
 One JSON document per session at `<homeRoot>/.clooks/turn-state/<hash>.json`, where `hash` is the first 16 hex characters of `sha256(sessionId)`. The directory is 0700, files 0600. The raw session id is never written into a path or into the file.
 

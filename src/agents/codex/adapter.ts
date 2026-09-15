@@ -3,8 +3,16 @@ import { preparePluginPacks } from '../prepare-plugin-packs.js'
 import { normalizeInvocation, readEventName } from './normalize.js'
 import { createResultPolicy } from './policy.js'
 import { translateFailure, translateFinalOutput } from './translate.js'
+import {
+  approvalIdentity,
+  approvalOperation,
+  serializedApprovalOperation,
+} from '../approval-operation.js'
 
 export const codexAdapter: AgentAdapter = {
+  approvalIdentity: (raw, owner, protocol) => approvalIdentity('codex', raw, owner, protocol),
+  approvalOperation,
+  serializedApprovalOperation,
   id: 'codex',
   supportsRuntime: true,
   supportsClaudePluginAdvisories: false,

@@ -43,12 +43,15 @@ function executeHooks(
   return executeHooksImpl(
     matched,
     eventName,
-    normalized,
+    { toolName: 'test', ...normalized },
     config,
     failurePath,
     dirname(dirname(typeof failurePath === 'string' ? failurePath : failurePath.path)),
     loadErrors,
     disabledNames,
+    undefined,
+    undefined,
+    { request: async () => ({ kind: 'approved' }), close: async () => {} },
   )
 }
 
@@ -430,7 +433,7 @@ describe('sequential ask-winner merges loser allow patch', () => {
       config,
       fp(dir),
     )
-    expect(result.lastResult?.result).toBe('ask')
+    expect(result.lastResult?.result).toBe('allow')
     // The ask-winner's raw partial was { command: 'echo ok' }, but the merged
     // wire output must carry both the allow-loser's timeout patch and the
     // ask-winner's command patch.

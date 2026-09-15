@@ -1,4 +1,16 @@
-# Codex Approvals
+# Codex Approvals: Historical Token Runtime
+
+This page records the former token-retry runtime and its retained CLI/store
+components. The current engine integration no longer uses that runtime path;
+replacement live-checkpoint integration is implemented and compiled-test validated.
+The retained `clooks approve` command/store and their files have not yet been
+physically retired. Descriptions of token issuance, retry discharge and runtime
+consumption below are historical, not current engine guidance or evidence of
+generated-registration conformance. Historical validation receipts keep their original
+scope. See [Shared Interactive Approval Transport](interactive-approvals.md) for
+the implemented transport and engine checkpoint behavior.
+
+## Former Runtime
 
 Codex PreToolUse handlers can return `ctx.ask({ reason })` through a Clooks runtime fallback. After the hooks finish, an unresolved confirmation becomes a native denial with the hook alias, reason, opaque token, fixed expiry and instructions to ask the user and wait. Acknowledged confirmations can discharge the final ask on a matching retry. This is not native Codex `ask` support: Clooks never emits native ask, and Claude retains native approval behavior. The runtime baseline passed full frozen-source Docker validation. The pinned Codex 0.153.4 native suite passed all 15 cases, covering two-ask shell inline retries, direct-patch CLI registration, bounded rewrite permission controls and actual-pack `rm -r` execution/replay refusal. This is not forced-removal allow proof or full conformance. See [native evidence and limits](testing/codex-native.md#hybrid-approval-case-evidence).
 

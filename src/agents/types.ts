@@ -7,6 +7,8 @@ import type { discoverCodexPluginPacks } from './codex/plugin-discovery.js'
 import type { vendorAndRegisterPack } from '../plugin-vendor.js'
 import type { EngineResult, ExitCode } from '../engine/types.js'
 import type { Provider } from '../types/contexts.js'
+import type { ApprovalQuestion } from '../interaction/types.js'
+import type { CheckInput } from '../interaction/protocol.js'
 
 export type AgentId = Provider
 
@@ -79,8 +81,9 @@ export type CheckedResult =
   | { kind: 'rejected'; failure: RuntimePolicyFailure }
 
 export interface InvocationResultPolicy {
-  /** Collect detached, configured-order PreToolUse observations for approval resolution. */
-  collectPreToolUseVotes?: boolean
+  /** Preserve Claude's legacy mutable context when an invocation policy is wrapped. */
+  mutableToolInput?: boolean
+  approvalOperation?(input: unknown, changed: boolean): ApprovalQuestion['operation']
   /** Audit ordinary crash blocks after configured continuation and failure accounting. */
   deferRuntimeErrorAudit?: boolean
   validateRawResult?(value: unknown): RuntimePolicyFailure | undefined
@@ -174,6 +177,16 @@ export interface CollectSessionStartAdvisoriesInput {
 }
 
 export interface AgentAdapter {
+  approvalIdentity(payload: Record<string, unknown>, owner: string, protocol: string): CheckInput
+  approvalOperation(
+    invocation: NormalizedInvocation,
+    input: unknown,
+    changed: boolean,
+  ): ApprovalQuestion['operation']
+  serializedApprovalOperation(
+    invocation: NormalizedInvocation,
+    output: TranslatedAgentOutput,
+  ): ApprovalQuestion['operation'] | null
   id: AgentId
   supportsRuntime: boolean
   supportsClaudePluginAdvisories: boolean

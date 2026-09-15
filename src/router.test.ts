@@ -1,5 +1,6 @@
 import { describe, expect, test, beforeEach, afterEach, spyOn } from 'bun:test'
 import { runCLI, program } from './router.js'
+import { createMcpCommand } from './commands/mcp.js'
 
 describe('runCLI', () => {
   let exitSpy: ReturnType<typeof spyOn>
@@ -40,6 +41,26 @@ describe('runCLI', () => {
     expect(errOutput).toContain('error')
   })
 
+  test('mcp help and argument errors leave stdout empty without immediate exit', async () => {
+    const previousExitCode = process.exitCode
+    try {
+      await runCLI(['--json', 'mcp', '--help'])
+      expect(process.exitCode).toBe(0)
+      expect(stdoutSpy).not.toHaveBeenCalled()
+      expect(exitSpy).not.toHaveBeenCalled()
+      expect(stderrSpy.mock.calls.map((call: unknown[]) => String(call[0])).join('')).toContain(
+        'MCP stdio',
+      )
+
+      await runCLI(['mcp', '--not-an-option'])
+      expect(process.exitCode).toBe(1)
+      expect(stdoutSpy).not.toHaveBeenCalled()
+      expect(exitSpy).not.toHaveBeenCalled()
+    } finally {
+      process.exitCode = previousExitCode ?? 0
+    }
+  })
+
   test('CancelError results in clean exit(0)', async () => {
     const { CancelError } = await import('./tui/prompts.js')
 
@@ -56,6 +77,44 @@ describe('runCLI', () => {
       if (idx !== -1) cmds.splice(idx, 1)
     }
   })
+
+  test.each([false, true])(
+    'MCP root help stays on stderr and stdout is restored (failure=%s)',
+    async (failure) => {
+      const commands = program.commands as import('commander').Command[]
+      const index = commands.findIndex((command) => command.name() === 'mcp')
+      const original = commands.splice(index, 1)[0]!
+      const command = createMcpCommand({}, async () => {
+        program.outputHelp()
+        if (failure) throw new Error('server startup failed')
+      })
+      program.addCommand(command)
+      try {
+        if (failure) {
+          await expect(runCLI(['mcp'])).rejects.toThrow('server startup failed')
+        } else {
+          await runCLI(['mcp'])
+        }
+        expect(exitSpy).not.toHaveBeenCalled()
+        expect(stdoutSpy).not.toHaveBeenCalled()
+        expect(stderrSpy.mock.calls.map((call: unknown[]) => String(call[0])).join('')).toContain(
+          'Usage: clooks',
+        )
+
+        stdoutSpy.mockClear()
+        stderrSpy.mockClear()
+        await expect(runCLI(['--help'])).rejects.toThrow('process.exit called')
+        expect(exitSpy).toHaveBeenCalledWith(0)
+        expect(stderrSpy).not.toHaveBeenCalled()
+        expect(stdoutSpy.mock.calls.map((call: unknown[]) => String(call[0])).join('')).toContain(
+          'Usage: clooks',
+        )
+      } finally {
+        commands.splice(commands.indexOf(command), 1)
+        commands.splice(index, 0, original)
+      }
+    },
+  )
 
   test('unknown errors are re-thrown', async () => {
     const testCmd = program.command('_test-unknown-error').action(() => {

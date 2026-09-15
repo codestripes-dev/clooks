@@ -12,6 +12,17 @@ import type { HookLoadError, LoadedHook } from '../loader.js'
 import type { EventName } from '../types/branded.js'
 import { hn, ms } from '../test-utils.js'
 import { readFailures } from '../failures.js'
+import type { ApprovalInteraction } from '../interaction/types.js'
+import type { ApprovalQuestion } from '../interaction/types.js'
+import type { TurnTracker } from './turn-state.js'
+import {
+  createTurnTracker,
+  emptyTurn,
+  emptyTurnState,
+  readTurnState,
+  turnStatePath,
+} from './turn-state.js'
+import { operationSchema } from '../interaction/protocol.js'
 
 const roots: string[] = []
 afterEach(() => {
@@ -59,8 +70,8 @@ function config(names: string[], parallel = false, onError: ErrorMode = 'block')
 
 const observing: InvocationResultPolicy = {
   ...legacyResultPolicy,
-  collectPreToolUseVotes: true,
   deferRuntimeErrorAudit: true,
+  approvalOperation: (input) => operationSchema.parse({ toolName: 'test', input }),
 }
 
 function run(
@@ -71,6 +82,9 @@ function run(
     input?: Record<string, unknown>
     event?: EventName
     loadErrors?: HookLoadError[]
+    interaction?: ApprovalInteraction | null
+    signal?: AbortSignal
+    tracker?: TurnTracker
   } = {},
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'clooks-observations-'))
@@ -90,8 +104,16 @@ function run(
       dir,
       options.loadErrors ?? [],
       undefined,
-      undefined,
-      options.policy ?? observing,
+      options.tracker,
+      { ...(options.policy ?? observing), approvalOperation: observing.approvalOperation },
+      options.interaction === null
+        ? undefined
+        : (options.interaction ??
+            ({
+              request: async () => ({ kind: 'approved' }),
+              close: async () => {},
+            } satisfies ApprovalInteraction)),
+      options.signal,
     ),
   }
 }
@@ -123,7 +145,7 @@ async function waitForStarts(starts: Promise<void>, execution: Promise<unknown>)
   }
 }
 
-describe('opt-in PreToolUse observations', () => {
+describe('live PreToolUse observations', () => {
   for (const parallel of [false, true]) {
     test(`non-record snapshots retain null, falsy scalars and arrays, parallel=${parallel}`, async () => {
       for (const toolInput of [null, false, 0, '', 'raw {', [], [null, { snake_key: false }]]) {
@@ -148,7 +170,7 @@ describe('opt-in PreToolUse observations', () => {
     })
   }
 
-  test('metadata is absent for legacy, Claude, explicit opt-out, and other events', async () => {
+  test('PreToolUse metadata is shared across policies but absent for other events', async () => {
     const invocation = claudeCodeAdapter.normalizeInvocation(
       {
         hook_event_name: 'PreToolUse',
@@ -156,27 +178,24 @@ describe('opt-in PreToolUse observations', () => {
       },
       'PreToolUse',
     )
-    for (const policy of [
-      legacyResultPolicy,
-      claudeCodeAdapter.createResultPolicy(invocation),
-      { ...observing, collectPreToolUseVotes: false },
-    ]) {
+    for (const policy of [legacyResultPolicy, claudeCodeAdapter.createResultPolicy(invocation)]) {
       const result = await run([hook('ask', () => ({ result: 'ask', reason: 'confirm' }))], {
         policy,
       }).result
-      expect(result).not.toHaveProperty('preToolUse')
-      expect(result.lastResult).toEqual({ result: 'ask', reason: 'confirm' })
+      expect(result.preToolUse?.approvals).toHaveLength(1)
+      expect(result.lastResult).toEqual({ result: 'allow', reason: 'confirm' })
     }
     expect(await run([], { event: 'Stop' }).result).not.toHaveProperty('preToolUse')
     const dir = mkdtempSync(join(tmpdir(), 'clooks-no-optin-'))
     roots.push(dir)
     expect(
       await executeHooks([], 'PreToolUse', {}, config([]), join(dir, 'failures'), dir),
-    ).not.toHaveProperty('preToolUse')
+    ).toHaveProperty('preToolUse')
   })
 
   test('empty execution and undefined results complete without fabricated votes', async () => {
     expect((await run([], { input: {} }).result).preToolUse).toEqual({
+      approvals: [],
       votes: [],
       finalToolInput: undefined,
       inputChanged: false,
@@ -191,6 +210,7 @@ describe('opt-in PreToolUse observations', () => {
       {
         engineResult: { result: 'skip' },
         rank: -1,
+        resolvedAsk: false,
         hookName: hn('skip'),
         origin: 'handler',
         ordinal: 2,
@@ -224,11 +244,10 @@ describe('opt-in PreToolUse observations', () => {
       ]
       const result = await run(hooks).result
       const baseline = await run(hooks, { policy: legacyResultPolicy }).result
-      const { preToolUse, ...withoutObservations } = result
-      expect(withoutObservations).toEqual(baseline)
+      const { preToolUse } = result
+      expect(result).toEqual(baseline)
       expect(result.lastResult?.reason).toBe('last')
-      expect(result.lastResult?.injectContext).toBe('allow context\nwinner context')
-      expect(result.lastResult?.injectContext).not.toContain('losing context')
+      expect(result.lastResult?.injectContext).toBe('losing context\nallow context\nwinner context')
       expect(preToolUse?.votes.map((v) => [v.hookName, v.rank, v.ordinal])).toEqual([
         [hn('a'), 1, 0],
         [hn('allow'), 0, 1],
@@ -240,12 +259,7 @@ describe('opt-in PreToolUse observations', () => {
       expect(preToolUse?.votes[2]?.inputBefore).toEqual(seen[0])
       expect(preToolUse?.inputChanged).toBe(true)
       expect(preToolUse?.completed).toBe(true)
-      if (patchSource === 'losing-ask') {
-        expect(result.lastResult).not.toHaveProperty('updatedInput')
-        expect(preToolUse?.finalToolInput).toHaveProperty('command', 'first-patch')
-      } else {
-        expect(preToolUse?.finalToolInput).toEqual(result.lastResult?.updatedInput)
-      }
+      expect(preToolUse?.finalToolInput).toEqual(result.lastResult?.updatedInput)
     })
   }
 
@@ -330,8 +344,8 @@ describe('opt-in PreToolUse observations', () => {
       const cfg = config(['ask', 'defer'], parallel)
       const result = await run(hooks, { cfg }).result
       const baseline = await run(hooks, { cfg, policy: legacyResultPolicy }).result
-      const { preToolUse, ...withoutObservations } = result
-      expect(withoutObservations).toEqual(baseline)
+      const { preToolUse } = result
+      expect(result).toEqual(baseline)
       expect(result.lastResult).toEqual({ result: 'defer' })
       expect(preToolUse?.votes.map((v) => v.rank)).toEqual([1, 2])
       expect(preToolUse?.votes[0]?.engineResult.injectContext).toBe('ask context')
@@ -435,6 +449,325 @@ describe('opt-in PreToolUse observations', () => {
       finishB.release()
       await Promise.allSettled([pending])
     }
+  })
+})
+
+describe('live checkpoint boundaries', () => {
+  for (const tag of ['ask'] as const) {
+    test(`${tag} patch on a non-record input refuses before consent or later hooks`, async () => {
+      let requests = 0
+      let later = 0
+      const execution = run(
+        [
+          hook('patch', () => ({ result: tag, reason: 'confirm', updatedInput: { key: 'value' } })),
+          hook('later', () => {
+            later++
+            return { result: 'allow' }
+          }),
+        ],
+        {
+          input: { toolInput: null },
+          interaction: {
+            async request() {
+              requests++
+              return { kind: 'approved' }
+            },
+            async close() {},
+          },
+        },
+      )
+      const result = await execution.result
+      expect(result.policyFailure?.capability).toBe('approval')
+      expect(result.lastResult).toBeUndefined()
+      expect(requests).toBe(0)
+      expect(later).toBe(0)
+      expect(await readFailures(execution.failurePath)).toEqual({})
+    })
+  }
+  test('handler rejection after cancellation stops without crash degradation', async () => {
+    const entered = gate()
+    const finish = gate()
+    const controller = new AbortController()
+    let later = 0
+    const execution = run(
+      [
+        hook('pending', async () => {
+          entered.release()
+          await finish.promise
+          throw new Error('cancelled handler')
+        }),
+        hook('later', () => {
+          later++
+          return { result: 'allow' }
+        }),
+      ],
+      { signal: controller.signal },
+    )
+    await entered.promise
+    controller.abort()
+    finish.release()
+    const result = await execution.result
+    expect(result.policyFailure?.capability).toBe('approval')
+    expect(result.lastResult).toBeUndefined()
+    expect(later).toBe(0)
+    expect(result.degradedMessages).toEqual([])
+    expect(await readFailures(execution.failurePath)).toEqual({})
+  })
+  test('next invocation turn snapshot contains exactly one raw approved ask', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'clooks-ask-history-'))
+    roots.push(home)
+    const path = turnStatePath(home, 'session')
+    const tracker = createTurnTracker({
+      path,
+      homeRoot: home,
+      scopeKey: 'main',
+      state: emptyTurnState(),
+    })
+    const result = await run([hook('ask', () => ({ result: 'ask', reason: 'confirm' }))], {
+      tracker,
+    }).result
+    expect(result.lastResult?.result).toBe('allow')
+    const state = await readTurnState(path)
+    const next = createTurnTracker({ path, homeRoot: home, scopeKey: 'main', state })
+    const turn = next.materialize(hn('ask'), 'PreToolUse')
+    expect(turn.priorRuns).toBe(1)
+    expect(turn.prior.map((record) => record.decision)).toEqual(['ask'])
+  })
+  test('afterHook mutation is audited before consent; history retains one raw ask', async () => {
+    const records: string[] = []
+    const questions: ApprovalQuestion[] = []
+    let observed: unknown
+    const tracker: TurnTracker = {
+      materialize() {
+        return emptyTurn()
+      },
+      record(_name, _event, decision) {
+        records.push(decision)
+      },
+      async commit() {},
+    }
+    const raw = { result: 'ask', reason: 'original reason', updatedInput: { command: 'before' } }
+    const result = await run(
+      [
+        hook('ask', () => raw, {
+          afterHook(event: { handlerResult: typeof raw }) {
+            observed = event.handlerResult
+            event.handlerResult.updatedInput.command = 'after'
+            return { result: 'block', reason: 'ignored override' }
+          },
+        }),
+        hook('next', (ctx: { toolInput: unknown }) => {
+          expect(records).toEqual(['ask'])
+          expect(ctx.toolInput).toHaveProperty('command', 'after')
+          return { result: 'allow' }
+        }),
+      ],
+      {
+        tracker,
+        interaction: {
+          async request(question) {
+            questions.push(question)
+            return { kind: 'approved' }
+          },
+          async close() {},
+        },
+      },
+    ).result
+    expect(observed).toBe(raw)
+    expect(questions[0]).toMatchObject({
+      reason: 'original reason',
+      operation: { input: { command: 'after' } },
+    })
+    expect(records).toEqual(['ask', 'allow'])
+    expect(result.lastResult?.result).toBe('allow')
+  })
+  test('consent outlives hook-code timeout without crash accounting', async () => {
+    const asked = gate()
+    const reply = gate()
+    const cfg = config(['ask', 'next'])
+    cfg.global.timeout = ms(10)
+    let next = false
+    const execution = run(
+      [
+        hook('ask', () => ({ result: 'ask', reason: 'wait' })),
+        hook('next', () => {
+          next = true
+          return { result: 'allow' }
+        }),
+      ],
+      {
+        cfg,
+        interaction: {
+          async request() {
+            asked.release()
+            await reply.promise
+            return { kind: 'approved' }
+          },
+          async close() {},
+        },
+      },
+    )
+    await asked.promise
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    expect(next).toBe(false)
+    reply.release()
+    const result = await execution.result
+    expect(result.policyFailure).toBeUndefined()
+    expect(result.degradedMessages).toEqual([])
+    expect(await readFailures(execution.failurePath)).toEqual({})
+    expect(next).toBe(true)
+  })
+  test('parallel asks wait for audit then prompt in configured order', async () => {
+    const finishA = gate()
+    const askedA = gate()
+    const approveA = gate()
+    const finishB = gate()
+    const started = gate()
+    const seen: string[] = []
+    let starts = 0
+    let next = false
+    const hooks = ['a', 'b'].map((name) =>
+      hook(name, async () => {
+        if (++starts === 2) started.release()
+        await (name === 'a' ? finishA : finishB).promise
+        return { result: 'ask', reason: name }
+      }),
+    )
+    hooks.push(
+      hook('next', () => {
+        next = true
+        return { result: 'allow' }
+      }),
+    )
+    const cfg = config(['a', 'b', 'next'], true)
+    cfg.hooks[hn('next')]!.parallel = false
+    const execution = run(hooks, {
+      cfg,
+      interaction: {
+        async request(question) {
+          seen.push(question.hookName)
+          if (question.hookName === 'a') {
+            askedA.release()
+            await approveA.promise
+          }
+          return { kind: 'approved' }
+        },
+        async close() {},
+      },
+    }).result
+    await started.promise
+    finishB.release()
+    await drain()
+    expect(seen).toEqual([])
+    finishA.release()
+    await askedA.promise
+    expect(seen).toEqual(['a'])
+    expect(next).toBe(false)
+    approveA.release()
+    await execution
+    expect(seen).toEqual(['a', 'b'])
+    expect(next).toBe(true)
+  })
+  for (const parallel of [false, true]) {
+    for (const vote of ['block', 'defer'] as const) {
+      test(`${vote} ${parallel ? 'parallel' : 'sequential'} only block suppresses questions`, async () => {
+        let asks = 0
+        const result = await run(
+          [
+            hook('vote', () => ({ result: vote, reason: 'reason' })),
+            hook('ask', () => ({ result: 'ask', reason: 'confirm' })),
+          ],
+          {
+            cfg: config(['vote', 'ask'], parallel),
+            interaction: {
+              async request() {
+                asks++
+                return { kind: 'approved' }
+              },
+              async close() {},
+            },
+          },
+        ).result
+        expect(asks).toBe(vote === 'block' ? 0 : 1)
+        expect(result.lastResult?.result).toBe(vote)
+      })
+    }
+  }
+  for (const failure of [
+    'declined',
+    'cancelled',
+    'timed-out',
+    'unavailable',
+    'throw',
+    'absent',
+  ] as const) {
+    test(`checkpoint ${failure} stops later hooks without degradation`, async () => {
+      let next = false
+      const cfg = config(['ask', 'next'], false, 'continue')
+      cfg.global.maxFailures = 1
+      const execution = run(
+        [
+          hook('ask', () => ({ result: 'ask', reason: 'confirm' })),
+          hook('next', () => {
+            next = true
+            return { result: 'allow' }
+          }),
+        ],
+        {
+          cfg,
+          interaction:
+            failure === 'absent'
+              ? null
+              : {
+                  async request() {
+                    if (failure === 'throw') throw new Error('protocol fault')
+                    return { kind: failure, message: 'refused' }
+                  },
+                  async close() {},
+                },
+        },
+      )
+      const result = await execution.result
+      expect(result.policyFailure?.capability).toBe('approval')
+      expect(next).toBe(false)
+      expect(result.degradedMessages).toEqual([])
+      expect(await readFailures(execution.failurePath)).toEqual({})
+    })
+  }
+  for (const updatedInput of [[], null, 'text', 1]) {
+    test(`non-record ask patch ${JSON.stringify(updatedInput)} is refused before prompting`, async () => {
+      let prompts = 0
+      const result = await run(
+        [hook('ask', () => ({ result: 'ask', reason: 'confirm', updatedInput }))],
+        {
+          interaction: {
+            async request() {
+              prompts++
+              return { kind: 'approved' }
+            },
+            async close() {},
+          },
+        },
+      ).result
+      expect(prompts).toBe(0)
+      expect(result.policyFailure).toBeDefined()
+    })
+  }
+  test('ask patch preserves opaque keys, untouched null and undefined no-op', async () => {
+    const patch = JSON.parse('{"__proto__":{"snake_key":true},"remove":null}')
+    patch.command = undefined
+    const result = await run(
+      [hook('ask', () => ({ result: 'ask', reason: '', updatedInput: patch }))],
+      {
+        input: { toolInput: { command: 'original', remove: true, retain: null } },
+      },
+    ).result
+    expect(result.lastResult?.updatedInput).toEqual(
+      JSON.parse('{"command":"original","retain":null,"__proto__":{"snake_key":true}}'),
+    )
+    expect(result.lastResult?.updatedInput).toEqual(
+      result.preToolUse?.approvals[0]?.operation.input as Record<string, unknown>,
+    )
   })
 })
 
@@ -542,7 +875,7 @@ describe('incomplete approval observations', () => {
         const result = await execution.result
         expect(result.preToolUse?.completed).toBe(false)
         expect(result.policyFailure).toBeUndefined()
-        expect(result.lastResult?.result).toBe(mode === 'block' ? 'block' : 'ask')
+        expect(result.lastResult?.result).toBe(mode === 'block' ? 'block' : 'allow')
         expect(result.preToolUse?.votes.some((v) => v.hookName === hn('ask'))).toBe(true)
         expect(result.preToolUse?.votes.some((v) => v.hookName === hn('crash'))).toBe(false)
         expect(laterRan).toBe(parallel || mode !== 'block')
@@ -605,7 +938,7 @@ describe('incomplete approval observations', () => {
         }).result
         expect(result.preToolUse?.completed).toBe(false)
         expect(result.preToolUse?.votes).toHaveLength(degraded && !rejected ? 1 : 0)
-        expect(result.lastResult?.result).toBe(rejected ? undefined : degraded ? 'ask' : 'block')
+        expect(result.lastResult?.result).toBe(rejected ? undefined : degraded ? 'allow' : 'block')
       })
     }
   }

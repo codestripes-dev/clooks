@@ -2,6 +2,7 @@ import { describe, test, expect, afterEach } from 'bun:test'
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import { createSandbox, type Sandbox } from './helpers/sandbox'
+import { invocation, runWithConsent } from './helpers/live-approvals'
 
 const FIXTURES = join(import.meta.dir, '../fixtures')
 const loadEvent = (name: string) => readFileSync(join(FIXTURES, 'events', name), 'utf8')
@@ -1184,7 +1185,7 @@ pre-defer: {}
   })
 
   // B. ask outcome with reason
-  test('PreToolUse ask with reason → permissionDecision:ask + reason, exit 0', () => {
+  test('PreToolUse ask without a live peer refuses with registration guidance', () => {
     sandbox = createSandbox()
     sandbox.writeHook(
       'pre-ask.ts',
@@ -1205,12 +1206,12 @@ pre-ask: {}
     expect(result.exitCode).toBe(0)
     const output = JSON.parse(result.stdout)
     expect(output.hookSpecificOutput.hookEventName).toBe('PreToolUse')
-    expect(output.hookSpecificOutput.permissionDecision).toBe('ask')
-    expect(output.hookSpecificOutput.permissionDecisionReason).toBe('confirm')
+    expect(output.hookSpecificOutput.permissionDecision).toBe('deny')
+    expect(output.hookSpecificOutput.permissionDecisionReason).toMatch(/registration|restart/i)
   })
 
   // C. ask + updatedInput + injectContext
-  test('PreToolUse ask + updatedInput + injectContext → all three fields present', () => {
+  test('PreToolUse approved ask preserves reason, updatedInput and injectContext', async () => {
     sandbox = createSandbox()
     sandbox.writeHook(
       'pre-ask-full.ts',
@@ -1232,10 +1233,21 @@ export const hook = {
 version: "1.0.0"
 pre-ask-full: {}
 `)
-    const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
+    const { result, prompts } = await runWithConsent(
+      sandbox,
+      invocation(sandbox, 'claude-code'),
+      (prompt) => {
+        expect(prompt.question).toMatchObject({
+          reason: 'confirm',
+          operation: { toolName: 'Bash', input: { command: 'echo safe' } },
+        })
+        return { action: 'accept', content: { confirmed: true } }
+      },
+    )
+    expect(prompts).toHaveLength(1)
     expect(result.exitCode).toBe(0)
     const output = JSON.parse(result.stdout)
-    expect(output.hookSpecificOutput.permissionDecision).toBe('ask')
+    expect(output.hookSpecificOutput.permissionDecision).toBe('allow')
     expect(output.hookSpecificOutput.permissionDecisionReason).toBe('confirm')
     expect(output.hookSpecificOutput.updatedInput).toEqual({ command: 'echo safe' })
     expect(output.hookSpecificOutput.additionalContext).toBe('extra context')
@@ -1329,7 +1341,7 @@ pre-h3-ask: {}
   })
 
   // E'. multi-hook precedence permutation 2: ask, allow, deny → deny still wins (order-independence)
-  test('PreToolUse multi-hook permutation 2: ask + allow + deny(policy) → deny wins regardless of order', () => {
+  test('PreToolUse multi-hook permutation 2: approved ask + allow + deny(policy) retains denial', async () => {
     sandbox = createSandbox()
     sandbox.writeHook(
       'pre-p2-h1-ask.ts',
@@ -1377,10 +1389,16 @@ pre-p2-h2-allow: {}
 pre-p2-h3-deny: {}
 `)
     const breadcrumbFile = join(sandbox.dir, 'breadcrumbs.txt')
-    const result = sandbox.run([], {
-      stdin: loadEvent('pre-tool-use-bash.json'),
-      env: { BREADCRUMB_FILE: breadcrumbFile },
-    })
+    const { result, prompts } = await runWithConsent(
+      sandbox,
+      invocation(sandbox, 'claude-code'),
+      () => ({
+        action: 'accept',
+        content: { confirmed: true },
+      }),
+      { BREADCRUMB_FILE: breadcrumbFile },
+    )
+    expect(prompts).toHaveLength(1)
     expect(result.exitCode).toBe(0)
     const output = JSON.parse(result.stdout)
     expect(output.hookSpecificOutput.permissionDecision).toBe('deny')

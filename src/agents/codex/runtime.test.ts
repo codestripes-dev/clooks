@@ -27,7 +27,6 @@ describe('Codex PreToolUse runtime policy', () => {
       const policy = codexAdapter.createResultPolicy(
         codexAdapter.normalizeInvocation(payload(), 'PreToolUse'),
       )
-      expect(policy.collectPreToolUseVotes).toBe(true)
       expect(
         policy.checkResult({
           value: {

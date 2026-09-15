@@ -2221,7 +2221,7 @@ describe('runEngine', () => {
       expect(exitSpy).not.toHaveBeenCalled()
     })
 
-    it('allow + defer + ask → defer wins, no extras, systemMessages empty', async () => {
+    it('allow + defer + ask without interaction denies rather than bypassing consent', async () => {
       mockLoadConfig.mockResolvedValue({
         config: makeConfig({ h1: {}, h2: {}, h3: {} }),
         shadows: [],
@@ -2235,16 +2235,13 @@ describe('runEngine', () => {
         ],
         loadErrors: [],
       })
-      mockReadStdin.mockResolvedValue({ hook_event_name: 'PreToolUse' })
+      mockReadStdin.mockResolvedValue({
+        hook_event_name: 'PreToolUse',
+        tool_name: 'Bash',
+        tool_input: { command: 'original' },
+      })
       await runEngine(makeDeps()).catch(() => {})
-      const stdout = getStdout()
-      const parsed = JSON.parse(stdout.trim().split('\n')[0]!)
-      expect(parsed.hookSpecificOutput.permissionDecision).toBe('defer')
-      // No reason, no additionalContext for defer
-      expect(parsed.hookSpecificOutput.permissionDecisionReason).toBeUndefined()
-      expect(parsed.hookSpecificOutput.additionalContext).toBeUndefined()
-      // No warnings — no losers with updatedInput or context
-      expect(parsed.systemMessage).toBeUndefined()
+      expect(JSON.parse(getStdout()).hookSpecificOutput.permissionDecision).toBe('deny')
     })
 
     it('allow-with-updatedInput + defer → defer wins, systemMessage mentions dropped updatedInput', async () => {

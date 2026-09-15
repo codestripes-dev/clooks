@@ -3,7 +3,7 @@ import type { EngineResult } from '../../engine/types.js'
 import type { InvocationResultPolicy, NormalizedInvocation } from '../types.js'
 import { isJsonValue } from './tool-codecs.js'
 
-function hasLosslessShape(value: unknown, ancestors = new Set<object>()): boolean {
+export function hasLosslessShape(value: unknown, ancestors = new Set<object>()): boolean {
   if (value === undefined) return true
   if (value === null || typeof value !== 'object') return isJsonValue(value)
   if (Array.isArray(value)) return isJsonValue(value)
@@ -32,7 +32,6 @@ export function createResultPolicy(invocation: NormalizedInvocation): Invocation
   const metadata = cloneDeep(invocation.private)
   const eventName = invocation.eventName
   return {
-    collectPreToolUseVotes: eventName === 'PreToolUse',
     deferRuntimeErrorAudit: true,
     validateRawResult(value) {
       if (hasLosslessShape(value)) return undefined

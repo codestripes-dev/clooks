@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import { existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { createSandbox, formatDiagnostics, type Sandbox } from './helpers/sandbox'
+import { invocation, runWithConsent } from './helpers/live-approvals'
 
 // Compiled source-shaped replay; native update_plan effects have a separate native probe.
 let sandbox: Sandbox
@@ -80,17 +81,6 @@ function seen() {
     .filter(Boolean)
     .map((line) => JSON.parse(line))
 }
-function token(output: ReturnType<typeof replay>): string {
-  expect(output.hookSpecificOutput.permissionDecision).toBe('deny')
-  expect(output.hookSpecificOutput.updatedInput).toBeUndefined()
-  const id = /ca1_[a-f0-9]{64}/.exec(output.hookSpecificOutput.permissionDecisionReason)?.[0]
-  expect(id).toBeDefined()
-  return id!
-}
-function approve(id: string) {
-  const result = sandbox.run(['approve', id, '--json'], { env: env(), timeout: 10_000 })
-  expect(result.exitCode, formatDiagnostics(result)).toBe(0)
-}
 function noEffects(output: ReturnType<typeof replay>) {
   expect(output.hookSpecificOutput?.updatedInput).toBeUndefined()
   expect(output.hookSpecificOutput?.additionalContext).toBeUndefined()
@@ -124,32 +114,42 @@ describe('compiled generic Codex local object rewrites', () => {
       expect(seen().map((row) => row.name)).toEqual([name, name, name])
     })
     for (const patchVote of ['allow', 'ask']) {
-      test(`${name} ${patchVote} rewrite binds approval to actual replacement`, () => {
+      test(`${name} ${patchVote} rewrite presents each actual replacement for live approval`, async () => {
         install([
           `const patch = JSON.parse(readFileSync(${JSON.stringify('candidate.json')}, 'utf8'))
            return ctx.${patchVote}({ ${patchVote === 'ask' ? "reason: 'confirm local'," : ''} updatedInput: patch })`,
           patchVote === 'ask' ? 'return ctx.skip()' : "return ctx.ask({ reason: 'confirm local' })",
         ])
-        sandbox.writeFile('candidate.json', JSON.stringify({ delete_key: null, added_key: 0 }))
         const expected = { ...original, added_key: 0 }
         delete expected.delete_key
-        const id = token(replay(name))
-        expect(token(replay(name))).toBe(id)
-        approve(id)
-        // External data changes only the candidate, not hook bytes or effective config.
-        sandbox.writeFile('candidate.json', JSON.stringify({ delete_key: null, added_key: 1 }))
-        const changed = token(replay(name))
-        expect(changed).not.toBe(id)
-        approve(changed)
-        const allowed = replay(name)
-        expect(allowed.hookSpecificOutput).toEqual({
-          hookEventName: 'PreToolUse',
-          permissionDecision: 'allow',
-          updatedInput: { ...expected, added_key: 1 },
-        })
-        expect(seen().map((row) => row.original)).toEqual([original, original])
-        expect(seen()[1].input).toEqual({ ...expected, added_key: 1 })
-        expect(token(replay(name))).not.toBe(changed)
+        for (const added_key of [0, 1]) {
+          sandbox.writeFile('observed.jsonl', '')
+          sandbox.writeFile('candidate.json', JSON.stringify({ delete_key: null, added_key }))
+          const live = await runWithConsent(
+            sandbox,
+            invocation(sandbox, 'codex', {
+              toolName: name,
+              input: original,
+            }),
+            (prompt) => {
+              expect(prompt.question.operation).toEqual({
+                toolName: name,
+                input: { ...expected, added_key },
+              })
+              return { action: 'accept', content: { confirmed: true } }
+            },
+          )
+          expect(live.result.rawExitCode, formatDiagnostics(live.result)).toBe(0)
+          expect(live.result.stderr).toBe('')
+          expect(live.prompts).toHaveLength(1)
+          expect(JSON.parse(live.result.stdout).hookSpecificOutput).toMatchObject({
+            hookEventName: 'PreToolUse',
+            permissionDecision: 'allow',
+            updatedInput: { ...expected, added_key },
+          })
+          expect(seen().map((row) => row.original)).toEqual([original, original])
+          expect(seen()[1].input).toEqual({ ...expected, added_key })
+        }
       })
     }
   }
