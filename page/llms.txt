@@ -88,7 +88,7 @@ Supported events: SessionStart, SubagentStart, PreToolUse, PermissionRequest, Po
 - Stop/SubagentStop: allow/block/skip; block requests continuation. Failure instead requests termination. No context.
 - SessionEnd: skip/debug only, including no-op returns. Observation-only; no context or closure veto. Registration allows three seconds for the entire pipeline. Successful diagnostics are local stderr, discarded natively.
 
-Codex exec_command normalizes to Bash; apply_patch does not become Claude Edit/Write input. Command rewrites are command-only; supported MCP input rewrites use an opaque-record codec. Other tools may be observable without being rewritable. Hosted tools and specialized native paths may bypass hooks. Codex defer is unsupported, and handoff stays inline. Check ctx.provider and actual event/tool contracts rather than assuming parity from names. Native invocation evidence is bounded, not full conformance; existing website recordings show Claude Code only.
+Codex exec_command normalizes to Bash; apply_patch does not become Claude Edit/Write input. Command rewrites are command-only; supported MCP input rewrites use an opaque-record codec. Other tools may be observable without being rewritable. Hosted tools and specialized native paths may bypass hooks. Codex defer is unsupported. Check ctx.provider and actual event/tool contracts rather than assuming parity from names. Native invocation evidence is bounded, not full conformance; existing website recordings show Claude Code only.
 
 ## Shared Approval Checkpoints
 

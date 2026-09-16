@@ -11,7 +11,7 @@ function HookAnatomySection({ accent, content }) {
     { n: '04', k: 'Event methods', hl: 'events',
       d: 'Subscribe to hooks by event name. Implement PreToolUse, you handle PreToolUse.' },
     { n: '05', k: 'Typed ctx, decision methods', hl: 'result',
-      d: 'Typed input in. Decisions depend on event and provider: Claude supports native ask/defer on PreToolUse; Codex handler ask uses Clooks confirmations and defer is unsupported.' },
+      d: 'Typed input. Clear decisions: allow, block, skip, or ask for confirmation.' },
   ];
   // Line indices into anatomyLines below, keyed by item.hl
   const HL = {

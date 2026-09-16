@@ -544,7 +544,7 @@ fast-logger:
 
 **Sequential hooks** form a pipeline:
 - Each hook sees `toolInput` as modified by the previous hook
-- `PreToolUse` collects block/ask votes and continues; a block wins reduction. Other events short-circuit on block. Existing failure and contract checks can still stop execution.
+- `PreToolUse` collects decisions; each sequential approval checkpoint waits for confirmation before proceeding, and a block wins the final reduction. Other events short-circuit on block. Existing failure and contract checks can still stop execution.
 - `injectContext` values accumulate across all hooks
 - The original `toolInput` is always available as `ctx.originalToolInput`
 
