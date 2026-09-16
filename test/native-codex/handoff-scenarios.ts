@@ -29,7 +29,7 @@ export async function handoffScenario(
   const home = join(base, 'home')
   const codexHome = join(base, 'codex')
   const project = join(base, 'project')
-  for (const dir of [home, codexHome, project]) mkdirSync(dir)
+  for (const dir of [home, codexHome, project]) mkdirSync(dir, dir === home ? { mode: 0o700 } : {})
   const clooksSha256 = sha256('/app/dist/clooks')
   const env = {
     HOME: home,

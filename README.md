@@ -311,23 +311,10 @@ For event support and planned events, see the [Parity map](#parity-map).
 
 ### Approval requests
 
-`ctx.ask({ reason })` uses Claude Code's native approval prompt. In Codex,
-Clooks pauses the operation and returns the reason, an approval token, and
-retry instructions. The agent asks the user before proceeding.
-
-After approval, the agent can prefix an eligible simple shell command with
-`CLOOKS_APPROVAL_TOKENS=<token> ` and retry it unchanged. For other shell syntax
-or non-shell tools, it runs `clooks approve <token>`, then retries the original
-tool call unchanged. Use the issued token without quotes; multiple inline tokens
-are comma-separated.
-
-Tokens are single-use, expire after five minutes, and apply only to the matching
-operation and hook confirmation. Multiple hooks can require separate approvals;
-earlier approvals remain valid while the others are collected. Approval does not
-override explicit blocks or the agent's own permissions.
-
-See [approval details](docs/domain/codex-approvals.md) for supported command forms
-and token handling.
+`ctx.ask({ reason })` asks for confirmation through MCP. Approval resumes the
+same hook pipeline; rejection or cancellation blocks the operation. Later hooks
+and the agent's own permissions still apply.
+See [approval details](docs/domain/interactive-approvals.md#engine-checkpoints).
 
 ## Configuration
 
@@ -755,7 +742,6 @@ clooks update plugin:clooks-core-hooks
 | Command | Description |
 |---------|-------------|
 | `clooks --version` (or `-v`) | Print version |
-| `clooks approve <token>` | Acknowledge an existing Codex hook confirmation; does not execute the target or extend expiry |
 
 </details>
 

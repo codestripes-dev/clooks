@@ -52,7 +52,8 @@ async function scenario(id: string) {
   const binary = reuse ? join(external, 'clooks') : managed
   const clooksSha256 = sha256('/app/dist/clooks')
   const version = JSON.parse(readFileSync('/app/package.json', 'utf8')).version as string
-  for (const path of [home, codexHome, project, external]) mkdirSync(path, { recursive: true })
+  for (const path of [home, codexHome, project, external])
+    mkdirSync(path, { recursive: true, ...(path === home ? { mode: 0o700 } : {}) })
   if (reuse) {
     copyFileSync('/app/dist/clooks', binary)
     chmodSync(binary, 0o755)

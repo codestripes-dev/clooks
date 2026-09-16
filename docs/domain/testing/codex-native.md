@@ -8,6 +8,10 @@ Codex fixture provenance, native evidence boundaries and the opt-in isolated CLI
 
 `test/fixtures/codex/events/` contains synthetic wire fixtures; `scripts/test-codex-native.sh` orchestrates isolated native runs; `test/native-codex/` contains the harness, fixture server and container entrypoint.
 
+Create disposable fixture HOME directories explicitly with mode `0700`; never
+inherit the container login umask for their permissions. Keep production
+approval-storage permission checks unchanged.
+
 ## Codex event fixtures
 Codex wire fixtures live under `test/fixtures/codex/events/`. They use snake_case input field names, not Clooks' camelCase normalized names. The inventory contains the original ten docs-shaped fixtures plus synthetic source-shaped `session-end-other.json` and `interrupt.json` from pinned `rust-v0.153.4` (`3d2ee51ca2d5db578f328aa75e20aa22c0197c9a`). `src/codex-fixtures.test.ts` checks twelve-event coverage and basic per-event fields. These fixtures are not runtime captures; neither inventory checks nor separate native tests change their provenance.
 
@@ -44,15 +48,32 @@ Stage live fixtures while inactive before multi-file updates, preserve an exact 
 
 ## Opt-in native CLI smoke
 
-The harness includes six baseline cases, three actual-pack shell-read/unprotected-patch/protected-patch cases, and six hybrid approval cases. The historical unsupported-ask case now checks initial pending-confirmation denial with an attributed token, expiry and instruction to await user approval; it does not exercise an approved retry. Pack and hybrid patch cases use a synthetic model catalog with freeform apply_patch enabled; the first request must advertise the custom tool. Script raw patches as custom_tool_call input, not JSON-wrapped shell commands, and match custom_tool_call_output by exact call ID. Keep shell function feedback separate. Copy frozen read-only vendor bytes into disposable projects, verify source hashes, and attribute decisions to actual pack turn-state entries alongside raw Pre/Post IDs. Snapshot the complete owned target tree; absence of effects alone is not denial evidence.
+The harness requires 24 cases across 26 native launches: six baseline, three actual-pack, two direct-rewrite policy-denial controls, SessionEnd, seven parent handoff, one child handoff across three sandbox modes, Interrupt, MCP observation and two local-tool cases. Helper completion requires 26 unit tests. The initial-ask case checks attributed non-positive-confirmation decline (`Approval declined: Approval was not positively confirmed`), with no tool effect or PostToolUse. MCP is connected through init-written project configuration; exec approval mode `never` does not positively confirm the request. This is not missing-peer or successful-consent evidence. The six retired token-retry cases are excluded. Actual-pack patch cases use a synthetic model catalog with freeform apply_patch enabled; the first request must advertise the custom tool. Script raw patches as custom_tool_call input, not JSON-wrapped shell commands, and match custom_tool_call_output by exact call ID. Keep shell function feedback separate. Copy frozen read-only vendor bytes into disposable projects, verify source hashes, and attribute decisions to actual pack turn-state entries alongside raw Pre/Post IDs. Snapshot the complete owned target tree; absence of effects alone is not denial evidence.
 
 ## Actual-Pack Native Evidence
 
 The retained nine-case smoke establishes real Codex shell-read success with the built-in preference hook skipping, unprotected direct-patch success with exact changed/added bytes, and protected nested bun.lock denial with the entire owned tree unchanged and no denied-call PostToolUse. The safe companion Add precedes the denied operation and remains absent. Custom feedback includes the actual protected-hook reason/rule; the success case is the positive control. See [retained proof and export identity](../../plans/done/default-hook-portability/M4-NATIVE-EVIDENCE.md). This is native CLI execution with a synthetic model/catalog in offline non-root Docker and synthetic trust, without real home/auth mounts. It is not proof of global installation, normal trust/approval behavior, every patch variant, MCP mutation, tmux visuals or full conformance.
 
+## Direct-Rewrite Native Policy Controls
+
+`rewrite-policy-scenarios.ts` supplies `REWRITE-SHELL-NATIVE-DENY` and
+`REWRITE-PATCH-NATIVE-DENY`. Both use direct
+`ctx.allow({ updatedInput: ... })`, without asks or tokens. These are native
+policy controls after ordinary input rewrites, not MCP-approved rewrite proof.
+`M1-REWRITE` and `PACK-PATCH-ALLOW` remain the positive execution controls.
+
+The shell case rewrites `touch owned/original` to `touch owned/rewritten`;
+only the rewritten command matches the synthetic forbidden command-policy rule.
+The patch case distinguishes an original empty-patch rejection from refusal of
+the rewritten Add File under the native read-only sandbox. Both require exact
+original input, captured rewrite, matching call/session identity, attributed
+native policy feedback, an unchanged target tree and no PostToolUse. A Clooks
+hook denial cannot satisfy the native policy oracle. Helper tests exercise the
+oracles independently; native runs use synthetic trust and a scripted provider.
+
 ## Hybrid Approval Case Evidence
 
-The final expanded smoke passed all 15 mandatory cases on pinned Codex 0.153.4, with 15 native launches, completion publication, tested-binary export and successful cleanup. All case receipts bind the same Clooks binary; actual-pack copied source hashes match the tested vendor bytes. The six hybrid cases below establish bounded native execution with a synthetic model, not full release conformance. The earlier 14-case partial run remains historical evidence without completion or export; it is not the final acceptance receipt. A separate helper-only run passed 26 tests, validating harness checks rather than native enforcement.
+The historical token-runtime smoke passed all 15 then-mandatory cases on pinned Codex 0.153.4, with 15 native launches, completion publication, tested-binary export and successful cleanup. All case receipts bind the same Clooks binary; actual-pack copied source hashes match the tested vendor bytes. The six hybrid cases below establish bounded native execution with a synthetic model, not full release conformance. The earlier 14-case partial run remains historical evidence without completion or export; it is not the final acceptance receipt. A separate helper-only run passed 26 tests, validating harness checks rather than native enforcement.
 
 | Passing native case | Evidence boundary |
 |---|---|
@@ -65,7 +86,7 @@ The final expanded smoke passed all 15 mandatory cases on pinned Codex 0.153.4, 
 
 Consumed inline tokens and CLI registrations are rejected on replay; unchanged patch retries require a fresh confirmation after consumption. These cases use real Codex 0.153.4 in offline non-root Docker with a synthetic model/catalog, disposable homes/projects, synthetic trust and hook-trust bypass. Acknowledgements are scripted, not evidence of human consent. Native exec uses approval mode `never`: these cases add no PermissionRequest coverage. Except for the read-only patch case, the sandbox is `danger-full-access`; shell policy denial uses an explicit synthetic forbidden rule.
 
-This verifies bounded Clooks denial/token fallback behavior, not native Codex `ask`. Supported inline syntax remains the [narrow direct-command carrier](../codex-approvals.md#inline-transport), not arbitrary shell syntax. The fixed five-minute lifetime, cooperative-agent model and unchanged public hook syntax remain. The actual-pack allow case is specifically `rm -r`, not `rm -rf`; approval never overrides native forced-removal restrictions. Broader patch/MCP variants, normal interactive approval configurations, release conformance and deployment remain outside this evidence. Historical unsupported-ask refusal and earlier actual-pack receipts retain their original scope; the new cases neither replace them nor fix quoted-target parsing.
+These receipts verify only the [retired token fallback](../codex-approvals.md), not native Codex `ask` or current shared live checkpoints. The six hybrid cases, token command and carrier handling are removed; their former five-minute lifetime and scripted acknowledgements are historical contracts. The actual-pack allow case is specifically `rm -r`, not `rm -rf`; approval never overrides native forced-removal restrictions. Broader patch/MCP variants, normal interactive approval configurations, release conformance and deployment remain outside this evidence. Historical unsupported-ask refusal and earlier actual-pack receipts retain their original scope; the new cases neither replace them nor fix quoted-target parsing.
 
 ## Native SessionEnd Shutdown
 
@@ -89,11 +110,11 @@ This receipt applies to its tested snapshot, not later source or stricter
 receipt-validation changes; it does not establish live-model behavior or server
 acceptance of the denied non-record inputs.
 
-Full smoke requires 28 case receipts across 30 native launches, including `LOCAL-REWRITE` and `LOCAL-DENY`; the expanded inventory has passed on pinned Codex 0.153.4. `handoff-scenarios.ts` exercises SessionStart, UserPromptSubmit, PreToolUse and PostToolUse context, plus PreToolUse, PostToolUse and Stop block reasons. Each case requires a pointer in an actual model request, no original payload before the read, and exact file contents in a subsequent native tool result. PreToolUse denial prevents the command effect; PostToolUse denial preserves the already-completed effect. Files use the shared private handoff protocol, including paths containing spaces.
+Full smoke requires 24 case receipts across 26 native launches, including `LOCAL-REWRITE` and `LOCAL-DENY`. Historical 28-case/30-launch receipts include the six retired token cases. `handoff-scenarios.ts` exercises SessionStart, UserPromptSubmit, PreToolUse and PostToolUse context, plus PreToolUse, PostToolUse and Stop block reasons. Each case requires a pointer in an actual model request, no original payload before the read, and exact file contents in a subsequent native tool result. PreToolUse denial prevents the command effect; PostToolUse denial preserves the already-completed effect. Files use the shared private handoff protocol, including paths containing spaces.
 
 The historical complete 26-case smoke passed on pinned Codex 0.153.4 across 28 native launches, including all three child sandbox modes, with successful publication, binary export, permission sealing and cleanup. The scripted run completed in 193.76 seconds. Per-attempt receipts and command/output captures remain under `tmp/codex-native-m1/smoke-*/`; source fixtures remain synthetic.
 
-`handoff-child-scenarios.ts` exercises SubagentStart context and a one-shot SubagentStop continuation. The child itself reads both files; the parent reading them does not count. All three attempts must pass: `danger-full-access`, `workspace-write`, and `read-only`. An unavailable sandbox fails the case and prevents binary export. Docker's default seccomp profile prevents the unprivileged namespaces needed by Codex's bubblewrap sandbox. Only the disposable full-smoke container uses `seccomp=unconfined`; it retains network isolation, default capabilities, read-only source/native mounts, and non-root test execution. No host home or credentials are mounted.
+`handoff-child-scenarios.ts` exercises SubagentStart context and a one-shot SubagentStop continuation, using the shared `native-feedback.ts` request/output reader. The child itself reads both files; the parent reading them does not count. All three attempts must pass: `danger-full-access`, `workspace-write`, and `read-only`. An unavailable sandbox fails the case and prevents binary export. Docker's default seccomp profile prevents the unprivileged namespaces needed by Codex's bubblewrap sandbox. Only the disposable full-smoke container uses `seccomp=unconfined`; it retains network isolation, default capabilities, read-only source/native mounts, and non-root test execution. No host home or credentials are mounted.
 
 `interrupt-scenario.ts` sends SIGINT only after the real native process has started a model request. It checks generated three-second registration, the executed Interrupt hook's provider/session/model/permission context, and the flushed interrupted transcript. Interrupted `codex exec` exits 1 by design; success requires the hook evidence and graceful reaping, not exit zero.
 
@@ -142,7 +163,7 @@ behavior or normal interactive trust/approvals.
 Measured native proof includes the exact rewritten explanation and step in the
 renderer, preserved plan fields in PostToolUse, and real transcript/model
 feedback matched by call ID. Denial produced the exact reason with no plan
-update or PostToolUse. The complete 28-case/30-launch run passed with final,
+update or PostToolUse. The historical 28-case/30-launch run passed with final,
 completion, binary export and cleanup statuses zero. This is bounded proof of
 the tested local object contract, not all function tools or full release
 conformance. Exact run receipts and the tested binary hash are recorded in the
@@ -272,7 +293,7 @@ neither substitutes for the other.
 
 ## Tested Binary Export
 
-After successful full smoke and completion publication, the container exports /app/dist/clooks to /export/clooks before sealing. Export requires all 28 mandatory cases for `--smoke`, including handoff, Interrupt, MCP observation, `LOCAL-REWRITE` and `LOCAL-DENY`; the expanded inventory passed across 30 native launches. Focused `--session-end` publishes a distinct one-case evidence receipt only: it cannot publish full-smoke completion or export a binary. Successful full-smoke case receipts must match the Clooks hash; export also checks a regular executable source, exclusive creation and post-copy hash equality. binary.json records hash, architecture/platform and original/sealed modes. Unit-only, focused or failed native tests are not binary-producing paths. Test, publication, export, sealing, cleanup and manifest failures remain failures; passed.json alone is insufficient for deployment. Rehash the sealed artifact against retained receipts before any separately approved installation. Permission sealing is not immutable storage.
+After successful full smoke and completion publication, the container exports /app/dist/clooks to /export/clooks before sealing. Export requires all 24 mandatory cases for `--smoke` across 26 native launches, including both direct-rewrite policy-denial controls, handoff, Interrupt, MCP observation, `LOCAL-REWRITE` and `LOCAL-DENY`. Historical 28-case/30-launch passes do not validate later changes. Focused `--session-end` publishes a distinct one-case evidence receipt only: it cannot publish full-smoke completion or export a binary. Successful full-smoke case receipts must match the Clooks hash; export also checks a regular executable source, exclusive creation and post-copy hash equality. binary.json records hash, architecture/platform and original/sealed modes. Unit-only, focused or failed native tests are not binary-producing paths. Test, publication, export, sealing, cleanup and manifest failures remain failures; passed.json alone is insufficient for deployment. Rehash the sealed artifact against retained receipts before any separately approved installation. Permission sealing is not immutable storage.
 
 ## Running the Harness
 

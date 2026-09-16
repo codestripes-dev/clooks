@@ -79,7 +79,7 @@ Install a concrete single hook after init:
 Supported events: SessionStart, SubagentStart, PreToolUse, PermissionRequest, PostToolUse, PreCompact, PostCompact, UserPromptSubmit, SubagentStop, Stop, SessionEnd. Interrupt is not supported.
 
 - SessionStart/SubagentStart: skip-only handlers with optional context/debug.
-- PreToolUse: allow/block/skip; handler ask uses the Clooks fallback below. Plain allow retains native approvals and sandbox policy. Sequential allow/ask rewrites require an approved tool codec; parallel rewrites are refused.
+- PreToolUse: allow/block/skip; handler ask uses the shared live checkpoint below. Plain allow retains native approvals and sandbox policy. Sequential allow/ask rewrites require an approved tool codec; parallel rewrites are refused.
 - PermissionRequest: allow/block/skip; no rewrite, permission update, interrupt, or context.
 - PostToolUse: block/skip with optional context; block provides feedback after execution, not rollback. No output rewrite.
 - UserPromptSubmit: allow/block/skip with optional context; no sessionTitle.
@@ -90,11 +90,9 @@ Supported events: SessionStart, SubagentStart, PreToolUse, PermissionRequest, Po
 
 Codex exec_command normalizes to Bash; apply_patch does not become Claude Edit/Write input. Command rewrites are command-only; supported MCP input rewrites use an opaque-record codec. Other tools may be observable without being rewritable. Hosted tools and specialized native paths may bypass hooks. Codex defer is unsupported, and handoff stays inline. Check ctx.provider and actual event/tool contracts rather than assuming parity from names. Native invocation evidence is bounded, not full conformance; existing website recordings show Claude Code only.
 
-## Hybrid Approval Fallback
+## Shared Approval Checkpoints
 
-Claude Code retains native ctx.ask. Codex PreToolUse handler ctx.ask is not a native prompt: Clooks denies the pending call, issues a fixed five-minute token, and instructs the agent to ask the user and wait. After explicit approval, eligible direct shell retries can carry `CLOOKS_APPROVAL_TOKENS=<token> ` at byte zero. Other calls use `clooks approve <token>` followed by unchanged tool arguments. Do not wrap commands to manufacture inline eligibility.
-
-Tokens bind the operation, session, current pipeline/configuration, and individual confirmation. Every current ask must be acknowledged; blocks still win. Tokens are consumed before permitted output and cannot override native permissions or sandbox policy. This is a trusted-repository, cooperative-agent workflow, not proof of human consent. beforeHook ask does not enter the fallback; other-event handler asks and defer are unsupported.
+PreToolUse handler `ctx.ask({ reason })` pauses the hook pipeline for confirmation through MCP. Approval continues the same invocation without replaying earlier hooks; decline, cancellation or an unavailable required interaction denies the operation. Each required checkpoint must be approved, and later hooks and native permissions still apply. `ctx.defer()` remains a separate result with its existing event and provider restrictions.
 
 ## Links
 

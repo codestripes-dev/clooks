@@ -1,6 +1,5 @@
 export const KNOWN_COMMANDS = new Set([
   'add',
-  'approve',
   'config',
   'init',
   'mcp',

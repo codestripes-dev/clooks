@@ -56,9 +56,10 @@ disposition before discovery/configuration; ordinary `CLOOKS_AGENT` selection is
 unchanged. The executor waits at asks, then the run layer inspects the actual
 serialized operation and reconfirms changed approvals before closing and emitting
 output. Typed `ApprovalFailure` selects approval-error translation without
-catching unrelated Claude fatal errors as permission refusals. The former carrier-stripping,
-token-consumption and base-retirement behavior is documented as
-[historical](codex-approvals.md); its native suite does not validate the new flow.
+catching unrelated Claude fatal errors as permission refusals. The former token
+controller, store and `approve` command are removed; old databases remain inert
+and untouched. Token-looking command text is literal input, not consent. The
+[historical native token suite](codex-approvals.md) does not validate this flow.
 
 For `before-hooks` adapters, `runEngineCore()` catches invocation/runtime errors using the retained event and private invocation and calls `translateFailure()`. Internal `EngineCompletion` carries intentional exits so they are not mistaken for runtime failures; the selected exit code reaches the process after the catch boundary. Codex normalizes twelve events before imports. Invalid input or unsupported result capabilities use event-specific denial/block/termination requests where supported and local stderr/exit 2 otherwise. SessionEnd requires no model, permission mode or turn ID; it has no turn-state policy, emits no stdout on success and routes diagnostics locally to stderr. Its failure cannot veto closure. Interrupt requires model, permission mode and native turn ID, preserves the existing turn boundary and exposes no child identity. It emits only optional stdout `systemMessage` diagnostics, with no decision, context or cancellation veto. Both observers register a three-second total pipeline timeout. Provider-specific hook/load/config failure paths and private `resolveTurnPolicy()` are connected. The earlier PreToolUse integration and expanded ten-event boundary passed Docker validation; generated-error accounting uses `deferRuntimeErrorAudit`. This is not a full native-capability or enforcement claim. See [Cross-Agent Hooks](cross-agent-hooks.md#current-runtime-capabilities).
 
@@ -241,14 +242,6 @@ absolute-path init may work while generated entrypoints cannot find `clooks`.
 Child-shell exports/profile edits do not repair the running agent's PATH. Check
 does not prove configuration validity or native activation. Global/both-agent
 registration is never inferred from cwd.
-
-### `clooks approve <token>`
-
-Noninteractive registration of an existing short-lived Codex approval record. `src/commands/approve.ts` uses the standard command factory, OutputContext and JSON envelope; `router.ts` and `KNOWN_COMMANDS` register it for CLI dispatch. It never loads project configuration, issues a token, executes its target, consumes it or extends its fixed five-minute expiry. An agent shell call to this command remains subject to ordinary hooks; no engine bypass is added.
-
-Lookup uses `${CLOOKS_HOME_ROOT ?? homedir()}/.clooks/approvals/codex.sqlite`, independent of cwd and `CODEX_HOME`, without searching alternate homes. Human success includes the original expiry as an ISO timestamp. JSON success is `{ ok: true, command: "approve", data: { token, acknowledgedAt, expiresAt } }`, with integer Unix-millisecond times. Repeated registration preserves both timestamps. Operation errors use `printError` and exit 1; missing arguments use Commander usage errors. No TTY or interactive prompt is required.
-
-The former Codex token runtime issued pending confirmations and consumed registered or inline acknowledgements. Those CLI/store components remain physically present, but the engine now resolves asks through [live checkpoints](interactive-approvals.md#engine-checkpoints). [Codex Approvals](codex-approvals.md) and the [15-case native suite](testing/codex-native.md#hybrid-approval-case-evidence) document historical token behavior, not current engine guidance or generated-registration conformance.
 
 ### `clooks init` / `clooks init --global`
 

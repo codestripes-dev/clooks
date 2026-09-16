@@ -12,13 +12,7 @@ import {
 } from 'node:fs'
 import { join } from 'node:path'
 import { sse, startFixture } from './fixture-server'
-import {
-  assertNativeRewrite,
-  assertRetryCaptures,
-  assertTree,
-  nativeFeedback,
-  pendingToken,
-} from './hybrid-scenarios'
+import { nativeFeedback } from './native-feedback'
 import {
   assertPackObservation,
   packCallId,
@@ -26,6 +20,17 @@ import {
   readToken,
   type PackObservation,
 } from './pack-scenarios'
+import {
+  assertRewritePolicyObservation,
+  patchControlCallId,
+  patchOriginal,
+  patchRewritten,
+  rewriteCallId,
+  shellOriginal,
+  shellPolicyRule,
+  shellRewritten,
+  type RewritePolicyObservation,
+} from './rewrite-policy-scenarios'
 import {
   assertObservation,
   binaryPin,
@@ -512,16 +517,19 @@ test('rewrite oracle independently requires A/B effects, native result and norma
   }
 })
 
-test('ask oracle requires pending confirmation rather than historical unsupported-ask refusal', () => {
+test('ask oracle requires attributed non-positive-confirmation decline without effects', () => {
   const asked = baseline()
   asked.marker = null
   asked.payloads = asked.payloads.filter((p) => p.hook_event_name !== 'PostToolUse')
   asked.handlers = asked.handlers.filter((h) => h.event !== 'PostToolUse')
-  asked.requests[1]!.body.input[0].output = `Command blocked by PreToolUse hook: Hook "native-m1": m1-ask-request\nApproval token: ca1_${'a'.repeat(64)}\nExpires: 2026-09-10T20:00:00.000Z\nAsk the user and wait for explicit approval.. Command: ${commandA}`
+  asked.requests[1]!.body.input[0].output =
+    'Command blocked by PreToolUse hook: clooks: Codex PreToolUse hook "native-m1" ' +
+    'capability "approval": clooks: Approval declined: Approval was not positively ' +
+    `confirmed Pending call denial requested.. Command: ${commandA}`
   expect(() => assertObservation('M1-ASK', asked)).not.toThrow()
   for (const mutate of [
     (o: Observation) => {
-      o.requests[1]!.body.input[0].output = `Command blocked by PreToolUse hook: ${denyReason}. Command: ${commandA}`
+      o.requests[1]!.body.input[0].output = `Command blocked by PreToolUse hook: MCP peer unavailable. Command: ${commandA}`
     },
     (o: Observation) => {
       o.requests[1]!.body.input[0].call_id = 'wrong'
@@ -534,13 +542,14 @@ test('ask oracle requires pending confirmation rather than historical unsupporte
     },
     (o: Observation) => {
       o.requests[1]!.body.input[0].output = o.requests[1]!.body.input[0].output.replace(
-        'ca1_',
-        'invalid_',
+        'Approval was not positively confirmed',
+        'MCP peer unavailable',
       )
     },
     (o: Observation) => {
       o.requests[1]!.body.input[0].output =
-        'Command blocked by PreToolUse hook: unsupported result arm ask'
+        `Command blocked by PreToolUse hook: Hook "native-m1": m1-ask-request\n` +
+        `Ask the user and wait for explicit approval.. Command: ${commandA}`
     },
   ]) {
     const observed = structuredClone(asked)
@@ -549,9 +558,8 @@ test('ask oracle requires pending confirmation rather than historical unsupporte
   }
 })
 
-test('hybrid tokens come only from exact native feedback and attributed pending reason', () => {
-  const token = `ca1_${'b'.repeat(64)}`
-  const output = `Command blocked by PreToolUse hook: Hook "ask-1": confirm operation\nApproval token: ${token}\nExpires: 2026-09-10T20:00:00.000Z\nAsk the user and wait for explicit approval.`
+test('native feedback requires exact call attribution and output type', () => {
+  const output = 'native tool output'
   for (const shell of [true, false]) {
     const request = {
       method: 'POST',
@@ -567,9 +575,7 @@ test('hybrid tokens come only from exact native feedback and attributed pending 
         ],
       },
     }
-    expect(
-      pendingToken(nativeFeedback(request, 'retry', shell), 'ask-1', 'confirm operation'),
-    ).toBe(token)
+    expect(nativeFeedback(request, 'retry', shell)).toBe(output)
     for (const replacement of [
       { ...request.body.input[0], call_id: undefined },
       { ...request.body.input[0], role: 'assistant' },
@@ -585,7 +591,7 @@ test('hybrid tokens come only from exact native feedback and attributed pending 
         content: [{ type: 'output_text', text: output }],
       },
       { type: 'function_call', call_id: 'retry', arguments: JSON.stringify({ output }) },
-      { type: 'message', role: 'developer', metadata: { token }, content: [] },
+      { type: 'message', role: 'developer', metadata: { output }, content: [] },
     ]) {
       expect(() =>
         nativeFeedback({ ...request, body: { input: [replacement] } }, 'retry', shell),
@@ -599,133 +605,215 @@ test('hybrid tokens come only from exact native feedback and attributed pending 
       ),
     ).toThrow()
   }
-  for (const bad of [
-    output.replace('ask-1', 'ask-2'),
-    output.replace('confirm operation', 'other'),
-    output.replace(token, 'ca1_bad'),
-    output.replace('Approval token:', 'metadata:'),
-    output.replace('Expires:', 'Other:'),
-    output.replace('Ask the user and wait for explicit approval.', ''),
-    output + `\nApproval token: ${token}`,
-    'assistant supplied ' + output,
-  ]) {
-    expect(() => pendingToken(bad, 'ask-1', 'confirm operation')).toThrow()
-  }
 })
 
-test('hybrid effect and native permission oracles require consumed approval and exact independent effects', () => {
-  const before = {},
-    after = { rewritten: Buffer.from('native\n').toString('base64') }
-  expect(() => assertTree({ a: '1', b: '2' }, { b: '2', a: '1' })).not.toThrow()
-  expect(() => assertTree({ extra: 'unexpected' }, before)).toThrow()
-  for (const shell of [true, false]) {
-    const denial = shell
-      ? 'policy forbids commands starting with `touch owned/rewritten`'
-      : 'patch rejected: writing is blocked by read-only sandbox; rejected by user approval settings'
-    const success = shell ? 'Process exited with code 0' : 'Success. Updated the following files:'
-    expect(() =>
-      assertNativeRewrite(denial, shell, true, true, before, before, after),
-    ).not.toThrow()
-    expect(() =>
-      assertNativeRewrite(success, shell, false, true, after, before, after),
-    ).not.toThrow()
-    for (const output of [
-      'Permission denied',
-      'unshare: Operation not permitted',
-      'sandbox unavailable',
-      'policy forbids commands starting with `touch owned/original`',
-      'patch rejected: empty patch',
-      'Command blocked by PreToolUse hook: ' + denial,
-      denial + '\n' + (shell ? 'Process exited with code 0' : 'Exit code: 0'),
-    ]) {
-      expect(() => assertNativeRewrite(output, shell, true, true, before, before, after)).toThrow()
-    }
-    expect(() => assertNativeRewrite(denial, shell, true, false, before, before, after)).toThrow()
-    expect(() => assertNativeRewrite(denial, shell, true, true, after, before, after)).toThrow()
-    expect(() => assertNativeRewrite(success, shell, false, true, before, before, after)).toThrow()
-    expect(() =>
-      assertNativeRewrite(success, shell, false, true, { ...after, original: '' }, before, after),
-    ).toThrow()
-  }
-})
-
-test('retry captures require no native-denied Post and the failed registration Post with exact attribution', () => {
-  const attempts = [
-    {
-      call: 'denied',
-      command: 'original',
-      shell: true,
-      phase: 'native-denied',
-      output: 'denial',
-      tree: {},
-    },
-    {
-      call: 'register',
-      command: 'clooks approve token',
-      shell: true,
-      phase: 'registration-replay',
-      output: 'failure',
-      tree: {},
-    },
-    {
-      call: 'allowed',
-      command: 'original',
-      shell: true,
-      phase: 'permitted',
-      output: 'success',
-      tree: {},
-    },
-  ]
-  const payloads = attempts.map((a) => ({
+function rewritePolicyObservation(shell: boolean): RewritePolicyObservation {
+  const toolName = shell ? 'Bash' : 'apply_patch'
+  const outputType = shell ? 'function_call_output' : 'custom_tool_call_output'
+  const targetOutput = shell
+    ? 'policy forbids commands starting with `touch owned/rewritten`'
+    : 'patch rejected: writing is blocked by read-only sandbox; rejected by user approval settings'
+  const targetPre = {
     hook_event_name: 'PreToolUse',
-    tool_use_id: a.call,
-    session_id: 'session',
-    tool_name: 'Bash',
-    tool_input: { command: a.command },
-    tool_response: '',
-  }))
-  payloads.push({
-    ...payloads[1]!,
-    hook_event_name: 'PostToolUse',
-    tool_response: 'Unknown, expired or consumed approval token',
-  })
-  payloads.push({
-    ...payloads[2]!,
-    hook_event_name: 'PostToolUse',
-    tool_input: { command: 'replacement' },
-    tool_response: 'success',
-  })
-  expect(assertRetryCaptures(payloads, attempts, 'replacement')).toBe('session')
+    tool_use_id: rewriteCallId,
+    session_id: 'rewrite-session',
+    tool_name: toolName,
+    tool_input: { command: shell ? shellOriginal : patchOriginal },
+  }
+  const targetHandler = {
+    callId: rewriteCallId,
+    toolName,
+    original: shell ? shellOriginal : patchOriginal,
+    decision: 'allow-rewrite',
+    updated: shell ? shellRewritten : patchRewritten,
+  }
+  if (shell)
+    return {
+      payloads: [targetPre],
+      handlers: [targetHandler],
+      requests: [
+        { method: 'POST', path: '/v1/responses', headers: {}, body: { input: [] } },
+        {
+          method: 'POST',
+          path: '/v1/responses',
+          headers: {},
+          body: {
+            input: [{ type: outputType, call_id: rewriteCallId, output: targetOutput }],
+          },
+        },
+      ],
+      before: {},
+      after: {},
+      sandbox: 'danger-full-access',
+      policyRule: shellPolicyRule,
+    }
+  return {
+    payloads: [
+      {
+        ...targetPre,
+        tool_use_id: patchControlCallId,
+        tool_input: { command: patchOriginal.trimEnd() },
+      },
+      targetPre,
+    ],
+    handlers: [
+      {
+        callId: patchControlCallId,
+        toolName,
+        original: patchOriginal.trimEnd(),
+        decision: 'skip-control',
+      },
+      targetHandler,
+    ],
+    requests: [
+      {
+        method: 'POST',
+        path: '/v1/responses',
+        headers: {},
+        body: { tools: [{ type: 'custom', name: 'apply_patch' }], input: [] },
+      },
+      {
+        method: 'POST',
+        path: '/v1/responses',
+        headers: {},
+        body: {
+          input: [
+            {
+              type: outputType,
+              call_id: patchControlCallId,
+              output: 'patch rejected: empty patch',
+            },
+          ],
+        },
+      },
+      {
+        method: 'POST',
+        path: '/v1/responses',
+        headers: {},
+        body: {
+          input: [{ type: outputType, call_id: rewriteCallId, output: targetOutput }],
+        },
+      },
+    ],
+    before: {},
+    after: {},
+    sandbox: 'read-only',
+  }
+}
+
+test('shell rewrite policy oracle binds the allowed original to the forbidden rewrite and no effect', () => {
+  const id = 'REWRITE-SHELL-NATIVE-DENY'
+  expect(() => assertRewritePolicyObservation(id, rewritePolicyObservation(true))).not.toThrow()
   for (const mutate of [
-    (p: typeof payloads) => {
-      p.push({ ...p[0]!, hook_event_name: 'PostToolUse' })
+    (o: RewritePolicyObservation) => {
+      o.sandbox = 'read-only'
     },
-    (p: typeof payloads) => {
-      p.splice(3, 1)
+    (o: RewritePolicyObservation) => {
+      o.policyRule = shellPolicyRule.replace('owned/rewritten', 'owned/original')
     },
-    (p: typeof payloads) => {
-      p[3]!.tool_response = 'other'
+    (o: RewritePolicyObservation) => {
+      o.payloads[0].tool_input.command = shellRewritten
     },
-    (p: typeof payloads) => {
-      p[4]!.tool_input.command = 'original'
+    (o: RewritePolicyObservation) => {
+      o.payloads[0].tool_use_id = 'wrong'
     },
-    (p: typeof payloads) => {
-      p[0]!.tool_use_id = 'wrong'
+    (o: RewritePolicyObservation) => {
+      o.payloads[0].session_id = ''
     },
-    (p: typeof payloads) => {
-      p[1]!.session_id = 'other'
+    (o: RewritePolicyObservation) => {
+      o.payloads.push({ ...o.payloads[0] })
     },
-    (p: typeof payloads) => {
-      p.push({ ...p[3]!, tool_use_id: 'extra' })
+    (o: RewritePolicyObservation) => {
+      o.handlers[0].callId = 'wrong'
+    },
+    (o: RewritePolicyObservation) => {
+      o.handlers[0].updated = shellOriginal
+    },
+    (o: RewritePolicyObservation) => {
+      o.handlers[0].decision = 'skip-control'
+    },
+    (o: RewritePolicyObservation) => {
+      o.requests[1]!.body.input[0].output =
+        'policy forbids commands starting with `touch owned/original`'
+    },
+    (o: RewritePolicyObservation) => {
+      o.requests[1]!.body.input[0].output += '\nProcess exited with code 0'
+    },
+    (o: RewritePolicyObservation) => {
+      o.requests[1]!.body.input[0].output =
+        'Command blocked by PreToolUse hook: policy forbids commands starting with `touch owned/rewritten`'
+    },
+    (o: RewritePolicyObservation) => {
+      o.requests.push(structuredClone(o.requests[1]!))
+    },
+    (o: RewritePolicyObservation) => {
+      o.payloads.push({ hook_event_name: 'PostToolUse', tool_use_id: rewriteCallId })
+    },
+    (o: RewritePolicyObservation) => {
+      o.after = { original: '' }
     },
   ]) {
-    const changed = structuredClone(payloads)
-    mutate(changed)
-    expect(() => assertRetryCaptures(changed, attempts, 'replacement')).toThrow()
+    const observed = rewritePolicyObservation(true)
+    mutate(observed)
+    expect(() => assertRewritePolicyObservation(id, observed)).toThrow()
   }
 })
 
-test('fixture callback uses captured native output and awaits bounded synthetic registration', async () => {
+test('patch rewrite policy oracle requires the empty-patch control before read-only denial', () => {
+  const id = 'REWRITE-PATCH-NATIVE-DENY'
+  expect(() => assertRewritePolicyObservation(id, rewritePolicyObservation(false))).not.toThrow()
+  for (const mutate of [
+    (o: RewritePolicyObservation) => {
+      o.sandbox = 'danger-full-access'
+    },
+    (o: RewritePolicyObservation) => {
+      o.policyRule = shellPolicyRule
+    },
+    (o: RewritePolicyObservation) => {
+      o.requests[0]!.body.tools = []
+    },
+    (o: RewritePolicyObservation) => {
+      o.payloads[0].tool_input.command = patchOriginal
+    },
+    (o: RewritePolicyObservation) => {
+      o.payloads[1].tool_input.command = patchRewritten
+    },
+    (o: RewritePolicyObservation) => {
+      o.payloads.push({ ...o.payloads[1] })
+    },
+    (o: RewritePolicyObservation) => {
+      o.handlers[1].updated = patchOriginal
+    },
+    (o: RewritePolicyObservation) => {
+      o.requests[1]!.body.input[0].output =
+        'patch rejected: writing is blocked by read-only sandbox; rejected by user approval settings'
+    },
+    (o: RewritePolicyObservation) => {
+      o.requests[2]!.body.input[0].output = 'patch rejected: empty patch'
+    },
+    (o: RewritePolicyObservation) => {
+      o.requests[2]!.body.input[0].output = 'Command blocked by PreToolUse hook: read-only sandbox'
+    },
+    (o: RewritePolicyObservation) => {
+      o.requests.push(structuredClone(o.requests[2]!))
+    },
+    (o: RewritePolicyObservation) => {
+      o.payloads.push({ hook_event_name: 'PostToolUse', tool_use_id: rewriteCallId })
+    },
+    (o: RewritePolicyObservation) => {
+      o.after = { rewritten: Buffer.from('native\n').toString('base64') }
+    },
+    (o: RewritePolicyObservation) => {
+      o.payloads[1].session_id = 'different'
+    },
+  ]) {
+    const observed = rewritePolicyObservation(false)
+    mutate(observed)
+    expect(() => assertRewritePolicyObservation(id, observed)).toThrow()
+  }
+})
+
+test('fixture callback uses captured native output and awaits bounded completion', async () => {
   const logs = directory()
   let observed = false
   const server = startFixture(

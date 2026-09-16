@@ -188,7 +188,8 @@ export async function packScenario(id: PackCaseId, logRoot: string) {
     codexHome = join(base, 'codex-home'),
     project = join(base, 'project')
   const payloadDir = join(logs, 'payloads')
-  for (const path of [home, codexHome, project, payloadDir, join(project, 'owned')]) mkdirSync(path)
+  for (const path of [home, codexHome, project, payloadDir, join(project, 'owned')])
+    mkdirSync(path, path === home ? { mode: 0o700 } : {})
   const env: Record<string, string> = {
     HOME: home,
     CODEX_HOME: codexHome,

@@ -1,6 +1,7 @@
 import { describe, expect, test, beforeEach, afterEach, spyOn } from 'bun:test'
 import { runCLI, program } from './router.js'
 import { createMcpCommand } from './commands/mcp.js'
+import { KNOWN_COMMANDS } from './known-commands.js'
 
 describe('runCLI', () => {
   let exitSpy: ReturnType<typeof spyOn>
@@ -39,6 +40,28 @@ describe('runCLI', () => {
 
     const errOutput = stderrSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
     expect(errOutput).toContain('error')
+  })
+
+  test('retired approve is absent from command registration, help and dispatch', async () => {
+    expect(KNOWN_COMMANDS.has('approve')).toBe(false)
+    expect(program.commands.some((command) => command.name() === 'approve')).toBe(false)
+
+    await runCLI(['approve', `ca1_${'a'.repeat(64)}`]).catch(() => {})
+
+    const exitCode = exitSpy.mock.calls[0]?.[0] as number
+    expect(exitCode).toBeGreaterThan(0)
+    expect(stdoutSpy).not.toHaveBeenCalled()
+    expect(stderrSpy.mock.calls.map((call: unknown[]) => String(call[0])).join('')).toContain(
+      "unknown command 'approve'",
+    )
+
+    stdoutSpy.mockClear()
+    stderrSpy.mockClear()
+    exitSpy.mockClear()
+    await runCLI(['--help']).catch(() => {})
+    expect(stdoutSpy.mock.calls.map((call: unknown[]) => String(call[0])).join('')).not.toMatch(
+      /^\s+approve(?:\s|$)/m,
+    )
   })
 
   test('mcp help and argument errors leave stdout empty without immediate exit', async () => {

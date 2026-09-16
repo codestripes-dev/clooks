@@ -12,7 +12,7 @@ import {
   sha256,
   verifyMetadata,
 } from './harness'
-import { nativeFeedback } from './hybrid-scenarios'
+import { nativeFeedback } from './native-feedback'
 import { packCatalog } from './pack-scenarios'
 
 type Sandbox = 'danger-full-access' | 'workspace-write' | 'read-only'
@@ -67,7 +67,8 @@ async function childAttempt(logs: string, sandbox: Sandbox) {
     project = join(base, 'project')
   const payloadDir = join(logs, 'payloads'),
     handlerLog = join(logs, 'handlers.jsonl')
-  for (const dir of [home, codexHome, project, payloadDir]) mkdirSync(dir)
+  for (const dir of [home, codexHome, project, payloadDir])
+    mkdirSync(dir, dir === home ? { mode: 0o700 } : {})
   const env = {
     HOME: home,
     CODEX_HOME: codexHome,

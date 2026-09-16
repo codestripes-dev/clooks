@@ -34,7 +34,8 @@ export async function mcpObservationScenario(logRoot: string) {
   const payloadDir = join(logs, 'payloads'),
     hookLog = join(logs, 'handlers.jsonl'),
     rpcLog = join(logs, 'mcp.jsonl')
-  for (const dir of [home, codexHome, project, payloadDir]) mkdirSync(dir)
+  for (const dir of [home, codexHome, project, payloadDir])
+    mkdirSync(dir, dir === home ? { mode: 0o700 } : {})
   const clooksSha256 = sha256('/app/dist/clooks')
   const env = {
     HOME: home,

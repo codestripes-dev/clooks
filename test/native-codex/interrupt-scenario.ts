@@ -11,7 +11,7 @@ export async function interruptScenario(logRoot: string) {
   const home = join(base, 'home'),
     codexHome = join(base, 'codex'),
     project = join(base, 'project')
-  for (const dir of [home, codexHome, project]) mkdirSync(dir)
+  for (const dir of [home, codexHome, project]) mkdirSync(dir, dir === home ? { mode: 0o700 } : {})
   const marker = join(logs, 'interrupt.json')
   const clooksSha256 = sha256('/app/dist/clooks')
   const env = {

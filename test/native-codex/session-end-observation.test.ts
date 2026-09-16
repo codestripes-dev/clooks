@@ -47,8 +47,8 @@ describe('native shutdown observation oracle', () => {
     save(join(logs, 'completed.json'), { mode: '--smoke', completed: 1, cases: ['SESSION-END'] })
     expect(() => publishPassed(logs, '--smoke', 0)).toThrow('Incomplete native cases')
     expect(existsSync(join(logs, 'passed.json'))).toBe(false)
-    expect(mandatoryCases).toHaveLength(16)
-    expect(mandatoryCases.at(-1)).toBe('SESSION-END')
+    expect(mandatoryCases).toHaveLength(24)
+    expect(mandatoryCases).toContain('SESSION-END')
   })
   test('focused receipt requires correct identity and actual successful test exit', () => {
     const logs = mkdtempSync(join(tmpdir(), 'clooks-shutdown-publication-'))

@@ -34,7 +34,8 @@ export async function sessionEndScenario(logRoot: string) {
   const project = join(base, 'project')
   const bin = join(base, 'bin')
   const payloadDir = join(logs, 'payloads')
-  for (const directory of [home, codexHome, project, bin, payloadDir]) mkdirSync(directory)
+  for (const directory of [home, codexHome, project, bin, payloadDir])
+    mkdirSync(directory, directory === home ? { mode: 0o700 } : {})
   const timeline = join(logs, 'timeline.jsonl')
   const marker = join(project, 'pending-shutdown')
   const env: Record<string, string> = {

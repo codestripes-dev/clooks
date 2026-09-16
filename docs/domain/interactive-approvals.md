@@ -5,9 +5,10 @@ stdio endpoint. It connects one command invocation to its matching native MCP
 check without replaying the command. Engine checkpoints are implemented in
 `execute.ts`, `run.ts` and `live-approvals.ts` and validated through the compiled
 test suite. The transport itself does not execute hooks or install registration.
-The new run path no longer uses the historical Codex token-retry runtime, whose
-retained CLI/store components have not yet been physically removed. Current
-engine validation is not native generated-registration conformance.
+The historical Codex token-retry runtime, `clooks approve` command and token
+store are removed. Legacy databases remain inert and untouched; token-looking
+shell text and environment variables cannot grant consent. Compiled engine
+validation is separate from native generated-registration conformance.
 
 ## Internal Command API
 

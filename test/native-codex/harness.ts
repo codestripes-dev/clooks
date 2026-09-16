@@ -37,15 +37,11 @@ export const baselineCases: CaseId[] = [
 ]
 export const packCases = ['PACK-SHELL-READ', 'PACK-PATCH-ALLOW', 'PACK-PATCH-DENY'] as const
 export type PackCaseId = (typeof packCases)[number]
-export const hybridCases = [
-  'HYBRID-PATCH',
-  'HYBRID-SHELL-REWRITE-ALLOW',
-  'HYBRID-SHELL-REWRITE-DENY',
-  'HYBRID-PATCH-REWRITE-ALLOW',
-  'HYBRID-PATCH-REWRITE-DENY',
-  'HYBRID-SHELL',
+export const rewritePolicyCases = [
+  'REWRITE-SHELL-NATIVE-DENY',
+  'REWRITE-PATCH-NATIVE-DENY',
 ] as const
-export type HybridCaseId = (typeof hybridCases)[number]
+export type RewritePolicyCaseId = (typeof rewritePolicyCases)[number]
 export const sessionEndCases = ['SESSION-END'] as const
 export const localToolCases = ['LOCAL-REWRITE', 'LOCAL-DENY'] as const
 export type LocalToolCaseId = (typeof localToolCases)[number]
@@ -61,7 +57,7 @@ export const handoffCases = [
 export const mandatoryCases = [
   ...baselineCases,
   ...packCases,
-  ...hybridCases,
+  ...rewritePolicyCases,
   ...sessionEndCases,
   ...handoffCases.map(([id]) => id),
   'HANDOFF-CHILD',
@@ -366,12 +362,11 @@ export function assertObservation(id: CaseId, observed: Observation) {
       )
     } else {
       requireThat(
-        /^Command blocked by PreToolUse hook: Hook "native-m1": m1-ask-request\nApproval token: ca1_[a-f0-9]{64}\nExpires: /u.test(
-          feedback[0].output,
-        ) &&
-          feedback[0].output.includes('Ask the user and wait for explicit approval.') &&
-          feedback[0].output.endsWith(`. Command: ${commandA}`),
-        'Missing pending approval feedback',
+        feedback[0].output ===
+          'Command blocked by PreToolUse hook: clooks: Codex PreToolUse hook "native-m1" ' +
+            'capability "approval": clooks: Approval declined: Approval was not positively ' +
+            `confirmed Pending call denial requested.. Command: ${commandA}`,
+        'Missing attributed non-positive-confirmation decline',
       )
     }
   } else {

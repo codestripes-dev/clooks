@@ -18,8 +18,7 @@ and the standard binary sandbox, not direct source imports or the native fixture
 runner. Focused regressions cover terminal-write cancellation/drain and isolation
 of unrelated checks from late cancelled RPC responses. Engine integration and
 generated registration are not established by these transport tests. Token-runtime
-receipts below are historical; retained store/CLI tests do not prove the new
-engine checkpoint flow.
+receipts are historical and do not prove the shared engine checkpoint flow.
 
 `src/interaction/{protocol,channel,storage,server}.test.ts` exercise protocol
 validation, exact consent exchanges, bounded retention and SDK/stream lifecycle.
@@ -136,9 +135,9 @@ for scope and snapshot identity; historical gates do not validate later changes.
 
 ## Generic Codex Local Rewrites
 
-`src/agents/codex/local-rewrite.test.ts`, `tool-codecs.test.ts` and `approvals.test.ts` cover object-only local function codecs, unchanged native/namespaced names, opaque own keys, null deletion versus untouched null, undefined no-ops, deep detachment, known public required/optional field validation and exact encoded approval binding. Command-only and MCP regression coverage remains in the Codex unit suite.
+`src/agents/codex/local-rewrite.test.ts` and `tool-codecs.test.ts` cover object-only local function codecs, unchanged native/namespaced names, opaque own keys, null deletion versus untouched null, undefined no-ops, deep detachment and known public required/optional field validation. Command-only and MCP regression coverage remains in the Codex unit suite.
 
-`test/e2e/codex-local-rewrite.e2e.test.ts` adds compiled sequential full replacements, original-input snapshots, allow/ask rewrites with CLI acknowledgement, changed-candidate invalidation without hook/config changes, malformed candidate refusal before later hooks/context/handoff/approval issuance, and parallel/non-PreToolUse/write_stdin refusal. These are source-shaped replays, not native tool-effect evidence. Run only through `bun run test:e2e ./test/e2e/codex-local-rewrite.e2e.test.ts`; the final Docker/native runs are coordinated by the validation owner. Historical receipts do not validate this follow-up.
+`test/e2e/codex-local-rewrite.e2e.test.ts` adds compiled sequential full replacements, original-input snapshots, allow/ask rewrites with live approval of each actual replacement, malformed candidate refusal before later hooks/context/handoff/elicitation, and parallel/non-PreToolUse/write_stdin refusal. These are source-shaped replays, not native tool-effect evidence. Run through `bun run test:e2e ./test/e2e/codex-local-rewrite.e2e.test.ts`.
 
 ## Empty Stdin Coverage
 
@@ -146,30 +145,36 @@ for scope and snapshot identity; historical gates do not validate later changes.
 
 `test/e2e/empty-stdin.e2e.test.ts` exercises the compiled binary with default/explicit Claude and Codex in isolated homes/projects, using an independent diagnostic literal rather than a production import. Positive handler markers are reset before rejected inputs; separate import markers distinguish Claude's allowed module imports from handler execution. Bare Codex allow expects empty stdout; Claude expects its allow JSON. Cases cover empty/whitespace/malformed input, semantic nonobject/missing-event failures, no-config bypass, configured zero hooks and generated-launcher forwarding. Run these through the Docker E2E runner. Blob fixtures avoid incremental child-process pipe writes when characterizing native parsing. These tests establish local runtime/launcher behavior, not sandbox transport repair or native agent enforcement.
 
-## Codex Approval Store Coverage
+## Codex Token Retirement Coverage
 
-`src/agents/codex/approval-store.test.ts` and `src/commands/approve.test.ts` cover the private record store and CLI without engine ask integration. Independent Bun processes race first issuance and final two-token consumption with explicit readiness barriers; a real SQLite-lock handshake proves post-lock clock sampling, and a held-lock timeout checks unchanged state plus successful retry. A test-only SQLite trigger forces the production issuance transaction to exceed its configured allocation limit, asserting rollback and recovery. These tests do not mock storage or alter host state.
+`src/router.test.ts` checks that `approve` is no longer a registered command;
+Codex input tests preserve token-looking shell text as literal input.
+`test/e2e/codex-token-retirement.e2e.test.ts` checks unknown-command routing,
+absence of an `approve` help row with positive `mcp` and empty-stderr controls,
+no legacy state or empty approvals-directory creation, byte-preservation of
+existing database/WAL/SHM files, and attributed `Live approval unavailable`
+refusal despite legacy environment and command carriers, without replacement
+input or token-retry instructions. The former store/controller/CLI unit suites and store-only
+E2E suite are removed.
 
-`test/e2e/codex-approvals.e2e.test.ts` uses isolated homes/projects and the compiled binary for configuration loading, fixture hooks, CLI routing, registration and output. Test-only hooks import the source store to seed and finalize records; the `approve` command exercises the compiled store implementation. No production issuance command exists. The suite checks preserved ordinary hook blocks, exact consumption failures, fixed expiry, state preservation on rejection, home isolation, corruption and non-root storage failures. Run with `bun run test:e2e ./test/e2e/codex-approvals.e2e.test.ts`; this is local store/CLI coverage, not native Codex or runtime ask evidence.
+`test/e2e/codex-approval-runtime.e2e.test.ts` remains live-checkpoint coverage:
+legacy storage and token-looking commands cannot grant consent, aliases sharing
+a module require independent answers, invalid replacements refuse before
+elicitation, and default/explicit Claude without registration refuse asks.
+Run both files through `bun run test:e2e`; these compiled subprocess contracts
+do not establish native client enforcement.
 
-## Historical Codex Approval Runtime Coverage
+The [historical fifteen-case native suite](testing/codex-native.md#hybrid-approval-case-evidence)
+included six token-retry cases that are no longer in the harness. Its pinned
+Codex 0.153.4 receipts establish only the retired implementation, not live
+checkpoint behavior. Current native approval coverage is maintained in the
+[shared approval reference](testing/interactive-approvals.md).
 
-This section describes the former token-retry runtime and its preserved receipts.
-The current engine work replaces runtime token use with live checkpoints; old
-passes do not validate that replacement. CLI/store components remain until
-physical retirement, independently of their removal from the active run path.
-
-The hybrid runtime is implemented separately from the store/CLI tests above. Full frozen-source Docker validation passed, including tooling regressions, unit coverage and compiled E2E, with matching before/after source hashes and successful container cleanup. The controller, executor and run-layer unit suites and both approval E2E files were included; this establishes Clooks runtime behavior, not native Codex approval workflows. `src/agents/codex/approvals.test.ts` exercises canonical binding, carrier eligibility/removal, ordered pipeline/config identity, independent per-ask confirmation changes, mixed transports, emitted-input binding, failure precedence and serialized-output checks. `src/engine/execute.approvals.test.ts` checks opt-in detached vote metadata, configured-order parallel observations, raw history, unchanged reducer context/patch behavior and incomplete execution under crashes, load failures, timeout, policy rejection and degradation.
-
-`src/engine/run.approvals.test.ts` exercises run-layer integration with isolated state and injected dependencies. It checks mixed transports, carrier-free public/private normalization, retained reducer fields and emitted patches, binding changes, and block/failure precedence. Early-exit cases cover no-config/no-hook/no-match/no-ask and config/hook degradation, retiring only matching base acknowledgements. Read-count assertions cover absent-store fast paths and cached advisory payloads/errors, including thrown undefined, without rereading stdin. Storage spies check no approval access for Claude and identified SessionStart/PostToolUse events; a separate no-config case identifies the cached event after an existence-check failure. Adjustment/serialization failures, serialized-input mismatch, adjusted denial and injected finalization failure retain approvals; output-write failure after successful consumption leaves tokens consumed. These unit cases passed in the full Docker gate; they do not establish native dispatch. The injected finalization failure checks run-layer refusal, while real transaction rollback and contention are covered by the store tests.
-
-`test/e2e/codex-approval-runtime.e2e.test.ts` exercises actual `ctx.ask` through compiled configuration loading, policy, execution, SQLite, CLI acknowledgement and serialized output. Cases cover inline/registered/mixed retries, two asks, root/child/session/input binding, turn/tool-use ID advancement, changed config/entry/confirmation, approval of the registration command itself, block/failure precedence, codec rewrites, losing-ask patch/context semantics, early-exit retirement and default/explicit Claude preservation. Test fixtures and subprocess homes are isolated. Its bounded dispatch helper checks denied-effect absence and permitted-effect presence for a safe fixture; that helper is not a native Codex executor.
-
-Run the runtime file with `bun run test:e2e ./test/e2e/codex-approval-runtime.e2e.test.ts` and the full frozen-source gate with `bun run test:validation --workers 4`. One validation owner coordinates those runs. Synthetic patch/MCP payloads and compiled output establish Clooks contracts only, not native shell/non-shell approval workflows, native permission enforcement on approved rewrites, activation or release conformance. Historical unsupported-ask refusal probes remain historical evidence; neither they nor the earlier store/CLI pass validate the new fallback. Those compiled tests do not validate native harness or vendored-hook changes. Separate native case-level evidence is described below.
-
-The historical approval-runtime native suite passed all 15 mandatory cases with 15 native launches, completion publication, tested-binary export and successful cleanup. Its six hybrid cases cover two-ask inline shell retries, agent-side CLI registration for direct patches, rewrite execution/denial controls, and actual-pack `rm -r` denial until both acknowledgements, successful removal and consumed-token replay refusal. Read-only patch denial uses separate compiled CLI registration simulating the user, outside the native shell sandbox. This is bounded pinned-version, synthetic-model native evidence, not native `rm -rf` allow proof or full conformance. The earlier 14-case partial run remains historical evidence, not the final receipt. See [precise native evidence and limits](testing/codex-native.md#hybrid-approval-case-evidence).
-
-The historical approval-runtime full frozen-source Docker validation gate passed with exit 0: 70 tooling tests, 3395 unit tests with coverage, and 1082 compiled E2E tests across 54 E2E files. Before/after source hashes matched and all six container cleanups succeeded. Separate hook-pack coverage also passed. These local gates validate the Clooks runtime and pack regressions; native enforcement evidence comes from the distinct 15-case suite above. Earlier runtime gates retain their historical scope. Final independent code and QA receipt reviews confirmed both gates.
+The separate [Codex native conformance harness](testing/codex-native.md#direct-rewrite-native-policy-controls)
+requires 24 cases across 26 launches and 26 helper unit tests. Its two native
+policy-denial controls use direct allow-plus-input-rewrite results, not MCP
+approval rewrites; they retain shell command-policy and read-only patch safety
+coverage independently of the generated 26-case shared-approval suite.
 
 ## Hook Author Testing
 This document covers Clooks's own E2E suite, which validates Clooks itself. It is **not** the documentation hook authors need.

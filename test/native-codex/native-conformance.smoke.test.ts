@@ -11,7 +11,7 @@ import {
 import { join } from 'node:path'
 import { startFixture } from './fixture-server'
 import { packScenario } from './pack-scenarios'
-import { hybridScenario } from './hybrid-scenarios'
+import { rewritePolicyScenario } from './rewrite-policy-scenarios'
 import { sessionEndScenario } from './session-end-scenario'
 import { handoffScenario } from './handoff-scenarios'
 import { handoffChildScenario } from './handoff-child-scenarios'
@@ -27,10 +27,10 @@ import {
   commandB,
   denyReason,
   mandatoryCases,
-  hybridCases,
   handoffCases,
   localToolCases,
   packCases,
+  rewritePolicyCases,
   readCaptures,
   requireSuccess,
   requireThat,
@@ -211,7 +211,7 @@ ignore_default_excludes = true
   }
 }
 
-test('mandatory native cases with hybrid retries and rewrite permission controls', async () => {
+test('mandatory native baseline, pack, lifecycle and handoff cases', async () => {
   requireThat(process.getuid!() !== 0, 'Native tests must run as non-root')
   requireThat(existsSync('/native/bin/codex'), 'Missing explicit native distribution')
   const actual = sha256('/native/bin/codex')
@@ -226,7 +226,7 @@ test('mandatory native cases with hybrid retries and rewrite permission controls
   verifyMetadata(actual)
   for (const id of baselineCases) await scenario(id)
   for (const id of packCases) await packScenario(id, logRoot)
-  for (const id of hybridCases) await hybridScenario(id, logRoot)
+  for (const id of rewritePolicyCases) await rewritePolicyScenario(id, logRoot)
   await sessionEndScenario(logRoot)
   for (const scenario of handoffCases) await handoffScenario(scenario, logRoot)
   await handoffChildScenario(logRoot)
