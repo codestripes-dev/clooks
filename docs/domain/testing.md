@@ -6,7 +6,7 @@ How Clooks validates its core safety invariant — fail-closed behavior — thro
 
 ## Compiled Build Format
 
-For `bun run test:approvals-native`, see [native interactive approval probes](testing/interactive-approvals.md): default/baseline mode uses illustrative fixtures; `--generated` builds current Clooks and uses actual init-generated registration through real clients. The generated inventory contains 20 cases across project shell, global-only shell and project non-shell registration.
+For `bun run test:approvals-native`, see [native interactive approval probes](testing/interactive-approvals.md): default/baseline mode uses illustrative fixtures; `--generated` builds current Clooks and uses actual init-generated registration through real clients. The generated inventory contains 26 cases across project shell, global-only shell, project non-shell and combined shell registration.
 
 The production [shared interactive approval transport](interactive-approvals.md)
 has separate command/channel and MCP server test boundaries. Its internal runtime
@@ -66,17 +66,13 @@ against real client files to obtain a test receipt.
 
 The separate [generated native smoke](testing/interactive-approvals.md#generated-registration)
 runs as `bun run test:approvals-native --generated` with explicit Claude/Codex
-binary paths. The generated inventory has 20 structured descriptors:
-the existing six project-shell modes per provider, two global-only shell modes
-per provider, and two project non-shell modes per provider (`Write` for Claude
-and `apply_patch` for Codex). Frozen production
-inputs are typechecked and bytecode-compiled inside Docker, and actual init-
-identity/effects, refusal/cancellation and cleanup are asserted with a scripted
-local model and replies. Seed disposable trust metadata before `init` for both
-Claude and Codex. These checks distinguish illustrative fixtures from
-compiled production and native registration evidence; execution receipts belong
-with the run artifacts. The 20 generated cases passed with Claude Code 2.1.272
-and Codex CLI 0.154.0, with typecheck/build and disposable cleanup passing.
+binary paths. The generated inventory has 26 structured descriptors; the exact
+names and case contracts are maintained in the [full native approval reference](testing/interactive-approvals.md#generated-registration).
+Frozen production inputs are typechecked and bytecode-compiled inside Docker,
+and actual init identity/effects, refusal and cleanup are asserted with a
+scripted local model and replies. Pinned verification: 26 generated native
+cases passed on Claude Code 2.1.272 and Codex CLI 0.154.0; typecheck, snapshot
+and hash checks, and disposable cleanup passed.
 
 ## Build Parity
 

@@ -9,6 +9,7 @@ export function checkpoint(number: number): ClooksHook {
       record(process.env.APPROVAL_ROOT!, ask ? `${number}-ask` : String(number), {
         input: ctx.toolInput,
         provider: ctx.provider,
+        source: import.meta.path,
       })
       return ask ? ctx.ask({ reason: `Checkpoint ${number}` }) : ctx.skip()
     },

@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import {
   assertOutcome,
   assertPending,
+  assertProductionSettled,
   type Case,
   type Packets,
 } from '../fixtures/production-approvals/evidence'
@@ -58,7 +59,23 @@ function fixture(
     check: { key, id: 'check-id', pid: 20 },
     'question-1': { key, nonce: 'nonce', question: question(1) },
   }
-  const row = (event: string, fields = {}): Row => ({ event, at: 10, pid: 10, ...fields })
+  const row = (event: string, fields = {}): Row => {
+    const number = Number.parseInt(event, 10)
+    const hookRoot = c.suppressedOwner
+      ? number <= 2
+        ? c.home
+        : join(c.root, 'project')
+      : c.owner === 'global'
+        ? c.home
+        : join(c.root, 'project')
+    return {
+      event,
+      at: 10,
+      pid: 10,
+      ...(Number.isInteger(number) ? { source: join(hookRoot, '.clooks/hooks/hooks.ts') } : {}),
+      ...fields,
+    }
+  }
   const journal = [row('native-pre', { input }), row('1'), row('2-ask')]
   const anchor = {
     provider: 'codex',
@@ -90,7 +107,7 @@ function fixture(
     requests: 2,
     output: { output: 'Process exited with code 0' },
   }
-  return { c, key, box, journal, anchor, question, finish, native }
+  return { c, key, box, journal, anchor, question, finish, native, row }
 }
 
 function nonShellFixture(provider: 'claude' | 'codex', toolName: 'Write' | 'apply_patch') {
@@ -103,9 +120,91 @@ function nonShellFixture(provider: 'claude' | 'codex', toolName: 'Write' | 'appl
   })
 }
 
-test('generated inventory is exactly twenty cases and cannot mix illustrative flags or duplicates', () => {
+function makeCombinedFixture(provider: 'claude' | 'codex' = 'codex') {
+  const f = fixture(provider)
+  f.c.owner = 'global'
+  f.c.suppressedOwner = 'project:abc'
+  f.key.owner = 'global'
+  for (const row of f.journal.filter((candidate) => /^[12](?:-ask)?$/.test(candidate.event)))
+    row.source = join(f.c.home, '.clooks/hooks/hooks.ts')
+  return f
+}
+
+function suppressedBox(f: ReturnType<typeof makeCombinedFixture>): Packets {
+  const key = { ...f.key, owner: f.c.suppressedOwner }
+  return {
+    command: { key, id: 'suppressed-nonce', pid: 11, createdAt: 10 },
+    start: {
+      key,
+      nonce: 'suppressed-nonce',
+      pid: 11,
+      startedAt: 10,
+      deadline: 20,
+      disposition: 'suppressed',
+    },
+    check: { key, id: 'suppressed-check-id', pid: 21, createdAt: 10 },
+    done: { key, nonce: 'suppressed-nonce', at: 10 },
+    'check-done': {
+      key,
+      nonce: 'suppressed-nonce',
+      checkId: 'suppressed-check-id',
+      at: 10,
+    },
+  }
+}
+
+function combinedFixture(
+  provider: 'claude' | 'codex',
+  mode: 'approve' | 'decline-second' | 'noask',
+) {
+  const f = makeCombinedFixture(provider)
+  f.c.mode = mode
+  if (mode === 'decline-second') {
+    f.box['question-2'] = { key: f.key, nonce: 'nonce', question: f.question(2) }
+    f.box['reply-1'] = { key: f.key, nonce: 'nonce', confirmed: true }
+    f.box.done = {
+      key: f.key,
+      nonce: 'nonce',
+      at: 10,
+      failure: { kind: 'declined', message: 'Approval was not positively confirmed' },
+    }
+    f.box['check-done'] = {
+      key: f.key,
+      checkId: 'check-id',
+      nonce: 'nonce',
+      at: 10,
+      failure: { kind: 'declined', message: 'Approval was not positively confirmed' },
+    }
+    f.journal.push(
+      f.row('ui-request'),
+      f.row('ui-response', { question: f.question(1), action: 'accept' }),
+      f.row('3'),
+      f.row('4-ask'),
+      f.row('ui-request'),
+      f.row('ui-response', { question: f.question(2), action: 'decline' }),
+    )
+    f.native.output.output =
+      'Command blocked by PreToolUse hook: Approval was not positively confirmed'
+    if (provider === 'claude') (f.native.output as any).is_error = true
+  } else {
+    f.finish()
+    if (mode === 'noask') {
+      f.journal.splice(
+        0,
+        f.journal.length,
+        ...f.journal
+          .filter((row) => row.event !== 'ui-response' && row.event !== 'ui-request')
+          .map((row) => ({ ...row, event: row.event.replace('-ask', '') })),
+      )
+      for (const name of ['question-1', 'question-2', 'reply-1', 'reply-2']) delete f.box[name]
+    }
+  }
+  return { ...f, suppressed: suppressedBox(f) }
+}
+
+test('generated inventory is exactly twenty-six cases and cannot mix illustrative flags or duplicates', () => {
   expect(selectGenerated(['--generated'])).toEqual(generatedNames)
-  expect(generatedNames).toHaveLength(20)
+  expect(generatedNames).toHaveLength(26)
   expect(generatedNames).toEqual([
     'claude-generated-approve',
     'claude-generated-decline-first',
@@ -117,6 +216,9 @@ test('generated inventory is exactly twenty cases and cannot mix illustrative fl
     'claude-generated-global-decline-second',
     'claude-generated-project-non-shell-approve',
     'claude-generated-project-non-shell-decline-second',
+    'claude-generated-combined-approve',
+    'claude-generated-combined-decline-second',
+    'claude-generated-combined-noask',
     'codex-generated-approve',
     'codex-generated-decline-first',
     'codex-generated-decline-second',
@@ -127,9 +229,23 @@ test('generated inventory is exactly twenty cases and cannot mix illustrative fl
     'codex-generated-global-decline-second',
     'codex-generated-project-non-shell-approve',
     'codex-generated-project-non-shell-decline-second',
+    'codex-generated-combined-approve',
+    'codex-generated-combined-decline-second',
+    'codex-generated-combined-noask',
   ])
   expect(generatedCases.filter(({ scope }) => scope === 'global')).toHaveLength(4)
+  expect(generatedCases.filter(({ scope }) => scope === 'combined')).toHaveLength(6)
   expect(generatedCases.filter(({ operation }) => operation === 'non-shell')).toHaveLength(4)
+  expect(
+    generatedCases.filter(({ scope }) => scope === 'combined').map(({ name }) => name),
+  ).toEqual([
+    'claude-generated-combined-approve',
+    'claude-generated-combined-decline-second',
+    'claude-generated-combined-noask',
+    'codex-generated-combined-approve',
+    'codex-generated-combined-decline-second',
+    'codex-generated-combined-noask',
+  ])
   expect(selectGenerated(['--generated', 'codex-generated-noask'])).toEqual([
     'codex-generated-noask',
   ])
@@ -142,23 +258,123 @@ test('generated inventory is exactly twenty cases and cannot mix illustrative fl
     expect(() => selectGenerated(args)).toThrow()
 })
 
+test.each([
+  ['claude', 'approve'],
+  ['claude', 'decline-second'],
+  ['claude', 'noask'],
+  ['codex', 'approve'],
+  ['codex', 'decline-second'],
+  ['codex', 'noask'],
+] as const)(
+  'combined %s %s requires one active and one neutral suppressed peer',
+  (provider, mode) => {
+    const f = combinedFixture(provider, mode)
+    expect(() =>
+      assertOutcome(
+        f.c,
+        [f.suppressed, f.box],
+        f.journal,
+        f.anchor,
+        mode === 'decline-second' ? undefined : 'native-effect\n',
+        f.native,
+      ),
+    ).not.toThrow()
+  },
+)
+
+test('combined pending accepts an absent, empty or partially written suppressed peer', () => {
+  const f = makeCombinedFixture()
+  const key = { ...f.key, owner: f.c.suppressedOwner }
+  const partial = { command: { key, id: 'suppressed-nonce', pid: 11 } }
+  for (const boxes of [[f.box], [f.box, {}], [partial, f.box]])
+    expect(() => assertPending(f.c, boxes, f.journal, f.question(1), false)).not.toThrow()
+})
+
+test('combined pending rejects unknown owners, duplicate active boxes and excess empty peers', () => {
+  const f = makeCombinedFixture()
+  const unknown = {
+    command: { key: { ...f.key, owner: 'project:unknown' }, id: 'nonce-2', pid: 12 },
+  }
+  expect(() => assertPending(f.c, [f.box, unknown], f.journal, f.question(1), false)).toThrow(
+    'Unknown production owner',
+  )
+  expect(() => assertPending(f.c, [f.box, f.box], f.journal, f.question(1), false)).toThrow(
+    'Duplicate production mailbox',
+  )
+  expect(() => assertPending(f.c, [f.box, {}, {}], f.journal, f.question(1), false)).toThrow(
+    'at most two',
+  )
+})
+
+test.each(['question-1', 'reply-1', 'done', 'check'])(
+  'combined pending rejects an ownerless %s packet',
+  (name) => {
+    const f = makeCombinedFixture()
+    const malformed = { [name]: { nonce: 'unbound' } }
+    expect(() => assertPending(f.c, [f.box, malformed], f.journal, f.question(1), false)).toThrow(
+      'Ownerless production mailbox contains packet evidence',
+    )
+  },
+)
+
+test.each([
+  'missing-peer',
+  'duplicate-active',
+  'wrong-owner',
+  'incorrect-key',
+  'non-neutral-peer',
+  'question-from-peer',
+  'misbound-completion',
+  'wrong-hook-source',
+] as const)('combined final evidence rejects %s', (variant) => {
+  const f = combinedFixture('codex', 'approve')
+  let boxes = [f.box, f.suppressed]
+  if (variant === 'missing-peer') boxes = [f.box]
+  if (variant === 'duplicate-active') boxes = [f.box, f.box]
+  if (variant === 'wrong-owner') f.suppressed.start.key.owner = 'project:wrong'
+  if (variant === 'incorrect-key') f.suppressed.start.key.session_id = 'wrong-session'
+  if (variant === 'non-neutral-peer')
+    f.suppressed.done.failure = { kind: 'declined', message: 'must remain neutral' }
+  if (variant === 'question-from-peer')
+    f.suppressed['question-1'] = {
+      key: f.suppressed.start.key,
+      nonce: f.suppressed.start.nonce,
+      question: f.question(1),
+    }
+  if (variant === 'misbound-completion') f.suppressed['check-done'].checkId = 'wrong-check'
+  if (variant === 'wrong-hook-source')
+    f.journal.find((row) => row.event === '3')!.source = join(f.c.home, '.clooks/hooks/hooks.ts')
+  expect(() =>
+    assertOutcome(f.c, boxes, f.journal, f.anchor, 'native-effect\n', f.native),
+  ).toThrow()
+})
+
+test('pre-teardown completion helper rejects an unsettled combined peer', () => {
+  const f = combinedFixture('codex', 'approve')
+  expect(() => assertProductionSettled(f.c, [f.box, f.suppressed])).not.toThrow()
+  delete f.suppressed['check-done']
+  expect(() => assertProductionSettled(f.c, [f.box, f.suppressed])).toThrow(
+    'Missing suppressed check-done packet',
+  )
+})
+
 test('pending oracle accepts the exact first checkpoint and rejects early effect or changed operation', () => {
   const f = fixture()
-  expect(() => assertPending(f.c, f.box, f.journal, f.question(1), false)).not.toThrow()
-  expect(() => assertPending(f.c, f.box, f.journal, f.question(1), true)).toThrow(
+  expect(() => assertPending(f.c, [f.box], f.journal, f.question(1), false)).not.toThrow()
+  expect(() => assertPending(f.c, [f.box], f.journal, f.question(1), true)).toThrow(
     'Native effect before consent',
   )
   expect(() =>
     assertPending(
       f.c,
-      f.box,
+      [f.box],
       f.journal,
       { ...f.question(1), operation: { toolName: 'Bash', input: { command: 'different' } } },
       false,
     ),
   ).toThrow()
   f.journal.push({ event: '3', at: 10, pid: 10 })
-  expect(() => assertPending(f.c, f.box, f.journal, f.question(1), false)).toThrow()
+  expect(() => assertPending(f.c, [f.box], f.journal, f.question(1), false)).toThrow()
 })
 
 test('production outcome requires native identity, exactly one call, both prompts and one late effect', () => {
@@ -375,10 +591,10 @@ test('second checkpoint cannot run hook five or repeat the first question while 
     { event: '3', at: 10, pid: 10 },
     { event: '4-ask', at: 10, pid: 10 },
   )
-  expect(() => assertPending(f.c, f.box, f.journal, f.question(2), false)).not.toThrow()
-  expect(() => assertPending(f.c, f.box, f.journal, f.question(1), false)).toThrow()
+  expect(() => assertPending(f.c, [f.box], f.journal, f.question(2), false)).not.toThrow()
+  expect(() => assertPending(f.c, [f.box], f.journal, f.question(1), false)).toThrow()
   f.journal.push({ event: '5', at: 10, pid: 10 })
-  expect(() => assertPending(f.c, f.box, f.journal, f.question(2), false)).toThrow()
+  expect(() => assertPending(f.c, [f.box], f.journal, f.question(2), false)).toThrow()
 })
 
 test('Claude success uses native session identity and rejects native error results', () => {

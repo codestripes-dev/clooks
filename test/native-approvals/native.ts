@@ -26,6 +26,7 @@ import { packCatalog } from '../native-codex/pack-scenarios'
 import { holdBoundary } from './boundary'
 import type { GeneratedRuntime } from './generated'
 import {
+  assertProductionSettled,
   claimPids as productionClaimPids,
   packets as productionPackets,
   respond as productionRespond,
@@ -945,11 +946,7 @@ export async function launch(
     }
     if (r.kind === 'generated') {
       const boxes = productionPackets(r.home)
-      assert.equal(boxes.length, 1)
-      assert.ok(
-        boxes[0]!.done && boxes[0]!['check-done'],
-        'Production peers must settle before native teardown',
-      )
+      assertProductionSettled(r.c, boxes)
       preTeardown.productionCompletions = boxes.map((box) => ({
         done: box.done,
         checkDone: box['check-done'],

@@ -3,8 +3,8 @@
 `test/fixtures/interactive-approvals/` contains illustrative command checkpoints,
 not the production Clooks engine. The separate `--generated` mode below uses
 `test/fixtures/production-approvals/` with compiled Clooks and actual init-generated
-registration. Its generated inventory contains 20 structured cases across
-project shell, global-only shell and project non-shell registration.
+registration. Its 26-case inventory contains project shell, global-only shell,
+project non-shell and six shell-only combined cases.
 Native clients, hook schedulers, MCP connections and final tools execute for real.
 Illustrative passes do not establish production ordering. In automated probes,
 the loopback model and elicitation replies are scripted. Passing automated cases
@@ -35,17 +35,22 @@ Run the compiled-production mode with the same explicit native executables:
       CLOOKS_CODEX_BINARY=/absolute/path/to/codex \
       bun run test:approvals-native --generated
 
-This defaults to exactly 20 cases. The structured descriptors in
+This defaults to exactly 26 cases. The structured descriptors in
 `test/native-approvals/generated.ts` use these names: each provider has project
 shell `<provider>-generated-<approve|decline-first|decline-second|cancel-first|cancel-second|noask>`,
 global-only shell `<provider>-generated-global-<approve|decline-second>`, and
 project non-shell `<provider>-generated-project-non-shell-<approve|decline-second>`:
-Claude uses `Write`; Codex uses `apply_patch`.
+Claude uses `Write`; Codex uses `apply_patch`. The combined shell descriptors
+are `claude-generated-combined-approve`,
+`claude-generated-combined-decline-second`, `claude-generated-combined-noask`,
+and the corresponding three `codex` names. Combined cases use one fixed
+project-then-global init order; alternate init orders and non-shell combined
+cases are not in this inventory.
 Explicit subsets use those names, for example
 `bun run test:approvals-native --generated codex-generated-project-non-shell-approve`
 with the same environment assignments. Duplicate/unknown cases and illustrative
 flags such as `--baseline` are rejected. The inventory is intentionally scoped,
-not a Cartesian product, and does not combine global and project registration.
+not a Cartesian product.
 
 `test/native-approvals/generated.ts` runs actual compiled
 `clooks init --agent <agent> --json`, selecting `claude-code` or `codex`, in
@@ -53,7 +58,13 @@ disposable Git projects. Global cases run global-only init; project cases run
 project init. Seed disposable trust metadata before `init` for both providers;
 the test must not rely on a CLI override to suppress native trust writes. The
 generated command/MCP pair, server entry, project identity and entrypoint are
-captured and checked using the scope-aware snapshot rules below. `native.ts` uses a distinct
+captured and checked using the scope-aware snapshot rules below. Combined
+fixtures place hooks 1-2 only in HOME config/files and hooks 3-5 only in the
+project, with the source `import.meta.path` recorded in the journal to prove
+the merged layer. For Codex combined cases, the observer is pre-seeded in the
+project hooks before `init` because both native hook files are occupied; trust
+metadata is seeded before `init` as described above, and pre-fixture snapshots
+are retained. `native.ts` uses a distinct
 generated branch for the existing model/RPC/cleanup machinery: no illustrative
 server or CLI pair replaces init's registration. Claude uses print mode and
 Codex uses app-server, not a human TTY approval session. Fixture-only observers,
@@ -75,8 +86,14 @@ nonce and displayed operation to the production mailbox. Before each reply,
 later hooks/effects must be absent. Approval requires exactly one original-call
 effect after hook 5; declines require attributed native refusal, stopped later
 hooks and no effect/PostToolUse; no ask requires zero prompts/questions/replies.
-Both peers must publish completion before native teardown. Helper regressions
-in `generated.test.ts` check selection and false-pass resistance, not native
+For combined cases, global owns the active merged pipeline and
+`project:<persistedid>` is suppressed. Exactly two native-bound mailboxes are
+required; pending active checks may observe a suppressed peer still starting
+and must not require premature completion. Both mailbox pairs must settle before
+native teardown. The suppressed project peer always completes neutrally with no
+questions, replies or failures; an active global decline records its failure.
+No duplicate pipeline, prompt or effect is accepted. Helper regressions in
+`generated.test.ts` check selection and false-pass resistance, not native
 enforcement.
 
 Each case retains `init.json`, `generated-registration.json`, native observations
@@ -97,9 +114,9 @@ native elicitation action `cancel` at the selected ordinal and production
 `failure.kind='cancelled'` with message `Approval cancelled`; it is not
 `turn/interrupt` evidence. Automated replies remain scripted and do not prove
 human consent, normal trust policy or release conformance. Existing
-cold-readiness and external-expiry limits remain. The 20 generated cases passed
-with Claude Code 2.1.272 and Codex CLI 0.154.0; execution receipts retain the
-per-case identity, effect and cleanup evidence.
+cold-readiness and external-expiry limits remain. Pinned verification: 26
+generated native cases passed on Claude Code 2.1.272 and Codex CLI 0.154.0;
+typecheck, snapshot and hash checks, and disposable cleanup passed.
 
 ### Claude Interactive Config Discriminators
 

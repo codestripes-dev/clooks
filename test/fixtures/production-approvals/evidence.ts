@@ -18,6 +18,7 @@ export interface Case {
   mode: Mode
   callId: string
   owner: string
+  suppressedOwner?: string
   operation: { toolName: string; input: unknown }
 }
 export type Packets = Record<string, any>
@@ -77,6 +78,132 @@ function substantive(value: unknown) {
   return false
 }
 
+function boxOwner(box: Packets): string | undefined {
+  const owners = Object.values(box)
+    .map((packet) => packet?.key?.owner)
+    .filter((owner): owner is string => typeof owner === 'string')
+  if (!owners.length) return undefined
+  assert.equal(new Set(owners).size, 1, 'Production mailbox mixes owners')
+  return owners[0]!
+}
+
+function assertPacketKey(packet: any, key: any, label: string) {
+  if (packet) assert.deepEqual(packet.key, key, `${label} key mismatch`)
+}
+
+function assertSuppressedBox(box: Packets, key: any, complete: boolean) {
+  for (const name of Object.keys(box)) {
+    assert.ok(!/^question-\d+$/.test(name), 'Question from suppressed invocation')
+    assert.ok(!/^reply-\d+$/.test(name), 'Reply from suppressed invocation')
+  }
+  for (const name of ['command', 'start', 'check', 'done', 'check-done'])
+    assertPacketKey(box[name], key, `Suppressed ${name}`)
+  if (box.start) assert.equal(box.start.disposition, 'suppressed')
+  if (box.command && box.start) {
+    assert.equal(box.command.id, box.start.nonce, 'Suppressed command nonce mismatch')
+    assert.equal(box.command.pid, box.start.pid, 'Suppressed command process mismatch')
+  }
+  if (box.done) {
+    assert.equal(box.done.failure, undefined, 'Suppressed command must complete neutrally')
+    if (box.start) assert.equal(box.done.nonce, box.start.nonce, 'Suppressed done nonce mismatch')
+  }
+  if (box['check-done']) {
+    assert.equal(box['check-done'].failure, undefined, 'Suppressed check must complete neutrally')
+    if (box.start)
+      assert.equal(
+        box['check-done'].nonce,
+        box.start.nonce,
+        'Suppressed check completion nonce mismatch',
+      )
+    if (box.check)
+      assert.equal(
+        box['check-done'].checkId,
+        box.check.id,
+        'Suppressed check completion claim mismatch',
+      )
+  }
+  if (!complete) return
+  for (const name of ['command', 'start', 'check', 'done', 'check-done'])
+    assert.ok(box[name], `Missing suppressed ${name} packet`)
+}
+
+function selectBoxes(c: Case, boxes: Packets[], pending: boolean) {
+  if (!c.suppressedOwner)
+    assert.equal(boxes.length, 1, 'Expected exactly one production invocation')
+  const expected = new Set([c.owner, ...(c.suppressedOwner ? [c.suppressedOwner] : [])])
+  const byOwner = new Map<string, Packets>()
+  let unidentified = 0
+  for (const box of boxes) {
+    const owner = boxOwner(box)
+    if (!owner) {
+      assert.equal(
+        Object.keys(box).length,
+        0,
+        'Ownerless production mailbox contains packet evidence',
+      )
+      unidentified++
+      continue
+    }
+    assert.ok(expected.has(owner), `Unknown production owner ${owner}`)
+    assert.ok(!byOwner.has(owner), `Duplicate production mailbox for owner ${owner}`)
+    byOwner.set(owner, box)
+  }
+  const active = byOwner.get(c.owner)
+  assert.ok(active, `Missing active production mailbox for ${c.owner}`)
+  if (!c.suppressedOwner) {
+    assert.equal(unidentified, 0, 'Production mailbox has no owner evidence')
+    return { active }
+  }
+  assert.ok(boxes.length <= 2, 'Expected at most two combined production invocations')
+  assert.ok(
+    unidentified === 0 || (pending && unidentified === 1),
+    'Production mailbox has no owner evidence',
+  )
+  const suppressed = byOwner.get(c.suppressedOwner)
+  const activeKey = active.start?.key ?? active.command?.key
+  assert.ok(activeKey, 'Active production mailbox has no invocation key')
+  const suppressedKey = { ...activeKey, owner: c.suppressedOwner }
+  if (suppressed) assertSuppressedBox(suppressed, suppressedKey, !pending)
+  if (!pending) {
+    assert.equal(boxes.length, 2, 'Expected exactly two combined production invocations')
+    assert.ok(suppressed, `Missing suppressed production mailbox for ${c.suppressedOwner}`)
+  }
+  return { active, suppressed }
+}
+
+function assertCompletion(box: Packets, label: string) {
+  for (const name of ['command', 'start', 'check', 'done', 'check-done'])
+    assert.ok(box[name], `Missing ${label} ${name} packet`)
+  const key = box.start.key
+  for (const name of ['command', 'check', 'done', 'check-done'])
+    assert.deepEqual(box[name].key, key, `${label} ${name} key mismatch`)
+  assert.equal(box.command.id, box.start.nonce, `${label} command nonce mismatch`)
+  assert.equal(box.command.pid, box.start.pid, `${label} command process mismatch`)
+  assert.equal(box.done.nonce, box.start.nonce, `${label} done nonce mismatch`)
+  assert.equal(box['check-done'].nonce, box.start.nonce, `${label} check nonce mismatch`)
+  assert.equal(box['check-done'].checkId, box.check.id, `${label} check claim mismatch`)
+}
+
+export function assertProductionSettled(c: Case, boxes: Packets[]) {
+  const selected = selectBoxes(c, boxes, false)
+  assertCompletion(selected.active, 'Active')
+  if (selected.suppressed) assertCompletion(selected.suppressed, 'Suppressed')
+  return selected
+}
+
+function assertHookSources(c: Case, journal: Row[]) {
+  if (!c.suppressedOwner) return
+  for (const row of journal.filter((candidate) => /^[1-5](?:-ask)?$/.test(candidate.event))) {
+    const number = Number.parseInt(row.event, 10)
+    const root = number <= 2 ? c.home : join(c.root, 'project')
+    assert.equal(
+      row.source,
+      join(root, '.clooks/hooks/hooks.ts'),
+      `Hook ${number} executed from the wrong scope`,
+    )
+  }
+}
+
 export function assertIdentity(
   c: Case,
   box: Packets,
@@ -123,11 +250,12 @@ export function assertIdentity(
 
 export function assertPending(
   c: Case,
-  box: Packets,
+  boxes: Packets[],
   journal: Row[],
   question: any,
   effectExists: boolean,
 ) {
+  const { active: box } = selectBoxes(c, boxes, true)
   const key = assertIdentity(c, box, journal)
   assert.ok(question.ordinal === 1 || question.ordinal === 2)
   const number = question.ordinal === 1 ? 2 : 4
@@ -150,6 +278,7 @@ export function assertPending(
   assert.equal(box.done, undefined, 'Command completed while awaiting approval')
   assert.equal(effectExists, false, 'Native effect before consent')
   assert.equal(journal.filter((row) => row.event === 'native-effect').length, 0)
+  assertHookSources(c, journal)
 }
 
 export async function respond(message: string, c: Case, signal?: AbortSignal) {
@@ -163,15 +292,8 @@ export async function respond(message: string, c: Case, signal?: AbortSignal) {
   for (let observation = 0; observation < 2; observation++) {
     signal?.throwIfAborted()
     const boxes = packets(c.home)
-    assert.equal(boxes.length, 1, 'Unexpected invocation or replay')
-    assertPending(
-      c,
-      boxes[0]!,
-      rows(c.root),
-      question,
-      existsSync(join(c.root, 'project/effect.txt')),
-    )
-    process.kill(boxes[0]!.start.pid, 0)
+    assertPending(c, boxes, rows(c.root), question, existsSync(join(c.root, 'project/effect.txt')))
+    process.kill(selectBoxes(c, boxes, true).active.start.pid, 0)
     if (observation === 0) await delay(150, undefined, { signal })
   }
   const cancel =
@@ -193,8 +315,7 @@ export function assertOutcome(
   effect: string | undefined,
   native: any,
 ) {
-  assert.equal(boxes.length, 1, 'Expected exactly one production invocation')
-  const box = boxes[0]!
+  const { active: box } = assertProductionSettled(c, boxes)
   const key = assertIdentity(c, box, journal, anchor)
   const stopOrdinal =
     c.mode === 'decline-first' || c.mode === 'cancel-first'
@@ -215,6 +336,7 @@ export function assertOutcome(
     journal.filter((row) => /^[1-5](?:-ask)?$/.test(row.event)).map((row) => row.event),
     expected,
   )
+  assertHookSources(c, journal)
   const replies = journal.filter((row) => row.event === 'ui-response')
   const requests = journal.filter((row) => row.event === 'ui-request')
   const promptCount = c.mode === 'noask' ? 0 : stopOrdinal || 2

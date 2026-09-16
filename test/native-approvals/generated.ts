@@ -9,6 +9,7 @@ import {
 } from 'node:fs'
 import { join } from 'node:path'
 import { randomUUID, createHash } from 'node:crypto'
+import { isDeepStrictEqual } from 'node:util'
 import { claude, codex, quote, save } from './native'
 import {
   assertOutcome,
@@ -21,7 +22,7 @@ import type { Provider } from '../fixtures/interactive-approvals/channel'
 
 const fixtures = '/app/test/fixtures/production-approvals'
 const binary = '/export/build/clooks'
-type GeneratedScope = 'project' | 'global'
+type GeneratedScope = 'project' | 'global' | 'combined'
 type GeneratedOperation = 'shell' | 'non-shell'
 export interface GeneratedCaseDescriptor {
   name: string
@@ -62,6 +63,13 @@ export const generatedCases: GeneratedCaseDescriptor[] = providers.flatMap((prov
     scope: 'project' as const,
     operation: 'non-shell' as const,
   })),
+  ...(['approve', 'decline-second', 'noask'] as const).map((mode) => ({
+    name: `${provider}-generated-combined-${mode}`,
+    provider,
+    mode,
+    scope: 'combined' as const,
+    operation: 'shell' as const,
+  })),
 ])
 export const generatedNames = generatedCases.map(({ name }) => name)
 
@@ -84,6 +92,52 @@ type ManagedSnapshot = {
 
 function snapshot(path: string, compare?: ManagedSnapshot['compare']): ManagedSnapshot {
   return { path, text: readFileSync(path, 'utf8'), ...(compare ? { compare } : {}) }
+}
+
+function assertApprovalPair(path: string, owner: string, observer?: Record<string, unknown>) {
+  const settings = JSON.parse(readFileSync(path, 'utf8'))
+  const handlers = settings.hooks.PreToolUse.flatMap((group: any) => group.hooks)
+  const pair = handlers.filter(
+    (handler: unknown) => !observer || !isDeepStrictEqual(handler, observer),
+  )
+  assert.equal(
+    handlers.length - pair.length,
+    observer ? 1 : 0,
+    `Unexpected observer in generated ${path} PreToolUse hooks`,
+  )
+  assert.equal(pair.length, 2, `Expected exactly one production PreToolUse pair in ${path}`)
+  assert.deepEqual(
+    pair.map((handler: any) => handler.type),
+    ['command', 'mcp_tool'],
+  )
+  assert.equal(pair[1].server, 'clooks')
+  assert.equal(pair[1].tool, 'check')
+  assert.ok(pair.every((handler: any) => handler.timeout === 330))
+  assert.equal(pair[1].input.owner, owner)
+}
+
+function copyFixtureHooks(root: string, numbers: number[]) {
+  const hookDir = join(root, 'hooks')
+  mkdirSync(hookDir, { recursive: true })
+  for (const number of numbers)
+    copyFileSync(join(fixtures, `hook-${number}.ts`), join(hookDir, `hook-${number}.ts`))
+  for (const name of ['hooks.ts', 'records.ts'])
+    copyFileSync(join(fixtures, name), join(hookDir, name))
+  for (let number = 1; number <= 5; number++)
+    assert.equal(
+      existsSync(join(hookDir, `hook-${number}.ts`)),
+      numbers.includes(number),
+      `Fixture hook ${number} is installed in the wrong scope`,
+    )
+  const names = numbers.map((number) => `hook-${number}`)
+  writeFileSync(
+    join(root, 'clooks.yml'),
+    JSON.stringify({
+      version: '1.0.0',
+      ...Object.fromEntries(names.map((name) => [name, { handoff: false, maxFailures: 0 }])),
+      PreToolUse: { order: names },
+    }),
+  )
 }
 
 function setupGenerated(root: string, descriptor: GeneratedCaseDescriptor) {
@@ -120,30 +174,149 @@ function setupGenerated(root: string, descriptor: GeneratedCaseDescriptor) {
     projects: { [project]: { hasTrustDialogAccepted: true } },
   }
   if (provider === 'claude') save(join(home, '.claude.json'), onboarding)
-  if (provider === 'codex' && descriptor.scope === 'global')
+  if (provider === 'codex' && descriptor.scope !== 'project')
     writeFileSync(
       join(config, 'config.toml'),
       `[projects.${JSON.stringify(project)}]\ntrust_level = "trusted"\n`,
     )
+  const observation = {
+    type: 'command',
+    command: `exec bun ${quote(join(fixtures, 'observe.ts'))}`,
+    timeout: 5,
+  }
+  const observers = {
+    PreToolUse: [{ hooks: [observation] }],
+    PostToolUse: [{ hooks: [observation] }],
+  }
   const git = Bun.spawnSync(['git', 'init', project], { env, timeout: 5000 })
   assert.equal(git.exitCode, 0, git.stderr.toString())
-  const init = Bun.spawnSync(
-    [
-      binary,
-      'init',
-      ...(descriptor.scope === 'global' ? ['--global'] : []),
-      '--agent',
-      provider === 'claude' ? 'claude-code' : 'codex',
-      '--json',
-    ],
-    { cwd: project, env, timeout: 15000 },
-  )
-  save(join(root, 'init.json'), {
+  if (descriptor.scope === 'combined' && provider === 'codex') {
+    mkdirSync(join(project, '.codex'), { recursive: true })
+    save(join(project, '.codex/hooks.json'), { hooks: observers })
+  }
+  const runInit = (global = false) =>
+    Bun.spawnSync(
+      [
+        binary,
+        'init',
+        ...(global ? ['--global'] : []),
+        '--agent',
+        provider === 'claude' ? 'claude-code' : 'codex',
+        '--json',
+      ],
+      { cwd: project, env, timeout: 15000 },
+    )
+  const receipt = (init: ReturnType<typeof runInit>) => ({
     code: init.exitCode,
     stdout: init.stdout.toString(),
     stderr: init.stderr.toString(),
   })
-  assert.equal(init.exitCode, 0, init.stderr.toString() + init.stdout.toString())
+  let owner: string
+  let suppressedOwner: string | undefined
+  let initialManaged: ManagedSnapshot[] = []
+  if (descriptor.scope === 'combined') {
+    const projectInit = runInit()
+    save(join(root, 'init-project.json'), receipt(projectInit))
+    assert.equal(
+      projectInit.exitCode,
+      0,
+      projectInit.stderr.toString() + projectInit.stdout.toString(),
+    )
+    const idPath = join(
+      project,
+      `.clooks/bin/${provider === 'claude' ? 'claude-project-id' : 'codex-project-id'}`,
+    )
+    suppressedOwner = `project:${readFileSync(idPath, 'utf8').trim()}`
+    const projectManaged: ManagedSnapshot[] =
+      provider === 'claude'
+        ? [
+            snapshot(join(project, '.clooks/hooks/types.d.ts')),
+            snapshot(join(project, '.clooks/clooks.schema.json')),
+            snapshot(join(project, '.claude/settings.json')),
+            snapshot(join(project, '.mcp.json')),
+            snapshot(join(project, '.clooks/bin/claude-project-id')),
+            snapshot(join(project, '.clooks/bin/entrypoint.sh')),
+          ]
+        : [
+            snapshot(join(project, '.clooks/hooks/types.d.ts')),
+            snapshot(join(project, '.clooks/clooks.schema.json')),
+            snapshot(join(project, '.codex/hooks.json')),
+            snapshot(join(project, '.codex/config.toml')),
+            snapshot(join(project, '.clooks/bin/codex-project-id')),
+            snapshot(join(project, '.clooks/bin/entrypoint.sh')),
+          ]
+    const globalInit = runInit(true)
+    save(join(root, 'init-global.json'), receipt(globalInit))
+    assert.equal(
+      globalInit.exitCode,
+      0,
+      globalInit.stderr.toString() + globalInit.stdout.toString(),
+    )
+    save(join(root, 'init.json'), { project: receipt(projectInit), global: receipt(globalInit) })
+    for (const managed of projectManaged)
+      assert.equal(
+        readFileSync(managed.path, 'utf8'),
+        managed.text,
+        `Global init mutated combined project registration ${managed.path}`,
+      )
+    owner = 'global'
+    const projectRegistration =
+      provider === 'claude'
+        ? join(project, '.claude/settings.json')
+        : join(project, '.codex/hooks.json')
+    const globalRegistration =
+      provider === 'claude' ? join(home, '.claude/settings.json') : join(home, '.codex/hooks.json')
+    assertApprovalPair(
+      projectRegistration,
+      suppressedOwner,
+      provider === 'codex' ? observation : undefined,
+    )
+    assertApprovalPair(globalRegistration, owner)
+    if (provider === 'codex') {
+      const projectHooks = JSON.parse(readFileSync(projectRegistration, 'utf8')).hooks
+      assert.ok(
+        projectHooks.PostToolUse.flatMap((group: any) => group.hooks).some((handler: unknown) =>
+          isDeepStrictEqual(handler, observation),
+        ),
+        'Codex project observer was not preserved by project init',
+      )
+    }
+    initialManaged = [
+      ...projectManaged,
+      ...(provider === 'claude'
+        ? [
+            snapshot(join(home, '.clooks/hooks/types.d.ts')),
+            snapshot(join(home, '.clooks/clooks.schema.json')),
+            snapshot(join(home, '.claude/settings.json')),
+            snapshot(join(home, '.claude.json'), 'claude-mcpServers'),
+            snapshot(join(home, '.clooks/bin/entrypoint.sh')),
+            snapshot(join(home, '.clooks/.global-entrypoint-active')),
+          ]
+        : [
+            snapshot(join(home, '.clooks/hooks/types.d.ts')),
+            snapshot(join(home, '.clooks/clooks.schema.json')),
+            snapshot(join(home, '.codex/hooks.json')),
+            snapshot(join(home, '.codex/config.toml')),
+            snapshot(join(home, '.clooks/bin/entrypoint.sh')),
+            snapshot(join(home, '.clooks/.global-entrypoint-active.codex')),
+            snapshot(join(home, '.clooks/.codex-registration-home')),
+          ]),
+    ]
+  } else {
+    const init = runInit(descriptor.scope === 'global')
+    save(join(root, 'init.json'), receipt(init))
+    assert.equal(init.exitCode, 0, init.stderr.toString() + init.stdout.toString())
+    owner =
+      descriptor.scope === 'global'
+        ? 'global'
+        : `project:${readFileSync(
+            join(
+              project,
+              `.clooks/bin/${provider === 'claude' ? 'claude-project-id' : 'codex-project-id'}`,
+            ),
+            'utf8',
+          ).trim()}`
+  }
   if (descriptor.scope === 'global') {
     for (const path of [
       join(project, '.mcp.json'),
@@ -156,63 +329,29 @@ function setupGenerated(root: string, descriptor: GeneratedCaseDescriptor) {
     ])
       assert.equal(existsSync(path), false, `Global init created project production file ${path}`)
   }
-  const registrationPath =
-    provider === 'claude'
-      ? join(descriptor.scope === 'global' ? home : project, '.claude/settings.json')
-      : join(descriptor.scope === 'global' ? home : project, '.codex/hooks.json')
-  const registrationText = readFileSync(registrationPath, 'utf8')
-  const settings = JSON.parse(registrationText)
-  const pair = settings.hooks.PreToolUse.flatMap((group: any) => group.hooks)
-  assert.equal(pair.length, 2)
-  assert.deepEqual(
-    pair.map((handler: any) => handler.type),
-    ['command', 'mcp_tool'],
-  )
-  assert.equal(pair[1].server, 'clooks')
-  assert.equal(pair[1].tool, 'check')
-  assert.ok(pair.every((handler: any) => handler.timeout === 330))
-  const owner =
-    descriptor.scope === 'global'
-      ? 'global'
-      : `project:${readFileSync(
-          join(
-            project,
-            `.clooks/bin/${provider === 'claude' ? 'claude-project-id' : 'codex-project-id'}`,
-          ),
-          'utf8',
-        ).trim()}`
-  assert.equal(pair[1].input.owner, owner)
-
-  const hookRoot = descriptor.scope === 'global' ? join(home, '.clooks') : join(project, '.clooks')
-  const hookDir = join(hookRoot, 'hooks')
-  mkdirSync(hookDir, { recursive: true })
-  for (let number = 1; number <= 5; number++)
-    copyFileSync(join(fixtures, `hook-${number}.ts`), join(hookDir, `hook-${number}.ts`))
-  for (const name of ['hooks.ts', 'records.ts'])
-    copyFileSync(join(fixtures, name), join(hookDir, name))
-  const names = [1, 2, 3, 4, 5].map((number) => `hook-${number}`)
-  writeFileSync(
-    join(hookRoot, 'clooks.yml'),
-    JSON.stringify({
-      version: '1.0.0',
-      ...Object.fromEntries(names.map((name) => [name, { handoff: false, maxFailures: 0 }])),
-      PreToolUse: { order: names },
-    }),
-  )
-  const observation = {
-    type: 'command',
-    command: `exec bun ${quote(join(fixtures, 'observe.ts'))}`,
-    timeout: 5,
+  if (descriptor.scope !== 'combined') {
+    const registrationPath =
+      provider === 'claude'
+        ? join(descriptor.scope === 'global' ? home : project, '.claude/settings.json')
+        : join(descriptor.scope === 'global' ? home : project, '.codex/hooks.json')
+    assertApprovalPair(registrationPath, owner)
   }
-  const observers = {
-    PreToolUse: [{ hooks: [observation] }],
-    PostToolUse: [{ hooks: [observation] }],
+
+  if (descriptor.scope === 'combined') {
+    copyFixtureHooks(join(home, '.clooks'), [1, 2])
+    copyFixtureHooks(join(project, '.clooks'), [3, 4, 5])
+  } else {
+    const hookRoot =
+      descriptor.scope === 'global' ? join(home, '.clooks') : join(project, '.clooks')
+    copyFixtureHooks(hookRoot, [1, 2, 3, 4, 5])
   }
   if (provider === 'claude') {
     mkdirSync(join(project, '.claude'), { recursive: true })
     save(join(project, '.claude/settings.local.json'), {
       permissions: { allow: ['Bash(*)', 'Write(*)'] },
-      ...(descriptor.scope === 'project' ? { enabledMcpjsonServers: ['clooks'] } : {}),
+      ...(['project', 'combined'].includes(descriptor.scope)
+        ? { enabledMcpjsonServers: ['clooks'] }
+        : {}),
       hooks: {
         ...observers,
         Elicitation: [
@@ -231,42 +370,51 @@ function setupGenerated(root: string, descriptor: GeneratedCaseDescriptor) {
   } else if (descriptor.scope === 'global') {
     mkdirSync(join(project, '.codex'), { recursive: true })
     save(join(project, '.codex/hooks.json'), { hooks: observers })
-  } else save(join(config, 'hooks.json'), { hooks: observers })
+  } else if (descriptor.scope === 'project') save(join(config, 'hooks.json'), { hooks: observers })
   const managed: ManagedSnapshot[] =
-    descriptor.scope === 'global'
-      ? provider === 'claude'
-        ? [
-            snapshot(join(home, '.clooks/hooks/types.d.ts')),
-            snapshot(join(home, '.clooks/clooks.schema.json')),
-            snapshot(join(home, '.clooks/clooks.yml')),
-            snapshot(join(home, '.clooks/bin/entrypoint.sh')),
-            snapshot(join(home, '.clooks/.global-entrypoint-active')),
-            snapshot(join(home, '.claude/settings.json')),
-            snapshot(join(home, '.claude.json'), 'claude-mcpServers'),
-          ]
-        : [
-            snapshot(join(home, '.clooks/hooks/types.d.ts')),
-            snapshot(join(home, '.clooks/clooks.schema.json')),
-            snapshot(join(home, '.clooks/clooks.yml')),
-            snapshot(join(home, '.clooks/bin/entrypoint.sh')),
-            snapshot(join(home, '.codex/config.toml')),
-            snapshot(join(home, '.clooks/.global-entrypoint-active.codex')),
-            snapshot(join(home, '.clooks/.codex-registration-home')),
-            snapshot(join(home, '.codex/hooks.json')),
-          ]
-      : provider === 'claude'
-        ? [
-            snapshot(join(project, '.claude/settings.json')),
-            snapshot(join(project, '.mcp.json')),
-            snapshot(join(project, '.clooks/bin/claude-project-id')),
-            snapshot(join(project, '.clooks/bin/entrypoint.sh')),
-          ]
-        : [
-            snapshot(join(project, '.codex/hooks.json')),
-            snapshot(join(project, '.codex/config.toml')),
-            snapshot(join(project, '.clooks/bin/codex-project-id')),
-            snapshot(join(project, '.clooks/bin/entrypoint.sh')),
-          ]
+    descriptor.scope === 'combined'
+      ? [
+          ...initialManaged,
+          snapshot(join(home, '.clooks/clooks.yml')),
+          snapshot(join(project, '.clooks/clooks.yml')),
+          ...(provider === 'claude'
+            ? [snapshot(join(project, '.claude/settings.local.json'))]
+            : []),
+        ]
+      : descriptor.scope === 'global'
+        ? provider === 'claude'
+          ? [
+              snapshot(join(home, '.clooks/hooks/types.d.ts')),
+              snapshot(join(home, '.clooks/clooks.schema.json')),
+              snapshot(join(home, '.clooks/clooks.yml')),
+              snapshot(join(home, '.clooks/bin/entrypoint.sh')),
+              snapshot(join(home, '.clooks/.global-entrypoint-active')),
+              snapshot(join(home, '.claude/settings.json')),
+              snapshot(join(home, '.claude.json'), 'claude-mcpServers'),
+            ]
+          : [
+              snapshot(join(home, '.clooks/hooks/types.d.ts')),
+              snapshot(join(home, '.clooks/clooks.schema.json')),
+              snapshot(join(home, '.clooks/clooks.yml')),
+              snapshot(join(home, '.clooks/bin/entrypoint.sh')),
+              snapshot(join(home, '.codex/config.toml')),
+              snapshot(join(home, '.clooks/.global-entrypoint-active.codex')),
+              snapshot(join(home, '.clooks/.codex-registration-home')),
+              snapshot(join(home, '.codex/hooks.json')),
+            ]
+        : provider === 'claude'
+          ? [
+              snapshot(join(project, '.claude/settings.json')),
+              snapshot(join(project, '.mcp.json')),
+              snapshot(join(project, '.clooks/bin/claude-project-id')),
+              snapshot(join(project, '.clooks/bin/entrypoint.sh')),
+            ]
+          : [
+              snapshot(join(project, '.codex/hooks.json')),
+              snapshot(join(project, '.codex/config.toml')),
+              snapshot(join(project, '.clooks/bin/codex-project-id')),
+              snapshot(join(project, '.clooks/bin/entrypoint.sh')),
+            ]
   save(join(root, 'generated-registration.json'), managed)
   const callId = `generated_native_call_${randomUUID()}`
   const cmd = `bun ${quote(join(fixtures, 'effect.ts'))}`
@@ -287,6 +435,7 @@ function setupGenerated(root: string, descriptor: GeneratedCaseDescriptor) {
     mode,
     callId,
     owner,
+    ...(suppressedOwner ? { suppressedOwner } : {}),
     operation,
   }
   save(join(root, 'case.json'), c)
