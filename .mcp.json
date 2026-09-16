@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "clooks": {
+      "command": "clooks",
+      "args": ["mcp"]
+    }
+  }
+}

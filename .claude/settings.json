@@ -32,10 +32,25 @@
     ],
     "PreToolUse": [
       {
+        "matcher": "*",
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.clooks/bin/entrypoint.sh"
+            "command": "CLOOKS_APPROVAL_PROTOCOL=1 CLOOKS_APPROVAL_OWNER=project:ce0a4cfa47c6b6676e7c84a5014187f8 CLOOKS_APPROVAL_DISPOSITION=run CLOOKS_AGENT=claude-code \"$CLAUDE_PROJECT_DIR\"/.clooks/bin/entrypoint.sh",
+            "timeout": 330
+          },
+          {
+            "type": "mcp_tool",
+            "server": "clooks",
+            "tool": "check",
+            "timeout": 330,
+            "input": {
+              "protocol": 1,
+              "provider": "claude-code",
+              "owner": "project:ce0a4cfa47c6b6676e7c84a5014187f8",
+              "session_id": "${session_id}",
+              "tool_use_id": "${tool_use_id}"
+            }
           }
         ]
       }

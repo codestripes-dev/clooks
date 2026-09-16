@@ -2,6 +2,16 @@
 
 Unwieldy code, smelly patterns, confusing architecture, or excessive complexity that made work harder than it should be.
 
+### Codex registration ownership misses earlier absolute commands
+
+**Severity:** friction
+**Date:** 2026-09-15
+**Context:** Refreshing an existing local Codex project registration after installing the shared-approval binary.
+
+The current registration detector did not recognize the earlier absolute command `CLOOKS_AGENT=codex CLOOKS_PROJECT_ROOT='/opt/development/clooks' '/opt/development/clooks/.clooks/bin/entrypoint.sh'`. Successful project init therefore retained 10 old event entries while adding the canonical 12 commands and paired `PreToolUse` `clooks/check` companion. The private pre-install backup established the old command and count; an assertion-heavy, local-only cleanup script removes only byte-equal entries for this installation.
+
+**Disposition:** Production migration remains deferred. A future bounded migration slice should recognize owned earlier absolute registration forms, distinguish them from foreign commands, test mixed old/new and idempotent refreshes, and retire only entries attributable to the selected project.
+
 ### Tmux notification installation can overwrite its configured slot
 
 **Severity:** note

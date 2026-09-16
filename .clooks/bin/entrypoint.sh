@@ -3,17 +3,28 @@ set -euo pipefail
 
 # clooks entrypoint: project
 # Do not copy this file to ~/.clooks/bin/ — use `clooks init --global` instead.
+clooks_suppress() {
+  if [ "${CLOOKS_APPROVAL_PROTOCOL:-}" = 1 ] && [ -n "${CLOOKS_APPROVAL_OWNER:-}" ]; then
+    local binary status
+    binary=$(command -v clooks 2>/dev/null) || exit 0
+    CLOOKS_APPROVAL_DISPOSITION=suppressed "$binary" && status=0 || status=$?
+    if [ "$status" -eq 0 ] || [ "$status" -eq 2 ]; then exit "$status"; fi
+    printf '%s\n' '[clooks] Suppression completion failed.' >&2
+    exit 2
+  fi
+  exit 0
+}
 
 # Bypass: allow disabling all Clooks processing via environment variable.
 if [ "${SKIP_CLOOKS:-}" = "true" ]; then
-  exit 0
+  clooks_suppress
 fi
 
 # Global entrypoint dedup: if a global entrypoint is active, this project
 # entrypoint is a noop for that same agent (the global one handles the merged pipeline).
 CLOOKS_DEDUP_AGENT="${CLOOKS_AGENT:-claude-code}"
 if [ "$CLOOKS_DEDUP_AGENT" = "claude-code" ] && [ -f "$HOME/.clooks/.global-entrypoint-active" ]; then
-  exit 0
+  clooks_suppress
 fi
 clooks_codex_receipt_matches() {
   local receipt version home codex checksum extra physical_home physical_codex runtime_home actual
@@ -53,10 +64,10 @@ clooks_codex_receipt_matches() {
   [ "$checksum" = "${BASH_REMATCH[1]}:${BASH_REMATCH[2]}" ]
 }
 if [ "$CLOOKS_DEDUP_AGENT" = "codex" ] && clooks_codex_receipt_matches 2>/dev/null; then
-  exit 0
+  clooks_suppress
 fi
 if [ "$CLOOKS_DEDUP_AGENT" != "codex" ] && [ -f "$HOME/.clooks/.global-entrypoint-active.$CLOOKS_DEDUP_AGENT" ]; then
-  exit 0
+  clooks_suppress
 fi
 
 # Locate the Clooks binary on PATH.
