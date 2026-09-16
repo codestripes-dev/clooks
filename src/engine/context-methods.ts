@@ -51,6 +51,7 @@ export interface AllowOpts extends DebugMessage, InjectContext, SessionTitle, Up
 
 export interface AskOpts extends DebugMessage, InjectContext {
   reason: string
+  question?: string
   updatedInput?: Record<string, unknown>
 }
 

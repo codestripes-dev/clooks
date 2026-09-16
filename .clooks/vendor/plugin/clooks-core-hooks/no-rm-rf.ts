@@ -568,7 +568,7 @@ function resolvePath(target: string, cwd: string, home: string): string {
   return resolvePathNode(cwd, tildeResolved)
 }
 
-type AggregatedEntry = { rule: Rule; reason: string }
+type AggregatedEntry = { rule: Rule; reason: string; askReason?: string }
 
 function fire(id: RuleId, ctx: ReasonContext): AggregatedEntry {
   const rule = RULES[id]
@@ -590,15 +590,21 @@ function aggregate(
   if (entries.length === 0) return ctx.skip()
   entries.sort((a, b) => severityRank(a) - severityRank(b))
   const head = entries[0]
-  const reason = entries.map(e => e.reason).join('\n\n')
   if (head.rule.verdict === 'ask') {
+    const reason = entries.map(e => e.askReason ?? e.reason).join('\n')
+    const question = entries.length > 1
+      ? 'Delete the selected paths and their contents?'
+      : head.rule.id === 'rm-rf-project-root'
+        ? 'Delete this project and its contents?'
+        : 'Delete this path and its contents?'
     return ctx.ask({
+      question,
       reason,
-      debugMessage: `no-rm-rf: asking on ${head.rule.id}`,
+      debugMessage: `no-rm-rf: asking on ${entries.map(e => e.rule.id).join(', ')}`,
     })
   }
   return ctx.block({
-    reason,
+    reason: entries.map(e => e.reason).join('\n\n'),
     debugMessage: `no-rm-rf: blocked on ${head.rule.id}`,
   })
 }
@@ -733,8 +739,13 @@ export const hook: ClooksHook<Config> = {
         const rule = RULES[ruleId]
         if (!shouldApply(rule, config, escape)) continue
         const reason = rule.reason({ pattern, resolved, projectRoot })
+        const askReason = rule.verdict === 'ask'
+          ? ruleId === 'rm-rf-project-root'
+            ? `This deletes the entire project at ${projectRoot}, including its Git metadata.`
+            : `"${resolved}" is not on the cleanup allowlist.`
+          : undefined
         const promoteToDeny = config.strictMode === true && (ruleId === 'rm-rf-project-root' || ruleId === 'rm-rf-strict')
-        aggregated.push({ rule: promoteToDeny ? { ...rule, verdict: 'deny' } : rule, reason })
+        aggregated.push({ rule: promoteToDeny ? { ...rule, verdict: 'deny' } : rule, reason, askReason })
       }
     }
 

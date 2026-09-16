@@ -232,6 +232,20 @@ test('Bash branch forbids reading Write-only field filePath', () => {
   }
 })
 
+test('PreToolUse ctx accepts question only on ask', () => {
+  const decide = (ctx: PreToolUseContext) => {
+    if (ctx.toolName === 'Bash') {
+      const ask = ctx.ask({ question: 'Delete build?', reason: 'Build is outside the allowlist.' })
+      // @ts-expect-error -- question is approval presentation metadata, not a block field
+      ctx.block({ question: 'Delete build?', reason: 'Blocked.' })
+      // @ts-expect-error -- question is approval presentation metadata, not an allow field
+      ctx.allow({ question: 'Delete build?' })
+      return ask
+    }
+  }
+  expect(decide).toBeFunction()
+})
+
 test('a handler receives ctx.turn with the once-per-turn fields', () => {
   const hook = {
     meta: { name: 'turn-reader' },

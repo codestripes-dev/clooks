@@ -78,6 +78,10 @@ export type InjectContext = {
 export type Reason = {
 	reason: string;
 };
+/** Optional nonblank approval headline, preserved verbatim; maximum 512 UTF-16 code units. */
+export type Question = {
+	question?: string;
+};
 /** Sent back to the teammate as next-step instruction. */
 export type Feedback = {
 	feedback: string;
@@ -346,12 +350,11 @@ export type DeferResult = Result<"defer">;
 /** `{ result: 'retry' }` — only valid on `PermissionDenied`. Hint that the model may retry. */
 export type RetryResult = Result<"retry">;
 /**
- * `{ result: 'ask', reason }` — surface a permission prompt to the user.
- * `reason` is the prompt text. Claude Code prefixes a source label
- * ([Project] / [User] / [Plugin] / [Local]); make `reason` clearly identify
- * which hook asked.
+ * `{ result: 'ask', reason, question? }` — request live approval.
+ * `question` is an optional concise headline; without it, the complete `reason`
+ * is the opening text. `reason` always carries the full explanation.
  */
-export type AskResult = Result<"ask"> & Reason;
+export type AskResult = Result<"ask"> & Reason & Question;
 /** `{ result: 'block', reason }` — refuse the action. `reason` is shown to the agent. */
 export type BlockResult = Result<"block"> & Reason;
 /** `{ result: 'stop', reason }` — terminate the teammate. `reason` is the user-facing stop message. */
@@ -619,7 +622,7 @@ export interface ToolInputMap {
 	Agent: AgentToolInput;
 	AskUserQuestion: AskUserQuestionToolInput;
 }
-type PreToolUseDecisionMethods<Input> = Allow<UpdatedInput<Patch<Input>> & Partial<Reason> & InjectContext, PreToolUseResult> & Ask<Reason & UpdatedInput<Patch<Input>> & InjectContext, PreToolUseResult> & Block<EventBlockOptsMap["PreToolUse"], PreToolUseResult> & Defer<DebugMessage, PreToolUseResult> & Skip<EventSkipOptsMap["PreToolUse"], PreToolUseResult>;
+type PreToolUseDecisionMethods<Input> = Allow<UpdatedInput<Patch<Input>> & Partial<Reason> & InjectContext, PreToolUseResult> & Ask<Reason & Question & UpdatedInput<Patch<Input>> & InjectContext, PreToolUseResult> & Block<EventBlockOptsMap["PreToolUse"], PreToolUseResult> & Defer<DebugMessage, PreToolUseResult> & Skip<EventSkipOptsMap["PreToolUse"], PreToolUseResult>;
 /**
  * Fires before any tool call. Narrow on `ctx.toolName` for a typed
  * `ctx.toolInput` and a typed `Patch<Input>` on `updatedInput`. For tools

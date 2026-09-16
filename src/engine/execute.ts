@@ -543,6 +543,7 @@ export async function executeHooks(
       const question: ApprovalQuestion = {
         hookName,
         ordinal: approvals.length + 1,
+        ...(result.question === undefined ? {} : { question: result.question }),
         reason: result.reason?.trim() ? result.reason : 'Hook requested confirmation.',
         operation,
       }

@@ -27,7 +27,7 @@ import type {
 // --- ask / defer vocabulary ---
 
 test('ask and defer are only valid on PreToolUseResult', () => {
-  const ok1: PreToolUseResult = { result: 'ask', reason: 'confirm' }
+  const ok1: PreToolUseResult = { result: 'ask', question: 'Proceed?', reason: 'confirm' }
   const ok2: PreToolUseResult = { result: 'defer' }
   expect(ok1.result).toBe('ask')
   expect(ok2.result).toBe('defer')
@@ -122,6 +122,21 @@ test('ask and defer are only valid on PreToolUseResult', () => {
   // from "expected error suppressed" to "unused directive" and build fails.
   void [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
   void [aa, ab, ac, ad, ae, af, ag, ah, ai, aj, ak, al, am, an, ao, ap]
+})
+
+test('question is only valid on the PreToolUse ask arm', () => {
+  const ask: PreToolUseResult = { result: 'ask', question: 'Proceed?', reason: 'confirm' }
+  const legacy: PreToolUseResult = { result: 'ask', reason: 'confirm' }
+  expect(ask.question).toBe('Proceed?')
+  expect(legacy).not.toHaveProperty('question')
+
+  // @ts-expect-error -- allow does not accept question
+  const allow: PreToolUseResult = { result: 'allow', question: 'Proceed?' }
+  // @ts-expect-error -- block does not accept question
+  const block: PreToolUseResult = { result: 'block', question: 'Proceed?', reason: 'no' }
+  // @ts-expect-error -- question is not valid on another event
+  const stop: StopEventResult = { result: 'block', question: 'Proceed?', reason: 'no' }
+  void [allow, block, stop]
 })
 
 test('AskResult.reason is required', () => {

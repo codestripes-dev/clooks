@@ -149,7 +149,7 @@ PreToolUse: { order: [ask-a, ask-b] }
           operation: { toolName: 'mcp__fixture__inspect', input },
         })
         expect(prompt.message).toBe(
-          `Hook: ask\n\nReason:\n${reason}\n\nTool: mcp__fixture__inspect\n\nInput:\n${JSON.stringify(input, null, 2)}`,
+          `${reason}\n\nTool: mcp__fixture__inspect\nInput:\n${JSON.stringify(input, null, 2)}\n\nRequested by ask`,
         )
         expect(prompt.message).not.toContain('ordinal')
         return { action: 'accept', content: { decision: 'Approve' } }
@@ -157,6 +157,55 @@ PreToolUse: { order: [ask-a, ask-b] }
     )
     expect(result.prompts).toHaveLength(1)
     expect(output(result.result)).toEqual(approved(reason))
+    expect(calls()).toEqual([input])
+  })
+
+  test.each([
+    {
+      name: 'exact safe Bash command',
+      toolName: 'Bash',
+      input: { command: "printf '%s' exact" },
+      operation: "Command:\nprintf '%s' exact",
+    },
+    {
+      name: 'multiline Bash command',
+      toolName: 'Bash',
+      input: { command: 'printf first\nprintf second' },
+      operation: `Tool: Bash\nInput:\n${JSON.stringify({ command: 'printf first\nprintf second' }, null, 2)}`,
+    },
+    {
+      name: 'control-bearing Bash command',
+      toolName: 'Bash',
+      input: { command: 'echo\u0007bell' },
+      operation: `Tool: Bash\nInput:\n${JSON.stringify({ command: 'echo\u0007bell' }, null, 2)}`,
+    },
+    {
+      name: 'non-Bash opaque object',
+      toolName: 'mcp__fixture__inspect',
+      input: { command: 'do not compact', keep: false, count: 0, nested: { value: null } },
+      operation: `Tool: mcp__fixture__inspect\nInput:\n${JSON.stringify({ command: 'do not compact', keep: false, count: 0, nested: { value: null } }, null, 2)}`,
+    },
+    {
+      name: 'primitive input',
+      toolName: 'mcp__fixture__inspect',
+      input: 'opaque',
+      operation: 'Tool: mcp__fixture__inspect\nInput:\n"opaque"',
+    },
+  ])('renders $name without dropping operation details', async ({ toolName, input, operation }) => {
+    install("return ctx.ask({ question: 'Run this operation?', reason: 'Explain risk.' })")
+    const result = await runWithConsent(
+      sandbox,
+      invocation(sandbox, 'codex', { toolName, input }),
+      (prompt) => {
+        expect(prompt.message).toBe(
+          `Run this operation?\n\n${operation}\n\nExplain risk.\n\nRequested by ask`,
+        )
+        expect(prompt.question.operation).toEqual({ toolName, input })
+        return { action: 'accept', content: { decision: 'Approve' } }
+      },
+    )
+    expect(result.prompts).toHaveLength(1)
+    expect(output(result.result)).toEqual(approved('Explain risk.'))
     expect(calls()).toEqual([input])
   })
 

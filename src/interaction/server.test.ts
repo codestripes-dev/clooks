@@ -131,7 +131,7 @@ test('late SDK response for cancelled A cannot cancel pending check B', async ()
     cancelled = resolve
   })
   f.client.setRequestHandler(ElicitRequestSchema, (request) => {
-    const reason = request.params.message.includes('\nReason:\nA\n\nTool:') ? 'A' : 'B'
+    const reason = request.params.message.startsWith('A\n\n') ? 'A' : 'B'
     return new Promise<ElicitResult>((resolve) => {
       answers.set(reason, resolve)
       if (answers.size === 2) prompted()
@@ -140,10 +140,7 @@ test('late SDK response for cancelled A cannot cancel pending check B', async ()
   const originalMessage = f.clientTransport.onmessage
   f.clientTransport.onmessage = (message, extra) => {
     if ('method' in message && message.method === 'elicitation/create' && 'id' in message)
-      ids.set(
-        String(message.params?.message).includes('\nReason:\nA\n\nTool:') ? 'A' : 'B',
-        message.id,
-      )
+      ids.set(String(message.params?.message).startsWith('A\n\n') ? 'A' : 'B', message.id)
     if (
       'method' in message &&
       message.method === 'notifications/cancelled' &&

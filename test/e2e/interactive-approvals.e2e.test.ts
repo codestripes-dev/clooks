@@ -162,7 +162,7 @@ describe('compiled engine live approvals', () => {
           hook(
             name,
             name.startsWith('ask')
-              ? `return ctx.ask({ reason: ${JSON.stringify(name)}, injectContext: ${JSON.stringify(name + '-context')} })`
+              ? `return ctx.ask({ ${name === 'ask-a' ? "question: 'Can ask-a proceed?', " : ''}reason: ${JSON.stringify(name)}, injectContext: ${JSON.stringify(name + '-context')} })`
               : `return ctx.skip({ injectContext: ${JSON.stringify(name + '-context')} })`,
           )
         config(names, {
@@ -174,6 +174,7 @@ describe('compiled engine live approvals', () => {
         expect(first.question).toMatchObject({
           hookName: 'ask-a',
           ordinal: 1,
+          question: 'Can ask-a proceed?',
           reason: 'ask-a',
           operation: { input: call.payload.tool_input },
         })
@@ -194,6 +195,7 @@ describe('compiled engine live approvals', () => {
         if (declineAt !== 1) {
           const second = await peer.nextPrompt()
           expect(second.question).toMatchObject({ hookName: 'ask-b', ordinal: 2, reason: 'ask-b' })
+          expect(second.question).not.toHaveProperty('question')
           expect(handlers()).toEqual(['first', 'ask-a', 'middle', 'ask-b'])
           expect(engine.stdout).toBe('')
           second.reply(
@@ -321,7 +323,7 @@ describe('compiled engine live approvals', () => {
         sandbox = createSandbox()
         hook(
           'ask',
-          "return ctx.ask({ reason: 'confirm candidate', updatedInput: { command: 'echo candidate' } })",
+          "return ctx.ask({ question: '  Use the candidate command?\\nReview scope.  ', reason: 'confirm candidate', updatedInput: { command: 'echo candidate' } })",
         )
         hook('rewrite', "return ctx.allow({ updatedInput: { command: 'echo final' } })")
         hook('last', 'return ctx.skip()')
@@ -332,12 +334,14 @@ describe('compiled engine live approvals', () => {
           toolName: call.payload.tool_name,
           input: { command: 'echo candidate' },
         })
+        expect(first.question.question).toBe('  Use the candidate command?\nReview scope.  ')
         expect(handlers()).toEqual(['ask'])
         first.reply({ action: 'accept', content: { decision: 'Approve' } })
         const final = await peer.nextPrompt()
         expect(final.question).toMatchObject({
           hookName: 'ask',
           ordinal: 2,
+          question: '  Use the candidate command?\nReview scope.  ',
           reason: 'confirm candidate',
           operation: { toolName: call.payload.tool_name, input: { command: 'echo final' } },
         })
@@ -368,6 +372,27 @@ describe('compiled engine live approvals', () => {
       }, 15_000)
     }
   }
+
+  test('Claude renders Bash input with an optional field as complete JSON', async () => {
+    sandbox = createSandbox()
+    hook('ask', "return ctx.ask({ question: 'Run this operation?', reason: 'Explain risk.' })")
+    config(['ask'])
+    const input = { command: 'echo exact', timeout: 0 }
+    const result = await runWithConsent(
+      sandbox,
+      invocation(sandbox, 'claude-code', { toolName: 'Bash', input }),
+      (prompt) => {
+        expect(prompt.question.operation).toEqual({ toolName: 'Bash', input })
+        expect(prompt.message).toBe(
+          `Run this operation?\n\nTool: Bash\nInput:\n${JSON.stringify(input, null, 2)}\n\nExplain risk.\n\nRequested by ask`,
+        )
+        return { action: 'accept', content: { decision: 'Approve' } }
+      },
+    )
+    expect(result.prompts).toHaveLength(1)
+    approved(result.result, 'claude-code', { reason: 'Explain risk.' })
+    expect(handlers()).toEqual(['ask'])
+  })
 
   test('parallel asks complete out of order but prompt in configured order before the next group', async () => {
     sandbox = createSandbox()
@@ -464,6 +489,32 @@ describe('compiled engine live approvals', () => {
     expect(result.prompts).toHaveLength(0)
     expect(handlers()).toEqual(['ask'])
   })
+
+  for (const provider of ['claude-code', 'codex'] as const) {
+    test.each([
+      ['non-string', '42'],
+      ['null', 'null'],
+      ['empty', "''"],
+      ['blank', "'   '"],
+      ['oversized', JSON.stringify('x'.repeat(513))],
+    ])(
+      `${provider}: %s ask question fails closed before prompting or later hooks`,
+      async (_case, question) => {
+        sandbox = createSandbox()
+        hook('ask', `return { result: 'ask', question: ${question}, reason: 'confirm' }`)
+        hook('later', 'return ctx.allow()')
+        config(['ask', 'later'])
+        const result = await runWithConsent(sandbox, invocation(sandbox, provider), () => {
+          throw new Error('Malformed question must not prompt')
+        })
+        expect(denied(result.result).hookSpecificOutput.permissionDecisionReason).toContain(
+          'ask question must be a nonblank string of at most 512 UTF-16 code units when provided',
+        )
+        expect(result.prompts).toHaveLength(0)
+        expect(handlers()).toEqual(['ask'])
+      },
+    )
+  }
 
   test.each(['block', 'crash'] as const)(
     'approved checkpoint never clears a later %s',

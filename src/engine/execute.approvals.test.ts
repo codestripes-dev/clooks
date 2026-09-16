@@ -358,6 +358,7 @@ describe('live PreToolUse observations', () => {
     test(`snapshots precede real handoff and stay detached, parallel=${parallel}`, async () => {
       const raw: EngineResult = {
         result: 'ask',
+        question: '  Preserve this headline?  ',
         reason: '  exact reason  ',
         injectContext: 'original author context',
         debugMessage: 'debug',
@@ -375,6 +376,7 @@ describe('live PreToolUse observations', () => {
       raw.reason = 'mutated'
       result.lastResult!.injectContext = 'mutated output'
       expect(observation.engineResult.reason).toBe('  exact reason  ')
+      expect(observation.engineResult.question).toBe('  Preserve this headline?  ')
       expect(observation.engineResult.injectContext).toBe('original author context')
       expect(observation.inputBefore).toEqual({ command: 'original', nested: { value: 1 } })
       expect(observation.inputAfter).toEqual(observation.inputBefore)
@@ -546,7 +548,12 @@ describe('live checkpoint boundaries', () => {
       },
       async commit() {},
     }
-    const raw = { result: 'ask', reason: 'original reason', updatedInput: { command: 'before' } }
+    const raw = {
+      result: 'ask',
+      question: 'Approve the effective command?',
+      reason: 'original reason',
+      updatedInput: { command: 'before' },
+    }
     const result = await run(
       [
         hook('ask', () => raw, {
@@ -575,6 +582,7 @@ describe('live checkpoint boundaries', () => {
     ).result
     expect(observed).toBe(raw)
     expect(questions[0]).toMatchObject({
+      question: 'Approve the effective command?',
       reason: 'original reason',
       operation: { input: { command: 'after' } },
     })

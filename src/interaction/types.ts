@@ -9,6 +9,7 @@ export type ApprovalReply =
 export interface ApprovalQuestion {
   hookName: HookName
   ordinal: number
+  question?: string
   reason: string
   operation: { toolName: string; input: JsonValue }
 }

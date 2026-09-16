@@ -14,6 +14,9 @@ export type InjectContext = { injectContext?: string }
 /** Shown to the agent (guard events) or to the user (continuation events). */
 export type Reason = { reason: string }
 
+/** Optional nonblank approval headline, preserved verbatim; maximum 512 UTF-16 code units. */
+export type Question = { question?: string }
+
 /** Sent back to the teammate as next-step instruction. */
 export type Feedback = { feedback: string }
 

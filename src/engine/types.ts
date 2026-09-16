@@ -48,6 +48,7 @@ export interface ExecutionResult {
 export interface EngineResult {
   result: ResultTag
   reason?: string
+  question?: string
   path?: string
   feedback?: string
   injectContext?: string

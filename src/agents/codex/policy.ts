@@ -2,6 +2,7 @@ import { cloneDeep, isPlainObject } from 'lodash-es'
 import type { EngineResult } from '../../engine/types.js'
 import type { InvocationResultPolicy, NormalizedInvocation } from '../types.js'
 import { isJsonValue } from './tool-codecs.js'
+import { isValidAskQuestion, MAX_ASK_QUESTION_LENGTH } from '../../engine/ask-question.js'
 
 export function hasLosslessShape(value: unknown, ancestors = new Set<object>()): boolean {
   if (value === undefined) return true
@@ -64,6 +65,12 @@ export function createResultPolicy(invocation: NormalizedInvocation): Invocation
       if (tag === 'ask' && typeof value.reason !== 'string') {
         return reject('reason', 'ask reason must be a string')
       }
+      if (tag === 'ask' && !isValidAskQuestion(value.question)) {
+        return reject(
+          'question',
+          `ask question must be a nonblank string of at most ${MAX_ASK_QUESTION_LENGTH} UTF-16 code units when provided`,
+        )
+      }
       if (input.origin === 'before-hook' && tag === 'allow') {
         return reject('before-hook', 'beforeHook may only block or skip')
       }
@@ -96,6 +103,7 @@ export function createResultPolicy(invocation: NormalizedInvocation): Invocation
       const allowed = new Set(['result', 'debugMessage'])
       if (tag === 'block' || (eventName === 'PreToolUse' && (tag === 'allow' || tag === 'ask')))
         allowed.add('reason')
+      if (eventName === 'PreToolUse' && tag === 'ask') allowed.add('question')
       if (
         eventName === 'PreToolUse' ||
         eventName === 'UserPromptSubmit' ||
@@ -125,7 +133,7 @@ export function createResultPolicy(invocation: NormalizedInvocation): Invocation
         return reject('reason', 'clooks: invalid blank block reason')
       }
       const accepted: EngineResult = { result: tag }
-      for (const key of ['reason', 'injectContext', 'debugMessage'] as const) {
+      for (const key of ['reason', 'question', 'injectContext', 'debugMessage'] as const) {
         if (value[key] !== undefined) accepted[key] = value[key] as string
       }
       const diagnostics: string[] = []

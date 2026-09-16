@@ -94,7 +94,7 @@ const expectedApprovalSchema = {
   properties: {
     decision: {
       type: 'string',
-      title: 'Approve this operation?',
+      title: 'Decision',
       enum: ['Decline', 'Approve'],
     },
   },
@@ -102,11 +102,24 @@ const expectedApprovalSchema = {
 } satisfies ElicitRequestFormParams['requestedSchema']
 
 function approvalMessage(question: any) {
+  const { toolName, input } = question.operation
+  const compactCommand =
+    toolName === 'Bash' &&
+    input !== null &&
+    typeof input === 'object' &&
+    !Array.isArray(input) &&
+    Object.keys(input).length === 1 &&
+    Object.hasOwn(input, 'command') &&
+    typeof input.command === 'string' &&
+    !/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u.test(input.command)
+  const operation = compactCommand
+    ? `Command:\n${input.command}`
+    : `Tool: ${toolName}\nInput:\n${JSON.stringify(input, null, 2)}`
   return [
-    `Hook: ${question.hookName}`,
-    `Reason:\n${question.reason}`,
-    `Tool: ${question.operation.toolName}`,
-    `Input:\n${JSON.stringify(question.operation.input, null, 2)}`,
+    question.question ?? question.reason,
+    operation,
+    ...(question.question === undefined ? [] : [question.reason]),
+    `Requested by ${question.hookName}`,
   ].join('\n\n')
 }
 

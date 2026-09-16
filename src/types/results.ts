@@ -1,6 +1,7 @@
 import type {
   InjectContext,
   Reason,
+  Question,
   Feedback,
   Path,
   SessionTitle,
@@ -41,12 +42,11 @@ export type DeferResult = Result<'defer'>
 export type RetryResult = Result<'retry'>
 
 /**
- * `{ result: 'ask', reason }` — surface a permission prompt to the user.
- * `reason` is the prompt text. Claude Code prefixes a source label
- * ([Project] / [User] / [Plugin] / [Local]); make `reason` clearly identify
- * which hook asked.
+ * `{ result: 'ask', reason, question? }` — request live approval.
+ * `question` is an optional concise headline; without it, the complete `reason`
+ * is the opening text. `reason` always carries the full explanation.
  */
-export type AskResult = Result<'ask'> & Reason
+export type AskResult = Result<'ask'> & Reason & Question
 
 /** `{ result: 'block', reason }` — refuse the action. `reason` is shown to the agent. */
 export type BlockResult = Result<'block'> & Reason

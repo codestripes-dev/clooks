@@ -239,7 +239,12 @@ describe('per-result-tag constructor return shapes', () => {
     })
   })
 
-  test('ask({ reason }) returns { result: "ask", reason }', () => {
+  test('ask preserves optional question and legacy omission', () => {
+    expect(ask({ question: 'Proceed?', reason: 'r' })).toEqual({
+      result: 'ask',
+      question: 'Proceed?',
+      reason: 'r',
+    })
     expect(ask({ reason: 'r' })).toEqual({ result: 'ask', reason: 'r' })
   })
 

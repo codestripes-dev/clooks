@@ -71,7 +71,7 @@ for (const reversed of [false, true])
         async (params) => {
           const q = question(++checks)
           expect(params.message).toBe(
-            `Hook: ${q.hookName}\n\nReason:\n${q.reason}\n\nTool: ${q.operation.toolName}\n\nInput:\n${JSON.stringify(q.operation.input, null, 2)}`,
+            `${q.reason}\n\nTool: ${q.operation.toolName}\nInput:\n${JSON.stringify(q.operation.input, null, 2)}\n\nRequested by ${q.hookName}`,
           )
           return yes()
         },
@@ -92,6 +92,7 @@ test('elicitation presents readable exact arbitrary JSON without internal envelo
   const q = {
     hookName: 'policy-review' as HookName,
     ordinal: 1,
+    question: '  Approve this exact operation?\nCheck every field.  ',
     reason: 'First reason line\nSecond reason line',
     operation: {
       toolName: 'mcp__arbitrary__operation',
@@ -105,7 +106,7 @@ test('elicitation presents readable exact arbitrary JSON without internal envelo
     f.key,
     async (params) => {
       expect(params.message).toBe(
-        `Hook: policy-review\n\nReason:\nFirst reason line\nSecond reason line\n\nTool: mcp__arbitrary__operation\n\nInput:\n${JSON.stringify(q.operation.input, null, 2)}`,
+        `  Approve this exact operation?\nCheck every field.  \n\nTool: mcp__arbitrary__operation\nInput:\n${JSON.stringify(q.operation.input, null, 2)}\n\nFirst reason line\nSecond reason line\n\nRequested by policy-review`,
       )
       expect(params.message).not.toContain('"ordinal"')
       expect(params.requestedSchema).toEqual({
@@ -113,7 +114,7 @@ test('elicitation presents readable exact arbitrary JSON without internal envelo
         properties: {
           decision: {
             type: 'string',
-            title: 'Approve this operation?',
+            title: 'Decision',
             enum: ['Decline', 'Approve'],
           },
         },
@@ -128,11 +129,64 @@ test('elicitation presents readable exact arbitrary JSON without internal envelo
   expect(output(await check)).toEqual({})
 })
 
+test('exact single-line Bash command uses the compact command presentation', async () => {
+  const f = fixture()
+  const q = {
+    ...question(),
+    question: 'Delete this directory and its contents?',
+    reason: 'This directory is not on the cleanup allowlist.',
+    operation: { toolName: 'Bash', input: { command: 'rm -r -- ./build' } },
+  }
+  const command = await createApprovalInteraction({ identity: f.key }, f.clock)
+  const check = handleApprovalCheck(
+    f.key,
+    async (params) => {
+      expect(params.message).toBe(
+        'Delete this directory and its contents?\n\nCommand:\nrm -r -- ./build\n\nThis directory is not on the cleanup allowlist.\n\nRequested by guard',
+      )
+      return yes()
+    },
+    { runtime: f.clock },
+  )
+  expect(await command.request(q, signal())).toEqual({ kind: 'approved' })
+  await command.close()
+  expect(output(await check)).toEqual({})
+})
+
+test.each([
+  ['extra Bash field', 'Bash', { command: 'printf ok', timeout: 10 }],
+  ['multiline Bash command', 'Bash', { command: 'printf one\nprintf two' }],
+  ['control-character Bash command', 'Bash', { command: 'printf \u0007' }],
+  ['non-Bash command object', 'exec_command', { command: 'printf ok' }],
+  ['null input', 'mcp__opaque__tool', null],
+  ['boolean input', 'mcp__opaque__tool', false],
+  ['number input', 'mcp__opaque__tool', 0],
+  ['string input', 'mcp__opaque__tool', 'raw input'],
+] as const)('%s uses complete JSON presentation', async (_name, toolName, input) => {
+  const f = fixture()
+  const q = { ...question(), operation: { toolName, input } }
+  const command = await createApprovalInteraction({ identity: f.key }, f.clock)
+  const check = handleApprovalCheck(
+    f.key,
+    async (params) => {
+      expect(params.message).toBe(
+        `Confirm exact operation\n\nTool: ${toolName}\nInput:\n${JSON.stringify(input, null, 2)}\n\nRequested by guard`,
+      )
+      return yes()
+    },
+    { runtime: f.clock },
+  )
+  expect(await command.request(q, signal())).toEqual({ kind: 'approved' })
+  await command.close()
+  expect(output(await check)).toEqual({})
+})
+
 test('snapshot is immutable across caller mutation while response is pending', async () => {
   const f = fixture()
   const command = await createApprovalInteraction({ identity: f.key }, f.clock)
-  const q = question()
+  const q = { ...question(), question: 'Original headline?' }
   const pending = command.request(q, signal())
+  q.question = 'Changed headline?'
   q.operation.input.content = 'changed'
   f.key.owner = 'global'
   const key = f.box().key
@@ -140,6 +194,8 @@ test('snapshot is immutable across caller mutation while response is pending', a
   const check = handleApprovalCheck(
     key,
     async (params) => {
+      expect(params.message).toStartWith('Original headline?')
+      expect(params.message).not.toContain('Changed headline?')
       expect(params.message).toContain('"content": "original"')
       expect(params.message).not.toContain('changed')
       return yes()

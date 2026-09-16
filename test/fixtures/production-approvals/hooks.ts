@@ -11,7 +11,12 @@ export function checkpoint(number: number): ClooksHook {
         provider: ctx.provider,
         source: import.meta.path,
       })
-      return ask ? ctx.ask({ reason: `Checkpoint ${number}` }) : ctx.skip()
+      return ask
+        ? ctx.ask({
+            ...(number === 2 ? { question: 'Approve checkpoint 2?' } : {}),
+            reason: `Checkpoint ${number}`,
+          })
+        : ctx.skip()
     },
   }
 }

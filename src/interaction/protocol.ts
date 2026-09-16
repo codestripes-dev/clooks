@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import type { JsonValue } from '../agents/types.js'
 import { isJsonValue } from '../agents/codex/tool-codecs.js'
+import { MAX_ASK_QUESTION_LENGTH } from '../engine/ask-question.js'
 
 export const limits = Object.freeze({
   invocationMs: 300_000,
@@ -80,6 +81,11 @@ export const operationSchema = z.strictObject({
 export const questionSchema = z.strictObject({
   hookName: literal,
   ordinal: z.number().int().min(1).max(limits.questions),
+  question: z
+    .string()
+    .max(MAX_ASK_QUESTION_LENGTH)
+    .refine((value) => /\S/u.test(value))
+    .optional(),
   reason: z.string().min(1).max(8192),
   operation: operationSchema,
 })

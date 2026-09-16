@@ -19,7 +19,8 @@ or `suppressed`), and optional invocation-wide `AbortSignal`. The second argumen
 overrides internal HOME, clock, process-liveness and wait dependencies for tests;
 it is not a public configuration surface.
 
-Each question contains a hook name, increasing ordinal, reason and exact
+Each question contains a hook name, increasing ordinal, optional author-supplied
+question headline, required reason and exact
 `{ toolName, input }` operation. Input accepts bounded JSON, not only shell
 commands or object-shaped tool arguments. The channel snapshots the question
 before yielding and binds its digest to the response. Ordinals begin at one;
@@ -74,7 +75,7 @@ a no-ask invocation needs no user response. Generated registration is described
 below; its review/testing is separate from the accepted engine boundary.
 
 Sequential execution completes beforeHook, handler and afterHook, then audits
-the detached result. An accepted ask captures the original reason before handoff
+the detached result. An accepted ask captures the original question and reason before handoff
 can replace it with a file pointer, builds the candidate operation including its
 patch, and waits before committing that candidate or starting the next hook.
 Approval continues the same invocation once. Decline, cancellation, expiry or
@@ -175,12 +176,25 @@ and process exit race.
 ## MCP Server
 
 `handleApprovalCheck(input, elicit, options?)` validates one check, performs the
-rendezvous, relays questions and returns a native hook result. The human-facing
-message is plain text: `Hook: <hookName>`, the complete reason verbatim under
-`Reason:`, `Tool: <toolName>`, and the exact bounded JSON operation input under
-`Input:` with two-space indentation. It omits the internal question ordinal and
-serialized question envelope. The form has one required string property named
-`decision`, titled `Approve this operation?`, with decline-first enum values
+rendezvous, relays questions and returns a native hook result. A supplied
+`question` must be nonblank and at most 512 JavaScript UTF-16 code units; it is
+preserved verbatim, including multiline text. Omission and `undefined` preserve
+legacy behavior. Invalid values reject the whole ask before elicitation or tool
+effects on both providers. The field is shared presentation metadata and never
+enters native hook JSON.
+
+The human-facing message uses double-newline-separated sections. With a
+question it renders the question, exact operation, complete reason verbatim,
+then `Requested by <hookName>`. Without a question it renders the complete
+reason first, then the operation and attribution; it never derives a headline
+from reason text. An operation renders as `Command:\n<command>` only when the
+packet's exact tool name is `Bash`, its input has exactly one `command` string
+field, and that command is one line with no control characters. Raw Codex names
+such as `exec_command`, Bash inputs with any other field, and every other tool
+use `Tool: <toolName>\nInput:\n<JSON>`. JSON uses two-space indentation, retains
+all fields, supports primitive inputs and is never truncated. The message omits
+the internal question ordinal and serialized question envelope. The form has
+one required string property named `decision`, titled `Decision`, with decline-first enum values
 `Decline` and `Approve` and no default. SDK 1.26's restricted requested-schema
 shape uses only root `type`, `properties` and `required`.
 

@@ -38,11 +38,27 @@ export type ElicitApproval = (
 ) => Promise<unknown>
 
 function approvalMessage(question: z.infer<typeof questionSchema>): string {
+  const input = question.operation.input
+  const command =
+    question.operation.toolName === 'Bash' &&
+    input !== null &&
+    !Array.isArray(input) &&
+    typeof input === 'object' &&
+    Object.keys(input).length === 1 &&
+    Object.keys(input)[0] === 'command' &&
+    typeof input.command === 'string' &&
+    !/[\p{Cc}\u2028\u2029]/u.test(input.command)
+      ? input.command
+      : undefined
+  const operation =
+    command === undefined
+      ? `Tool: ${question.operation.toolName}\nInput:\n${JSON.stringify(input, null, 2)}`
+      : `Command:\n${command}`
   return [
-    `Hook: ${question.hookName}`,
-    `Reason:\n${question.reason}`,
-    `Tool: ${question.operation.toolName}`,
-    `Input:\n${JSON.stringify(question.operation.input, null, 2)}`,
+    question.question ?? question.reason,
+    operation,
+    ...(question.question === undefined ? [] : [question.reason]),
+    `Requested by ${question.hookName}`,
   ].join('\n\n')
 }
 
@@ -151,7 +167,7 @@ export async function handleApprovalCheck(
                   properties: {
                     decision: {
                       type: 'string',
-                      title: 'Approve this operation?',
+                      title: 'Decision',
                       enum: ['Decline', 'Approve'],
                     },
                   },

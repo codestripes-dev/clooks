@@ -72,6 +72,44 @@ describe('Codex PreToolUse runtime policy', () => {
       ).toBe('rejected')
     },
   )
+  test('accepts and preserves a valid ask question and rejects malformed questions', () => {
+    const policy = codexAdapter.createResultPolicy(
+      codexAdapter.normalizeInvocation(payload(), 'PreToolUse'),
+    )
+    const valid = checkDetachedResult(
+      policy,
+      {
+        value: {
+          result: 'ask',
+          question: '  Delete this directory?\nReview every target.  ',
+          reason: 'Outside the allowlist.',
+        },
+        origin: 'handler',
+        parallel: false,
+        currentToolInput: { command: 'old' },
+        hookName: hn('guard'),
+      },
+      'PreToolUse',
+    )
+    expect(valid).toMatchObject({
+      kind: 'accepted',
+      result: { question: '  Delete this directory?\nReview every target.  ' },
+    })
+    for (const question of ['', ' \t\n ', 'x'.repeat(513), 42, null]) {
+      const checked = checkDetachedResult(
+        policy,
+        {
+          value: { result: 'ask', question, reason: 'Outside the allowlist.' },
+          origin: 'handler',
+          parallel: false,
+          currentToolInput: { command: 'old' },
+          hookName: hn('guard'),
+        },
+        'PreToolUse',
+      )
+      expect(checked).toMatchObject({ kind: 'rejected', failure: { capability: 'question' } })
+    }
+  })
   test.each([
     {
       tool: 'Edit',

@@ -22,6 +22,7 @@ import type {
   DebugMessage,
   InjectContext,
   Reason,
+  Question,
   UpdatedPermissions,
   Allow,
   Ask,
@@ -186,7 +187,7 @@ export interface ToolInputMap {
 /**
  * Verbs on `PreToolUseContext`:
  * - `allow` — proceed, optionally patching input via `updatedInput`.
- * - `ask` — surface a permission prompt (`reason` becomes the prompt).
+ * - `ask` — request approval with an optional `question` headline and required full `reason`.
  * - `block` — refuse (`reason` is shown to the agent).
  * - `defer` — pause for `claude -p --resume`. Honored only in `-p` mode and
  *   only when the turn has a single tool call; ignored otherwise.
@@ -196,7 +197,7 @@ export type PreToolUseDecisionMethods<Input> = Allow<
   UpdatedInput<Patch<Input>> & Partial<Reason> & InjectContext,
   PreToolUseResult
 > &
-  Ask<Reason & UpdatedInput<Patch<Input>> & InjectContext, PreToolUseResult> &
+  Ask<Reason & Question & UpdatedInput<Patch<Input>> & InjectContext, PreToolUseResult> &
   Block<EventBlockOptsMap['PreToolUse'], PreToolUseResult> &
   Defer<DebugMessage, PreToolUseResult> &
   Skip<EventSkipOptsMap['PreToolUse'], PreToolUseResult>

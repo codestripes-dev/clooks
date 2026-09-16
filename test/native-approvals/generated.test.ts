@@ -51,6 +51,7 @@ function fixture(
   const question = (ordinal: number) => ({
     ordinal,
     hookName: `hook-${ordinal * 2}`,
+    ...(ordinal === 1 ? { question: 'Approve checkpoint 2?' } : {}),
     reason: `Checkpoint ${ordinal * 2}`,
     operation: c.operation,
   })
@@ -135,25 +136,39 @@ test('generated prompt oracle requires readable full content and the exact decli
   const question = {
     hookName: 'review-hook',
     ordinal: 2,
+    question: 'Inspect this request?',
     reason: 'First reason line.\nSecond reason line.',
     operation: {
       toolName: 'mcp__fixture__inspect',
       input: { keep: null, false_value: false, zero_value: 0, nested: { list: ['', 2] } },
     },
   }
-  const message = `Hook: review-hook\n\nReason:\nFirst reason line.\nSecond reason line.\n\nTool: mcp__fixture__inspect\n\nInput:\n${JSON.stringify(question.operation.input, null, 2)}`
+  const message = `Inspect this request?\n\nTool: mcp__fixture__inspect\nInput:\n${JSON.stringify(question.operation.input, null, 2)}\n\nFirst reason line.\nSecond reason line.\n\nRequested by review-hook`
   const schema = {
     type: 'object',
     properties: {
       decision: {
         type: 'string',
-        title: 'Approve this operation?',
+        title: 'Decision',
         enum: ['Decline', 'Approve'],
       },
     },
     required: ['decision'],
   }
   expect(() => assertApprovalPrompt(message, schema, question)).not.toThrow()
+  const legacy = {
+    hookName: 'legacy-hook',
+    ordinal: 1,
+    reason: 'Full legacy reason.',
+    operation: { toolName: 'Bash', input: { command: 'echo exact' } },
+  }
+  expect(() =>
+    assertApprovalPrompt(
+      'Full legacy reason.\n\nCommand:\necho exact\n\nRequested by legacy-hook',
+      schema,
+      legacy,
+    ),
+  ).not.toThrow()
   for (const mutation of [
     () => assertApprovalPrompt(JSON.stringify(question), schema, question),
     () => assertApprovalPrompt(message.replace('Second reason line.', ''), schema, question),
@@ -176,6 +191,12 @@ test('generated prompt oracle requires readable full content and the exact decli
         question,
       ),
     () => assertApprovalPrompt(message, { ...schema, default: { decision: 'Decline' } }, question),
+    () =>
+      assertApprovalPrompt(
+        'Full legacy reason.\n\nTool: Bash\nInput:\n{"command":"echo exact"}\n\nRequested by legacy-hook',
+        schema,
+        legacy,
+      ),
   ])
     expect(mutation).toThrow()
 })

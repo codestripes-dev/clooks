@@ -55,6 +55,7 @@ export type {
   DebugMessage,
   InjectContext,
   Reason,
+  Question,
   Feedback,
   Path,
   SessionTitle,

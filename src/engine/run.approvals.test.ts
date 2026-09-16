@@ -252,6 +252,17 @@ test('Claude failure-store write errors remain fatal, with paired cleanup', asyn
 })
 
 for (const adapter of [codexAdapter, claudeCodeAdapter]) {
+  test(`${adapter.id} accepts an ask question of exactly 512 UTF-16 code units`, async () => {
+    const question = '\u{1f642}'.repeat(256)
+    add('boundary-question', () => ({
+      result: 'ask',
+      question,
+      reason: 'This operation needs review.',
+    }))
+    await run(deps(raw({ tool_name: adapter.id === 'codex' ? 'exec_command' : 'Bash' })), adapter)
+    expect(questions).toHaveLength(1)
+    expect(questions[0]?.question).toBe(question)
+  })
   test(`${adapter.id} missing ask reason keeps an explicit reason diagnostic`, async () => {
     add('bad-ask', () => ({ result: 'ask' }))
     const output = await run(
@@ -268,6 +279,29 @@ for (const adapter of [codexAdapter, claudeCodeAdapter]) {
       )
     expect(questions).toEqual([])
   })
+  test.each(['', ' \t\n ', 'x'.repeat(513), `${'\u{1f642}'.repeat(256)}x`, 42, null])(
+    `${adapter.id} malformed ask question %j fails closed before prompting or later hooks`,
+    async (question) => {
+      let later = 0
+      add('bad-question', () => ({
+        result: 'ask',
+        question,
+        reason: 'This operation needs review.',
+      }))
+      add('later', () => {
+        later++
+        return { result: 'allow' }
+      })
+      const output = await run(
+        deps(raw({ tool_name: adapter.id === 'codex' ? 'exec_command' : 'Bash' })),
+        adapter,
+      )
+      expect(output.json.hookSpecificOutput.permissionDecision).toBe('deny')
+      expect(output.json.hookSpecificOutput.permissionDecisionReason).toContain('question')
+      expect(questions).toEqual([])
+      expect(later).toBe(0)
+    },
+  )
 }
 
 for (const event of ['PreToolUse', 'Stop']) {
@@ -373,17 +407,23 @@ for (const adapter of [codexAdapter, claudeCodeAdapter]) {
     expect(journal.filter((v) => v === 'close')).toHaveLength(1)
   })
   test(`${adapter.id}: changed operation reconfirms affected asks in configured order`, async () => {
-    add('a', () => ({ result: 'ask', reason: 'A', updatedInput: { command: 'middle' } }))
+    add('a', () => ({
+      result: 'ask',
+      question: '  Approve A?\nExactly as shown.  ',
+      reason: 'A',
+      updatedInput: { command: 'middle' },
+    }))
     add('b', () => ({ result: 'ask', reason: 'B' }))
     add('rewrite', () => ({ result: 'allow', updatedInput: { command: 'final' } }))
     const output = await run(deps(), adapter)
-    expect(questions.map((q) => [q.hookName, q.ordinal, q.operation.input])).toEqual([
-      ['a', 1, { command: 'middle' }],
-      ['b', 2, { command: 'middle' }],
-      ['a', 3, { command: 'final' }],
-      ['b', 4, { command: 'final' }],
+    expect(questions.map((q) => [q.hookName, q.ordinal, q.question, q.operation.input])).toEqual([
+      ['a', 1, '  Approve A?\nExactly as shown.  ', { command: 'middle' }],
+      ['b', 2, undefined, { command: 'middle' }],
+      ['a', 3, '  Approve A?\nExactly as shown.  ', { command: 'final' }],
+      ['b', 4, undefined, { command: 'final' }],
     ])
     expect(output.json.hookSpecificOutput.updatedInput).toEqual({ command: 'final' })
+    expect(output.stdout).not.toContain('Approve A?')
   })
   test(`${adapter.id}: unpaired ask denies without opening storage`, async () => {
     delete process.env.CLOOKS_APPROVAL_OWNER

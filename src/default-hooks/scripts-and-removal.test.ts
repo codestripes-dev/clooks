@@ -180,8 +180,21 @@ describe('removal classification and provider decision', () => {
       const dir = project()
       const result = await removal.PreToolUse(context(dir, command, provider), config)
       expect(result.result).toBe(expected)
-      if (rule) expect(result.reason).toContain(`[${rule}]`)
-      if (expected === 'ask') expect(result.debugMessage).toBe(`no-rm-rf: asking on ${rule}`)
+      if (expected === 'ask') {
+        expect(result.debugMessage).toBe(`no-rm-rf: asking on ${rule}`)
+        if (rule === 'rm-rf-project-root') {
+          expect(result.question).toBe('Delete this project and its contents?')
+          expect(result.reason).toBe(
+            `This deletes the entire project at ${dir}, including its Git metadata.`,
+          )
+        } else {
+          expect(result.question).toBe('Delete this path and its contents?')
+          expect(result.reason).toBe(`"${join(dir, 'src')}" is not on the cleanup allowlist.`)
+        }
+      } else if (rule) {
+        expect(result.question).toBeUndefined()
+        expect(result.reason).toContain(`[${rule}]`)
+      }
       expect(readFileSync(join(dir, 'sentinel'), 'utf8')).toBe('unchanged')
     })
   }

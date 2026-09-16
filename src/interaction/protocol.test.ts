@@ -123,6 +123,23 @@ test('questions, whole-invocation lifetime and confirmation are bounded', () => 
     operation: { toolName: 'tool', input: {} },
   }
   expect(questionSchema.parse(question)).toEqual(question)
+  expect(questionSchema.parse({ ...question, question: '  Exact headline?  ' }).question).toBe(
+    '  Exact headline?  ',
+  )
+  const exactly512CodeUnits = '\u{1f642}'.repeat(256)
+  expect(questionSchema.parse({ ...question, question: exactly512CodeUnits }).question).toBe(
+    exactly512CodeUnits,
+  )
+  expect(
+    questionSchema.safeParse({ ...question, question: `${exactly512CodeUnits}x` }).success,
+  ).toBe(false)
+  expect(questionSchema.parse({ ...question, question: undefined })).toEqual({
+    ...question,
+    question: undefined,
+  })
+  for (const invalid of ['', ' \t\n ', 'x'.repeat(513), 42, null]) {
+    expect(questionSchema.safeParse({ ...question, question: invalid }).success).toBe(false)
+  }
   expect(questionSchema.safeParse({ ...question, ordinal: limits.questions + 1 }).success).toBe(
     false,
   )

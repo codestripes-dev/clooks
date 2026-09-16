@@ -97,13 +97,29 @@ No duplicate pipeline, prompt or effect is accepted. Helper regressions in
 enforcement.
 
 Production elicitation keeps transport metadata in the bound mailbox rather
-than displaying it to the user. The human message contains `Hook`, the complete
-multiline `Reason`, `Tool`, and pretty-printed JSON `Input` sections. Its strict
-form has one required `decision` string with the decline-first enum
-`["Decline", "Approve"]` and no default; only accepted `Approve` confirms the
-operation. Test responders must obtain identity and ordinal metadata from the
-mailbox, independently compare the exact message and schema with that snapshot,
-and leave the illustrative fixture's historical boolean protocol unchanged.
+than displaying it to the user. Hook 2 supplies an optional question headline;
+hook 4 omits it to retain the reason-first compatibility path. With a question,
+the exact message contains the question, operation, complete multiline reason,
+and `Requested by <hook>` sections. Without one, the complete reason is the
+headline, followed by the operation and attribution. Only exact packet
+`toolName === "Bash"` with an exact, one-line, control-free `{ command: string }`
+input uses `Command`; every other tool or input uses `Tool` plus two-space
+pretty-printed JSON `Input` without dropping fields.
+Its strict form has one required `decision` string titled `Decision`, with the
+decline-first enum `["Decline", "Approve"]` and no default; only accepted
+`Approve` confirms the operation. Test responders must obtain identity and
+ordinal metadata from the mailbox, independently compare the exact message and
+schema with that snapshot, and leave the illustrative fixture's historical
+boolean protocol unchanged.
+
+Compiled-engine coverage runs both providers through headline and legacy asks,
+rejects null, other non-string, empty, whitespace-only and
+questions longer than 512 JavaScript UTF-16 code units before later hooks, and
+verifies that an exact multiline headline survives final-operation rewrite
+confirmation.
+Operation cases independently cover non-Bash objects and primitives plus Bash
+inputs with extra fields, multiline commands and control characters; none may
+use the compact display or lose input detail.
 
 Each case retains `init.json`, `generated-registration.json`, native observations
 and `observed-packets.json`. Claude global cases may update native

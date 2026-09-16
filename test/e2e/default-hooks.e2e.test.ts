@@ -807,14 +807,28 @@ describe('actual removal, script equivalence and tmux hooks', () => {
       configure({ 'no-rm-rf': {} })
       sandbox.writeFile('src/owned.ts', 'unchanged')
       for (const accept of [true, false]) {
+        const reason = `"${join(sandbox.dir, 'src')}" is not on the cleanup allowlist.`
         const live = await runWithConsent(
           sandbox,
           invocation(sandbox, provider, {
             input: { command: 'rm -rf src' },
           }),
           (prompt) => {
-            expect(prompt.question.reason).toContain('[rm-rf-strict]')
+            expect(prompt.question.question).toBe('Delete this path and its contents?')
+            expect(prompt.question.reason).toBe(reason)
             expect(prompt.question.operation.input).toEqual({ command: 'rm -rf src' })
+            const operation =
+              provider === 'claude-code'
+                ? 'Command:\nrm -rf src'
+                : `Tool: exec_command\nInput:\n${JSON.stringify({ command: 'rm -rf src' }, null, 2)}`
+            expect(prompt.message).toBe(
+              [
+                'Delete this path and its contents?',
+                operation,
+                reason,
+                'Requested by no-rm-rf',
+              ].join('\n\n'),
+            )
             return accept
               ? { action: 'accept', content: { decision: 'Approve' } }
               : { action: 'decline' }
@@ -828,12 +842,12 @@ describe('actual removal, script equivalence and tmux hooks', () => {
         if (!accept) approvalDenied(output, 'declined')
         else if (provider === 'claude-code') {
           expect(output.hookSpecificOutput.permissionDecision).toBe('allow')
-          expect(output.hookSpecificOutput.permissionDecisionReason).toContain('[rm-rf-strict]')
+          expect(output.hookSpecificOutput.permissionDecisionReason).toBe(reason)
         } else {
           expect(output.hookSpecificOutput).toBeUndefined()
           expect(Object.keys(output)).toEqual(['systemMessage'])
           expect(output.systemMessage).toContain('native policy retained')
-          expect(output.systemMessage).toContain('[rm-rf-strict]')
+          expect(output.systemMessage).toEndWith(`: ${reason}`)
         }
         // Hook envelopes never execute the deletion command.
         expect(sandbox.readFile('src/owned.ts')).toBe('unchanged')

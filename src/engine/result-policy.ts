@@ -3,6 +3,7 @@ import type { CheckedResult, InvocationResultPolicy, ResultPolicyInput } from '.
 import type { EventName } from '../types/branded.js'
 import type { EngineResult } from './types.js'
 import { hasLosslessShape } from '../agents/codex/policy.js'
+import { isValidAskQuestion, MAX_ASK_QUESTION_LENGTH } from './ask-question.js'
 
 /** Claude accepts the existing dynamic result surface; semantic validation is provider-owned. */
 export const legacyResultPolicy: InvocationResultPolicy = {
@@ -31,8 +32,14 @@ export function checkDetachedResult(
         (value.updatedInput !== undefined && !isPlainObject(value.updatedInput)) ||
         Object.keys(value).some(
           (key) =>
-            !['result', 'reason', 'updatedInput', 'injectContext', 'debugMessage'].includes(key) &&
-            value[key as keyof EngineResult] !== undefined,
+            ![
+              'result',
+              'reason',
+              'question',
+              'updatedInput',
+              'injectContext',
+              'debugMessage',
+            ].includes(key) && value[key as keyof EngineResult] !== undefined,
         ) ||
         (value.injectContext !== undefined && typeof value.injectContext !== 'string') ||
         (value.debugMessage !== undefined && typeof value.debugMessage !== 'string')
@@ -56,6 +63,21 @@ export function checkDetachedResult(
           hookName: input.hookName,
           capability: 'reason',
           message: 'ask reason must be a string; result effects refused.',
+        },
+      }
+    }
+    if (
+      checked.kind === 'accepted' &&
+      checked.result?.result === 'ask' &&
+      !isValidAskQuestion(checked.result.question)
+    ) {
+      return {
+        kind: 'rejected',
+        failure: {
+          eventName,
+          hookName: input.hookName,
+          capability: 'question',
+          message: `ask question must be a nonblank string of at most ${MAX_ASK_QUESTION_LENGTH} UTF-16 code units when provided; result effects refused.`,
         },
       }
     }
