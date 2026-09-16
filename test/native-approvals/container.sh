@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -uo pipefail
 [[ $(id -u) != 0 ]] || exit 66
-bun test ./test/native-approvals/channel.test.ts ./test/native-approvals/overlap.test.ts ./test/native-approvals/boundary.test.ts ./test/native-approvals/run.test.ts ./test/native-approvals/generated.test.ts
+bun test ./test/native-approvals/channel.test.ts ./test/native-approvals/overlap.test.ts ./test/native-approvals/boundary.test.ts ./test/native-approvals/run.test.ts ./test/native-approvals/generated.test.ts ./test/native-approvals/native-config.test.ts
 unit_rc=$?
 [[ $unit_rc == 0 ]] || exit "$unit_rc"
 for arg in "$@"; do

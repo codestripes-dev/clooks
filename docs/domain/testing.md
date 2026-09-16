@@ -6,7 +6,7 @@ How Clooks validates its core safety invariant — fail-closed behavior — thro
 
 ## Compiled Build Format
 
-For `bun run test:approvals-native`, see [native interactive approval probes](testing/interactive-approvals.md): default/baseline mode uses illustrative fixtures; `--generated` builds current Clooks and uses actual init-generated project registration through real clients, with eight-case native project smoke evidence.
+For `bun run test:approvals-native`, see [native interactive approval probes](testing/interactive-approvals.md): default/baseline mode uses illustrative fixtures; `--generated` builds current Clooks and uses actual init-generated registration through real clients. The generated inventory contains 20 cases across project shell, global-only shell and project non-shell registration.
 
 The production [shared interactive approval transport](interactive-approvals.md)
 has separate command/channel and MCP server test boundaries. Its internal runtime
@@ -64,18 +64,19 @@ subprocess proofs; they do not show that a real native client loaded/trusted the
 registration or eliminate cold-child readiness limits. Do not run the installer
 against real client files to obtain a test receipt.
 
-The separate [generated native smoke](testing/interactive-approvals.md#generated-project-registration)
+The separate [generated native smoke](testing/interactive-approvals.md#generated-registration)
 runs as `bun run test:approvals-native --generated` with explicit Claude/Codex
-binary paths. It defaults to eight project-only cases: two approvals, decline at
-either checkpoint and no ask for each provider; explicit named subsets are
-supported. Frozen production inputs are typechecked and bytecode-compiled inside
-Docker, and actual init-generated pairs/server files are checked unchanged.
-Production hooks, native identity/effects, refusal and cleanup are asserted with
-a scripted local model and replies. All eight native project cases passed on the
-retained snapshot with final/cleanup exits 0, beyond compiled replay or helper
-validation. This does not prove
-global/combined scopes, non-shell tools, cancellation, performance, human consent,
-cold-readiness guarantees or release conformance.
+binary paths. The generated inventory has 20 structured descriptors:
+the existing six project-shell modes per provider, two global-only shell modes
+per provider, and two project non-shell modes per provider (`Write` for Claude
+and `apply_patch` for Codex). Frozen production
+inputs are typechecked and bytecode-compiled inside Docker, and actual init-
+identity/effects, refusal/cancellation and cleanup are asserted with a scripted
+local model and replies. Seed disposable trust metadata before `init` for both
+Claude and Codex. These checks distinguish illustrative fixtures from
+compiled production and native registration evidence; execution receipts belong
+with the run artifacts. The 20 generated cases passed with Claude Code 2.1.272
+and Codex CLI 0.154.0, with typecheck/build and disposable cleanup passing.
 
 ## Build Parity
 

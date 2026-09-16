@@ -3,7 +3,8 @@
 `test/fixtures/interactive-approvals/` contains illustrative command checkpoints,
 not the production Clooks engine. The separate `--generated` mode below uses
 `test/fixtures/production-approvals/` with compiled Clooks and actual init-generated
-project registration, with eight-case native project smoke evidence below.
+registration. Its generated inventory contains 20 structured cases across
+project shell, global-only shell and project non-shell registration.
 Native clients, hook schedulers, MCP connections and final tools execute for real.
 Illustrative passes do not establish production ordering. In automated probes,
 the loopback model and elicitation replies are scripted. Passing automated cases
@@ -26,7 +27,7 @@ case names such as `codex-long-command-first`. `--transport` instead runs the SD
 stdin-closure regression. Unknown, duplicate and empty selections fail. `passed.json` covers
 only the named executed cases, never unimplemented scenarios.
 
-### Generated Project Registration
+### Generated Registration
 
 Run the compiled-production mode with the same explicit native executables:
 
@@ -34,17 +35,25 @@ Run the compiled-production mode with the same explicit native executables:
       CLOOKS_CODEX_BINARY=/absolute/path/to/codex \
       bun run test:approvals-native --generated
 
-This defaults to exactly eight cases. Explicit subsets use
-`<claude|codex>-generated-<approve|decline-first|decline-second|noask>`, for example
-`bun run test:approvals-native --generated codex-generated-noask` with the same
-environment assignments. `approve` answers both checkpoints positively.
-Duplicate/unknown cases and illustrative flags such as `--baseline` are rejected.
+This defaults to exactly 20 cases. The structured descriptors in
+`test/native-approvals/generated.ts` use these names: each provider has project
+shell `<provider>-generated-<approve|decline-first|decline-second|cancel-first|cancel-second|noask>`,
+global-only shell `<provider>-generated-global-<approve|decline-second>`, and
+project non-shell `<provider>-generated-project-non-shell-<approve|decline-second>`:
+Claude uses `Write`; Codex uses `apply_patch`.
+Explicit subsets use those names, for example
+`bun run test:approvals-native --generated codex-generated-project-non-shell-approve`
+with the same environment assignments. Duplicate/unknown cases and illustrative
+flags such as `--baseline` are rejected. The inventory is intentionally scoped,
+not a Cartesian product, and does not combine global and project registration.
 
 `test/native-approvals/generated.ts` runs actual compiled
 `clooks init --agent <agent> --json`, selecting `claude-code` or `codex`, in
-disposable Git projects. The
+disposable Git projects. Global cases run global-only init; project cases run
+project init. Seed disposable trust metadata before `init` for both providers;
+the test must not rely on a CLI override to suppress native trust writes. The
 generated command/MCP pair, server entry, project identity and entrypoint are
-captured and checked byte-unchanged after each case. `native.ts` uses a distinct
+captured and checked using the scope-aware snapshot rules below. `native.ts` uses a distinct
 generated branch for the existing model/RPC/cleanup machinery: no illustrative
 server or CLI pair replaces init's registration. Claude uses print mode and
 Codex uses app-server, not a human TTY approval session. Fixture-only observers,
@@ -71,16 +80,26 @@ in `generated.test.ts` check selection and false-pass resistance, not native
 enforcement.
 
 Each case retains `init.json`, `generated-registration.json`, native observations
-and `observed-packets.json`. Aggregate `results.json` preserves failures;
+and `observed-packets.json`. Claude global cases may update native
+`HOME/.claude.json` metadata: compare owned `mcpServers` structurally, while
+hooks and launchers remain byte-for-byte unchanged. Other registration files,
+including global Codex configuration, are byte-for-byte snapshots. The global
+Codex fixture may use CLI `-c` overrides for fixture model and trust settings;
+these overrides must never replace hooks or MCP. Aggregate `results.json` preserves failures;
 `passed.json` is written only when all selected cases pass and labels
 `productionEngine`, `generatedRegistration` and `scriptedUI`. Inspect final exit,
 hash checks and cleanup as well.
 
-All eight project cases passed with Claude Code 2.1.272 and Codex CLI 0.154.0,
-with successful cleanup and no native retries or warming. This is native
-project-only shell evidence, not merely compiled replay. It does not establish
-global/combined scopes, non-shell tools, cancellation, performance, human consent
-or release conformance. Existing cold-readiness and external-expiry limits remain.
+Native acceptance requires real file creation, native PostToolUse and native
+identity output for non-shell cases, not a direct shell-effect event; the file
+must be absent while pending and after denial. Cancellation requires explicit
+native elicitation action `cancel` at the selected ordinal and production
+`failure.kind='cancelled'` with message `Approval cancelled`; it is not
+`turn/interrupt` evidence. Automated replies remain scripted and do not prove
+human consent, normal trust policy or release conformance. Existing
+cold-readiness and external-expiry limits remain. The 20 generated cases passed
+with Claude Code 2.1.272 and Codex CLI 0.154.0; execution receipts retain the
+per-case identity, effect and cleanup evidence.
 
 ### Claude Interactive Config Discriminators
 

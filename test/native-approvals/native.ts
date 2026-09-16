@@ -441,11 +441,18 @@ export async function claude(r: Runtime) {
             ? {
                 type: 'tool_use',
                 id: r.callId,
-                name: r.env.APPROVAL_CASE === 'non-shell' ? 'Write' : 'Bash',
+                name:
+                  r.kind === 'generated'
+                    ? r.c.operation.toolName
+                    : r.env.APPROVAL_CASE === 'non-shell'
+                      ? 'Write'
+                      : 'Bash',
                 input:
-                  r.env.APPROVAL_CASE === 'non-shell'
-                    ? { file_path: join(r.project, 'effect.txt'), content: 'native-effect\n' }
-                    : { command: r.cmd },
+                  r.kind === 'generated'
+                    ? r.c.operation.input
+                    : r.env.APPROVAL_CASE === 'non-shell'
+                      ? { file_path: join(r.project, 'effect.txt'), content: 'native-effect\n' }
+                      : { command: r.cmd },
               }
             : { type: 'text', text: interactive ? 'NATIVE_INTERACTIVE_COMPLETE' : 'Done.' },
           requests.length === 1 ? 'tool_use' : 'end_turn',
@@ -601,8 +608,32 @@ export async function claude(r: Runtime) {
   }
 }
 
+export function globalCodexConfigArgs(project: string, catalog: string, baseUrl: string) {
+  const overrides: [string, string | boolean | number][] = [
+    ['model', 'gpt-5.1-codex'],
+    ['model_catalog_json', catalog],
+    ['model_provider', 'native_fixture'],
+    ['approval_policy', 'on-request'],
+    [`projects.${JSON.stringify(project)}.trust_level`, 'trusted'],
+    ['features.enable_request_compression', false],
+    ['features.remote_plugin', false],
+    ['model_providers.native_fixture.name', 'Local fixture'],
+    ['model_providers.native_fixture.base_url', baseUrl],
+    ['model_providers.native_fixture.wire_api', 'responses'],
+    ['model_providers.native_fixture.requires_openai_auth', false],
+    ['model_providers.native_fixture.supports_websockets', false],
+    ['model_providers.native_fixture.request_max_retries', 0],
+    ['model_providers.native_fixture.stream_max_retries', 0],
+    ['model_providers.native_fixture.stream_idle_timeout_ms', 15000],
+  ]
+  return overrides.flatMap(([key, value]) => ['-c', `${key}=${JSON.stringify(value)}`])
+}
+
 export async function codex(r: Runtime) {
-  const nonShell = r.env.APPROVAL_CASE === 'non-shell'
+  const nonShell =
+    r.kind === 'generated'
+      ? r.c.operation.toolName === 'apply_patch'
+      : r.env.APPROVAL_CASE === 'non-shell'
   const model = startFixture(
     [
       nonShell
@@ -610,7 +641,10 @@ export async function codex(r: Runtime) {
             type: 'custom_tool_call',
             name: 'apply_patch',
             call_id: r.callId,
-            input: '*** Begin Patch\n*** Add File: effect.txt\n+native-effect\n*** End Patch\n',
+            input:
+              r.kind === 'generated'
+                ? (r.c.operation.input as { command: string }).command
+                : '*** Begin Patch\n*** Add File: effect.txt\n+native-effect\n*** End Patch\n',
           }
         : {
             type: 'function_call',
@@ -665,10 +699,19 @@ stream_idle_timeout_ms = 15000
     const last = config.indexOf('[model_providers.native_fixture]')
     config = config.slice(0, first) + config.slice(last)
   }
-  writeFileSync(join(r.config, 'config.toml'), config)
+  const globalGenerated = r.kind === 'generated' && r.c.owner === 'global'
+  if (!globalGenerated) writeFileSync(join(r.config, 'config.toml'), config)
+  const globalConfigArgs = globalGenerated
+    ? globalCodexConfigArgs(
+        r.project,
+        join(r.config, 'models.json'),
+        `http://127.0.0.1:${model.port}/v1`,
+      )
+    : []
+  const argv = ['/native/codex', ...globalConfigArgs, 'app-server']
   const messages: any[] = []
   try {
-    await launch(r, ['/native/codex', 'app-server'], r.env, async (child, signal) => {
+    await launch(r, argv, r.env, async (child, signal) => {
       const responseAbort = new AbortController()
       const responseTasks: Promise<void>[] = []
       const responseErrors: unknown[] = []
