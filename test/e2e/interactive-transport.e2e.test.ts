@@ -369,12 +369,21 @@ describe('compiled shared approval transport', () => {
     },
   )
 
-  test.each(['request-cancel', 'EOF', 'SIGINT', 'SIGTERM'] as const)(
-    '%s closes an active check and releases the command without approval',
-    async (action) => {
+  test.each([
+    { provider: 'claude-code', action: 'request-cancel' },
+    { provider: 'codex', action: 'request-cancel' },
+    { provider: 'claude-code', action: 'EOF' },
+    { provider: 'codex', action: 'EOF' },
+    { provider: 'claude-code', action: 'SIGINT' },
+    { provider: 'codex', action: 'SIGINT' },
+    { provider: 'claude-code', action: 'SIGTERM' },
+    { provider: 'codex', action: 'SIGTERM' },
+  ] as const)(
+    'active check cancellation or peer loss releases the command without approval: %j',
+    async ({ provider, action }) => {
       sandbox = createSandbox()
       const connection = await connect()
-      const key = identity()
+      const key = identity(provider)
       const command = await startCommand(key)
       const prompt = Promise.withResolvers<void>()
       const response = Promise.withResolvers<ElicitResult>()

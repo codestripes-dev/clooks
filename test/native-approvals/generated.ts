@@ -94,7 +94,11 @@ function snapshot(path: string, compare?: ManagedSnapshot['compare']): ManagedSn
   return { path, text: readFileSync(path, 'utf8'), ...(compare ? { compare } : {}) }
 }
 
-function assertApprovalPair(path: string, owner: string, observer?: Record<string, unknown>) {
+export function assertApprovalPair(
+  path: string,
+  owner: string,
+  observer?: Record<string, unknown>,
+) {
   const settings = JSON.parse(readFileSync(path, 'utf8'))
   const handlers = settings.hooks.PreToolUse.flatMap((group: any) => group.hooks)
   const pair = handlers.filter(
@@ -112,8 +116,25 @@ function assertApprovalPair(path: string, owner: string, observer?: Record<strin
   )
   assert.equal(pair[1].server, 'clooks')
   assert.equal(pair[1].tool, 'check')
-  assert.ok(pair.every((handler: any) => handler.timeout === 330))
+  assert.ok(pair.every((handler: any) => handler.timeout === 2_147_483))
+  assert.equal(pair[0].async, undefined)
   assert.equal(pair[1].input.owner, owner)
+}
+
+export function assertApprovalServer(path: string, provider: Provider) {
+  const text = readFileSync(path, 'utf8')
+  if (provider === 'claude') {
+    const server = JSON.parse(text).mcpServers.clooks
+    assert.equal(server.command, 'clooks')
+    assert.deepEqual(server.args, ['mcp'])
+    assert.equal(server.timeout, 2_147_483_000)
+  } else {
+    const server = (Bun.TOML.parse(text) as any).mcp_servers.clooks
+    assert.equal(server.command, 'clooks')
+    assert.deepEqual(server.args, ['mcp'])
+    assert.equal(server.startup_timeout_sec, 10)
+    assert.equal(server.tool_timeout_sec, 2_147_483)
+  }
 }
 
 function copyFixtureHooks(root: string, numbers: number[]) {
@@ -335,6 +356,23 @@ function setupGenerated(root: string, descriptor: GeneratedCaseDescriptor) {
         ? join(descriptor.scope === 'global' ? home : project, '.claude/settings.json')
         : join(descriptor.scope === 'global' ? home : project, '.codex/hooks.json')
     assertApprovalPair(registrationPath, owner)
+  }
+
+  for (const scope of descriptor.scope === 'combined'
+    ? ['project', 'global']
+    : [descriptor.scope]) {
+    const root = scope === 'global' ? home : project
+    assertApprovalServer(
+      join(
+        root,
+        provider === 'claude'
+          ? scope === 'global'
+            ? '.claude.json'
+            : '.mcp.json'
+          : '.codex/config.toml',
+      ),
+      provider,
+    )
   }
 
   if (descriptor.scope === 'combined') {

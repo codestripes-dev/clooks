@@ -260,7 +260,8 @@ Claude-selected init/uninstall support only the default layout: any defined
 remain independent. No new Claude receipt framework is introduced.
 
 PreToolUse gets a command plus `mcp_tool` companion (`clooks.check`), each with a
-330-second native timeout. Other events stay command-only. Registration paths:
+2,147,483-second native timeout from shared `APPROVAL_TIMEOUT_SECONDS` (about
+24.85 days, a finite fallback). Other events stay command-only. Registration paths:
 
 | Agent/scope | Hooks | MCP server |
 | --- | --- | --- |
@@ -273,8 +274,11 @@ PreToolUse gets a command plus `mcp_tool` companion (`clooks.check`), each with 
 through PATH. Foreign/conflicting entries are not overwritten. Claude JSON
 preserves unrelated values; the Codex TOML helper uses parsed token/range edits
 for owned fields, retaining unrelated content, comments and native disable/trust
-settings. Codex server defaults are ten-second startup and 330-second tool
-timeouts. Repeated canonical writes preserve bytes. Disk configuration does not
+settings. Codex retains ten-second startup and uses the shared 2,147,483 seconds
+for tool timeout. Claude project/global servers use the derived 2,147,483,000 ms
+`timeout`, overriding the wall timer and raising the default 30-minute stdio idle
+floor below the JavaScript timer ceiling. Re-init upgrades old owned entries;
+repeated canonical writes preserve bytes. Disk configuration does not
 prove native connection, trust or activation.
 
 Agent routing is explicit through `--agent claude-code`, `--agent codex`, or `--agent all`. Omitting `--agent` is equivalent to `--agent claude-code` for backward compatibility: project init writes `.claude/settings.json`, and global init writes `~/.claude/settings.json`.

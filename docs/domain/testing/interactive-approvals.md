@@ -121,6 +121,37 @@ Operation cases independently cover non-Bash objects and primitives plus Bash
 inputs with extra fields, multiline commands and control characters; none may
 use the compact display or lose input detail.
 
+Production Clooks excludes the interval after publication while attachment and
+an elicitation request are outstanding from its local execution deadline and
+passes exact `timeout: null` for that SDK request. The host supplies no prompt
+render acknowledgement: command-side credit begins at question publication,
+including bounded attachment and server pre-elicitation latency, while the server
+credits from immediately before requesting elicitation. Cancellation, disconnect
+and process death still refuse. Compiled engine E2E holds the prompt beyond a
+deliberately shorter per-hook timeout for both providers, then covers acceptance,
+refusal and cancellation without replay or later-hook execution. Compiled transport cases
+cover request cancellation and peer loss for both provider identities. These
+short tests prove that human response time is separate from hook execution; they
+do not simulate a five-minute wait. Injected-clock unit tests advance beyond the
+former 295-second Clooks budget and the former 330-second native registration value.
+Production registration now sets both paired handler timeouts and Codex's
+`tool_timeout_sec` to `2147483` seconds (about 24.85 days). Claude's owned MCP
+server `timeout` is `2147483000` milliseconds in project `.mcp.json` and global
+`HOME/.claude.json`. These finite values stay below the signed 32-bit millisecond
+timer boundary; they do not establish an unlimited native-host lifetime.
+
+Compiled registration E2E upgrades old 330-second pairs in both providers and
+scopes, preserving ownership, unrelated 111-second hooks, other event defaults,
+foreign servers, custom server environment/metadata, and repeated-init bytes.
+Generated native checks independently assert the literal handler and server
+values before launch, including both scopes in combined cases. The existing
+26-case native inventory must still pass acceptance, decline and cancellation
+with those generated values: normal pending prompts and attributed outcomes
+check for immediate timer overflow or expiry. Helper tests reject old limits,
+wrong units and asynchronous command registration; they do not establish native
+runtime behavior. The illustrative fixtures retain the shorter budgets described
+under Fixture Lifetime below.
+
 Each case retains `init.json`, `generated-registration.json`, native observations
 and `observed-packets.json`. Claude global cases may update native
 `HOME/.claude.json` metadata: compare owned `mcpServers` structurally, while

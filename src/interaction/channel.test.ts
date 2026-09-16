@@ -51,16 +51,6 @@ function output(result: Awaited<ReturnType<typeof handleApprovalCheck>>) {
   expect(result.isError).not.toBe(true)
   return JSON.parse(content.text)
 }
-async function until<T>(get: () => T | undefined): Promise<T> {
-  const deadline = Date.now() + 1000
-  while (Date.now() < deadline) {
-    const value = get()
-    if (value !== undefined) return value
-    await Bun.sleep(1)
-  }
-  throw new Error('Test barrier timed out')
-}
-
 for (const reversed of [false, true])
   test(`two exact approvals and neutral completion, reversed=${reversed}`, async () => {
     const f = fixture()
@@ -637,17 +627,122 @@ test('invocation signal publishes cancellation even when no request is pending',
   ).rejects.toThrow('cancelled')
 })
 
-test('deadline while eliciting aborts SDK work and latches timed-out refusal', async () => {
+test.each([
+  ['approve', { action: 'accept', content: { decision: 'Approve' } }, 'approved'],
+  ['decline', { action: 'decline' }, 'declined'],
+  ['cancel', { action: 'cancel' }, 'cancelled'],
+] as const)(
+  'human wait beyond old limits can %s without timing out',
+  async (_name, response, kind) => {
+    const f = fixture()
+    let now = Date.now()
+    const clock = { ...f.clock, now: () => now }
+    const command = await createApprovalInteraction({ identity: f.key }, clock)
+    const check = handleApprovalCheck(
+      f.key,
+      async (_params, options) => {
+        expect(options.timeout).toBeNull()
+        now += 331_000
+        return response
+      },
+      { runtime: clock },
+    )
+    expect((await command.request(question(), signal())).kind).toBe(kind)
+    await command.close()
+    const result = output(await check)
+    if (kind === 'approved') expect(result).toEqual({})
+    else expect(result.hookSpecificOutput.permissionDecision).toBe('deny')
+  },
+)
+
+test('a second approval succeeds after the first human wait exceeds old limits', async () => {
+  const f = fixture()
+  let now = Date.now()
+  let prompts = 0
+  const clock = { ...f.clock, now: () => now }
+  const command = await createApprovalInteraction({ identity: f.key }, clock)
+  const check = handleApprovalCheck(
+    f.key,
+    async (_params, { timeout }) => {
+      expect(timeout).toBeNull()
+      if (++prompts === 1) now += 331_000
+      return yes()
+    },
+    { runtime: clock },
+  )
+  expect(await command.request(question(), signal())).toEqual({ kind: 'approved' })
+  expect(await command.request(question(2), signal())).toEqual({ kind: 'approved' })
+  await command.close()
+  expect(output(await check)).toEqual({})
+  expect(prompts).toBe(2)
+})
+
+test('non-human budget resumes and can expire after a successful long approval', async () => {
   const f = fixture()
   let now = Date.now()
   const clock = { ...f.clock, now: () => now }
   const command = await createApprovalInteraction({ identity: f.key }, clock)
-  let emitted = false
   const check = handleApprovalCheck(
     f.key,
-    async (_params, { signal }) => {
-      emitted = true
-      now += limits.invocationMs
+    async () => {
+      now += 331_000
+      return yes()
+    },
+    { runtime: clock },
+  )
+  expect(await command.request(question(), signal())).toEqual({ kind: 'approved' })
+  now += limits.invocationMs - limits.reserveMs
+  const expired = await command.request(question(2), signal())
+  expect(expired.kind).toBe('timed-out')
+  await command.close()
+  const result = output(await check)
+  expect(result.hookSpecificOutput.permissionDecision).toBe('deny')
+  expect(result.hookSpecificOutput.permissionDecisionReason).toContain('deadline')
+})
+
+test('external cancellation after a long human wait still refuses and drains both peers', async () => {
+  const f = fixture()
+  let now = Date.now()
+  const clock = { ...f.clock, now: () => now }
+  const controller = new AbortController()
+  const command = await createApprovalInteraction({ identity: f.key }, clock)
+  let prompted!: () => void
+  const prompt = new Promise<void>((resolve) => {
+    prompted = resolve
+  })
+  const check = handleApprovalCheck(
+    f.key,
+    async (_params, { signal, timeout }) => {
+      expect(timeout).toBeNull()
+      now += 331_000
+      prompted()
+      await new Promise<void>((resolve) =>
+        signal.addEventListener('abort', () => resolve(), { once: true }),
+      )
+      return yes()
+    },
+    { signal: controller.signal, runtime: clock },
+  )
+  const request = command.request(question(), signal())
+  await prompt
+  controller.abort()
+  expect((await request).kind).toBe('cancelled')
+  await command.close()
+  expect(output(await check).hookSpecificOutput.permissionDecision).toBe('deny')
+})
+
+test('command death after a long human wait aborts elicitation without a timeout refusal', async () => {
+  const f = fixture()
+  let now = Date.now()
+  let alive = true
+  const clock = { ...f.clock, now: () => now, alive: () => alive }
+  const command = await createApprovalInteraction({ identity: f.key }, clock)
+  const check = handleApprovalCheck(
+    f.key,
+    async (_params, { signal, timeout }) => {
+      expect(timeout).toBeNull()
+      now += 331_000
+      alive = false
       await new Promise<void>((resolve) =>
         signal.addEventListener('abort', () => resolve(), { once: true }),
       )
@@ -655,9 +750,47 @@ test('deadline while eliciting aborts SDK work and latches timed-out refusal', a
     },
     { runtime: clock },
   )
-  const request = command.request(question(), signal())
-  await until(() => emitted || undefined)
-  expect((await request).kind).toBe('timed-out')
+  const reply = await command.request(question(), signal())
+  expect(reply.kind).toBe('unavailable')
+  if ('message' in reply) expect(reply.message).not.toContain('deadline')
   await command.close()
-  expect(output(await check).hookSpecificOutput.permissionDecision).toBe('deny')
+  const result = output(await check)
+  expect(result.hookSpecificOutput.permissionDecision).toBe('deny')
+  expect(result.hookSpecificOutput.permissionDecisionReason).not.toContain('deadline')
+})
+
+test('check death after a long human wait refuses and drains without a timeout', async () => {
+  const f = fixture()
+  let now = Date.now()
+  let checkAlive = true
+  const commandClock = { ...f.clock, now: () => now, alive: () => checkAlive }
+  const serverClock = { ...f.clock, now: () => now }
+  const command = await createApprovalInteraction({ identity: f.key }, commandClock)
+  let prompted!: () => void
+  const prompt = new Promise<void>((resolve) => {
+    prompted = resolve
+  })
+  const check = handleApprovalCheck(
+    f.key,
+    async (_params, { signal, timeout }) => {
+      expect(timeout).toBeNull()
+      now += 331_000
+      checkAlive = false
+      prompted()
+      await new Promise<void>((resolve) =>
+        signal.addEventListener('abort', () => resolve(), { once: true }),
+      )
+      return yes()
+    },
+    { runtime: serverClock },
+  )
+  const request = command.request(question(), signal())
+  await prompt
+  const reply = await request
+  expect(reply.kind).toBe('unavailable')
+  if ('message' in reply) expect(reply.message).not.toContain('deadline')
+  await command.close()
+  const result = output(await check)
+  expect(result.hookSpecificOutput.permissionDecision).toBe('deny')
+  expect(result.hookSpecificOutput.permissionDecisionReason).not.toContain('deadline')
 })

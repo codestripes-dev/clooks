@@ -24,6 +24,7 @@ const inputs = [
   'test',
   'schemas',
   'scripts',
+  'patches',
   'package.json',
   '.github/workflows/release.yml',
   'bun.lock',
@@ -33,7 +34,9 @@ const inputs = [
   '.clooks/vendor/plugin',
   '.dockerignore',
 ] as const
-const mounts = inputs.filter((path) => path !== 'bun.lock' && path !== '.dockerignore')
+const mounts = inputs.filter(
+  (path) => path !== 'bun.lock' && path !== '.dockerignore' && path !== 'patches',
+)
 const compare = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 
 export interface SelectionFile {

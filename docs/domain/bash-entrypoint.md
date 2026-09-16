@@ -104,7 +104,10 @@ inline-only guard applies. See [current capabilities](cross-agent-hooks.md#curre
 `registration-approvals.ts` supplies the exact metadata prefix and companion
 template. PreToolUse pairs the command with `clooks.check`, using native session
 and tool-use IDs plus Codex turn ID, literal provider/owner and protocol 1. Both
-handlers have 330-second budgets. Other events remain command-only. The engine
+handlers use shared `APPROVAL_TIMEOUT_SECONDS` of 2,147,483 seconds (about 24.85
+days, a finite native fallback). Codex MCP uses the same seconds value; Claude's
+server `timeout` uses the derived 2,147,483,000 ms to override its wall timer and
+raise its default 30-minute idle floor. Other events remain command-only. The engine
 waits at checkpoints; the launcher does not parse or consume approval tokens.
 The [former token transport](codex-approvals.md) and its native receipts are
 historical, not validation of this generated pairing.

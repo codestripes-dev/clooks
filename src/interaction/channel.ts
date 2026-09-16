@@ -10,6 +10,7 @@ import {
   limits,
   questionSchema,
   remaining,
+  resumeDeadline,
   replySchema,
   same,
   unavailable,
@@ -48,6 +49,7 @@ export async function createApprovalInteraction(
     deadline: claim.createdAt + limits.invocationMs - limits.reserveMs,
     disposition: options.disposition ?? 'run',
   }
+  let localDeadline = start.deadline
   let failure: Failure | undefined
   let publicationFailure: { error: unknown } | undefined
   let closed = false
@@ -112,7 +114,7 @@ export async function createApprovalInteraction(
       ])
       try {
         checkSignal(combined)
-        remaining(start.deadline, clock.now())
+        remaining(localDeadline, clock.now())
         if (start.disposition !== 'run')
           unavailable('Suppressed invocation cannot request approval')
         if (election.state === 'closed')
@@ -130,11 +132,12 @@ export async function createApprovalInteraction(
           question: snapshot,
           digest: questionDigest,
         })
-        const attachmentDeadline = Math.min(start.deadline, clock.now() + limits.attachmentMs)
+        const humanWaitStartedAt = clock.now()
+        const attachmentDeadline = Math.min(localDeadline, clock.now() + limits.attachmentMs)
         while (true) {
           checkSignal(combined)
-          remaining(start.deadline, clock.now())
           const attached = box.bound('attached', attachedSchema, start.nonce)
+          if (!attached) remaining(localDeadline, clock.now())
           const ended = box.bound('check-done', checkDoneSchema, start.nonce)
           if (ended) {
             const peer = box.bound('check', claimSchema)
@@ -153,7 +156,8 @@ export async function createApprovalInteraction(
               same(reply.checkId, peer.id, 'reply check')
               same(reply.ordinal, ordinal, 'reply ordinal')
               same(reply.digest, questionDigest, 'displayed operation')
-              remaining(start.deadline, clock.now())
+              localDeadline = resumeDeadline(localDeadline, humanWaitStartedAt, clock.now())
+              remaining(localDeadline, clock.now())
               checkSignal(combined)
               if (!reply.confirmed)
                 throw new InteractionError({

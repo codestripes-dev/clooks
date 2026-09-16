@@ -114,7 +114,8 @@ function pairing(
   const check = handlers.find((hook) => hook.type === 'mcp_tool')!
   const command = handlers.find((hook) => hook.type === 'command')!
   expect(command.command).toBeString()
-  expect(command.timeout).toBe(330)
+  expect(command.timeout).toBe(2_147_483)
+  expect(command).not.toHaveProperty('async')
   const owner = check.input?.owner
   if (scope === 'global') expect(owner).toBe('global')
   else expect(owner).toMatch(/^project:[a-f0-9]{32}$/)
@@ -122,7 +123,7 @@ function pairing(
     type: 'mcp_tool',
     server: 'clooks',
     tool: 'check',
-    timeout: 330,
+    timeout: 2_147_483,
     input: {
       protocol: 1,
       provider,
@@ -141,7 +142,8 @@ function pairing(
   const registeredServer = server(provider, scope, env, projectRoot)
   expect(registeredServer).toMatchObject({ command: 'clooks', args: ['mcp'] })
   if (provider === 'codex')
-    expect(registeredServer).toMatchObject({ startup_timeout_sec: 10, tool_timeout_sec: 330 })
+    expect(registeredServer).toMatchObject({ startup_timeout_sec: 10, tool_timeout_sec: 2_147_483 })
+  else expect(registeredServer).toMatchObject({ timeout: 2_147_483_000 })
   return { command: command.command!, check, server: registeredServer!, owner: owner as string }
 }
 function callFor(provider: Provider, pair: ReturnType<typeof pairing>) {
@@ -365,6 +367,61 @@ describe('compiled generated approval registrations', () => {
 
   for (const provider of ['claude-code', 'codex'] as const) {
     for (const scope of ['project', 'global'] as const) {
+      test(`${provider} ${scope}: re-init upgrades 330-second approvals and preserves unrelated metadata`, () => {
+        sandbox = createRegistrationSandbox()
+        seed(provider, scope)
+        init(provider, scope)
+        const original = pairing(provider, scope)
+        const destination = paths(provider, scope)
+        const document = json(destination.hooks) as HooksFile
+        const group = document.hooks!.PreToolUse!.find((entry) =>
+          entry.hooks.some((hook) => hook.type === 'mcp_tool' && hook.server === 'clooks'),
+        )!
+        for (const handler of group.hooks) handler.timeout = 330
+        const unrelated = { ...foreignHandler, command: 'printf unrelated-timeout', timeout: 111 }
+        document.hooks!.PreToolUse!.unshift({ hooks: [unrelated] })
+        const { PreToolUse: _pre, ...otherEvents } = document.hooks!
+        sandbox.writeFile(relative(sandbox.dir, destination.hooks), JSON.stringify(document))
+        const metadata = {
+          env: { KEEP_APPROVAL_METADATA: 'retained' },
+          description: 'keep server metadata',
+        }
+        if (provider === 'claude-code') {
+          const servers = json(destination.server)
+          Object.assign(servers.mcpServers.clooks, metadata, { timeout: 330_000 })
+          sandbox.writeFile(relative(sandbox.dir, destination.server), JSON.stringify(servers))
+        } else {
+          sandbox.writeFile(
+            relative(sandbox.dir, destination.server),
+            foreignTomlRoot +
+              '[mcp_servers.clooks]\ncommand = "clooks"\nargs = ["mcp"]\n' +
+              'startup_timeout_sec = 10\ntool_timeout_sec = 330 # upgrade this value\n' +
+              'description = "keep server metadata"\n' +
+              'env = { KEEP_APPROVAL_METADATA = "retained" }\n\n' +
+              foreignTomlTable,
+          )
+        }
+        init(provider, scope)
+        const upgraded = pairing(provider, scope)
+        expect(upgraded.owner).toBe(original.owner)
+        expect(upgraded.command).toBe(original.command)
+        expect(upgraded.server).toMatchObject(metadata)
+        preserved(provider, scope)
+        const { PreToolUse, ...remainingEvents } = json(destination.hooks).hooks
+        expect(remainingEvents).toEqual(otherEvents)
+        expect(PreToolUse.flatMap((entry: { hooks: Handler[] }) => entry.hooks)).toContainEqual(
+          unrelated,
+        )
+        if (provider === 'codex')
+          expect(bytes(destination.server)).toContain(
+            'tool_timeout_sec = 2147483 # upgrade this value',
+          )
+        const upgradedBytes = [bytes(destination.hooks), bytes(destination.server)]
+        init(provider, scope)
+        expect([bytes(destination.hooks), bytes(destination.server)]).toEqual(upgradedBytes)
+        expect(pairing(provider, scope).owner).toBe(original.owner)
+      })
+
       test(`${provider} ${scope}: generated command and server consent, preservation and byte-stable init`, async () => {
         sandbox = createRegistrationSandbox()
         seed(provider, scope)

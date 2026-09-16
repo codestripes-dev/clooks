@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync }
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+  APPROVAL_TIMEOUT_SECONDS,
   approvalCommand,
   approvalCompanion,
   isApprovalCompanion,
@@ -30,6 +31,34 @@ beforeEach(() => {
 afterEach(() => rmSync(root, { recursive: true, force: true }))
 
 for (const agent of ['claude-code', 'codex'] as const) {
+  test(`${agent} re-registration upgrades both old native budgets once`, () => {
+    const command =
+      agent === 'codex' ? makeCodexProjectEntrypointCommand('a'.repeat(32)) : CLOOKS_ENTRYPOINT_PATH
+    const owned = agent === 'codex' ? isCodexClooksHook : isClooksHook
+    const unrelated = {
+      matcher: 'Write',
+      extension: { keep: true },
+      hooks: [{ type: 'command', command: 'other-hook', timeout: 7 }],
+    }
+    const oldPair = {
+      matcher: '*',
+      hooks: [
+        { type: 'command', command: approvalCommand(agent, owner, command), timeout: 330 },
+        { ...approvalCompanion(agent, owner), timeout: 330 },
+      ],
+    }
+    const updated = registerApprovalPair([unrelated, oldPair], agent, command, { owner }, owned)
+    expect(updated.changed).toBe(true)
+    expect(updated.existed).toBe(true)
+    expect(updated.groups[0]).toBe(unrelated)
+    expect(updated.groups[1]?.hooks).toEqual(
+      oldPair.hooks.map((hook) => ({ ...hook, timeout: APPROVAL_TIMEOUT_SECONDS })),
+    )
+    const repeated = registerApprovalPair(updated.groups, agent, command, { owner }, owned)
+    expect(repeated.changed).toBe(false)
+    expect(repeated.groups).toBe(updated.groups)
+  })
+
   test(`${agent} paired canonicalization removes duplicates but preserves mixed group metadata`, () => {
     const command =
       agent === 'codex' ? makeCodexProjectEntrypointCommand('a'.repeat(32)) : CLOOKS_ENTRYPOINT_PATH
@@ -60,6 +89,12 @@ for (const agent of ['claude-code', 'codex'] as const) {
     expect(again.groups).toBe(result.groups)
   })
 }
+
+test('native timeout uses the largest whole seconds below the millisecond timer ceiling', () => {
+  expect(APPROVAL_TIMEOUT_SECONDS).toBe(2_147_483)
+  expect(APPROVAL_TIMEOUT_SECONDS * 1000).toBeLessThanOrEqual(2_147_483_647)
+  expect((APPROVAL_TIMEOUT_SECONDS + 1) * 1000).toBeGreaterThan(2_147_483_647)
+})
 
 test('quoted Claude global paired command-only remnants are recognized, repaired once, and unregistered', () => {
   const home = join(root, "home 'with quotes'")

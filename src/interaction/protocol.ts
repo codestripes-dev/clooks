@@ -10,7 +10,6 @@ export const limits = Object.freeze({
   discoveryMs: 1_000,
   attachmentMs: 3_000,
   pollMs: 20,
-  sdkMs: 325_000,
   packetBytes: 65_536,
   questions: 32,
   retentionMs: 600_000,
@@ -182,6 +181,10 @@ export function remaining(deadline: number, now: number): number {
   if (now >= deadline)
     throw new InteractionError({ kind: 'timed-out', message: 'Approval deadline exceeded' })
   return deadline - now
+}
+export function resumeDeadline(deadline: number, waitStartedAt: number, now: number): number {
+  const elapsed = Math.max(0, now - waitStartedAt)
+  return Math.min(Number.MAX_SAFE_INTEGER, deadline + elapsed)
 }
 export function checkSignal(signal?: AbortSignal): void {
   if (signal?.aborted)

@@ -18,6 +18,7 @@ import {
   limits,
   questionPacketSchema,
   remaining,
+  resumeDeadline,
   same,
   startSchema,
   unavailable,
@@ -34,7 +35,7 @@ import {
 
 export type ElicitApproval = (
   params: ElicitRequestFormParams,
-  options: { signal: AbortSignal; timeout: number },
+  options: { signal: AbortSignal; timeout: number | null },
 ) => Promise<unknown>
 
 function approvalMessage(question: z.infer<typeof questionSchema>): string {
@@ -112,6 +113,7 @@ export async function handleApprovalCheck(
       await clock.pause(limits.pollMs, options.signal)
     }
     if (start) {
+      let localDeadline = start.deadline
       const completed = () => {
         const done = box!.bound('done', doneSchema, start!.nonce)
         if (done || clock.alive(start!.pid)) return done
@@ -129,7 +131,7 @@ export async function handleApprovalCheck(
           if (done.failure) throw new InteractionError(done.failure)
           break
         }
-        remaining(start.deadline, clock.now())
+        remaining(localDeadline, clock.now())
         if (!attached) {
           box.publish('attached', { version: 1, key, nonce: start.nonce, checkId: claim.id })
           attached = true
@@ -147,10 +149,10 @@ export async function handleApprovalCheck(
         same(question.digest, digest(question.question), 'question snapshot')
         const stop = new AbortController()
         const signal = AbortSignal.any([stop.signal, ...(options.signal ? [options.signal] : [])])
+        const humanWaitStartedAt = clock.now()
         const monitor = (async () => {
           while (true) {
             checkSignal(signal)
-            remaining(start!.deadline, clock.now())
             if (completed()) unavailable('Approval command completed during elicitation')
             await clock.pause(limits.pollMs, signal)
           }
@@ -174,16 +176,17 @@ export async function handleApprovalCheck(
                   required: ['decision'],
                 },
               },
-              { signal, timeout: Math.min(limits.sdkMs, remaining(start.deadline, clock.now())) },
+              { signal, timeout: null },
             ),
             monitor,
           ])
         } finally {
           stop.abort()
           await monitor.catch(() => {})
+          localDeadline = resumeDeadline(localDeadline, humanWaitStartedAt, clock.now())
         }
         checkSignal(options.signal)
-        remaining(start.deadline, clock.now())
+        remaining(localDeadline, clock.now())
         if (completed()) unavailable('Late approval response after command completion')
         const reply = confirmationSchema.parse(response)
         if (reply.action !== 'accept' || reply.content?.decision !== 'Approve') {

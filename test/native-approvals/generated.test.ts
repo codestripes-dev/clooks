@@ -12,6 +12,8 @@ import {
 } from '../fixtures/production-approvals/evidence'
 import type { Row } from '../fixtures/production-approvals/records'
 import {
+  assertApprovalPair,
+  assertApprovalServer,
   finalizeGeneratedCase,
   generatedCases,
   generatedNames,
@@ -19,6 +21,71 @@ import {
   type GeneratedRuntime,
 } from './generated'
 import { launch } from './native'
+
+test('generated pair oracle rejects stale, overflowing and asynchronous registrations', () => {
+  const root = mkdtempSync(join(tmpdir(), 'clooks-generated-timeout-'))
+  const path = join(root, 'hooks.json')
+  try {
+    const pair = [
+      { type: 'command', command: 'clooks', timeout: 2_147_483 },
+      {
+        type: 'mcp_tool',
+        server: 'clooks',
+        tool: 'check',
+        timeout: 2_147_483,
+        input: { owner: 'global' },
+      },
+    ]
+    const put = (hooks: unknown[]) =>
+      writeFileSync(path, JSON.stringify({ hooks: { PreToolUse: [{ hooks }] } }))
+    put(pair)
+    expect(() => assertApprovalPair(path, 'global')).not.toThrow()
+    for (const index of [0, 1]) {
+      for (const timeout of [undefined, 0, 330, 2_147_484, 2_147_483_000]) {
+        put(pair.map((handler, i) => (i === index ? { ...handler, timeout } : handler)))
+        expect(() => assertApprovalPair(path, 'global')).toThrow()
+      }
+    }
+    put([{ ...pair[0], async: true }, pair[1]])
+    expect(() => assertApprovalPair(path, 'global')).toThrow()
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test.each(['claude', 'codex'] as const)(
+  '%s generated server oracle enforces the correct timeout unit',
+  (provider) => {
+    const root = mkdtempSync(join(tmpdir(), 'clooks-generated-server-timeout-'))
+    const path = join(root, provider === 'claude' ? '.mcp.json' : 'config.toml')
+    try {
+      const put = (timeout: number | undefined) =>
+        writeFileSync(
+          path,
+          provider === 'claude'
+            ? JSON.stringify({
+                mcpServers: { clooks: { command: 'clooks', args: ['mcp'], timeout } },
+              })
+            : '[mcp_servers.clooks]\ncommand = "clooks"\nargs = ["mcp"]\nstartup_timeout_sec = 10\n' +
+                (timeout === undefined ? '' : `tool_timeout_sec = ${timeout}\n`),
+        )
+      put(provider === 'claude' ? 2_147_483_000 : 2_147_483)
+      expect(() => assertApprovalServer(path, provider)).not.toThrow()
+      for (const timeout of [
+        undefined,
+        0,
+        330,
+        330_000,
+        provider === 'claude' ? 2_147_483 : 2_147_483_000,
+      ]) {
+        put(timeout)
+        expect(() => assertApprovalServer(path, provider)).toThrow()
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  },
+)
 
 function fixture(
   provider: 'claude' | 'codex' = 'codex',

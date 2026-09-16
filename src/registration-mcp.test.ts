@@ -20,6 +20,7 @@ import {
 import { prepareInitRegistrations } from './commands/init-registration.js'
 import { prepareProjectIdentity } from './registration-project.js'
 import { prepareRegistrationWrite, readRegistrationText } from './registration-file.js'
+import { APPROVAL_TIMEOUT_SECONDS } from './registration-approvals.js'
 
 let root: string
 let saved: NodeJS.ProcessEnv
@@ -88,6 +89,7 @@ test('Claude preserves native disable/trust values and unrelated servers exactly
         type: 'stdio',
         command: 'clooks',
         args: ['mcp'],
+        timeout: APPROVAL_TIMEOUT_SECONDS * 1000,
         enabled: false,
         env: { KEEP: 'yes' },
       },
@@ -102,19 +104,75 @@ test('Claude preserves native disable/trust values and unrelated servers exactly
   expect(removed).toEqual({ ...document, mcpServers: { foreign: document.mcpServers.foreign } })
 })
 
-test('Codex edits owned timeout leaves without reformatting disabled, env, or unrelated rich TOML', () => {
+for (const global of [false, true]) {
+  for (const timeout of [undefined, 330_000]) {
+    test(`Claude upgrades owned server timeout once, global=${global}, old=${timeout}`, () => {
+      const path = mcpRegistrationPath(root, 'claude-code', global)
+      const document = {
+        disabledMcpServers: ['clooks'],
+        trust: false,
+        mcpServers: {
+          foreign: { command: 'other', timeout: 123 },
+          clooks: {
+            type: 'stdio',
+            command: 'clooks',
+            args: ['mcp'],
+            ...(timeout === undefined ? {} : { timeout }),
+            enabled: false,
+            env: { KEEP: 'yes' },
+          },
+        },
+      }
+      const original = JSON.stringify(document)
+      writeFileSync(path, original)
+      const upgrade = prepareMcpRegistration(path, 'claude-code')
+      expect(upgrade.changed).toBe(true)
+      expect(readFileSync(path, 'utf8')).toBe(original)
+      upgrade.commit()
+      const bytes = readFileSync(path, 'utf8')
+      expect(JSON.parse(bytes)).toEqual({
+        ...document,
+        mcpServers: {
+          ...document.mcpServers,
+          clooks: {
+            ...document.mcpServers.clooks,
+            timeout: APPROVAL_TIMEOUT_SECONDS * 1000,
+          },
+        },
+      })
+      const inode = statSync(path).ino
+      const repeated = prepareMcpRegistration(path, 'claude-code')
+      expect(repeated.changed).toBe(false)
+      repeated.commit()
+      expect(readFileSync(path, 'utf8')).toBe(bytes)
+      expect(statSync(path).ino).toBe(inode)
+    })
+  }
+}
+
+test('Codex upgrades the old tool timeout once without reformatting unrelated rich TOML', () => {
   const path = join(root, 'config.toml')
   const prefix = '# unrelated\nwhen = 1979-05-27T07:32:00Z\nbig = 9007199254740993\n'
   const bytes =
     prefix +
-    '[mcp_servers.clooks]\ncommand = "clooks"\nargs = ["mcp"]\nenabled = false\ntool_timeout_sec = 60 # timeout\n[mcp_servers.clooks.env]\nKEEP = "value"\n'
+    '[mcp_servers.clooks]\ncommand = "clooks"\nargs = ["mcp"]\nenabled = false\nstartup_timeout_sec = 10\ntool_timeout_sec = 330 # timeout\n[mcp_servers.clooks.env]\nKEEP = "value"\n[mcp_servers.foreign]\ncommand = "other"\ntool_timeout_sec = 42\n'
   writeFileSync(path, bytes)
-  prepareMcpRegistration(path, 'codex').commit()
+  const upgrade = prepareMcpRegistration(path, 'codex')
+  expect(upgrade.changed).toBe(true)
+  upgrade.commit()
   const updated = readFileSync(path, 'utf8')
   expect(updated.startsWith(prefix)).toBe(true)
   expect(updated).toContain('enabled = false')
-  expect(updated).toContain('tool_timeout_sec = 330 # timeout')
+  expect(updated).toBe(
+    bytes.replace('tool_timeout_sec = 330', `tool_timeout_sec = ${APPROVAL_TIMEOUT_SECONDS}`),
+  )
   expect(updated).toContain('KEEP = "value"')
+  const inode = statSync(path).ino
+  const repeated = prepareMcpRegistration(path, 'codex')
+  expect(repeated.changed).toBe(false)
+  repeated.commit()
+  expect(readFileSync(path, 'utf8')).toBe(updated)
+  expect(statSync(path).ino).toBe(inode)
 })
 
 for (const bytes of ['{invalid', '[]', 'null', '{"mcpServers":[]}']) {

@@ -2,7 +2,8 @@ import { isDeepStrictEqual } from 'node:util'
 import type { AgentId } from './agents/types.js'
 import { isRegistrationObject, type RegistrationGroup } from './registration-file.js'
 
-export const APPROVAL_TIMEOUT_SECONDS = 330
+// Largest whole-second native timeout below the signed 32-bit millisecond timer ceiling.
+export const APPROVAL_TIMEOUT_SECONDS = 2_147_483
 const OWNER = /^(?:global|project:[a-f0-9]{32})$/
 
 export interface ApprovalRegistration {

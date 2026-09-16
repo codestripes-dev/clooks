@@ -186,7 +186,7 @@ describe('clooks init', () => {
           {
             type: 'command',
             command: approvalCommand('claude-code', owner, CLOOKS_ENTRYPOINT_PATH),
-            timeout: 330,
+            timeout: 2_147_483,
           },
           approvalCompanion('claude-code', owner),
         ])
@@ -551,7 +551,7 @@ describe('clooks init', () => {
                   `project:${projectId}`,
                   makeCodexProjectEntrypointCommand(projectId, true),
                 ),
-                timeout: 330,
+                timeout: 2_147_483,
               },
               approvalCompanion('codex', `project:${projectId}`),
             ]
@@ -827,7 +827,7 @@ describe('clooks init --global', () => {
               'global',
               codexSettings.quotePosixSingleArg(expectedPath),
             ),
-            timeout: 330,
+            timeout: 2_147_483,
           },
           approvalCompanion('claude-code', 'global'),
         ])
@@ -993,7 +993,7 @@ describe('clooks init --global', () => {
               {
                 type: 'command',
                 command: approvalCommand('codex', 'global', expectedCommand),
-                timeout: 330,
+                timeout: 2_147_483,
               },
               approvalCompanion('codex', 'global'),
             ]

@@ -53,6 +53,7 @@ function fixture(fileCount = 2) {
     'test/docker-entrypoint.sh',
     'schemas/example.json',
     'scripts/example.ts',
+    'patches/example.patch',
     'package.json',
     '.github/workflows/release.yml',
     'bun.lock',
@@ -445,6 +446,9 @@ test('fingerprint covers actual inputs and tooling but excludes attempt artifact
   const next = sourceIdentity(root)
   put('test/tooling/run-validation.ts', 'changed')
   expect(sourceIdentity(root)).not.toBe(next)
+  const withToolingChange = sourceIdentity(root)
+  put('patches/example.patch', 'changed patch')
+  expect(sourceIdentity(root)).not.toBe(withToolingChange)
 })
 
 test('summary counts reject zero, missing and failing execution', () => {
@@ -519,6 +523,7 @@ test.each([1, 2, 4, 8] as const)(
       expect(args).not.toContain('--user')
       expect(args).not.toContain('--network')
       expect(args).toContain(`type=bind,src=${root}/bunfig.toml,dst=/app/bunfig.toml,readonly`)
+      expect(args.some((arg) => arg.includes('/patches'))).toBe(false)
       expect(args.slice(args.indexOf(imageID) + 1, args.indexOf(imageID) + 7)).toEqual([
         '-u',
         'CLAUDECODE',

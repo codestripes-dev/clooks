@@ -37,13 +37,13 @@
           {
             "type": "command",
             "command": "CLOOKS_APPROVAL_PROTOCOL=1 CLOOKS_APPROVAL_OWNER=project:ce0a4cfa47c6b6676e7c84a5014187f8 CLOOKS_APPROVAL_DISPOSITION=run CLOOKS_AGENT=claude-code \"$CLAUDE_PROJECT_DIR\"/.clooks/bin/entrypoint.sh",
-            "timeout": 330
+            "timeout": 2147483
           },
           {
             "type": "mcp_tool",
             "server": "clooks",
             "tool": "check",
-            "timeout": 330,
+            "timeout": 2147483,
             "input": {
               "protocol": 1,
               "provider": "claude-code",

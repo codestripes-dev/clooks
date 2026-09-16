@@ -11,6 +11,7 @@ import {
   operationSchema,
   questionSchema,
   remaining,
+  resumeDeadline,
   same,
   startSchema,
 } from './protocol.js'
@@ -115,7 +116,7 @@ test('exact operation validation retains opaque keys and non-record JSON', () =>
   )
 })
 
-test('questions, whole-invocation lifetime and confirmation are bounded', () => {
+test('questions, non-human invocation budget and confirmation are bounded', () => {
   const question = {
     hookName: 'guard',
     reason: 'Confirm',
@@ -146,6 +147,9 @@ test('questions, whole-invocation lifetime and confirmation are bounded', () => 
   expect(questionSchema.safeParse({ ...question, reason: 'x'.repeat(8193) }).success).toBe(false)
   expect(() => remaining(100, 100)).toThrow('deadline')
   expect(remaining(100, 99)).toBe(1)
+  expect(resumeDeadline(100, 20, 55)).toBe(135)
+  expect(resumeDeadline(100, 55, 20)).toBe(100)
+  expect(resumeDeadline(Number.MAX_SAFE_INTEGER - 5, 0, 10)).toBe(Number.MAX_SAFE_INTEGER)
   expect(
     startSchema.safeParse({
       version: 1,

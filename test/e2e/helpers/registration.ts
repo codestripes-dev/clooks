@@ -21,13 +21,13 @@ export function expectPreToolUsePair(
         {
           type: 'command',
           command: `CLOOKS_APPROVAL_PROTOCOL=1 CLOOKS_APPROVAL_OWNER=${owner} CLOOKS_APPROVAL_DISPOSITION=run ${agentPrefix}${launcher}`,
-          timeout: 330,
+          timeout: 2_147_483,
         },
         {
           type: 'mcp_tool',
           server: 'clooks',
           tool: 'check',
-          timeout: 330,
+          timeout: 2_147_483,
           input: {
             protocol: 1,
             provider,

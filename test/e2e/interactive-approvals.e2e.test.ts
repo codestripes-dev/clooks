@@ -154,8 +154,13 @@ async function paired(provider: Provider) {
 
 describe('compiled engine live approvals', () => {
   for (const provider of ['claude-code', 'codex'] as const) {
-    for (const declineAt of [0, 1, 2]) {
-      test(`${provider}: two checkpoints, decline at ${declineAt || 'neither'}, no replay or premature output`, async () => {
+    for (const scenario of [
+      { stopAt: 0, action: 'accept', label: 'accept both' },
+      { stopAt: 1, action: 'decline', label: 'decline first' },
+      { stopAt: 2, action: 'decline', label: 'decline second' },
+      { stopAt: 1, action: 'cancel', label: 'cancel first' },
+    ] as const) {
+      test(`${provider}: delayed ${scenario.label} preserves checkpoint ordering and hook timeout isolation`, async () => {
         sandbox = createSandbox()
         const names = ['first', 'ask-a', 'middle', 'ask-b', 'last']
         for (const name of names)
@@ -188,33 +193,35 @@ describe('compiled engine live approvals', () => {
         expect(engine.process.exitCode).toBeNull()
         expect(handlers()).toEqual(['first', 'ask-a'])
         first.reply(
-          declineAt === 1
-            ? { action: 'decline' }
+          scenario.stopAt === 1
+            ? { action: scenario.action }
             : { action: 'accept', content: { decision: 'Approve' } },
         )
-        if (declineAt !== 1) {
+        if (scenario.stopAt !== 1) {
           const second = await peer.nextPrompt()
           expect(second.question).toMatchObject({ hookName: 'ask-b', ordinal: 2, reason: 'ask-b' })
           expect(second.question).not.toHaveProperty('question')
           expect(handlers()).toEqual(['first', 'ask-a', 'middle', 'ask-b'])
           expect(engine.stdout).toBe('')
           second.reply(
-            declineAt === 2
+            scenario.stopAt === 2
               ? { action: 'decline' }
               : { action: 'accept', content: { decision: 'Approve' } },
           )
         }
         const result = await bounded(engine.result, 'Engine result')
         const checkResult = await check
-        assertCompanion(
-          checkResult,
-          declineAt ? 'Approval was not positively confirmed' : undefined,
-        )
+        const refusal = scenario.stopAt
+          ? scenario.action === 'cancel'
+            ? 'Approval cancelled'
+            : 'Approval was not positively confirmed'
+          : undefined
+        assertCompanion(checkResult, refusal)
         const peerResult = companion(checkResult)
-        if (declineAt) {
+        if (scenario.stopAt) {
           denied(result)
           expect(peerResult.hookSpecificOutput.permissionDecision).toBe('deny')
-          expect(handlers()).toEqual(names.slice(0, declineAt === 1 ? 2 : 4))
+          expect(handlers()).toEqual(names.slice(0, scenario.stopAt === 1 ? 2 : 4))
         } else {
           approved(result, provider, {
             reason: 'ask-b',
@@ -223,10 +230,13 @@ describe('compiled engine live approvals', () => {
           expect(peerResult).toEqual({})
           expect(handlers()).toEqual(names)
         }
-        expect(peer.prompts).toHaveLength(declineAt || 2)
+        expect(peer.prompts).toHaveLength(scenario.stopAt || 2)
         expect(peer.errors).toEqual([])
         expect(peer.stderr).toBe('')
-        completion(call.identity)
+        const done = completion(call.identity)
+        expect(done.failure?.kind).toBe(
+          scenario.stopAt ? (scenario.action === 'cancel' ? 'cancelled' : 'declined') : undefined,
+        )
         expect(sandbox.homeFileExists('.clooks/approvals/codex.sqlite')).toBe(false)
 
         // Read the same hook's next-invocation history, without another ask or replay.

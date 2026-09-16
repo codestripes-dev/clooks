@@ -176,8 +176,12 @@ Codex behavior notes are summarized here because planning and research artifacts
 Registration data is validated before transformation. Invalid managed containers or JSON produce actionable errors without rewriting the original registration file; detection inspects all events and refuses ambiguous structures. Unknown metadata and untraversed event values are retained. Both agents use atomic file replacement with mode preservation and reject registration-file symlinks, including dangling links. This is per-file recoverability, not a multi-agent transaction.
 
 Paired registration has passed compiled validation and review. Each PreToolUse
-command and `clooks.check` companion gets 330 seconds and explicit provider,
-owner and protocol metadata. Project Claude has a separate persisted owner
+command and `clooks.check` companion gets the shared 2,147,483-second native
+fallback (about 24.85 days) and explicit provider, owner and protocol metadata.
+Codex MCP tool timeout uses the same seconds; Claude server `timeout` uses
+2,147,483,000 ms, overriding its wall timer and raising the default 30-minute idle
+floor. This finite fallback leaves Clooks' cancellation-only human wait and
+hook/startup/attachment budgets unchanged. Project Claude has a separate persisted owner
 marker; Codex reuses its locator marker. Claude server files are project
 `.mcp.json` and global `HOME/.claude.json`; Codex uses `config.toml` beside its
 hooks file. Claude-selected operations reject any defined `CLAUDE_CONFIG_DIR`

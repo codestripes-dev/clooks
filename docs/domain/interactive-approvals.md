@@ -119,7 +119,9 @@ not consent, native permission or proof that a tool ran.
 Registration has passed compiled validation and independent review; this is not
 generated-registration native conformance. `registration-approvals.ts`
 creates a PreToolUse command/`mcp_tool` pair with explicit protocol, provider and
-owner and 330-second native budgets. The companion calls `clooks.check` with
+owner and `APPROVAL_TIMEOUT_SECONDS` native budgets of 2,147,483 seconds
+(about 24.85 days). This is the very-high finite native fallback; it is not an
+infinite timer. The companion calls `clooks.check` with
 native session/tool-use IDs and Codex turn ID. Other events stay command-only.
 `registration-project.ts` prepares separate Claude/Codex project markers; Codex
 reuses its existing locator marker. Global owner is literal `global`.
@@ -131,6 +133,13 @@ helper parses before range edits, preserves unrelated syntax/comments and edits
 owned command/args/timeouts without whole-file serialization. Init preflights
 selected settings, server destinations, identities and shared outputs before
 committing per file. Foreign server conflicts are not overwritten.
+Codex uses the same seconds value for `tool_timeout_sec` and retains ten-second
+startup. Claude project/global server entries use the derived 2,147,483,000
+milliseconds in `timeout`, overriding the wall timer and raising the default
+30-minute stdio idle floor. The value remains below the signed 32-bit millisecond
+timer ceiling. Re-init upgrades older owned entries while retaining unrelated
+metadata; canonical entries are byte-preserving no-ops. These registration
+budgets do not change hook execution, discovery, attachment or SDK cancellation.
 
 Claude-selected init/uninstall reject any defined `CLAUDE_CONFIG_DIR`, including
 empty/default-valued overrides, and existing `HOME/.claude/.config.json` before
@@ -202,11 +211,22 @@ Only an elicitation response with `action: accept` and exact content
 `{ decision: "Approve" }` approves. The local response parser is strict even
 though the requested form schema cannot advertise `additionalProperties`:
 missing or malformed content and unexpected top-level or content fields do not
-approve. Decline, cancellation, missing peers and expiry also do not. Wire
+approve. Decline, cancellation, missing peers and expiry of bounded non-human
+work also do not. Wire
 consent is separate from the correlated internal `confirmed: boolean` mailbox
 reply.
-The active request monitors command completion/death and the invocation deadline;
-late answers cannot reopen completed work.
+Before attachment and after a response, the active request monitors command
+completion/death and its local invocation deadline. Human response time is not
+charged to that deadline: the command timestamps the wait when it publishes the
+question, including the bounded attachment interval and server pre-elicitation
+latency, and the server timestamps it immediately before requesting elicitation.
+The host supplies no acknowledgement that a prompt rendered. Each peer extends
+its local deadline by its own observed interval. For later questions, the
+invocation-scoped attachment already exists, so the command relies on the
+server's pre-elicitation budget check during that latency. The immutable wire
+deadline is retained for correlation, abandoned-state cleanup and bounded
+non-human work. During elicitation the server still monitors cancellation,
+disconnect and command death, and late answers cannot reopen completed work.
 
 Successful completion, suppression and unmatched closure return text containing
 `{}`. Observable failures return text containing native `PreToolUse` denial JSON
@@ -218,6 +238,13 @@ tool input. Direct model calls without a matching command cannot mint consent.
 TypeScript MCP SDK. It advertises only `check`, limits concurrent checks and
 tracks their promises. Recoverable SDK protocol reports, including a late reply
 to a cancelled elicitation RPC, do not close the server or unrelated checks.
+The pinned SDK 1.26 dependency has a maintained patch adding exact
+`RequestOptions.timeout: null`; Clooks uses that value for elicitation so the SDK
+does not install its own response timer. With exact `null`, SDK
+`maxTotalTimeout` and `resetTimeoutOnProgress` have no timer to cap or reset.
+Omitted timeout still means 60 seconds, numeric values retain their original
+behavior, and abort-signal cancellation, result validation and late-response
+cleanup remain active.
 There is no server-wide abort handler on generic `server.onerror`. Tests can
 connect SDK in-memory transports or inject an
 elicitation function into the lower-level handler. SDK runtime imports are kept
@@ -253,11 +280,11 @@ Internal defaults, not user configuration:
 
 | Limit | Value |
 | --- | --- |
-| Active invocation budget | 295 seconds, from 300 seconds minus a 5-second reserve |
+| Active non-human invocation budget | 295 seconds, from 300 seconds minus a 5-second reserve; paused for each human approval wait |
 | Unmatched check discovery | 1 second |
 | Command attachment wait | 3 seconds, capped by remaining invocation time |
 | Poll interval | 20 ms |
-| SDK elicitation timeout cap | 325 seconds, capped by remaining active time |
+| SDK human-response timeout | Disabled with exact `timeout: null`; cancellation and peer/process death remain active |
 | Packet size | 64 KiB |
 | Questions per invocation | 32 |
 | Concurrent server checks | 64 |
@@ -291,6 +318,11 @@ tokens.
 identity/JSON validation and exchange scenarios: both arrival orders, immutable
 questions, non-positive replies, crossed identities, duplicate claims, bounded
 missing attachment/deadline, cancellation and command-death completion races.
+Injected-clock cases advance 331 seconds inside elicitation before the command
+can poll again, proving approval, decline and cancel are not converted into a
+Clooks timeout. `src/interaction/sdk-timeout.test.ts` exercises the real SDK
+request path: null creates no timer, omitted and numeric values retain timers,
+and abort still cancels and drains a null-timeout request.
 `storage.test.ts` covers permission/publication boundaries, exact terminal
 retention, dead-role grace, active-role preservation and cursor progress beyond
 128 unprunable entries. `server.test.ts` uses the official SDK for initialization,
@@ -304,8 +336,14 @@ See [Testing](testing.md) for the Docker-only compiled test workflow and
 [native approval probes](testing/interactive-approvals.md) for separate fixture
 evidence.
 
-Native availability and transport correctness are distinct. The Codex cold-child
-lazy-start limitation is not fixed by this server, and production warming is not
-prescribed. Native expiry or loss of both enforcing peers can permit execution;
-controlled failures must deliver denial before the upstream deadline. Native
-fixture acceptance does not establish compiled engine or release behavior.
+Native availability and transport correctness are distinct. Clooks imposes no
+human-response timer, while generated native registrations use the very-high
+finite fallback described above. Claude Code 2.1.273 treats hook timeout zero as
+hook exclusion and omission as 600 seconds. Its recorded short-timeout probe
+aborted MCP before Bash proceeded, so eventual native expiry or loss of both
+enforcing peers can still permit execution without consent. Codex 0.154 pauses
+its MCP handler during elicitation but retains a separate bounded command handler.
+Older registrations keep their former 330-second values until explicitly
+refreshed with init. The Codex cold-child lazy-start limitation remains, and
+production warming is not prescribed. Native fixture acceptance does not
+establish compiled engine or release behavior.

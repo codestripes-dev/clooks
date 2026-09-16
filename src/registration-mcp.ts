@@ -1,5 +1,6 @@
 import { lstatSync } from 'node:fs'
 import { join } from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
 import type { AgentId } from './agents/types.js'
 import {
   isRegistrationObject,
@@ -7,6 +8,7 @@ import {
   readRegistrationText,
 } from './registration-file.js'
 import { editClooksServer, readClooksServer } from './interaction/registration-toml.js'
+import { APPROVAL_TIMEOUT_SECONDS } from './registration-approvals.js'
 
 export function assertClaudeRegistrationLayout(home: string): void {
   if (process.env.CLAUDE_CONFIG_DIR !== undefined) {
@@ -111,7 +113,7 @@ export function prepareMcpRegistration(path: string, agent: AgentId, remove = fa
               command: 'clooks',
               args: ['mcp'],
               startup_timeout_sec: 10,
-              tool_timeout_sec: 330,
+              tool_timeout_sec: APPROVAL_TIMEOUT_SECONDS,
             },
       )
     } catch (cause) {
@@ -128,10 +130,11 @@ export function prepareMcpRegistration(path: string, agent: AgentId, remove = fa
         ...(state.server as Record<string, unknown> | undefined),
         command: 'clooks',
         args: ['mcp'],
+        timeout: APPROVAL_TIMEOUT_SECONDS * 1000,
       }
     state.document!.mcpServers = servers
     if (remove && Object.keys(servers).length === 0) delete state.document!.mcpServers
-    const unchanged = !remove && owned && ownedServer(state.server)
+    const unchanged = !remove && owned && isDeepStrictEqual(state.server, servers.clooks)
     contents = unchanged ? state.original! : JSON.stringify(state.document, null, 2) + '\n'
   }
   return { ...prepareRegistrationWrite(path, state.original, contents), owned }

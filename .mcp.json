@@ -2,7 +2,8 @@
   "mcpServers": {
     "clooks": {
       "command": "clooks",
-      "args": ["mcp"]
+      "args": ["mcp"],
+      "timeout": 2147483000
     }
   }
 }
