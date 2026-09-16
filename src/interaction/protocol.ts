@@ -93,6 +93,16 @@ export const failureSchema = z.strictObject({
   message: z.string().min(1).max(2048),
 })
 export type Failure = z.infer<typeof failureSchema>
+export type UserApprovalDecision = Extract<Failure['kind'], 'declined' | 'cancelled'>
+export function userApprovalFailure(
+  decision: UserApprovalDecision,
+  hookName: string,
+): Failure & { kind: UserApprovalDecision } {
+  return {
+    kind: decision,
+    message: `[${hookName}] Approval ${decision === 'declined' ? 'declined' : 'cancelled'}. Operation not run.`,
+  }
+}
 const timestamp = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)
 const nonce = z.uuid()
 const base = { version: z.literal(1), key: checkInputSchema }
@@ -127,12 +137,39 @@ export const questionPacketSchema = z.strictObject({
   question: questionSchema,
   digest: z.string().regex(/^[a-f0-9]{64}$/),
 })
-export const replySchema = z.strictObject({
+const replyFields = {
   ...bound,
   checkId: nonce,
   ordinal: z.number().int().min(1).max(limits.questions),
   digest: z.string().regex(/^[a-f0-9]{64}$/),
-  confirmed: z.boolean(),
+}
+export const replySchema = z.discriminatedUnion('confirmed', [
+  z.strictObject({ ...replyFields, confirmed: z.literal(true) }),
+  z.strictObject({
+    ...replyFields,
+    confirmed: z.literal(false),
+    failure: z.strictObject({
+      kind: z.enum(['declined', 'cancelled']),
+      message: z.string().min(1).max(2048),
+    }),
+  }),
+])
+export const nativePreToolUseDenialSchema = z.strictObject({
+  hookSpecificOutput: z.strictObject({
+    hookEventName: z.literal('PreToolUse'),
+    permissionDecision: z.literal('deny'),
+    permissionDecisionReason: z.string().min(1).max(2048),
+  }),
+})
+export type NativePreToolUseDenial = z.infer<typeof nativePreToolUseDenialSchema>
+export const denialAckSchema = z.strictObject({
+  ...bound,
+  checkId: nonce,
+  ordinal: z.number().int().min(1).max(limits.questions),
+  digest: z.string().regex(/^[a-f0-9]{64}$/),
+  decision: z.enum(['declined', 'cancelled']),
+  denialDigest: z.string().regex(/^[a-f0-9]{64}$/),
+  at: timestamp,
 })
 export const doneSchema = z.strictObject({
   ...bound,
@@ -191,11 +228,11 @@ export function checkSignal(signal?: AbortSignal): void {
     throw new InteractionError({ kind: 'cancelled', message: 'Approval interaction cancelled' })
 }
 export function denial(message: string) {
-  return {
+  return nativePreToolUseDenialSchema.parse({
     hookSpecificOutput: {
       hookEventName: 'PreToolUse' as const,
       permissionDecision: 'deny' as const,
       permissionDecisionReason: message,
     },
-  }
+  })
 }

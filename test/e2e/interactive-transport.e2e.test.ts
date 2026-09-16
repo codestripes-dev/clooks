@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, spyOn, test } from 'bun:test'
 import { ChildProcess } from 'node:child_process'
-import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
@@ -145,6 +145,22 @@ function publishedQuestion(key: ReturnType<typeof identity>, ordinal: number) {
   return matches[0]!
 }
 
+function publishedMailbox(key: ReturnType<typeof identity>) {
+  const root = join(sandbox.home, '.clooks/.cache/approvals-live/v1')
+  const matches = readdirSync(root, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => join(root, entry.name))
+    .filter((directory) => {
+      const path = join(directory, 'start.json')
+      return (
+        existsSync(path) &&
+        JSON.parse(readFileSync(path, 'utf8')).key.tool_use_id === key.tool_use_id
+      )
+    })
+  expect(matches, 'Expected one mailbox for command').toHaveLength(1)
+  return matches[0]!
+}
+
 function assertApprovalRequest(
   request: ElicitRequest,
   key: ReturnType<typeof identity>,
@@ -175,13 +191,18 @@ async function waitForFile(path: string): Promise<void> {
   }
 }
 
-async function startCommand(key: ReturnType<typeof identity>, count = 2, suppressed = false) {
+async function startCommand(
+  key: ReturnType<typeof identity>,
+  count = 2,
+  suppressed = false,
+  holdRefusal = false,
+) {
   // Exercise the real command API in a separate process, without engine integration.
   sandbox.writeFile(
     'command.ts',
     `import { createApprovalInteraction } from ${JSON.stringify(channelModule)}
-import { writeFileSync } from 'node:fs'
-const { key, count, suppressed } = JSON.parse(process.argv[2])
+import { existsSync, writeFileSync } from 'node:fs'
+const { key, count, suppressed, holdRefusal } = JSON.parse(process.argv[2])
 const channel = await createApprovalInteraction({
   identity: key, disposition: suppressed ? 'suppressed' : 'run',
 })
@@ -197,7 +218,10 @@ try {
     }, new AbortController().signal)
     replies.push(reply)
     writeFileSync('reply-' + ordinal, '')
-    if (reply.kind !== 'approved') break
+    if (reply.kind !== 'approved') {
+      while (holdRefusal && !existsSync('release-refusal')) await Bun.sleep(10)
+      break
+    }
   }
 } finally {
   await channel.close()
@@ -207,7 +231,11 @@ console.log(JSON.stringify(replies))
 `,
   )
   const command = Bun.spawn(
-    ['bun', join(sandbox.dir, 'command.ts'), JSON.stringify({ key, count, suppressed })],
+    [
+      'bun',
+      join(sandbox.dir, 'command.ts'),
+      JSON.stringify({ key, count, suppressed, holdRefusal }),
+    ],
     {
       cwd: sandbox.dir,
       env: {
@@ -298,7 +326,7 @@ describe('compiled shared approval transport', () => {
     { provider: 'claude-code', declineAt: 1 },
     { provider: 'codex', declineAt: 2 },
   ] as const)(
-    'real command channel relays sequential consent: %j',
+    'real command channel relays approvals and fails closed without denial acknowledgement: %j',
     async ({ provider, declineAt }) => {
       sandbox = createSandbox()
       const connection = await connect()
@@ -336,10 +364,35 @@ describe('compiled shared approval transport', () => {
       )
       if (declineAt) {
         expect(result.hookSpecificOutput.permissionDecision).toBe('deny')
-        expect(result.hookSpecificOutput.permissionDecisionReason).toBeTruthy()
+        expect(result.hookSpecificOutput.permissionDecisionReason).toContain(
+          'exited before denial acknowledgement',
+        )
       } else {
         expect(result).toEqual({})
       }
+      expect(connection.errors).toEqual([])
+      expect(connection.stderr()).toBe('')
+    },
+  )
+
+  test.each(['claude-code', 'codex'] as const)(
+    '%s corrupt denial acknowledgement keeps the companion fail closed',
+    async (provider) => {
+      sandbox = createSandbox()
+      const connection = await connect()
+      const key = identity(provider)
+      const command = await startCommand(key, 1, false, true)
+      connection.client.setRequestHandler(ElicitRequestSchema, async () => ({ action: 'decline' }))
+      const check = connection.client.callTool({ name: 'check', arguments: key }, undefined, {
+        timeout: 5000,
+      })
+      await waitForFile('reply-1')
+      writeFileSync(join(publishedMailbox(key), 'denial-ack.json'), '{invalid')
+      const result = nativeOutput(await check)
+      expect(result.hookSpecificOutput.permissionDecision).toBe('deny')
+      expect(result.hookSpecificOutput.permissionDecisionReason).toMatch(/unsafe|packet/i)
+      sandbox.writeFile('release-refusal', '')
+      expect((await command.finish()).map((reply) => reply.kind)).toEqual(['declined'])
       expect(connection.errors).toEqual([])
       expect(connection.stderr()).toBe('')
     },

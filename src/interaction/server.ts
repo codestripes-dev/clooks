@@ -9,6 +9,7 @@ import {
   checkSignal,
   claimSchema,
   confirmationSchema,
+  denialAckSchema,
   denial,
   digest,
   doneSchema,
@@ -22,6 +23,7 @@ import {
   same,
   startSchema,
   unavailable,
+  userApprovalFailure,
   type Failure,
   type StartPacket,
 } from './protocol.js'
@@ -190,18 +192,45 @@ export async function handleApprovalCheck(
         if (completed()) unavailable('Late approval response after command completion')
         const reply = confirmationSchema.parse(response)
         if (reply.action !== 'accept' || reply.content?.decision !== 'Approve') {
-          throw new InteractionError({
-            kind:
-              reply.action === 'cancel'
-                ? 'cancelled'
-                : reply.action === 'accept' && !reply.content
-                  ? 'unavailable'
-                  : 'declined',
-            message:
-              reply.action === 'cancel'
-                ? 'Approval cancelled'
-                : 'Approval was not positively confirmed',
+          if (reply.action === 'accept' && !reply.content)
+            unavailable('Approval response was not positively confirmed')
+          const decision = reply.action === 'cancel' ? 'cancelled' : 'declined'
+          const refusal = userApprovalFailure(decision, question.question.hookName)
+          box.publish(`reply-${ordinal}`, {
+            version: 1,
+            key,
+            nonce: start.nonce,
+            checkId: claim.id,
+            ordinal,
+            digest: question.digest,
+            confirmed: false,
+            failure: refusal,
           })
+          const expectedDenial = denial(refusal.message)
+          while (true) {
+            checkSignal(options.signal)
+            const acknowledgement = box.bound('denial-ack', denialAckSchema, start.nonce)
+            if (acknowledgement) {
+              same(acknowledgement.checkId, claim.id, 'denial acknowledgement check')
+              same(acknowledgement.ordinal, ordinal, 'denial acknowledgement ordinal')
+              same(acknowledgement.digest, question.digest, 'denial acknowledgement question')
+              same(acknowledgement.decision, decision, 'denial acknowledgement decision')
+              same(
+                acknowledgement.denialDigest,
+                digest(expectedDenial),
+                'denial acknowledgement output',
+              )
+              break
+            }
+            if (!clock.alive(start.pid)) {
+              const final = box.bound('denial-ack', denialAckSchema, start.nonce)
+              if (final) continue
+              unavailable('Approval command exited before denial acknowledgement')
+            }
+            remaining(localDeadline, clock.now())
+            await clock.pause(limits.pollMs, options.signal)
+          }
+          break
         }
         box.publish(`reply-${ordinal}`, {
           version: 1,

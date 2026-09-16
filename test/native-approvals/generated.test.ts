@@ -7,6 +7,9 @@ import {
   assertOutcome,
   assertPending,
   assertProductionSettled,
+  expectedNativeDenial,
+  expectedRefusalFailure,
+  packetDigest,
   type Case,
   type Packets,
 } from '../fixtures/production-approvals/evidence'
@@ -126,7 +129,13 @@ function fixture(
     command: { key, id: 'nonce', pid: 10 },
     start: { key, nonce: 'nonce', pid: 10, disposition: 'run' },
     check: { key, id: 'check-id', pid: 20 },
-    'question-1': { key, nonce: 'nonce', question: question(1) },
+    'question-1': {
+      version: 1,
+      key,
+      nonce: 'nonce',
+      question: question(1),
+      digest: packetDigest(question(1)),
+    },
   }
   const row = (event: string, fields = {}): Row => {
     const number = Number.parseInt(event, 10)
@@ -153,9 +162,31 @@ function fixture(
     turn_id: key.turn_id,
   }
   const finish = (nonShell = false) => {
-    box['question-2'] = { key, nonce: 'nonce', question: question(2) }
-    box['reply-1'] = { confirmed: true, nonce: 'nonce' }
-    box['reply-2'] = { confirmed: true, nonce: 'nonce' }
+    box['question-2'] = {
+      version: 1,
+      key,
+      nonce: 'nonce',
+      question: question(2),
+      digest: packetDigest(question(2)),
+    }
+    box['reply-1'] = {
+      version: 1,
+      key,
+      nonce: 'nonce',
+      checkId: 'check-id',
+      ordinal: 1,
+      digest: box['question-1'].digest,
+      confirmed: true,
+    }
+    box['reply-2'] = {
+      version: 1,
+      key,
+      nonce: 'nonce',
+      checkId: 'check-id',
+      ordinal: 2,
+      digest: box['question-2'].digest,
+      confirmed: true,
+    }
     box.done = { key, nonce: 'nonce', at: 10 }
     box['check-done'] = { key, nonce: 'nonce', checkId: 'check-id' }
     journal.push(
@@ -177,6 +208,43 @@ function fixture(
     output: { output: 'Process exited with code 0' },
   }
   return { c, key, box, journal, anchor, question, finish, native, row }
+}
+
+function refusal(
+  f: ReturnType<typeof fixture>,
+  ordinal: 1 | 2,
+  decision: 'declined' | 'cancelled',
+) {
+  const failure = expectedRefusalFailure(decision, `hook-${ordinal * 2}`)
+  f.box[`reply-${ordinal}`] = {
+    version: 1,
+    key: f.key,
+    nonce: 'nonce',
+    checkId: 'check-id',
+    ordinal,
+    digest: f.box[`question-${ordinal}`].digest,
+    confirmed: false,
+    failure,
+  }
+  f.box.done = { key: f.key, nonce: 'nonce', at: 10, failure }
+  f.box['check-done'] = {
+    key: f.key,
+    checkId: 'check-id',
+    nonce: 'nonce',
+    at: 10,
+  }
+  f.box['denial-ack'] = {
+    version: 1,
+    key: f.key,
+    nonce: 'nonce',
+    checkId: 'check-id',
+    ordinal,
+    digest: f.box[`question-${ordinal}`].digest,
+    decision,
+    denialDigest: packetDigest(expectedNativeDenial(failure.message)),
+    at: 10,
+  }
+  return failure
 }
 
 function nonShellFixture(provider: 'claude' | 'codex', toolName: 'Write' | 'apply_patch') {
@@ -298,21 +366,23 @@ function combinedFixture(
   const f = makeCombinedFixture(provider)
   f.c.mode = mode
   if (mode === 'decline-second') {
-    f.box['question-2'] = { key: f.key, nonce: 'nonce', question: f.question(2) }
-    f.box['reply-1'] = { key: f.key, nonce: 'nonce', confirmed: true }
-    f.box.done = {
+    f.box['question-2'] = {
+      version: 1,
       key: f.key,
       nonce: 'nonce',
-      at: 10,
-      failure: { kind: 'declined', message: 'Approval was not positively confirmed' },
+      question: f.question(2),
+      digest: packetDigest(f.question(2)),
     }
-    f.box['check-done'] = {
+    f.box['reply-1'] = {
+      version: 1,
       key: f.key,
+      nonce: 'nonce',
       checkId: 'check-id',
-      nonce: 'nonce',
-      at: 10,
-      failure: { kind: 'declined', message: 'Approval was not positively confirmed' },
+      ordinal: 1,
+      digest: f.box['question-1'].digest,
+      confirmed: true,
     }
+    const failure = refusal(f, 2, 'declined')
     f.journal.push(
       f.row('ui-request'),
       f.row('ui-response', { question: f.question(1), action: 'accept' }),
@@ -321,8 +391,7 @@ function combinedFixture(
       f.row('ui-request'),
       f.row('ui-response', { question: f.question(2), action: 'decline' }),
     )
-    f.native.output.output =
-      'Command blocked by PreToolUse hook: Approval was not positively confirmed'
+    f.native.output.output = `Command blocked by PreToolUse hook: ${failure.message}`
     if (provider === 'claude') (f.native.output as any).is_error = true
   } else {
     f.finish()
@@ -581,8 +650,22 @@ test.each([1, 2])(
         { event: '3', at: 10, pid: 10 },
         { event: '4-ask', at: 10, pid: 10 },
       )
-      f.box['question-2'] = { question: f.question(2) }
-      f.box['reply-1'] = { nonce: 'nonce', confirmed: true }
+      f.box['question-2'] = {
+        version: 1,
+        key: f.key,
+        nonce: 'nonce',
+        question: f.question(2),
+        digest: packetDigest(f.question(2)),
+      }
+      f.box['reply-1'] = {
+        version: 1,
+        key: f.key,
+        nonce: 'nonce',
+        checkId: 'check-id',
+        ordinal: 1,
+        digest: f.box['question-1'].digest,
+        confirmed: true,
+      }
     }
     f.journal.push(
       {
@@ -598,31 +681,23 @@ test.each([1, 2])(
         action: 'decline',
       },
     )
-    f.box.done = {
-      key: f.key,
-      nonce: 'nonce',
-      failure: { kind: 'declined', message: 'Approval was not positively confirmed' },
-    }
-    f.box['check-done'] = {
-      key: f.key,
-      checkId: 'check-id',
-      nonce: 'nonce',
-      failure: { kind: 'declined', message: 'Approval was not positively confirmed' },
-    }
-    f.native.output.output =
-      'Command blocked by PreToolUse hook: Approval was not positively confirmed'
+    const failure = refusal(f, ordinal, 'declined')
+    f.native.output.output = `Command blocked by PreToolUse hook: ${failure.message}`
     const check = () => assertOutcome(f.c, [f.box], f.journal, f.anchor, undefined, f.native)
     expect(check).not.toThrow()
-    for (const name of ['done', 'check-done']) {
-      const failure = f.box[name].failure as Record<string, unknown>
-      failure.message = 'Approval was not positively confirmed differently'
-      expect(check).toThrow()
-      failure.message = 'Approval was not positively confirmed'
-      expect(check).not.toThrow()
-      delete failure.message
-      expect(check).toThrow()
-      failure.message = 'Approval was not positively confirmed'
-    }
+    f.box['check-done'].failure = structuredClone(failure)
+    expect(check).toThrow('duplicated')
+    delete f.box['check-done'].failure
+    const acknowledgement = f.box['denial-ack']
+    delete f.box['denial-ack']
+    expect(check).toThrow('acknowledgement')
+    f.box['denial-ack'] = acknowledgement
+    acknowledgement.denialDigest = '0'.repeat(64)
+    expect(check).toThrow()
+    acknowledgement.denialDigest = packetDigest(expectedNativeDenial(failure.message))
+    f.native.output.output = 'Command blocked by PreToolUse hook: unrelated companion denial'
+    expect(check).toThrow('emitted command denial reason')
+    f.native.output.output = `Command blocked by PreToolUse hook: ${failure.message}`
     if (ordinal === 2) {
       const [hook] = f.journal.splice(
         f.journal.findIndex((row) => row.event === '3'),
@@ -651,8 +726,22 @@ test.each([1, 2])(
         { event: '3', at: 10, pid: 10 },
         { event: '4-ask', at: 10, pid: 10 },
       )
-      f.box['question-2'] = { question: f.question(2) }
-      f.box['reply-1'] = { nonce: 'nonce', confirmed: true }
+      f.box['question-2'] = {
+        version: 1,
+        key: f.key,
+        nonce: 'nonce',
+        question: f.question(2),
+        digest: packetDigest(f.question(2)),
+      }
+      f.box['reply-1'] = {
+        version: 1,
+        key: f.key,
+        nonce: 'nonce',
+        checkId: 'check-id',
+        ordinal: 1,
+        digest: f.box['question-1'].digest,
+        confirmed: true,
+      }
     }
     f.journal.push(
       { event: 'ui-request', at: 10, pid: 10 },
@@ -664,31 +753,14 @@ test.each([1, 2])(
         action: 'cancel',
       },
     )
-    f.box.done = {
-      key: f.key,
-      nonce: 'nonce',
-      failure: { kind: 'cancelled', message: 'Approval cancelled' },
-    }
-    f.box['check-done'] = {
-      key: f.key,
-      checkId: 'check-id',
-      nonce: 'nonce',
-      failure: { kind: 'cancelled', message: 'Approval cancelled' },
-    }
-    f.native.output.output = 'Command blocked by PreToolUse hook: Approval cancelled'
+    const failure = refusal(f, ordinal, 'cancelled')
+    f.native.output.output = `Command blocked by PreToolUse hook: ${failure.message}`
     const check = () => assertOutcome(f.c, [f.box], f.journal, f.anchor, undefined, f.native)
     expect(check).not.toThrow()
 
-    for (const name of ['done', 'check-done']) {
-      const failure = f.box[name].failure as Record<string, unknown>
-      failure.message = 'Approval cancelled differently'
-      expect(check).toThrow()
-      failure.message = 'Approval cancelled'
-      expect(check).not.toThrow()
-      delete failure.message
-      expect(check).toThrow()
-      failure.message = 'Approval cancelled'
-    }
+    f.box['denial-ack'].decision = 'declined'
+    expect(check).toThrow()
+    f.box['denial-ack'].decision = 'cancelled'
 
     f.journal.at(-1)!.action = 'decline'
     expect(check).toThrow()
@@ -723,7 +795,13 @@ test('no-ask requires zero prompts, questions and replies', () => {
 
 test('second checkpoint cannot run hook five or repeat the first question while pending', () => {
   const f = fixture()
-  f.box['question-2'] = { key: f.key, nonce: 'nonce', question: f.question(2) }
+  f.box['question-2'] = {
+    version: 1,
+    key: f.key,
+    nonce: 'nonce',
+    question: f.question(2),
+    digest: packetDigest(f.question(2)),
+  }
   f.journal.push(
     { event: 'ui-response', at: 10, pid: 10, question: f.question(1), action: 'accept' },
     { event: '3', at: 10, pid: 10 },
@@ -837,23 +915,12 @@ test('declined apply_patch requires a native tool-call refusal', () => {
       action: 'decline',
     },
   )
-  f.box.done = {
-    key: f.key,
-    nonce: 'nonce',
-    failure: { kind: 'declined', message: 'Approval was not positively confirmed' },
-  }
-  f.box['check-done'] = {
-    key: f.key,
-    checkId: 'check-id',
-    nonce: 'nonce',
-    failure: { kind: 'declined', message: 'Approval was not positively confirmed' },
-  }
-  f.native.output.output =
-    'Tool call blocked by PreToolUse hook: Approval was not positively confirmed'
+  const failure = refusal(f, 1, 'declined')
+  f.native.output.output = `Tool call blocked by PreToolUse hook: ${failure.message}`
   const check = () => assertOutcome(f.c, [f.box], f.journal, f.anchor, undefined, f.native)
   expect(check).not.toThrow()
   for (const prefix of ['Command', 'Tool call']) {
-    f.native.output.output = `${prefix} blocked by PreToolUse hook: Approval was not positively confirmed`
+    f.native.output.output = `${prefix} blocked by PreToolUse hook: ${failure.message}`
     expect(check).not.toThrow()
   }
   f.native.output.output = 'Native request failed before the tool call was blocked'

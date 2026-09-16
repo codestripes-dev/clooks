@@ -1,5 +1,6 @@
 import { join } from 'node:path'
 import { kill } from 'node:process'
+import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { expect } from 'bun:test'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
@@ -30,24 +31,13 @@ export async function cleanupAll(...steps: Array<() => unknown | Promise<unknown
 
 export function assertCompanion(
   value: Awaited<ReturnType<Awaited<ReturnType<typeof connectApprovalPeer>>['check']>>,
-  refusal?: string,
 ) {
   expect(value.isError).not.toBe(true)
   expect(value.content).toHaveLength(1)
   const content = value.content[0]!
   expect(content.type).toBe('text')
   if (content.type !== 'text') throw new Error('Expected native hook JSON')
-  expect(JSON.parse(content.text)).toEqual(
-    refusal === undefined
-      ? {}
-      : {
-          hookSpecificOutput: {
-            hookEventName: 'PreToolUse',
-            permissionDecision: 'deny',
-            permissionDecisionReason: refusal,
-          },
-        },
-  )
+  expect(JSON.parse(content.text)).toEqual({})
 }
 
 export interface ApprovalIdentity {
@@ -160,6 +150,81 @@ export function invocation(
       tool_input: options.input === undefined ? { command: '/usr/bin/true' } : options.input,
     },
   }
+}
+
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`
+  if (value !== null && typeof value === 'object')
+    return `{${Object.keys(value)
+      .filter((key) => (value as Record<string, unknown>)[key] !== undefined)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonical((value as Record<string, unknown>)[key])}`)
+      .join(',')}}`
+  return JSON.stringify(value)
+}
+
+function packetDigest(value: unknown): string {
+  return createHash('sha256').update(canonical(value)).digest('hex')
+}
+
+export function assertEmittedDenialReceipt(
+  sandbox: Sandbox,
+  identity: ApprovalIdentity,
+  output: unknown,
+) {
+  expect(output).toEqual({
+    hookSpecificOutput: {
+      hookEventName: 'PreToolUse',
+      permissionDecision: 'deny',
+      permissionDecisionReason: expect.any(String),
+    },
+  })
+  const nativeDenial = output as {
+    hookSpecificOutput: { permissionDecisionReason: string }
+  }
+  const root = join(sandbox.home, '.clooks/.cache/approvals-live/v1')
+  const matches: string[] = []
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue
+    const directory = join(root, entry.name)
+    const path = join(directory, 'start.json')
+    if (!existsSync(path)) continue
+    const start = JSON.parse(readFileSync(path, 'utf8'))
+    if (start.key.owner === identity.owner && start.key.tool_use_id === identity.tool_use_id)
+      matches.push(directory)
+  }
+  expect(matches, 'Expected one mailbox for emitted command denial').toHaveLength(1)
+  const directory = matches[0]!
+  const packet = (name: string) => JSON.parse(readFileSync(join(directory, `${name}.json`), 'utf8'))
+  const start = packet('start')
+  const command = packet('command')
+  const check = packet('check')
+  const done = packet('done')
+  const checkDone = packet('check-done')
+  const acknowledgement = packet('denial-ack')
+  const question = packet(`question-${acknowledgement.ordinal}`)
+  for (const bound of [start, command, check, done, checkDone, acknowledgement, question])
+    expect(bound.key).toEqual(identity)
+  for (const bound of [start, command, check, done, checkDone, acknowledgement, question])
+    expect(bound.version).toBe(1)
+  expect(command.id).toBe(start.nonce)
+  expect(done.nonce).toBe(start.nonce)
+  expect(checkDone.nonce).toBe(start.nonce)
+  expect(checkDone.checkId).toBe(check.id)
+  expect(checkDone.failure).toBeUndefined()
+  expect(['declined', 'cancelled']).toContain(acknowledgement.decision)
+  const reason = `[${question.question.hookName}] Approval ${acknowledgement.decision === 'declined' ? 'declined' : 'cancelled'}. Operation not run.`
+  expect(nativeDenial.hookSpecificOutput.permissionDecisionReason).toBe(reason)
+  expect(done.failure).toEqual({ kind: acknowledgement.decision, message: reason })
+  expect(acknowledgement.nonce).toBe(start.nonce)
+  expect(acknowledgement.checkId).toBe(check.id)
+  expect(acknowledgement.ordinal).toBe(question.question.ordinal)
+  expect(question.digest).toBe(packetDigest(question.question))
+  expect(acknowledgement.digest).toBe(question.digest)
+  expect(acknowledgement.denialDigest).toBe(packetDigest(nativeDenial))
+  expect(acknowledgement.at).toBeGreaterThanOrEqual(done.at)
+  expect(checkDone.at).toBeGreaterThanOrEqual(acknowledgement.at)
+  return acknowledgement
 }
 
 function environment(sandbox: Sandbox): Record<string, string> {
@@ -411,7 +476,7 @@ export async function runWithConsent(
     engine = startEngine(sandbox, call, extraEnvironment)
     const completed = Promise.all([engine.result, peer.check(call.identity)])
     let index = 0
-    let refusal: string | undefined
+    let commandRefused = false
     while (true) {
       const next = await Promise.race([
         completed.then(([result, companion]) => ({ kind: 'done' as const, result, companion })),
@@ -420,15 +485,23 @@ export async function runWithConsent(
       if (next.kind === 'done') {
         if (peer.errors.length) throw new AggregateError(peer.errors, 'MCP transport failed')
         if (peer.stderr) throw new Error(`Unexpected MCP stderr: ${peer.stderr}`)
-        assertCompanion(next.companion, refusal)
+        assertCompanion(next.companion)
+        if (commandRefused) {
+          const output = next.result.stdout ? JSON.parse(next.result.stdout) : {}
+          expect(output).toEqual({
+            hookSpecificOutput: {
+              hookEventName: 'PreToolUse',
+              permissionDecision: 'deny',
+              permissionDecisionReason: expect.any(String),
+            },
+          })
+          assertEmittedDenialReceipt(sandbox, call.identity, output)
+        }
         return { result: next.result, companion: next.companion, prompts: peer.prompts }
       }
       const response = await respond(next.prompt, index++)
       if (response.action !== 'accept' || response.content?.decision !== 'Approve') {
-        refusal =
-          response.action === 'cancel'
-            ? 'Approval cancelled'
-            : 'Approval was not positively confirmed'
+        commandRefused = true
       }
       next.prompt.reply(response)
     }

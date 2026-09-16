@@ -9,6 +9,7 @@ import type { EngineResult, ExitCode } from '../engine/types.js'
 import type { Provider } from '../types/contexts.js'
 import type { ApprovalQuestion } from '../interaction/types.js'
 import type { CheckInput } from '../interaction/protocol.js'
+import type { UserApprovalDecision } from '../interaction/protocol.js'
 
 export type AgentId = Provider
 
@@ -62,6 +63,7 @@ export interface RuntimePolicyFailure {
   hookName?: HookName
   capability: string
   message: string
+  approvalDecision?: UserApprovalDecision
 }
 
 export class InvocationPolicyError extends Error {
@@ -125,6 +127,7 @@ export interface TranslatedAgentOutput {
   output?: string
   exitCode: ExitCode
   stderr?: string
+  approvalDecision?: UserApprovalDecision
 }
 
 export type SystemMessageRoute = 'stdout-json' | 'stderr' | 'drop'

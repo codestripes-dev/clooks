@@ -11,11 +11,15 @@ import {
   attachedSchema,
   checkDoneSchema,
   checkInputSchema,
+  denial,
   digest,
   doneSchema,
   limits,
+  questionPacketSchema,
   startSchema,
+  userApprovalFailure,
   type CheckInput,
+  type UserApprovalDecision,
 } from './protocol.js'
 
 const homes: string[] = []
@@ -50,6 +54,16 @@ function output(result: Awaited<ReturnType<typeof handleApprovalCheck>>) {
   if (content?.type !== 'text') throw new Error('Missing text result')
   expect(result.isError).not.toBe(true)
   return JSON.parse(content.text)
+}
+async function acknowledge(
+  command: Awaited<ReturnType<typeof createApprovalInteraction>>,
+  decision: UserApprovalDecision,
+  hookName = 'guard',
+) {
+  await command.acknowledgeDenial?.(
+    decision,
+    denial(userApprovalFailure(decision, hookName).message),
+  )
 }
 for (const reversed of [false, true])
   test(`two exact approvals and neutral completion, reversed=${reversed}`, async () => {
@@ -249,50 +263,96 @@ test('unmatched check closes; late no-ask stays neutral and late ask cannot reop
 const nonPositiveResponses: Array<{
   response: unknown
   kind: 'declined' | 'cancelled' | 'unavailable'
+  expectedUserDecision: boolean
 }> = [
-  { response: null, kind: 'unavailable' },
-  { response: {}, kind: 'unavailable' },
-  { response: { action: 'unknown' }, kind: 'unavailable' },
-  { response: { action: 'decline' }, kind: 'declined' },
+  { response: null, kind: 'unavailable', expectedUserDecision: false },
+  { response: {}, kind: 'unavailable', expectedUserDecision: false },
+  { response: { action: 'unknown' }, kind: 'unavailable', expectedUserDecision: false },
+  { response: { action: 'decline' }, kind: 'declined', expectedUserDecision: true },
   {
     response: { action: 'decline', content: { decision: 'Approve' } },
     kind: 'declined',
+    expectedUserDecision: true,
   },
-  { response: { action: 'cancel' }, kind: 'cancelled' },
+  { response: { action: 'cancel' }, kind: 'cancelled', expectedUserDecision: true },
   {
     response: { action: 'cancel', content: { decision: 'Approve' } },
     kind: 'cancelled',
+    expectedUserDecision: true,
   },
-  { response: { action: 'accept' }, kind: 'unavailable' },
-  { response: { action: 'accept', content: null }, kind: 'unavailable' },
-  { response: { action: 'accept', content: {} }, kind: 'unavailable' },
+  { response: { action: 'accept' }, kind: 'unavailable', expectedUserDecision: false },
+  {
+    response: { action: 'accept', content: null },
+    kind: 'unavailable',
+    expectedUserDecision: false,
+  },
+  {
+    response: { action: 'accept', content: {} },
+    kind: 'unavailable',
+    expectedUserDecision: false,
+  },
   {
     response: { action: 'accept', content: { decision: 'Decline' } },
     kind: 'declined',
+    expectedUserDecision: true,
   },
-  { response: { action: 'accept', content: { confirmed: true } }, kind: 'unavailable' },
-  { response: { action: 'accept', content: { confirmed: false } }, kind: 'unavailable' },
-  { response: { action: 'accept', content: { decision: true } }, kind: 'unavailable' },
-  { response: { action: 'accept', content: { decision: 'approve' } }, kind: 'unavailable' },
-  { response: { action: 'accept', content: { decision: ' Approve ' } }, kind: 'unavailable' },
-  { response: { action: 'accept', content: { decision: 'Unknown' } }, kind: 'unavailable' },
+  {
+    response: { action: 'accept', content: { confirmed: true } },
+    kind: 'unavailable',
+    expectedUserDecision: false,
+  },
+  {
+    response: { action: 'accept', content: { confirmed: false } },
+    kind: 'unavailable',
+    expectedUserDecision: false,
+  },
+  {
+    response: { action: 'accept', content: { decision: true } },
+    kind: 'unavailable',
+    expectedUserDecision: false,
+  },
+  {
+    response: { action: 'accept', content: { decision: 'approve' } },
+    kind: 'unavailable',
+    expectedUserDecision: false,
+  },
+  {
+    response: { action: 'accept', content: { decision: ' Approve ' } },
+    kind: 'unavailable',
+    expectedUserDecision: false,
+  },
+  {
+    response: { action: 'accept', content: { decision: 'Unknown' } },
+    kind: 'unavailable',
+    expectedUserDecision: false,
+  },
   {
     response: { action: 'accept', content: { decision: 'Approve', extra: true } },
     kind: 'unavailable',
+    expectedUserDecision: false,
   },
   {
     response: { action: 'accept', content: { decision: 'Approve' }, extra: true },
     kind: 'unavailable',
+    expectedUserDecision: false,
   },
 ]
-for (const { response, kind } of nonPositiveResponses)
+for (const { response, kind, expectedUserDecision } of nonPositiveResponses)
   test(`non-positive response cannot approve: ${JSON.stringify(response)}`, async () => {
     const f = fixture()
     const command = await createApprovalInteraction({ identity: f.key }, f.clock)
     const check = handleApprovalCheck(f.key, async () => response, { runtime: f.clock })
-    expect((await command.request(question(), signal())).kind).toBe(kind)
+    const reply = await command.request(question(), signal())
+    expect(reply.kind).toBe(kind)
+    expect(reply.kind !== 'approved' && reply.userDecision === true).toBe(expectedUserDecision)
+    if (expectedUserDecision) {
+      expect(kind === 'declined' || kind === 'cancelled').toBe(true)
+      await acknowledge(command, kind as UserApprovalDecision)
+    }
     await command.close()
-    expect(output(await check).hookSpecificOutput.permissionDecision).toBe('deny')
+    const result = output(await check)
+    if (expectedUserDecision) expect(result).toEqual({})
+    else expect(result.hookSpecificOutput.permissionDecision).toBe('deny')
     expect((await command.request(question(2), signal())).kind).not.toBe('approved')
   })
 
@@ -309,10 +369,11 @@ test('one check cannot respond for overlapping tool calls or owners', async () =
   ])
   expect(approved.kind).toBe('approved')
   expect(declined.kind).toBe('declined')
+  await acknowledge(second, 'declined')
   await first.close()
   await second.close()
   expect(output(await a)).toEqual({})
-  expect(output(await b).hookSpecificOutput.permissionDecision).toBe('deny')
+  expect(output(await b)).toEqual({})
 })
 
 test('duplicate commands and checks do not replace the original exclusive roles', async () => {
@@ -648,12 +709,141 @@ test.each([
       { runtime: clock },
     )
     expect((await command.request(question(), signal())).kind).toBe(kind)
+    if (kind === 'declined' || kind === 'cancelled') await acknowledge(command, kind)
     await command.close()
     const result = output(await check)
-    if (kind === 'approved') expect(result).toEqual({})
-    else expect(result.hookSpecificOutput.permissionDecision).toBe('deny')
+    expect(result).toEqual({})
   },
 )
+
+test('explicit refusal denies when the command dies before acknowledgement', async () => {
+  const f = fixture()
+  let commandAlive = true
+  const command = await createApprovalInteraction({ identity: f.key }, f.clock)
+  let checkSettled = false
+  const check = handleApprovalCheck(f.key, async () => ({ action: 'decline' }), {
+    runtime: { ...f.clock, alive: () => commandAlive },
+  }).finally(() => {
+    checkSettled = true
+  })
+  const reply = await command.request(question(), signal())
+  expect(reply).toEqual({
+    ...userApprovalFailure('declined', 'guard'),
+    userDecision: true,
+  })
+  expect(f.box().bound('done', doneSchema)?.failure?.kind).toBe('declined')
+  await new Promise((resolve) => setImmediate(resolve))
+  expect(checkSettled).toBe(false)
+  commandAlive = false
+  const result = output(await check)
+  expect(result.hookSpecificOutput.permissionDecision).toBe('deny')
+  expect(result.hookSpecificOutput.permissionDecisionReason).toContain(
+    'exited before denial acknowledgement',
+  )
+  await command.close()
+})
+
+test('denial acknowledgement published during command-death reread stays neutral', async () => {
+  const f = fixture()
+  const box = f.box()
+  let armed = false
+  let published = false
+  const command = await createApprovalInteraction({ identity: f.key }, f.clock)
+  const check = handleApprovalCheck(f.key, async () => ({ action: 'decline' }), {
+    runtime: {
+      ...f.clock,
+      alive: () => {
+        if (!armed) return true
+        if (!published) {
+          published = true
+          const start = box.bound('start', startSchema)!
+          const attached = box.bound('attached', attachedSchema)!
+          const packet = box.bound('question-1', questionPacketSchema, start.nonce)!
+          box.publish('denial-ack', {
+            version: 1,
+            key: f.key,
+            nonce: start.nonce,
+            checkId: attached.checkId,
+            ordinal: 1,
+            digest: packet.digest,
+            decision: 'declined',
+            denialDigest: digest(denial(userApprovalFailure('declined', 'guard').message)),
+            at: Date.now(),
+          })
+        }
+        return false
+      },
+    },
+  })
+  const reply = await command.request(question(), signal())
+  expect(reply.kind !== 'approved' && reply.userDecision === true).toBe(true)
+  armed = true
+  expect(output(await check)).toEqual({})
+  expect(published).toBe(true)
+  await command.close()
+})
+
+test.each(['key', 'nonce', 'checkId', 'ordinal', 'digest', 'decision', 'denialDigest'] as const)(
+  'corrupt or crossed denial acknowledgement %s remains denied',
+  async (field) => {
+    const f = fixture()
+    const command = await createApprovalInteraction({ identity: f.key }, f.clock)
+    const box = f.box()
+    const check = handleApprovalCheck(f.key, async () => ({ action: 'cancel' }), {
+      runtime: f.clock,
+    })
+    const reply = await command.request(question(), signal())
+    expect(reply.kind).toBe('cancelled')
+    const start = box.bound('start', startSchema)!
+    const attached = box.bound('attached', attachedSchema)!
+    const packet = box.bound('question-1', questionPacketSchema, start.nonce)!
+    const expected = denial(userApprovalFailure('cancelled', 'guard').message)
+    box.publish('denial-ack', {
+      version: 1,
+      key: field === 'key' ? { ...f.key, owner: 'global' } : f.key,
+      nonce: field === 'nonce' ? crypto.randomUUID() : start.nonce,
+      checkId: field === 'checkId' ? crypto.randomUUID() : attached.checkId,
+      ordinal: field === 'ordinal' ? 2 : 1,
+      digest: field === 'digest' ? digest({ wrong: true }) : packet.digest,
+      decision: field === 'decision' ? 'declined' : 'cancelled',
+      denialDigest: field === 'denialDigest' ? digest({ wrong: true }) : digest(expected),
+      at: Date.now(),
+    })
+    const result = output(await check)
+    expect(result.hookSpecificOutput.permissionDecision).toBe('deny')
+    expect(result.hookSpecificOutput.permissionDecisionReason).toContain('mismatch')
+    await command.close()
+  },
+)
+
+test('denial acknowledgement publication failure leaves the MCP companion denying', async () => {
+  const f = fixture()
+  let commandAlive = true
+  const command = await createApprovalInteraction({ identity: f.key }, f.clock)
+  const check = handleApprovalCheck(f.key, async () => ({ action: 'decline' }), {
+    runtime: { ...f.clock, alive: () => commandAlive },
+  })
+  expect((await command.request(question(), signal())).kind).toBe('declined')
+  const error = new Error('denial acknowledgement publication failed')
+  const originalPublish = Mailbox.prototype.publish
+  const publish = spyOn(Mailbox.prototype, 'publish').mockImplementation(function (
+    this: Mailbox,
+    name,
+    packet,
+  ) {
+    if (name === 'denial-ack') throw error
+    originalPublish.call(this, name, packet)
+  })
+  try {
+    await expect(acknowledge(command, 'declined')).rejects.toBe(error)
+    commandAlive = false
+    const result = output(await check)
+    expect(result.hookSpecificOutput.permissionDecision).toBe('deny')
+  } finally {
+    publish.mockRestore()
+    await command.close()
+  }
+})
 
 test('a second approval succeeds after the first human wait exceeds old limits', async () => {
   const f = fixture()

@@ -13,7 +13,8 @@ validation is separate from native generated-registration conformance.
 ## Internal Command API
 
 `createApprovalInteraction(options, testing?)` in `channel.ts` returns an
-`ApprovalInteraction` with `request(question, signal)` and asynchronous `close()`.
+`ApprovalInteraction` with `request(question, signal)`, asynchronous `close()`,
+and a private command-side `acknowledgeDenial(decision, nativeDenial)` method.
 Options contain a `CheckInput` identity, optional `disposition` (`run` by default
 or `suppressed`), and optional invocation-wide `AbortSignal`. The second argument
 overrides internal HOME, clock, process-liveness and wait dependencies for tests;
@@ -82,6 +83,15 @@ Approval continues the same invocation once. Decline, cancellation, expiry or
 transport failure latches an interaction failure outside configurable hook-crash
 degradation; a user decline is not counted as a crashing hook.
 
+An exact valid form refusal or cancellation is carried as a typed internal
+user decision. Its final PreToolUse denial is respectively
+`[hook-name] Approval declined. Operation not run.` or
+`[hook-name] Approval cancelled. Operation not run.` Both adapters serialize that
+denial as their normal exit-0 PreToolUse block. Codex omits its duplicate
+`systemMessage` only for these two typed outcomes. Malformed responses, transport
+errors, shared-signal cancellation and unrelated policy failures retain their
+existing fallback translations.
+
 Parallel hooks retain concurrent startup and the prohibition on input rewrites.
 The batch is audited and effective blocks selected before its asks are presented
 in configured order, not promise-settlement order. A known denial suppresses
@@ -106,6 +116,12 @@ output is not run through a codec twice. Denial output does not request final
 confirmation; a later adjustment cannot erase an existing denial. The operation
 is checked again after confirmation, and output is held until interaction close;
 close failure is translated as refusal.
+
+For a typed user refusal, the run layer resets approval-lifecycle ownership and
+selects exit 0 before writing the exact native denial. Only completion of the
+stdout stream write callback permits publication of the matching denial
+acknowledgement. A failed write publishes no acknowledgement. Callback completion
+is a local pipe-write receipt, not proof that the agent consumed the output.
 
 `ask` is a live consent checkpoint, not `defer`. Claude defer retains its native
 mode-dependent behavior; Codex defer remains unsupported. A mixed ask/defer flow
@@ -174,6 +190,13 @@ a fresh command nonce, check claim identity, question ordinal and question diges
 bind the exchange. Complete packets are published through a private temporary
 file and an exclusive hard link; existing claims or packets are never replaced.
 
+Explicit user decline/cancel uses one additional terminal packet,
+`denial-ack.json`. Its strict body binds protocol version, full `CheckInput` key,
+command nonce, check claim ID, ordinal, question digest, typed decision and a
+digest of the exact native denial. The command publishes it only after the exact
+exit-0 denial's stdout write callback completes. Ordinary `done` and `check-done`
+publication may precede command output and is never denial acknowledgement.
+
 One immutable election selects a started command or a closed unmatched check.
 The check waits up to one second for a start, then returns neutral if it wins
 closure. A later command may still complete without asking, but an actual ask
@@ -229,10 +252,15 @@ non-human work. During elicitation the server still monitors cancellation,
 disconnect and command death, and late answers cannot reopen completed work.
 
 Successful completion, suppression and unmatched closure return text containing
-`{}`. Observable failures return text containing native `PreToolUse` denial JSON
-inside a successful MCP tool result, rather than relying on `isError: true` for
-enforcement. The companion does not emit an allow, duplicate context, or rewrite
-tool input. Direct model calls without a matching command cannot mint consent.
+`{}`. After a valid form refusal/cancellation, the companion first publishes the bound
+negative reply and waits within the resumed non-human budget for the command's
+matching `denial-ack.json`; only that acknowledgement makes the companion return
+`{}`. Missing, malformed, stale or crossed acknowledgement, command death before
+a valid acknowledgement, timeout, or acknowledgement-publication failure returns native `PreToolUse`
+denial JSON inside a successful MCP tool result. Other observable failures keep
+the same denial fallback rather than relying on `isError: true` for enforcement.
+The companion does not emit an allow, duplicate context, or rewrite tool input.
+Direct model calls without a matching command cannot mint consent.
 
 `createApprovalServer(options?)` returns `{ server, close }` using the official
 TypeScript MCP SDK. It advertises only `check`, limits concurrent checks and

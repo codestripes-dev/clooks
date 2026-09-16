@@ -111,13 +111,21 @@ function denied(output: ReturnType<typeof run>, reason: string) {
   expect(JSON.stringify(output)).not.toMatch(/capability|failed|errored|unsupported result/)
 }
 function approvalDenied(output: ReturnType<typeof run>, kind: 'declined' | 'unavailable') {
+  if (kind === 'declined') {
+    expect(output).toEqual({
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: 'deny',
+        permissionDecisionReason: '[no-rm-rf] Approval declined. Operation not run.',
+      },
+    })
+    return
+  }
   expect(output.hookSpecificOutput).toEqual({
     hookEventName: 'PreToolUse',
     permissionDecision: 'deny',
     permissionDecisionReason: expect.stringContaining(
-      kind === 'declined'
-        ? 'Approval declined: Approval was not positively confirmed'
-        : 'Approval unavailable: Live approval unavailable.',
+      'Approval unavailable: Live approval unavailable.',
     ),
   })
 }

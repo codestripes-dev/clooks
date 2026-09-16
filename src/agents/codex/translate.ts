@@ -4,8 +4,16 @@ import type {
   TranslatedAgentOutput,
 } from '../types.js'
 import { allowReasonAnnotation } from './policy.js'
+import { denial } from '../../interaction/protocol.js'
 
 export function translateFailure(input: TranslateFailureInput): TranslatedAgentOutput {
+  if (input.eventName === 'PreToolUse' && input.failure.approvalDecision) {
+    return {
+      output: JSON.stringify(denial(input.failure.message)),
+      exitCode: 0,
+      approvalDecision: input.failure.approvalDecision,
+    }
+  }
   const dispositions: Record<string, string> = {
     PreToolUse: 'Pending call denial requested.',
     PermissionRequest: 'Pending approval denial requested.',

@@ -91,10 +91,30 @@ For combined cases, global owns the active merged pipeline and
 required; pending active checks may observe a suppressed peer still starting
 and must not require premature completion. Both mailbox pairs must settle before
 native teardown. The suppressed project peer always completes neutrally with no
-questions, replies or failures; an active global decline records its failure.
+questions, replies or failures; an active global decline records its command
+failure while its companion completion remains neutral.
 No duplicate pipeline, prompt or effect is accepted. Helper regressions in
 `generated.test.ts` check selection and false-pass resistance, not native
 enforcement.
+
+For a normal user decline or cancellation, the command is the sole native
+denial source. The command publishes its attributed failure and, only after its
+denial JSON has been written, a bound `denial-ack` containing the check claim,
+refusal ordinal, displayed-question digest, decision and denial-output digest.
+That acknowledgement proves completion of the command's pipe write; it does not
+prove that the native client displayed or accepted the denial. The companion
+must complete neutrally and return `{}`. The native original tool result must
+independently contain the same command-attributed reason. Generated packet
+oracles therefore require the exact `[hook-N] Approval <declined|cancelled>.
+Operation not run.` command reason, a `confirmed: false` refusal reply, a valid
+acknowledgement, neutral `check-done`, stopped later hooks and no effect or
+PostToolUse. They do not infer an exact UI note count from mailbox packets.
+
+If the command exits before publishing a valid acknowledgement, its output write
+fails, or the acknowledgement is missing, malformed or does not bind the exact
+denial, the companion remains fail-closed and reports denial. Approval and
+no-ask paths publish no denial acknowledgement and retain their prior neutral
+companion behavior.
 
 Production elicitation keeps transport metadata in the bound mailbox rather
 than displaying it to the user. Hook 2 supplies an optional question headline;
@@ -130,8 +150,13 @@ credits from immediately before requesting elicitation. Cancellation, disconnect
 and process death still refuse. Compiled engine E2E holds the prompt beyond a
 deliberately shorter per-hook timeout for both providers, then covers acceptance,
 refusal and cancellation without replay or later-hook execution. Compiled transport cases
-cover request cancellation and peer loss for both provider identities. These
-short tests prove that human response time is separate from hook execution; they
+cover request cancellation and peer loss for both provider identities. Focused
+compiled refusal cases cover both providers and command-first/MCP-first startup:
+the command emits exact denial-only JSON with no redundant Codex `systemMessage`,
+input patch or context, while the companion is neutral only after the
+emitted-denial receipt. Missing and corrupt acknowledgement cases keep the
+companion fail-closed. These short tests prove that human response time is
+separate from hook execution; they
 do not simulate a five-minute wait. Injected-clock unit tests advance beyond the
 former 295-second Clooks budget and the former 330-second native registration value.
 Production registration now sets both paired handler timeouts and Codex's
@@ -167,8 +192,9 @@ Native acceptance requires real file creation, native PostToolUse and native
 identity output for non-shell cases, not a direct shell-effect event; the file
 must be absent while pending and after denial. Cancellation requires explicit
 native elicitation action `cancel` at the selected ordinal and production
-`failure.kind='cancelled'` with message `Approval cancelled`; it is not
-`turn/interrupt` evidence. Automated replies remain scripted and do not prove
+`failure.kind='cancelled'`; for normal user cancellation its message is
+`[hook-name] Approval cancelled. Operation not run.` It is not `turn/interrupt`
+evidence. Automated replies remain scripted and do not prove
 human consent, normal trust policy or release conformance. Existing
 cold-readiness and external-expiry limits remain. Pinned verification: 26
 generated native cases passed on Claude Code 2.1.272 and Codex CLI 0.154.0;

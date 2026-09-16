@@ -47,7 +47,7 @@ import { claudeCodePluginDeps } from '../agents/claude-code/adapter.js'
 import { discoverCodexPluginPacks } from '../agents/codex/plugin-discovery.js'
 import { createApprovalInteraction } from '../interaction/channel.js'
 import type { ApprovalInteraction } from '../interaction/types.js'
-import { canonical, checkSignal } from '../interaction/protocol.js'
+import { canonical, checkSignal, nativePreToolUseDenialSchema } from '../interaction/protocol.js'
 import { ApprovalFailure, confirmFinalApprovals, approvalSetupMessage } from './live-approvals.js'
 import { legacyResultPolicy } from './result-policy.js'
 
@@ -80,13 +80,19 @@ export const defaultDeps: RunEngineDeps = {
   discoverProjectRoot,
 }
 
-function emitTranslatedOutput(translated: TranslatedAgentOutput): ExitCode {
+function writeOutput(stream: NodeJS.WriteStream, text: string): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    stream.write(text, (error) => (error ? reject(error) : resolve()))
+  })
+}
+
+async function emitTranslatedOutput(translated: TranslatedAgentOutput): Promise<ExitCode> {
   if (translated.stderr) {
-    process.stderr.write(`${translated.stderr}\n`)
+    await writeOutput(process.stderr, `${translated.stderr}\n`)
   }
 
   if (translated.output) {
-    process.stdout.write(translated.output + '\n')
+    await writeOutput(process.stdout, translated.output + '\n')
   }
   return translated.exitCode
 }
@@ -118,14 +124,24 @@ export async function runEngineCore(
   adapter: AgentAdapter,
   deps: RunEngineDeps = defaultDeps,
 ): Promise<void> {
-  try {
-    await runEngineCoreOwned(adapter, deps)
-  } finally {
+  let lifecycleClosed = false
+  const closeApprovalLifecycle = () => {
+    if (lifecycleClosed) return
     deps.onApprovalLifecycle?.(false)
+    lifecycleClosed = true
+  }
+  try {
+    await runEngineCoreOwned(adapter, deps, closeApprovalLifecycle)
+  } finally {
+    closeApprovalLifecycle()
   }
 }
 
-async function runEngineCoreOwned(adapter: AgentAdapter, deps: RunEngineDeps): Promise<void> {
+async function runEngineCoreOwned(
+  adapter: AgentAdapter,
+  deps: RunEngineDeps,
+  closeApprovalLifecycle: () => void,
+): Promise<void> {
   const state: InvocationState = {
     eventName: null,
     rawReadAttempted: false,
@@ -148,7 +164,13 @@ async function runEngineCoreOwned(adapter: AgentAdapter, deps: RunEngineDeps): P
           : {
               eventName: state.eventName,
               capability: error instanceof ApprovalFailure ? 'approval' : 'runtime',
-              message: `clooks: runtime failure: ${error instanceof Error ? error.message : String(error)}`,
+              message:
+                error instanceof ApprovalFailure && error.decision
+                  ? error.message
+                  : `clooks: runtime failure: ${error instanceof Error ? error.message : String(error)}`,
+              ...(error instanceof ApprovalFailure && error.decision
+                ? { approvalDecision: error.decision }
+                : {}),
             }
       state.output = adapter.translateFailure({
         eventName: state.eventName,
@@ -187,14 +209,34 @@ async function runEngineCoreOwned(adapter: AgentAdapter, deps: RunEngineDeps): P
     })
     exitCode = state.output.exitCode
   }
+  closeApprovalLifecycle()
+  if (state.output?.approvalDecision && state.output.exitCode === EXIT_OK)
+    process.exitCode = EXIT_OK
   if (state.output) {
-    emitTranslatedOutput(state.output)
-    // Await stream flush before process.exit; callbacks also surface write failures.
-    for (const stream of [process.stdout, process.stderr]) {
-      if (stream.writableLength > 0)
-        await new Promise<void>((resolve, reject) =>
-          stream.write('', (error) => (error ? reject(error) : resolve())),
-        )
+    await emitTranslatedOutput(state.output)
+    if (
+      state.output.exitCode === EXIT_OK &&
+      state.output.output &&
+      state.output.approvalDecision &&
+      state.interaction?.acknowledgeDenial
+    ) {
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(state.output.output)
+      } catch {
+        parsed = undefined
+      }
+      const nativeDenial = nativePreToolUseDenialSchema.safeParse(parsed)
+      if (nativeDenial.success) {
+        try {
+          await state.interaction.acknowledgeDenial(
+            state.output.approvalDecision,
+            nativeDenial.data,
+          )
+        } catch {
+          // The command denial is already on stdout. Missing ack keeps MCP fail-closed.
+        }
+      }
     }
   }
   if (exitCode !== undefined) process.exit(exitCode)
@@ -815,6 +857,7 @@ async function runEngineInvocation(
     }
   } catch (error) {
     if (execution.preToolUse?.approvals.length) {
+      if (error instanceof ApprovalFailure) throw error
       throw new ApprovalFailure(error instanceof Error ? error.message : String(error))
     }
     throw error

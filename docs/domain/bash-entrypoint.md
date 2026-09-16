@@ -108,7 +108,10 @@ handlers use shared `APPROVAL_TIMEOUT_SECONDS` of 2,147,483 seconds (about 24.85
 days, a finite native fallback). Codex MCP uses the same seconds value; Claude's
 server `timeout` uses the derived 2,147,483,000 ms to override its wall timer and
 raise its default 30-minute idle floor. Other events remain command-only. The engine
-waits at checkpoints; the launcher does not parse or consume approval tokens.
+waits at checkpoints; the launcher does not parse denial output or mailbox
+acknowledgements. For an explicit user refusal, the command emits the exact native
+deny and acknowledges it only after the stdout write callback; the companion is
+neutral only after that private receipt and otherwise retains its fallback deny.
 The [former token transport](codex-approvals.md) and its native receipts are
 historical, not validation of this generated pairing.
 

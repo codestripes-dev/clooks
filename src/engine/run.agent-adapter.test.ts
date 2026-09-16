@@ -41,19 +41,27 @@ class ExitCalled extends Error {
   }
 }
 
+function captureWrite(captured: string[]) {
+  return (msg: unknown, encodingOrCallback?: unknown, callback?: unknown): boolean => {
+    captured.push(String(msg))
+    const complete =
+      typeof encodingOrCallback === 'function'
+        ? encodingOrCallback
+        : typeof callback === 'function'
+          ? callback
+          : undefined
+    complete?.()
+    return true
+  }
+}
+
 async function runWithExitTrap(
   deps?: RunEngineDeps,
 ): Promise<{ code: number | string | undefined; stderr: string; stdout: string }> {
   const capturedStderr: string[] = []
   const capturedStdout: string[] = []
-  const stderrSpy = spyOn(process.stderr, 'write').mockImplementation((msg: unknown) => {
-    capturedStderr.push(String(msg))
-    return true
-  })
-  const stdoutSpy = spyOn(process.stdout, 'write').mockImplementation((msg: unknown) => {
-    capturedStdout.push(String(msg))
-    return true
-  })
+  const stderrSpy = spyOn(process.stderr, 'write').mockImplementation(captureWrite(capturedStderr))
+  const stdoutSpy = spyOn(process.stdout, 'write').mockImplementation(captureWrite(capturedStdout))
   const origExit = process.exit.bind(process)
   process.exit = ((code?: number | string) => {
     throw new ExitCalled(code)
@@ -196,14 +204,8 @@ async function runCoreWithExitTrap(
 }> {
   const capturedStderr: string[] = []
   const capturedStdout: string[] = []
-  const stderrSpy = spyOn(process.stderr, 'write').mockImplementation((msg: unknown) => {
-    capturedStderr.push(String(msg))
-    return true
-  })
-  const stdoutSpy = spyOn(process.stdout, 'write').mockImplementation((msg: unknown) => {
-    capturedStdout.push(String(msg))
-    return true
-  })
+  const stderrSpy = spyOn(process.stderr, 'write').mockImplementation(captureWrite(capturedStderr))
+  const stdoutSpy = spyOn(process.stdout, 'write').mockImplementation(captureWrite(capturedStdout))
   const origExit = process.exit.bind(process)
   process.exit = ((code?: number | string) => {
     throw new ExitCalled(code)

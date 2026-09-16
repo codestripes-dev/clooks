@@ -137,7 +137,7 @@ export class Mailbox {
 
   private path(name: string): string {
     if (
-      !/^(command|check|start|election|attached|done|check-done|retired|question-([1-9]|[12][0-9]|3[0-2])|reply-([1-9]|[12][0-9]|3[0-2]))$/.test(
+      !/^(command|check|start|election|attached|done|check-done|denial-ack|retired|question-([1-9]|[12][0-9]|3[0-2])|reply-([1-9]|[12][0-9]|3[0-2]))$/.test(
         name,
       )
     ) {

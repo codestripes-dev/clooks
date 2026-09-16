@@ -31,7 +31,7 @@ import { cloneDeep, omitBy, isNull } from 'lodash-es'
 import type { ApprovalInteraction, ApprovalQuestion } from '../interaction/types.js'
 import { operationSchema } from '../interaction/protocol.js'
 import { materializePatch, jsonRecord } from '../agents/codex/tool-codecs.js'
-import { requestApproval } from './live-approvals.js'
+import { ApprovalFailure, requestApproval } from './live-approvals.js'
 
 // --- PreToolUse vote collector types and helpers ---
 
@@ -526,7 +526,13 @@ export async function executeHooks(
       eventName,
       hookName,
       capability: 'approval',
-      message: `clooks: ${error instanceof Error ? error.message : String(error)}`,
+      message:
+        error instanceof ApprovalFailure && error.decision
+          ? error.message
+          : `clooks: ${error instanceof Error ? error.message : String(error)}`,
+      ...(error instanceof ApprovalFailure && error.decision
+        ? { approvalDecision: error.decision }
+        : {}),
     }
     effectsOpen = false
   }

@@ -265,7 +265,10 @@ export const claudeCodeAdapter: AgentAdapter = {
 
   translateFailure({ eventName, failure }) {
     if (eventName === 'PreToolUse') {
-      return translateClaudeCodeResult(eventName, { result: 'block', reason: failure.message })
+      return {
+        ...translateClaudeCodeResult(eventName, { result: 'block', reason: failure.message }),
+        ...(failure.approvalDecision ? { approvalDecision: failure.approvalDecision } : {}),
+      }
     }
     return { exitCode: EXIT_STDERR, stderr: failure.message }
   },

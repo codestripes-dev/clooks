@@ -5,6 +5,7 @@ import { hn } from '../../test-utils.js'
 import { InvocationPolicyError } from '../types.js'
 import type { ResultOrigin } from '../types.js'
 import type { EventName } from '../../types/branded.js'
+import { denial, userApprovalFailure } from '../../interaction/protocol.js'
 
 const events = [
   'SessionStart',
@@ -395,6 +396,35 @@ describe('Codex event result contracts', () => {
         }
       }
     }
+  })
+
+  test('typed user refusal omits duplicate systemMessage without changing transport failures', () => {
+    const refusal = userApprovalFailure('declined', 'guard')
+    const typed = codexAdapter.translateFailure({
+      eventName: 'PreToolUse',
+      failure: {
+        eventName: 'PreToolUse',
+        hookName: hn('guard'),
+        capability: 'approval',
+        message: refusal.message,
+        approvalDecision: refusal.kind,
+      },
+    })
+    expect(JSON.parse(typed.output!)).toEqual(denial(refusal.message))
+    expect(JSON.parse(typed.output!)).not.toHaveProperty('systemMessage')
+    expect(typed.approvalDecision).toBe('declined')
+
+    const transport = codexAdapter.translateFailure({
+      eventName: 'PreToolUse',
+      failure: {
+        eventName: 'PreToolUse',
+        hookName: hn('guard'),
+        capability: 'approval',
+        message: 'transport failed',
+      },
+    })
+    expect(JSON.parse(transport.output!)).toHaveProperty('systemMessage')
+    expect(transport.approvalDecision).toBeUndefined()
   })
 
   test.each(['PermissionRequest', 'PreCompact', 'PostCompact', 'Stop', 'SubagentStop'] as const)(

@@ -5,6 +5,7 @@ import { createRegistrationSandbox, registrationEnv } from './helpers/registrati
 import { formatDiagnostics, type RunResult, type Sandbox } from './helpers/sandbox'
 import {
   assertCompanion,
+  assertEmittedDenialReceipt,
   bounded,
   cleanupAll,
   connectApprovalPeer,
@@ -458,14 +459,21 @@ describe('compiled generated approval registrations', () => {
             accept ? { action: 'accept', content: { decision: 'Approve' } } : { action: 'decline' },
           )
           const result = await bounded(process.result, 'Registered command')
+          const checkResult = await check
           if (accept) expectAllowed(result, provider)
           else {
             const value = output(result)
-            expect(value.hookSpecificOutput.permissionDecision).toBe('deny')
-            expect(value.hookSpecificOutput.permissionDecisionReason).toContain('Approval declined')
-            expect(value.hookSpecificOutput.updatedInput).toBeUndefined()
+            expect(value).toEqual({
+              hookSpecificOutput: {
+                hookEventName: 'PreToolUse',
+                permissionDecision: 'deny',
+                permissionDecisionReason: '[observe] Approval declined. Operation not run.',
+              },
+            })
+            assertCompanion(checkResult)
+            assertEmittedDenialReceipt(sandbox, call.identity, value)
           }
-          assertCompanion(await check, accept ? undefined : 'Approval was not positively confirmed')
+          if (accept) assertCompanion(checkResult)
           expect(completion(call.identity).start.disposition).toBe('run')
         }
         expect(calls()).toHaveLength(2)

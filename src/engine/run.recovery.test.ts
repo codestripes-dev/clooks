@@ -15,8 +15,18 @@ test('SessionStart completes when housekeeping dependencies reject', async () =>
   const originalDebug = process.env.CLOOKS_DEBUG
   process.env.CLOOKS_HOME_ROOT = root
   delete process.env.CLOOKS_DEBUG
-  const stdout = spyOn(process.stdout, 'write').mockImplementation(() => true)
-  const stderr = spyOn(process.stderr, 'write').mockImplementation(() => true)
+  const completeWrite = (_chunk: unknown, encodingOrCallback?: unknown, callback?: unknown) => {
+    const complete =
+      typeof encodingOrCallback === 'function'
+        ? encodingOrCallback
+        : typeof callback === 'function'
+          ? callback
+          : undefined
+    complete?.()
+    return true
+  }
+  const stdout = spyOn(process.stdout, 'write').mockImplementation(completeWrite)
+  const stderr = spyOn(process.stderr, 'write').mockImplementation(completeWrite)
   const pruneHandoff = spyOn(handoff, 'pruneHandoffFiles').mockRejectedValueOnce(
     new Error('handoff prune failed'),
   )

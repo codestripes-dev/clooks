@@ -5,6 +5,7 @@ import {
   checkSignal,
   claimSchema,
   digest,
+  denial,
   failureOf,
   InteractionError,
   limits,
@@ -14,8 +15,11 @@ import {
   replySchema,
   same,
   unavailable,
+  userApprovalFailure,
   type Failure,
+  type NativePreToolUseDenial,
   type StartPacket,
+  type UserApprovalDecision,
 } from './protocol.js'
 import { openMailbox, runtime, type InteractionRuntime } from './storage.js'
 import type {
@@ -55,6 +59,15 @@ export async function createApprovalInteraction(
   let closed = false
   let pending = false
   let ordinal = 0
+  let userRefusal:
+    | {
+        checkId: string
+        ordinal: number
+        digest: string
+        decision: UserApprovalDecision
+        failure: Failure
+      }
+    | undefined
   let pendingDone: Promise<void> | undefined
   let settlePending: (() => void) | undefined
   const stopped = new AbortController()
@@ -159,11 +172,20 @@ export async function createApprovalInteraction(
               localDeadline = resumeDeadline(localDeadline, humanWaitStartedAt, clock.now())
               remaining(localDeadline, clock.now())
               checkSignal(combined)
-              if (!reply.confirmed)
-                throw new InteractionError({
-                  kind: 'declined',
-                  message: `Approval declined: ${snapshot.hookName}`,
-                })
+              if (!reply.confirmed) {
+                const expected = userApprovalFailure(reply.failure.kind, snapshot.hookName)
+                same(reply.failure, expected, 'user refusal')
+                failure = expected
+                userRefusal = {
+                  checkId: peer.id,
+                  ordinal,
+                  digest: questionDigest,
+                  decision: expected.kind,
+                  failure: expected,
+                }
+                finish()
+                return { ...expected, userDecision: true }
+              }
               return { kind: 'approved' }
             }
           } else if (clock.now() >= attachmentDeadline) {
@@ -181,6 +203,22 @@ export async function createApprovalInteraction(
         pending = false
         settlePending?.()
       }
+    },
+    async acknowledgeDenial(decision: UserApprovalDecision, nativeDenial: NativePreToolUseDenial) {
+      if (!userRefusal) unavailable('No user approval refusal is awaiting acknowledgement')
+      same(decision, userRefusal.decision, 'denial decision')
+      same(nativeDenial, denial(userRefusal.failure.message), 'native denial')
+      box.publish('denial-ack', {
+        version: 1,
+        key,
+        nonce: start.nonce,
+        checkId: userRefusal.checkId,
+        ordinal: userRefusal.ordinal,
+        digest: userRefusal.digest,
+        decision,
+        denialDigest: digest(nativeDenial),
+        at: clock.now(),
+      })
     },
     async close() {
       if (pending)

@@ -55,8 +55,15 @@ retry discharge or consumption. Explicit paired metadata selects identity and
 disposition before discovery/configuration; ordinary `CLOOKS_AGENT` selection is
 unchanged. The executor waits at asks, then the run layer inspects the actual
 serialized operation and reconfirms changed approvals before closing and emitting
-output. Typed `ApprovalFailure` selects approval-error translation without
-catching unrelated Claude fatal errors as permission refusals. The former token
+output. For a valid form refusal/cancellation, it resets approval-lifecycle ownership,
+selects the normal PreToolUse denial exit, and writes the exact native denial before
+publishing the private mailbox acknowledgement. Acknowledgement requires the
+stdout write callback; command death before valid acknowledgement or
+write/publication failure leaves the MCP
+companion's fallback denial in force. The callback is a local pipe receipt, not
+proof that the agent consumed output. Typed `ApprovalFailure` selects
+approval-error translation without catching unrelated Claude fatal errors as
+permission refusals. The former token
 controller, store and `approve` command are removed; old databases remain inert
 and untouched. Token-looking command text is literal input, not consent. The
 [historical native token suite](codex-approvals.md) does not validate this flow.

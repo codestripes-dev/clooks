@@ -40,6 +40,17 @@ let mockReadStdin: ReturnType<typeof mock>
 let mockDiscoverPluginPacks: ReturnType<typeof mock>
 let mockVendorAndRegisterPack: ReturnType<typeof mock>
 
+function completeWrite(_chunk: unknown, encodingOrCallback?: unknown, callback?: unknown): boolean {
+  const complete =
+    typeof encodingOrCallback === 'function'
+      ? encodingOrCallback
+      : typeof callback === 'function'
+        ? callback
+        : undefined
+  complete?.()
+  return true
+}
+
 function makeDeps(): RunEngineDeps {
   return {
     loadConfig: mockLoadConfig as any,
@@ -62,8 +73,8 @@ beforeEach(() => {
   exitSpy = spyOn(process, 'exit').mockImplementation((() => {
     throw new Error('process.exit called')
   }) as () => never)
-  stdoutSpy = spyOn(process.stdout, 'write').mockImplementation(() => true)
-  stderrSpy = spyOn(process.stderr, 'write').mockImplementation(() => true)
+  stdoutSpy = spyOn(process.stdout, 'write').mockImplementation(completeWrite)
+  stderrSpy = spyOn(process.stderr, 'write').mockImplementation(completeWrite)
   mockLoadConfig = mock(() => Promise.resolve(null))
   mockLoadAllHooks = mock(() => Promise.resolve({ loaded: [], loadErrors: [], dangling: [] }))
   // Default stdin: a minimal valid event payload so tests that don't explicitly

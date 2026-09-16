@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -23,6 +24,38 @@ export interface Case {
   operation: { toolName: string; input: unknown }
 }
 export type Packets = Record<string, any>
+
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`
+  if (value !== null && typeof value === 'object')
+    return `{${Object.keys(value)
+      .filter((key) => (value as Record<string, unknown>)[key] !== undefined)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonical((value as Record<string, unknown>)[key])}`)
+      .join(',')}}`
+  return JSON.stringify(value)
+}
+
+export function packetDigest(value: unknown): string {
+  return createHash('sha256').update(canonical(value)).digest('hex')
+}
+
+export function expectedRefusalFailure(decision: 'declined' | 'cancelled', hookName: string) {
+  return {
+    kind: decision,
+    message: `[${hookName}] Approval ${decision === 'declined' ? 'declined' : 'cancelled'}. Operation not run.`,
+  }
+}
+
+export function expectedNativeDenial(message: string) {
+  return {
+    hookSpecificOutput: {
+      hookEventName: 'PreToolUse',
+      permissionDecision: 'deny',
+      permissionDecisionReason: message,
+    },
+  }
+}
 
 const expectedApprovalSchema = {
   type: 'object',
@@ -307,6 +340,8 @@ export function assertPending(
     operation: c.operation,
   })
   assert.deepEqual(box[`question-${question.ordinal}`]?.question, question)
+  assert.equal(box[`question-${question.ordinal}`].version, 1)
+  assert.equal(box[`question-${question.ordinal}`].digest, packetDigest(question))
   assert.deepEqual(box[`question-${question.ordinal}`].key, key)
   assert.equal(box[`question-${question.ordinal}`].nonce, box.start.nonce)
   assert.deepEqual(
@@ -391,10 +426,7 @@ export function assertOutcome(
   assert.equal(replies.length, promptCount, 'Missing or duplicate approval prompt')
   assert.equal(requests.length, promptCount, 'Unexpected native elicitation request')
   assert.equal(Object.keys(box).filter((name) => /^question-\d+$/.test(name)).length, promptCount)
-  assert.equal(
-    Object.keys(box).filter((name) => /^reply-\d+$/.test(name)).length,
-    promptCount - (stopOrdinal ? 1 : 0),
-  )
+  assert.equal(Object.keys(box).filter((name) => /^reply-\d+$/.test(name)).length, promptCount)
   for (let i = 0; i < replies.length; i++) {
     assert.deepEqual(replies[i]!.question, box[`question-${i + 1}`].question)
     assert.deepEqual((replies[i]!.question as any).operation, c.operation)
@@ -409,13 +441,26 @@ export function assertOutcome(
     if (stopOrdinal !== i + 1) {
       assert.equal(box[`reply-${i + 1}`]?.confirmed, true)
       assert.equal(box[`reply-${i + 1}`]?.nonce, box.start.nonce)
+      assert.equal(box[`reply-${i + 1}`]?.checkId, box.check.id)
+      assert.equal(box[`reply-${i + 1}`]?.ordinal, i + 1)
+      assert.equal(box[`reply-${i + 1}`]?.digest, box[`question-${i + 1}`].digest)
       assert.ok(
         journal.findIndex((row) => row.event === String((i + 1) * 2 + 1)) >
           journal.indexOf(replies[i]!),
         `Hook ${(i + 1) * 2 + 1} ran before its approval response`,
       )
     } else {
-      assert.equal(box[`reply-${i + 1}`], undefined, 'Refused approval published a positive reply')
+      const refusal = expectedRefusalFailure(failureKind, `hook-${(i + 1) * 2}`)
+      assert.deepEqual(box[`reply-${i + 1}`], {
+        version: 1,
+        key,
+        nonce: box.start.nonce,
+        checkId: box.check.id,
+        ordinal: i + 1,
+        digest: box[`question-${i + 1}`].digest,
+        confirmed: false,
+        failure: refusal,
+      })
     }
   }
   for (const name of ['check', 'done', 'check-done']) assert.deepEqual(box[name]?.key, key)
@@ -427,18 +472,35 @@ export function assertOutcome(
   const posts = journal.filter((row) => row.event === 'native-post')
   const shell = c.operation.toolName === 'Bash'
   if (stopOrdinal) {
-    assert.equal(box.done.failure?.kind, failureKind)
-    assert.equal(box['check-done'].failure?.kind, failureKind)
-    if (refusedAction === 'cancel') {
-      assert.equal(box.done.failure?.message, 'Approval cancelled')
-      assert.equal(box['check-done'].failure?.message, 'Approval cancelled')
-      assert.ok(JSON.stringify(native.output).includes('Approval cancelled'))
-      assert.ok(!JSON.stringify(native.output).includes('Approval was not positively confirmed'))
-    } else {
-      assert.equal(box.done.failure?.message, 'Approval was not positively confirmed')
-      assert.equal(box['check-done'].failure?.message, 'Approval was not positively confirmed')
-      assert.ok(JSON.stringify(native.output).includes('Approval was not positively confirmed'))
-    }
+    const expectedFailure = expectedRefusalFailure(failureKind, `hook-${stopOrdinal * 2}`)
+    assert.deepEqual(box.done.failure, expectedFailure)
+    assert.equal(box['check-done'].failure, undefined, 'Companion duplicated command denial')
+    const acknowledgement = box['denial-ack']
+    assert.ok(acknowledgement, 'Missing emitted command denial acknowledgement')
+    assert.equal(acknowledgement.version, 1)
+    assert.deepEqual(acknowledgement.key, key)
+    assert.equal(acknowledgement.nonce, box.start.nonce)
+    assert.equal(acknowledgement.checkId, box.check.id)
+    assert.equal(acknowledgement.ordinal, stopOrdinal)
+    assert.equal(
+      box[`question-${stopOrdinal}`].digest,
+      packetDigest(box[`question-${stopOrdinal}`].question),
+    )
+    assert.equal(acknowledgement.digest, box[`question-${stopOrdinal}`].digest)
+    assert.equal(acknowledgement.decision, failureKind)
+    assert.equal(
+      acknowledgement.denialDigest,
+      packetDigest(expectedNativeDenial(expectedFailure.message)),
+    )
+    assert.ok(acknowledgement.at >= box.done.at, 'Denial acknowledged before command completion')
+    assert.ok(
+      box['check-done'].at >= acknowledgement.at,
+      'Companion completed before command denial acknowledgement',
+    )
+    assert.ok(
+      JSON.stringify(native.output).includes(expectedFailure.message),
+      'Native refusal does not contain the emitted command denial reason',
+    )
     assert.equal(effect, undefined)
     assert.equal(effects.length, 0)
     assert.equal(posts.length, 0)
@@ -455,6 +517,7 @@ export function assertOutcome(
   } else {
     assert.equal(box.done.failure, undefined)
     assert.equal(box['check-done'].failure, undefined)
+    assert.equal(box['denial-ack'], undefined, 'Non-refusal published a denial acknowledgement')
     assert.equal(effect, 'native-effect\n')
     assert.equal(effects.length, shell ? 1 : 0)
     assert.equal(posts.length, 1)

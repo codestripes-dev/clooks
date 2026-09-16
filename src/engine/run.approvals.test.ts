@@ -15,9 +15,11 @@ import { createApprovalInteraction } from '../interaction/channel.js'
 import { approvalRoot, Mailbox } from '../interaction/storage.js'
 import {
   attachedSchema,
+  denial,
   digest,
   questionPacketSchema,
   startSchema,
+  userApprovalFailure,
 } from '../interaction/protocol.js'
 
 let root: string
@@ -59,6 +61,9 @@ beforeEach(() => {
     },
     async close() {
       journal.push('close')
+    },
+    async acknowledgeDenial(decision, output) {
+      journal.push(`ack:${decision}:${JSON.stringify(output)}`)
     },
   }
 })
@@ -149,21 +154,28 @@ async function run(
       encodingOrCallback?: BufferEncoding | ((error?: Error | null) => void),
       callback?: (error?: Error | null) => void,
     ) => {
-      if (value === '' && onFlush) {
-        const complete = typeof encodingOrCallback === 'function' ? encodingOrCallback : callback
-        if (!complete) throw new Error('Missing stream completion callback')
-        onFlush(complete)
-        return true
-      }
       stdout += String(value)
       journal.push('output')
+      const complete = typeof encodingOrCallback === 'function' ? encodingOrCallback : callback
+      if (complete) {
+        if (onFlush) onFlush(complete)
+        else complete()
+      }
       return true
     },
   )
-  const err = spyOn(process.stderr, 'write').mockImplementation((value) => {
-    stderr += String(value)
-    return true
-  })
+  const err = spyOn(process.stderr, 'write').mockImplementation(
+    (
+      value: string | Uint8Array,
+      encodingOrCallback?: BufferEncoding | ((error?: Error | null) => void),
+      callback?: (error?: Error | null) => void,
+    ) => {
+      stderr += String(value)
+      const complete = typeof encodingOrCallback === 'function' ? encodingOrCallback : callback
+      complete?.()
+      return true
+    },
+  )
   try {
     if (throughEntryPoint) {
       process.env.CLOOKS_AGENT = adapter.id
@@ -327,8 +339,7 @@ for (const event of ['PreToolUse', 'Stop']) {
 
 for (const failure of [false, true]) {
   test(`pending output flush is awaited after interaction closure, failure=${failure}`, async () => {
-    const originalLength = Object.getOwnPropertyDescriptor(process.stdout, 'writableLength')
-    Object.defineProperty(process.stdout, 'writableLength', { configurable: true, get: () => 1 })
+    add('block', () => ({ result: 'block', reason: 'blocked for callback test' }))
     const flushing = gate()
     let complete!: (error?: Error | null) => void
     let settled = false
@@ -357,14 +368,53 @@ for (const failure of [false, true]) {
         expect(journal).not.toContain('exit')
       } else {
         expect('output' in result && result.output.code).toBe(0)
-        expect(journal).toContain('exit')
+        expect(journal).not.toContain('exit')
       }
     } finally {
       complete?.()
       await pending
-      if (originalLength) Object.defineProperty(process.stdout, 'writableLength', originalLength)
-      else Reflect.deleteProperty(process.stdout, 'writableLength')
     }
+  })
+}
+
+for (const adapter of [codexAdapter, claudeCodeAdapter]) {
+  test(`${adapter.id}: failed refusal stdout callback never publishes denial acknowledgement`, async () => {
+    add('ask', () => ({ result: 'ask', reason: 'confirm' }))
+    const refusal = userApprovalFailure('declined', 'ask')
+    interaction.request = async () => ({ ...refusal, userDecision: true })
+    const error = new Error('refusal stdout failed')
+    const flushing = gate()
+    let complete!: (error?: Error | null) => void
+    let settled = false
+    const pending = run(deps(), adapter, (callback) => {
+      complete = callback
+      flushing.release()
+    }).finally(() => {
+      settled = true
+    })
+    await flushing.promise
+    expect(journal).toContain('output')
+    expect(journal.some((value) => value.startsWith('ack:'))).toBe(false)
+    expect(settled).toBe(false)
+    complete(error)
+    await expect(pending).rejects.toBe(error)
+    expect(journal.some((value) => value.startsWith('ack:'))).toBe(false)
+    expect(journal).not.toContain('exit')
+  })
+
+  test(`${adapter.id}: acknowledgement publication failure retains native denial exit 0`, async () => {
+    add('ask', () => ({ result: 'ask', reason: 'confirm' }))
+    const refusal = userApprovalFailure('cancelled', 'ask')
+    interaction.request = async () => ({ ...refusal, userDecision: true })
+    const error = new Error('ack publication failed')
+    interaction.acknowledgeDenial = async () => {
+      journal.push('ack-attempt')
+      throw error
+    }
+    const output = await run(deps(), adapter)
+    expect(output.code).toBe(0)
+    expect(output.json).toEqual(denial(refusal.message))
+    expect(journal.indexOf('output')).toBeLessThan(journal.indexOf('ack-attempt'))
   })
 }
 
@@ -390,7 +440,7 @@ for (const adapter of [codexAdapter, claudeCodeAdapter]) {
     expect(output.json.hookSpecificOutput.additionalContext).toBe('context 2\ncontext 4')
     expect(journal.indexOf('close')).toBeLessThan(journal.indexOf('output'))
   })
-  test(`${adapter.id}: decline is terminal and not a crashing hook`, async () => {
+  test(`${adapter.id}: decline is terminal, concise, and acknowledged after output`, async () => {
     let later = 0
     config.global.onError = 'continue'
     config.global.maxFailures = 1
@@ -399,12 +449,35 @@ for (const adapter of [codexAdapter, claudeCodeAdapter]) {
       later++
       return { result: 'allow' }
     })
-    interaction.request = async () => ({ kind: 'declined', message: 'No' })
-    const output = await run(deps(), adapter)
-    expect(output.stdout + output.stderr).toContain('declined')
-    expect(output.json.hookSpecificOutput?.permissionDecision).toBe('deny')
+    const refusal = userApprovalFailure('declined', 'ask')
+    interaction.request = async () => ({ ...refusal, userDecision: true })
+    const dependencies = deps()
+    dependencies.onApprovalLifecycle = (active) => journal.push(`lifecycle:${active}`)
+    const output = await run(dependencies, adapter)
+    expect(output.json).toEqual(denial(refusal.message))
+    expect(output.json.systemMessage).toBeUndefined()
     expect(later).toBe(0)
     expect(journal.filter((v) => v === 'close')).toHaveLength(1)
+    expect(journal.indexOf('lifecycle:false')).toBeLessThan(journal.indexOf('output'))
+    expect(journal.findIndex((value) => value === 'output')).toBeLessThan(
+      journal.findIndex((value) => value.startsWith('ack:declined:')),
+    )
+  })
+  test(`${adapter.id}: form cancellation is terminal and uses the normalized native reason`, async () => {
+    let later = 0
+    add('ask', () => ({ result: 'ask', reason: 'confirm' }))
+    add('later', () => {
+      later++
+      return { result: 'allow', injectContext: 'must not emit' }
+    })
+    const refusal = userApprovalFailure('cancelled', 'ask')
+    interaction.request = async () => ({ ...refusal, userDecision: true })
+    const output = await run(deps(), adapter)
+    expect(output.json).toEqual(denial(refusal.message))
+    expect(output.json.systemMessage).toBeUndefined()
+    expect(output.stdout).not.toContain('must not emit')
+    expect(later).toBe(0)
+    expect(journal.some((value) => value.startsWith('ack:cancelled:'))).toBe(true)
   })
   test(`${adapter.id}: changed operation reconfirms affected asks in configured order`, async () => {
     add('a', () => ({
@@ -502,7 +575,7 @@ for (const adapter of [claudeCodeAdapter, codexAdapter]) {
         journal.push(`ask:${question.ordinal}`)
         if (question.ordinal === 1) return { kind: 'approved' }
         if (failure === 'throw') throw new Error('reconfirmation transport failed')
-        return { kind: 'declined', message: 'rewrite not authorized' }
+        return { ...userApprovalFailure('declined', 'ask'), userDecision: true }
       }
       const output = await run(deps(), adapter)
       expect(
@@ -516,13 +589,18 @@ for (const adapter of [claudeCodeAdapter, codexAdapter]) {
       expect(output.code).toBe(0)
       expect(output.stderr).not.toContain('fatal error')
       expect(output.json.hookSpecificOutput.permissionDecision).toBe('deny')
-      expect(output.json.hookSpecificOutput.permissionDecisionReason).toContain(
-        failure === 'throw' ? 'reconfirmation transport failed' : 'rewrite not authorized',
-      )
+      if (failure === 'throw')
+        expect(output.json.hookSpecificOutput.permissionDecisionReason).toContain(
+          'reconfirmation transport failed',
+        )
+      else expect(output.json).toEqual(denial(userApprovalFailure('declined', 'ask').message))
       expect(output.json.hookSpecificOutput.updatedInput).toBeUndefined()
       expect(journal.filter((entry) => entry === 'close')).toHaveLength(1)
       expect(journal.indexOf('ask:2')).toBeLessThan(journal.indexOf('close'))
       expect(journal.indexOf('close')).toBeLessThan(journal.indexOf('output'))
+      expect(journal.some((entry) => entry.startsWith('ack:declined:'))).toBe(
+        failure === 'declined',
+      )
     })
   }
 }

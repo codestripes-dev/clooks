@@ -5,6 +5,7 @@ import { createSandbox, formatDiagnostics, type RunResult, type Sandbox } from '
 import {
   bounded,
   assertCompanion,
+  assertEmittedDenialReceipt,
   cleanupAll,
   connectApprovalPeer,
   invocation,
@@ -111,12 +112,26 @@ function approved(
 }
 function denied(result: RunResult) {
   const value = output(result)
-  expect(value.hookSpecificOutput).toMatchObject({
-    hookEventName: 'PreToolUse',
-    permissionDecision: 'deny',
+  const specific = value.hookSpecificOutput
+  expect(specific.hookEventName).toBe('PreToolUse')
+  expect(specific.permissionDecision).toBe('deny')
+  expect(typeof specific.permissionDecisionReason).toBe('string')
+  expect(specific.permissionDecisionReason.length).toBeGreaterThan(0)
+  expect(specific.updatedInput).toBeUndefined()
+  return value
+}
+function userDenied(result: RunResult) {
+  const value = output(result)
+  const reason = value.hookSpecificOutput?.permissionDecisionReason
+  expect(typeof reason).toBe('string')
+  expect(reason.length).toBeGreaterThan(0)
+  expect(value).toEqual({
+    hookSpecificOutput: {
+      hookEventName: 'PreToolUse',
+      permissionDecision: 'deny',
+      permissionDecisionReason: reason,
+    },
   })
-  expect(value.hookSpecificOutput.permissionDecisionReason).toBeTruthy()
-  expect(value.hookSpecificOutput.updatedInput).toBeUndefined()
   return value
 }
 function companion(
@@ -142,15 +157,34 @@ function completion(identity: ApprovalIdentity) {
   }
   throw new Error('Missing command completion')
 }
-async function paired(provider: Provider) {
+async function paired(provider: Provider, order: 'command-first' | 'mcp-first' = 'command-first') {
   const peer = await connectApprovalPeer(sandbox)
   peers.push(peer)
   const call = invocation(sandbox, provider)
+  const check = order === 'mcp-first' ? peer.check(call.identity) : undefined
   const engine = startEngine(sandbox, call)
   engines.push(engine)
-  const check = peer.check(call.identity)
-  return { peer, call, engine, check }
+  return { peer, call, engine, check: check ?? peer.check(call.identity) }
 }
+
+test('generic denial assertion preserves the returned reason string', () => {
+  const reason = 'clooks: fallback denial remains attributable'
+  const result: RunResult = {
+    exitCode: 0,
+    rawExitCode: 0,
+    signalCode: null,
+    elapsedMs: 1,
+    stderr: '',
+    stdout: JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: 'deny',
+        permissionDecisionReason: reason,
+      },
+    }),
+  }
+  expect(denied(result).hookSpecificOutput.permissionDecisionReason).toBe(reason)
+})
 
 describe('compiled engine live approvals', () => {
   for (const provider of ['claude-code', 'codex'] as const) {
@@ -211,16 +245,12 @@ describe('compiled engine live approvals', () => {
         }
         const result = await bounded(engine.result, 'Engine result')
         const checkResult = await check
-        const refusal = scenario.stopAt
-          ? scenario.action === 'cancel'
-            ? 'Approval cancelled'
-            : 'Approval was not positively confirmed'
-          : undefined
-        assertCompanion(checkResult, refusal)
+        assertCompanion(checkResult)
         const peerResult = companion(checkResult)
         if (scenario.stopAt) {
-          denied(result)
-          expect(peerResult.hookSpecificOutput.permissionDecision).toBe('deny')
+          const commandDenial = userDenied(result)
+          assertEmittedDenialReceipt(sandbox, call.identity, commandDenial)
+          expect(peerResult).toEqual({})
           expect(handlers()).toEqual(names.slice(0, scenario.stopAt === 1 ? 2 : 4))
         } else {
           approved(result, provider, {
@@ -255,6 +285,23 @@ describe('compiled engine live approvals', () => {
             .prior!.map((record) => record.decision),
         ).toEqual(['ask'])
       }, 20_000)
+    }
+
+    for (const order of ['command-first', 'mcp-first'] as const) {
+      test(`${provider}: ${order} user refusal is reported only by the command`, async () => {
+        sandbox = createSandbox()
+        hook('ask', "return ctx.ask({ reason: 'required consent' })")
+        hook('later', "return ctx.allow({ injectContext: 'must not leak' })")
+        config(['ask', 'later'])
+        const { peer, call, engine, check } = await paired(provider, order)
+        const prompt = await peer.nextPrompt()
+        prompt.reply({ action: 'decline' })
+        const commandDenial = userDenied(await engine.result)
+        const checkResult = await check
+        assertCompanion(checkResult)
+        assertEmittedDenialReceipt(sandbox, call.identity, commandDenial)
+        expect(handlers()).toEqual(['ask'])
+      }, 15_000)
     }
 
     test(`${provider}: early no-config/no-match/no-ask/suppressed exits publish completion before returning`, async () => {
@@ -363,12 +410,15 @@ describe('compiled engine live approvals', () => {
             : { action: 'accept', content: { decision: 'Approve' } },
         )
         const result = await engine.result
-        if (declineFinal) denied(result)
-        else approved(result, provider, { input: { command: 'echo final' } })
-        assertCompanion(
-          await check,
-          declineFinal ? 'Approval was not positively confirmed' : undefined,
-        )
+        const checkResult = await check
+        if (declineFinal) {
+          const commandDenial = userDenied(result)
+          assertCompanion(checkResult)
+          assertEmittedDenialReceipt(sandbox, call.identity, commandDenial)
+        } else {
+          approved(result, provider, { input: { command: 'echo final' } })
+          assertCompanion(checkResult)
+        }
         expect(handlers()).toEqual(['ask', 'rewrite', 'last'])
         expect(
           journal()
@@ -585,7 +635,7 @@ describe('compiled engine live approvals', () => {
           : { action: 'accept', content: { decision: 'Approve' } }
       })
       expect(result.prompts).toHaveLength(2)
-      if (decline) denied(result.result)
+      if (decline) userDenied(result.result)
       else {
         const value = output(result.result)
         expect(value.hookSpecificOutput.permissionDecision).toBe('defer')

@@ -5,6 +5,8 @@ import {
   checkInputJsonSchema,
   checkInputSchema,
   confirmationSchema,
+  denial,
+  denialAckSchema,
   digest,
   failureOf,
   limits,
@@ -14,6 +16,7 @@ import {
   resumeDeadline,
   same,
   startSchema,
+  userApprovalFailure,
 } from './protocol.js'
 
 const key = {
@@ -182,4 +185,29 @@ test('questions, non-human invocation budget and confirmation are bounded', () =
     }).success,
   ).toBe(false)
   expect(failureOf(new Error('bad packet')).kind).toBe('unavailable')
+})
+
+test('terminal denial acknowledgement is strict and binds the exact normalized refusal', () => {
+  const commandNonce = crypto.randomUUID()
+  const refusal = userApprovalFailure('declined', 'guard')
+  expect(refusal.message).toBe('[guard] Approval declined. Operation not run.')
+  expect(userApprovalFailure('cancelled', 'guard').message).toBe(
+    '[guard] Approval cancelled. Operation not run.',
+  )
+  const nativeDenial = denial(refusal.message)
+  const packet = {
+    version: 1,
+    key,
+    nonce: commandNonce,
+    checkId: crypto.randomUUID(),
+    ordinal: 1,
+    digest: digest({ question: 1 }),
+    decision: 'declined',
+    denialDigest: digest(nativeDenial),
+    at: 1,
+  } as const
+  expect(denialAckSchema.parse(packet)).toEqual(packet)
+  expect(denialAckSchema.safeParse({ ...packet, extra: true }).success).toBe(false)
+  expect(denialAckSchema.safeParse({ ...packet, nonce: crypto.randomUUID() }).success).toBe(true)
+  expect(denialAckSchema.safeParse({ ...packet, decision: 'unavailable' }).success).toBe(false)
 })
