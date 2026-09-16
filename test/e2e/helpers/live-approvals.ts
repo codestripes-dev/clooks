@@ -1,11 +1,13 @@
 import { join } from 'node:path'
 import { kill } from 'node:process'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { expect } from 'bun:test'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import {
   CallToolResultSchema,
   ElicitRequestSchema,
+  type ElicitRequestFormParams,
   type ElicitResult,
 } from '@modelcontextprotocol/sdk/types.js'
 import type { RunResult, Sandbox } from './sandbox'
@@ -58,6 +60,7 @@ export interface ApprovalIdentity {
 }
 
 export interface ApprovalPrompt {
+  message: string
   question: {
     hookName: string
     ordinal: number
@@ -66,6 +69,53 @@ export interface ApprovalPrompt {
   }
   schema: unknown
   reply(response: ElicitResult): void
+}
+
+function expectedApprovalMessage(question: ApprovalPrompt['question']): string {
+  return [
+    `Hook: ${question.hookName}`,
+    `Reason:\n${question.reason}`,
+    `Tool: ${question.operation.toolName}`,
+    `Input:\n${JSON.stringify(question.operation.input, null, 2)}`,
+  ].join('\n\n')
+}
+
+const expectedApprovalSchema = {
+  type: 'object',
+  properties: {
+    decision: {
+      type: 'string',
+      title: 'Approve this operation?',
+      enum: ['Decline', 'Approve'],
+    },
+  },
+  required: ['decision'],
+} satisfies ElicitRequestFormParams['requestedSchema']
+
+function pendingQuestion(home: string): ApprovalPrompt['question'] {
+  const root = join(home, '.clooks/.cache/approvals-live/v1')
+  const pending: ApprovalPrompt['question'][] = []
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue
+    const directory = join(root, entry.name)
+    if (existsSync(join(directory, 'check-done.json'))) continue
+    const startPath = join(directory, 'start.json')
+    if (!existsSync(startPath)) continue
+    const start = JSON.parse(readFileSync(startPath, 'utf8'))
+    for (const name of readdirSync(directory)) {
+      const match = /^question-(\d+)\.json$/.exec(name)
+      if (!match || existsSync(join(directory, `reply-${match[1]}.json`))) continue
+      const packet = JSON.parse(readFileSync(join(directory, name), 'utf8'))
+      expect(packet.key, 'Pending question identity must match its active start').toEqual(start.key)
+      expect(packet.nonce, 'Pending question nonce must match its active start').toBe(start.nonce)
+      expect(packet.question.ordinal, 'Question filename must match its snapshot ordinal').toBe(
+        Number(match[1]),
+      )
+      pending.push(packet.question)
+    }
+  }
+  expect(pending, 'Expected exactly one live unanswered approval question').toHaveLength(1)
+  return pending[0]!
 }
 
 export function invocation(
@@ -268,10 +318,14 @@ export async function connectApprovalPeer(
   }
   client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
     if (!('requestedSchema' in request.params)) throw new Error('Expected form elicitation')
+    const question = pendingQuestion(sandbox.home)
+    expect(request.params.message).toBe(expectedApprovalMessage(question))
+    expect(request.params.requestedSchema).toEqual(expectedApprovalSchema)
     const response = Promise.withResolvers<ElicitResult>()
     const cancel = () => response.resolve({ action: 'cancel' })
     const prompt: ApprovalPrompt = {
-      question: JSON.parse(request.params.message),
+      message: request.params.message,
+      question,
       schema: request.params.requestedSchema,
       reply: response.resolve,
     }
@@ -356,7 +410,7 @@ export async function runWithConsent(
         return { result: next.result, companion: next.companion, prompts: peer.prompts }
       }
       const response = await respond(next.prompt, index++)
-      if (response.action !== 'accept' || response.content?.confirmed !== true) {
+      if (response.action !== 'accept' || response.content?.decision !== 'Approve') {
         refusal =
           response.action === 'cancel'
             ? 'Approval cancelled'

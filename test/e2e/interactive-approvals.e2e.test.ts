@@ -189,7 +189,7 @@ describe('compiled engine live approvals', () => {
         first.reply(
           declineAt === 1
             ? { action: 'decline' }
-            : { action: 'accept', content: { confirmed: true } },
+            : { action: 'accept', content: { decision: 'Approve' } },
         )
         if (declineAt !== 1) {
           const second = await peer.nextPrompt()
@@ -199,7 +199,7 @@ describe('compiled engine live approvals', () => {
           second.reply(
             declineAt === 2
               ? { action: 'decline' }
-              : { action: 'accept', content: { confirmed: true } },
+              : { action: 'accept', content: { decision: 'Approve' } },
           )
         }
         const result = await bounded(engine.result, 'Engine result')
@@ -333,7 +333,7 @@ describe('compiled engine live approvals', () => {
           input: { command: 'echo candidate' },
         })
         expect(handlers()).toEqual(['ask'])
-        first.reply({ action: 'accept', content: { confirmed: true } })
+        first.reply({ action: 'accept', content: { decision: 'Approve' } })
         const final = await peer.nextPrompt()
         expect(final.question).toMatchObject({
           hookName: 'ask',
@@ -344,7 +344,9 @@ describe('compiled engine live approvals', () => {
         expect(handlers()).toEqual(['ask', 'rewrite', 'last'])
         expect(engine.stdout).toBe('')
         final.reply(
-          declineFinal ? { action: 'decline' } : { action: 'accept', content: { confirmed: true } },
+          declineFinal
+            ? { action: 'decline' }
+            : { action: 'accept', content: { decision: 'Approve' } },
         )
         const result = await engine.result
         if (declineFinal) denied(result)
@@ -392,7 +394,7 @@ describe('compiled engine live approvals', () => {
       expect(prompt.question.hookName).toBe(name)
       expect(handlers().sort()).toEqual(['ask-a', 'ask-b'])
       expect(engine.stdout).toBe('')
-      prompt.reply({ action: 'accept', content: { confirmed: true } })
+      prompt.reply({ action: 'accept', content: { decision: 'Approve' } })
     }
     approved(await engine.result, 'codex', { reason: 'second configured' })
     expect(companion(await check)).toEqual({})
@@ -477,7 +479,7 @@ describe('compiled engine live approvals', () => {
       config(['ask', 'gate'])
       const result = await runWithConsent(sandbox, invocation(sandbox, 'codex'), () => ({
         action: 'accept',
-        content: { confirmed: true },
+        content: { decision: 'Approve' },
       }))
       expect(denied(result.result).hookSpecificOutput.permissionDecisionReason).toContain(
         mode === 'block' ? 'policy block' : 'policy crash',
@@ -519,7 +521,7 @@ describe('compiled engine live approvals', () => {
         })
         return index === 1 && decline
           ? { action: 'decline' }
-          : { action: 'accept', content: { confirmed: true } }
+          : { action: 'accept', content: { decision: 'Approve' } }
       })
       expect(result.prompts).toHaveLength(2)
       if (decline) denied(result.result)

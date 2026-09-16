@@ -96,6 +96,15 @@ No duplicate pipeline, prompt or effect is accepted. Helper regressions in
 `generated.test.ts` check selection and false-pass resistance, not native
 enforcement.
 
+Production elicitation keeps transport metadata in the bound mailbox rather
+than displaying it to the user. The human message contains `Hook`, the complete
+multiline `Reason`, `Tool`, and pretty-printed JSON `Input` sections. Its strict
+form has one required `decision` string with the decline-first enum
+`["Decline", "Approve"]` and no default; only accepted `Approve` confirms the
+operation. Test responders must obtain identity and ordinal metadata from the
+mailbox, independently compare the exact message and schema with that snapshot,
+and leave the illustrative fixture's historical boolean protocol unchanged.
+
 Each case retains `init.json`, `generated-registration.json`, native observations
 and `observed-packets.json`. Claude global cases may update native
 `HOME/.claude.json` metadata: compare owned `mcpServers` structurally, while

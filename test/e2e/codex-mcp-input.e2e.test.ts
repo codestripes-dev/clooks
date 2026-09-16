@@ -111,7 +111,7 @@ describe('compiled MCP JSON input observation', () => {
         }),
         (prompt) => {
           expect(prompt.question.operation).toEqual({ toolName: 'mcp__fixture__inspect', input })
-          return { action: 'accept', content: { confirmed: true } }
+          return { action: 'accept', content: { decision: 'Approve' } }
         },
       )
       expect(live.result.rawExitCode, formatDiagnostics(live.result)).toBe(0)

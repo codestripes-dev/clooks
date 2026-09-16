@@ -143,7 +143,7 @@ export const checkDoneSchema = z.strictObject({
 })
 export const confirmationSchema = z.strictObject({
   action: z.enum(['accept', 'decline', 'cancel']),
-  content: z.strictObject({ confirmed: z.boolean() }).optional(),
+  content: z.strictObject({ decision: z.enum(['Decline', 'Approve']) }).optional(),
   _meta: z.unknown().optional(),
 })
 

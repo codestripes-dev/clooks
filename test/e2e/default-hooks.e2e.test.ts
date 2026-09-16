@@ -816,7 +816,7 @@ describe('actual removal, script equivalence and tmux hooks', () => {
             expect(prompt.question.reason).toContain('[rm-rf-strict]')
             expect(prompt.question.operation.input).toEqual({ command: 'rm -rf src' })
             return accept
-              ? { action: 'accept', content: { confirmed: true } }
+              ? { action: 'accept', content: { decision: 'Approve' } }
               : { action: 'decline' }
           },
         )

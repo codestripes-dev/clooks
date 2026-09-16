@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
+import type { ElicitRequestFormParams } from '@modelcontextprotocol/sdk/types.js'
 import { record, rows, type Row } from './records'
 
 export type Mode =
@@ -22,6 +23,32 @@ export interface Case {
   operation: { toolName: string; input: unknown }
 }
 export type Packets = Record<string, any>
+
+const expectedApprovalSchema = {
+  type: 'object',
+  properties: {
+    decision: {
+      type: 'string',
+      title: 'Approve this operation?',
+      enum: ['Decline', 'Approve'],
+    },
+  },
+  required: ['decision'],
+} satisfies ElicitRequestFormParams['requestedSchema']
+
+function expectedApprovalMessage(question: any): string {
+  return [
+    `Hook: ${question.hookName}`,
+    `Reason:\n${question.reason}`,
+    `Tool: ${question.operation.toolName}`,
+    `Input:\n${JSON.stringify(question.operation.input, null, 2)}`,
+  ].join('\n\n')
+}
+
+export function assertApprovalPrompt(message: string, schema: unknown, question: any) {
+  assert.equal(message, expectedApprovalMessage(question), 'Human approval message mismatch')
+  assert.deepEqual(schema, expectedApprovalSchema, 'Approval response schema mismatch')
+}
 
 export function packets(home: string): Packets[] {
   const root = join(home, '.clooks/.cache/approvals-live/v1')
@@ -281,9 +308,16 @@ export function assertPending(
   assertHookSources(c, journal)
 }
 
-export async function respond(message: string, c: Case, signal?: AbortSignal) {
-  record(c.root, 'ui-request', { message })
-  const question = JSON.parse(message)
+export async function respond(message: string, schema: unknown, c: Case, signal?: AbortSignal) {
+  const boxes = packets(c.home)
+  const { active } = selectBoxes(c, boxes, true)
+  const unanswered = [1, 2]
+    .filter((ordinal) => active[`question-${ordinal}`] && !active[`reply-${ordinal}`])
+    .map((ordinal) => active[`question-${ordinal}`].question)
+  assert.equal(unanswered.length, 1, 'Expected exactly one live unanswered production question')
+  const question = unanswered[0]!
+  assertApprovalPrompt(message, schema, question)
+  record(c.root, 'ui-request', { message, schema })
   const observationDeadline = Date.now() + 3000
   while (!rows(c.root).some((row) => row.event === 'native-pre')) {
     assert.ok(Date.now() < observationDeadline, 'Missing independent native input observation')
@@ -304,7 +338,7 @@ export async function respond(message: string, c: Case, signal?: AbortSignal) {
     (c.mode === 'decline-second' && question.ordinal === 2)
   const action = cancel ? 'cancel' : decline ? 'decline' : 'accept'
   record(c.root, 'ui-response', { question, action })
-  return action === 'accept' ? { action, content: { confirmed: true } } : { action }
+  return action === 'accept' ? { action, content: { decision: 'Approve' } } : { action }
 }
 
 export function assertOutcome(

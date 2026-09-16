@@ -66,7 +66,9 @@ describe('compiled Codex live approval isolation', () => {
         invocation(sandbox, 'codex', { sessionId, input }),
         (prompt) => {
           expect(prompt.question.operation.input).toEqual(input)
-          return accept ? { action: 'accept', content: { confirmed: true } } : { action: 'decline' }
+          return accept
+            ? { action: 'accept', content: { decision: 'Approve' } }
+            : { action: 'decline' }
         },
       )
       expect(result.prompts).toHaveLength(1)
@@ -121,10 +123,91 @@ PreToolUse: { order: [ask-a, ask-b] }
     const result = await runWithConsent(sandbox, invocation(sandbox, 'codex'), (prompt, index) => {
       expect(prompt.question.hookName).toBe(['ask-a', 'ask-b'][index]!)
       expect(calls()).toHaveLength(index + 1)
-      return { action: 'accept', content: { confirmed: true } }
+      return { action: 'accept', content: { decision: 'Approve' } }
     })
     expect(result.prompts).toHaveLength(2)
     expect(output(result.result)).toEqual(approved('confirm operation'))
+  })
+
+  test('readable prompt preserves a multiline reason and every arbitrary non-shell input field', async () => {
+    const reason = 'Review the complete request.\nKeep this second line intact.'
+    const input = {
+      false_value: false,
+      zero_value: 0,
+      empty_value: '',
+      null_value: null,
+      nested_value: { list_value: [1, 'two', { snake_key: true }] },
+    }
+    install(`return ctx.ask({ reason: ${JSON.stringify(reason)} })`)
+    const result = await runWithConsent(
+      sandbox,
+      invocation(sandbox, 'codex', { toolName: 'mcp__fixture__inspect', input }),
+      (prompt) => {
+        expect(prompt.question).toMatchObject({
+          hookName: 'ask',
+          reason,
+          operation: { toolName: 'mcp__fixture__inspect', input },
+        })
+        expect(prompt.message).toBe(
+          `Hook: ask\n\nReason:\n${reason}\n\nTool: mcp__fixture__inspect\n\nInput:\n${JSON.stringify(input, null, 2)}`,
+        )
+        expect(prompt.message).not.toContain('ordinal')
+        return { action: 'accept', content: { decision: 'Approve' } }
+      },
+    )
+    expect(result.prompts).toHaveLength(1)
+    expect(output(result.result)).toEqual(approved(reason))
+    expect(calls()).toEqual([input])
+  })
+
+  test('an accepted Decline enum value denies without applying approval effects', async () => {
+    install()
+    const result = await runWithConsent(sandbox, invocation(sandbox, 'codex'), () => ({
+      action: 'accept',
+      content: { decision: 'Decline' },
+    }))
+    const value = output(result.result)
+    expect(value.hookSpecificOutput.permissionDecision).toBe('deny')
+    expect(value.hookSpecificOutput.updatedInput).toBeUndefined()
+    expect(result.prompts).toHaveLength(1)
+    expect(calls()).toHaveLength(1)
+  })
+
+  test.each([
+    ['missing', {}],
+    ['wrong', { decision: 'Allow' }],
+  ] as const)('an accepted %s decision fails closed', async (_name, content) => {
+    install()
+    const call = invocation(sandbox, 'codex')
+    const peer = await connectApprovalPeer(sandbox)
+    let engine: ReturnType<typeof startEngine> | undefined
+    try {
+      engine = startEngine(sandbox, call)
+      const check = peer.check(call.identity)
+      const prompt = await peer.nextPrompt()
+      prompt.reply({ action: 'accept', content })
+      const value = output(await engine.result)
+      expect(value.hookSpecificOutput.permissionDecision).toBe('deny')
+      expect(value.hookSpecificOutput.updatedInput).toBeUndefined()
+      expect(value.hookSpecificOutput.permissionDecisionReason).toContain(
+        'Approval transport unavailable',
+      )
+      const companion = await check
+      expect(companion.isError).not.toBe(true)
+      expect(companion.content).toHaveLength(1)
+      const block = companion.content[0]!
+      if (block.type !== 'text') throw new Error('Expected native hook JSON')
+      const companionReason = JSON.parse(block.text).hookSpecificOutput.permissionDecisionReason
+      expect(companionReason).toContain('MCP error -32602')
+      expect(value.hookSpecificOutput.permissionDecisionReason).toContain(companionReason)
+      expect(peer.prompts).toHaveLength(1)
+      expect(calls()).toHaveLength(1)
+    } finally {
+      await cleanupAll(
+        () => peer.close(),
+        () => engine?.close(),
+      )
+    }
   })
 
   test.each([
@@ -144,7 +227,7 @@ PreToolUse: { order: [ask-a, ask-b] }
     install(`return ctx.ask({ reason: 'confirm replacement', updatedInput: ${row.patch} })`)
     const result = await runWithConsent(sandbox, invocation(sandbox, 'codex', row), (prompt) => {
       expect(prompt.question.operation).toEqual({ toolName: row.toolName, input: row.expected })
-      return { action: 'accept', content: { confirmed: true } }
+      return { action: 'accept', content: { decision: 'Approve' } }
     })
     expect(result.prompts).toHaveLength(1)
     expect(output(result.result)).toEqual(approved('confirm replacement', row.expected))

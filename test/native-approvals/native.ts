@@ -774,7 +774,12 @@ stream_idle_timeout_ms = 15000
             } else {
               responseTasks.push(
                 (r.kind === 'generated'
-                  ? productionRespond(message.params.message, r.c, responseAbort.signal)
+                  ? productionRespond(
+                      message.params.message,
+                      message.params.requestedSchema,
+                      r.c,
+                      responseAbort.signal,
+                    )
                   : r.env.APPROVAL_CASE!.startsWith('boundary-')
                     ? holdBoundary(
                         message.params.message,

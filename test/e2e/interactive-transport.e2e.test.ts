@@ -1,11 +1,14 @@
 import { afterEach, describe, expect, spyOn, test } from 'bun:test'
 import { ChildProcess } from 'node:child_process'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import {
   CallToolResultSchema,
   ElicitRequestSchema,
+  type ElicitRequest,
+  type ElicitRequestFormParams,
   type ElicitResult,
 } from '@modelcontextprotocol/sdk/types.js'
 import { createSandbox, formatDiagnostics, type Sandbox } from './helpers/sandbox'
@@ -84,6 +87,61 @@ function identity(provider: 'claude-code' | 'codex' = 'claude-code') {
     tool_use_id: crypto.randomUUID(),
     ...(provider === 'codex' ? { turn_id: 'compiled-turn' } : {}),
   }
+}
+
+const expectedApprovalSchema = {
+  type: 'object',
+  properties: {
+    decision: {
+      type: 'string',
+      title: 'Approve this operation?',
+      enum: ['Decline', 'Approve'],
+    },
+  },
+  required: ['decision'],
+} satisfies ElicitRequestFormParams['requestedSchema']
+
+function approvalMessage(question: any) {
+  return [
+    `Hook: ${question.hookName}`,
+    `Reason:\n${question.reason}`,
+    `Tool: ${question.operation.toolName}`,
+    `Input:\n${JSON.stringify(question.operation.input, null, 2)}`,
+  ].join('\n\n')
+}
+
+function publishedQuestion(key: ReturnType<typeof identity>, ordinal: number) {
+  const root = join(sandbox.home, '.clooks/.cache/approvals-live/v1')
+  const matches = []
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue
+    const directory = join(root, entry.name)
+    const startPath = join(directory, 'start.json')
+    const questionPath = join(directory, `question-${ordinal}.json`)
+    if (!existsSync(startPath) || !existsSync(questionPath)) continue
+    const start = JSON.parse(readFileSync(startPath, 'utf8'))
+    if (start.key.tool_use_id !== key.tool_use_id) continue
+    expect(start.key).toEqual(key)
+    const packet = JSON.parse(readFileSync(questionPath, 'utf8'))
+    expect(packet.key).toEqual(key)
+    expect(packet.nonce).toBe(start.nonce)
+    expect(packet.question.ordinal).toBe(ordinal)
+    matches.push(packet.question)
+  }
+  expect(matches, 'Expected one mailbox-bound approval question').toHaveLength(1)
+  return matches[0]!
+}
+
+function assertApprovalRequest(
+  request: ElicitRequest,
+  key: ReturnType<typeof identity>,
+  ordinal: number,
+) {
+  if (!('requestedSchema' in request.params)) throw new Error('Expected form elicitation')
+  const question = publishedQuestion(key, ordinal)
+  expect(request.params.message).toBe(approvalMessage(question))
+  expect(request.params.requestedSchema).toEqual(expectedApprovalSchema)
+  return question
 }
 
 function nativeOutput(value: unknown) {
@@ -191,7 +249,7 @@ describe('compiled shared approval transport', () => {
       let prompts = 0
       connection.client.setRequestHandler(ElicitRequestSchema, async () => {
         prompts++
-        return { action: 'accept', content: { confirmed: true } }
+        return { action: 'accept', content: { decision: 'Approve' } }
       })
       const result = await connection.client.callTool(
         { name: 'check', arguments: identity(provider) },
@@ -236,24 +294,18 @@ describe('compiled shared approval transport', () => {
       let ordinal = 0
       connection.client.setRequestHandler(ElicitRequestSchema, async (request) => {
         ordinal++
-        expect(JSON.parse(request.params.message)).toEqual({
+        expect(assertApprovalRequest(request, key, ordinal)).toEqual({
           hookName: 'checkpoint-' + ordinal,
           ordinal,
           reason: 'Approve checkpoint ' + ordinal,
           operation: { toolName: 'mcp__fixture__write', input: ['exact', { ordinal }] },
         })
-        expect(request.params).toMatchObject({
-          mode: 'form',
-          requestedSchema: {
-            properties: { confirmed: { type: 'boolean' } },
-            required: ['confirmed'],
-          },
-        })
+        expect(request.params.mode).toBe('form')
         expect(sandbox.fileExists('reply-' + ordinal)).toBe(false)
         expect(sandbox.fileExists('command-closed')).toBe(false)
         return ordinal === declineAt
           ? { action: 'decline' }
-          : { action: 'accept', content: { confirmed: true } }
+          : { action: 'accept', content: { decision: 'Approve' } }
       })
       const result = nativeOutput(
         await connection.client.callTool({ name: 'check', arguments: key }, undefined, {
@@ -291,7 +343,7 @@ describe('compiled shared approval transport', () => {
       let prompts = 0
       connection.client.setRequestHandler(ElicitRequestSchema, async () => {
         prompts++
-        return { action: 'accept', content: { confirmed: true } }
+        return { action: 'accept', content: { decision: 'Approve' } }
       })
       const result = await connection.client.callTool(
         { name: 'check', arguments: key },
@@ -315,8 +367,9 @@ describe('compiled shared approval transport', () => {
       const response = Promise.withResolvers<ElicitResult>()
       const controller = new AbortController()
       let prompts = 0
-      connection.client.setRequestHandler(ElicitRequestSchema, async () => {
+      connection.client.setRequestHandler(ElicitRequestSchema, async (request) => {
         prompts++
+        assertApprovalRequest(request, key, 1)
         prompt.resolve()
         return response.promise
       })

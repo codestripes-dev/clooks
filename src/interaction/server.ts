@@ -1,6 +1,8 @@
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import type { Readable, Writable } from 'node:stream'
 import type { CallToolResult, ElicitRequestFormParams } from '@modelcontextprotocol/sdk/types.js'
+import type { z } from 'zod'
+import type { questionSchema } from './protocol.js'
 import {
   checkInputJsonSchema,
   checkInputSchema,
@@ -34,6 +36,15 @@ export type ElicitApproval = (
   params: ElicitRequestFormParams,
   options: { signal: AbortSignal; timeout: number },
 ) => Promise<unknown>
+
+function approvalMessage(question: z.infer<typeof questionSchema>): string {
+  return [
+    `Hook: ${question.hookName}`,
+    `Reason:\n${question.reason}`,
+    `Tool: ${question.operation.toolName}`,
+    `Input:\n${JSON.stringify(question.operation.input, null, 2)}`,
+  ].join('\n\n')
+}
 
 function toolResult(output: ReturnType<typeof denial> | Record<string, never>): CallToolResult {
   return { content: [{ type: 'text', text: JSON.stringify(output) }] }
@@ -134,13 +145,17 @@ export async function handleApprovalCheck(
             elicit(
               {
                 mode: 'form',
-                message: JSON.stringify(question.question),
+                message: approvalMessage(question.question),
                 requestedSchema: {
                   type: 'object',
                   properties: {
-                    confirmed: { type: 'boolean', title: 'Approve this exact operation' },
+                    decision: {
+                      type: 'string',
+                      title: 'Approve this operation?',
+                      enum: ['Decline', 'Approve'],
+                    },
                   },
-                  required: ['confirmed'],
+                  required: ['decision'],
                 },
               },
               { signal, timeout: Math.min(limits.sdkMs, remaining(start.deadline, clock.now())) },
@@ -155,7 +170,7 @@ export async function handleApprovalCheck(
         remaining(start.deadline, clock.now())
         if (completed()) unavailable('Late approval response after command completion')
         const reply = confirmationSchema.parse(response)
-        if (reply.action !== 'accept' || reply.content?.confirmed !== true) {
+        if (reply.action !== 'accept' || reply.content?.decision !== 'Approve') {
           throw new InteractionError({
             kind:
               reply.action === 'cancel'

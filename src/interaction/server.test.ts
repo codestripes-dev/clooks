@@ -25,7 +25,7 @@ afterEach(async () => {
 async function fixture(
   reply: () => Promise<ElicitResult> = async () => ({
     action: 'accept',
-    content: { confirmed: true },
+    content: { decision: 'Approve' },
   }),
 ) {
   const home = mkdtempSync(join(tmpdir(), 'clooks-sdk-'))
@@ -131,7 +131,7 @@ test('late SDK response for cancelled A cannot cancel pending check B', async ()
     cancelled = resolve
   })
   f.client.setRequestHandler(ElicitRequestSchema, (request) => {
-    const reason = JSON.parse(request.params.message).reason as string
+    const reason = request.params.message.includes('\nReason:\nA\n\nTool:') ? 'A' : 'B'
     return new Promise<ElicitResult>((resolve) => {
       answers.set(reason, resolve)
       if (answers.size === 2) prompted()
@@ -140,7 +140,10 @@ test('late SDK response for cancelled A cannot cancel pending check B', async ()
   const originalMessage = f.clientTransport.onmessage
   f.clientTransport.onmessage = (message, extra) => {
     if ('method' in message && message.method === 'elicitation/create' && 'id' in message)
-      ids.set(JSON.parse(String(message.params?.message)).reason, message.id)
+      ids.set(
+        String(message.params?.message).includes('\nReason:\nA\n\nTool:') ? 'A' : 'B',
+        message.id,
+      )
     if (
       'method' in message &&
       message.method === 'notifications/cancelled' &&
@@ -172,11 +175,11 @@ test('late SDK response for cancelled A cannot cancel pending check B', async ()
     await f.clientTransport.send({
       jsonrpc: '2.0',
       id: ids.get('A')!,
-      result: { action: 'accept', content: { confirmed: true } },
+      result: { action: 'accept', content: { decision: 'Approve' } },
     })
     expect(reports).toHaveLength(1)
     expect(reports[0]?.message).toContain('unknown message ID')
-    answers.get('B')!({ action: 'accept', content: { confirmed: true } })
+    answers.get('B')!({ action: 'accept', content: { decision: 'Approve' } })
     expect(await requestB).toEqual({ kind: 'approved' })
     await commandB.close()
     expect(await checkB).toEqual({ content: [{ type: 'text', text: '{}' }] })

@@ -326,7 +326,7 @@ pretooluse-ask-method: {}
           toolName: 'Bash',
           input: { command: 'ls', timeout: 60000 },
         })
-        return { action: 'accept', content: { confirmed: true } }
+        return { action: 'accept', content: { decision: 'Approve' } }
       },
     )
     expect(prompts).toHaveLength(1)

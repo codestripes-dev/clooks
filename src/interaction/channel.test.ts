@@ -44,7 +44,7 @@ function question(ordinal = 1) {
   }
 }
 const signal = () => new AbortController().signal
-const yes = async () => ({ action: 'accept', content: { confirmed: true } })
+const yes = async () => ({ action: 'accept', content: { decision: 'Approve' } })
 function output(result: Awaited<ReturnType<typeof handleApprovalCheck>>) {
   const content = result.content[0]
   if (content?.type !== 'text') throw new Error('Missing text result')
@@ -69,7 +69,10 @@ for (const reversed of [false, true])
       handleApprovalCheck(
         f.key,
         async (params) => {
-          expect(JSON.parse(params.message)).toEqual(question(++checks))
+          const q = question(++checks)
+          expect(params.message).toBe(
+            `Hook: ${q.hookName}\n\nReason:\n${q.reason}\n\nTool: ${q.operation.toolName}\n\nInput:\n${JSON.stringify(q.operation.input, null, 2)}`,
+          )
           return yes()
         },
         { runtime: f.clock },
@@ -84,6 +87,47 @@ for (const reversed of [false, true])
     expect(checks).toBe(2)
   })
 
+test('elicitation presents readable exact arbitrary JSON without internal envelope fields', async () => {
+  const f = fixture()
+  const q = {
+    hookName: 'policy-review' as HookName,
+    ordinal: 1,
+    reason: 'First reason line\nSecond reason line',
+    operation: {
+      toolName: 'mcp__arbitrary__operation',
+      input: JSON.parse(
+        '{"text":"value","count":0,"enabled":false,"empty":null,"nested":{"items":[1,"two",{"three":true}]}}',
+      ),
+    },
+  }
+  const command = await createApprovalInteraction({ identity: f.key }, f.clock)
+  const check = handleApprovalCheck(
+    f.key,
+    async (params) => {
+      expect(params.message).toBe(
+        `Hook: policy-review\n\nReason:\nFirst reason line\nSecond reason line\n\nTool: mcp__arbitrary__operation\n\nInput:\n${JSON.stringify(q.operation.input, null, 2)}`,
+      )
+      expect(params.message).not.toContain('"ordinal"')
+      expect(params.requestedSchema).toEqual({
+        type: 'object',
+        properties: {
+          decision: {
+            type: 'string',
+            title: 'Approve this operation?',
+            enum: ['Decline', 'Approve'],
+          },
+        },
+        required: ['decision'],
+      })
+      return yes()
+    },
+    { runtime: f.clock },
+  )
+  expect(await command.request(q, signal())).toEqual({ kind: 'approved' })
+  await command.close()
+  expect(output(await check)).toEqual({})
+})
+
 test('snapshot is immutable across caller mutation while response is pending', async () => {
   const f = fixture()
   const command = await createApprovalInteraction({ identity: f.key }, f.clock)
@@ -96,7 +140,8 @@ test('snapshot is immutable across caller mutation while response is pending', a
   const check = handleApprovalCheck(
     key,
     async (params) => {
-      expect(JSON.parse(params.message).operation.input.content).toBe('original')
+      expect(params.message).toContain('"content": "original"')
+      expect(params.message).not.toContain('changed')
       return yes()
     },
     { runtime: f.clock },
@@ -155,20 +200,51 @@ test('unmatched check closes; late no-ask stays neutral and late ask cannot reop
   expect(g.box().bound('done', doneSchema)?.failure).toBeUndefined()
 })
 
-for (const response of [
-  { action: 'decline' },
-  { action: 'cancel' },
-  { action: 'accept' },
-  { action: 'accept', content: {} },
-  { action: 'accept', content: { confirmed: false } },
-  { action: 'accept', content: { confirmed: 'true' } },
-  { action: 'accept', content: { confirmed: true, extra: true } },
-])
+const nonPositiveResponses: Array<{
+  response: unknown
+  kind: 'declined' | 'cancelled' | 'unavailable'
+}> = [
+  { response: null, kind: 'unavailable' },
+  { response: {}, kind: 'unavailable' },
+  { response: { action: 'unknown' }, kind: 'unavailable' },
+  { response: { action: 'decline' }, kind: 'declined' },
+  {
+    response: { action: 'decline', content: { decision: 'Approve' } },
+    kind: 'declined',
+  },
+  { response: { action: 'cancel' }, kind: 'cancelled' },
+  {
+    response: { action: 'cancel', content: { decision: 'Approve' } },
+    kind: 'cancelled',
+  },
+  { response: { action: 'accept' }, kind: 'unavailable' },
+  { response: { action: 'accept', content: null }, kind: 'unavailable' },
+  { response: { action: 'accept', content: {} }, kind: 'unavailable' },
+  {
+    response: { action: 'accept', content: { decision: 'Decline' } },
+    kind: 'declined',
+  },
+  { response: { action: 'accept', content: { confirmed: true } }, kind: 'unavailable' },
+  { response: { action: 'accept', content: { confirmed: false } }, kind: 'unavailable' },
+  { response: { action: 'accept', content: { decision: true } }, kind: 'unavailable' },
+  { response: { action: 'accept', content: { decision: 'approve' } }, kind: 'unavailable' },
+  { response: { action: 'accept', content: { decision: ' Approve ' } }, kind: 'unavailable' },
+  { response: { action: 'accept', content: { decision: 'Unknown' } }, kind: 'unavailable' },
+  {
+    response: { action: 'accept', content: { decision: 'Approve', extra: true } },
+    kind: 'unavailable',
+  },
+  {
+    response: { action: 'accept', content: { decision: 'Approve' }, extra: true },
+    kind: 'unavailable',
+  },
+]
+for (const { response, kind } of nonPositiveResponses)
   test(`non-positive response cannot approve: ${JSON.stringify(response)}`, async () => {
     const f = fixture()
     const command = await createApprovalInteraction({ identity: f.key }, f.clock)
     const check = handleApprovalCheck(f.key, async () => response, { runtime: f.clock })
-    expect((await command.request(question(), signal())).kind).not.toBe('approved')
+    expect((await command.request(question(), signal())).kind).toBe(kind)
     await command.close()
     expect(output(await check).hookSpecificOutput.permissionDecision).toBe('deny')
     expect((await command.request(question(2), signal())).kind).not.toBe('approved')

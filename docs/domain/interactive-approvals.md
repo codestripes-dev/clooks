@@ -175,9 +175,22 @@ and process exit race.
 ## MCP Server
 
 `handleApprovalCheck(input, elicit, options?)` validates one check, performs the
-rendezvous, relays questions and returns a native hook result. Only an elicitation
-response with `action: accept` and literal `content.confirmed: true` approves.
-Malformed replies, decline, cancellation, missing peers and expiry do not.
+rendezvous, relays questions and returns a native hook result. The human-facing
+message is plain text: `Hook: <hookName>`, the complete reason verbatim under
+`Reason:`, `Tool: <toolName>`, and the exact bounded JSON operation input under
+`Input:` with two-space indentation. It omits the internal question ordinal and
+serialized question envelope. The form has one required string property named
+`decision`, titled `Approve this operation?`, with decline-first enum values
+`Decline` and `Approve` and no default. SDK 1.26's restricted requested-schema
+shape uses only root `type`, `properties` and `required`.
+
+Only an elicitation response with `action: accept` and exact content
+`{ decision: "Approve" }` approves. The local response parser is strict even
+though the requested form schema cannot advertise `additionalProperties`:
+missing or malformed content and unexpected top-level or content fields do not
+approve. Decline, cancellation, missing peers and expiry also do not. Wire
+consent is separate from the correlated internal `confirmed: boolean` mailbox
+reply.
 The active request monitors command completion/death and the invocation deadline;
 late answers cannot reopen completed work.
 

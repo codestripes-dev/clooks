@@ -141,10 +141,24 @@ test('questions, whole-invocation lifetime and confirmation are bounded', () => 
     }).success,
   ).toBe(false)
   expect(
-    confirmationSchema.parse({ action: 'accept', content: { confirmed: true } }).content?.confirmed,
-  ).toBe(true)
+    confirmationSchema.parse({ action: 'accept', content: { decision: 'Approve' } }).content
+      ?.decision,
+  ).toBe('Approve')
   expect(
-    confirmationSchema.safeParse({ action: 'accept', content: { confirmed: 'true' } }).success,
+    confirmationSchema.safeParse({ action: 'accept', content: { decision: 'approve' } }).success,
+  ).toBe(false)
+  expect(
+    confirmationSchema.safeParse({
+      action: 'accept',
+      content: { decision: 'Approve', unexpected: true },
+    }).success,
+  ).toBe(false)
+  expect(
+    confirmationSchema.safeParse({
+      action: 'accept',
+      content: { decision: 'Approve' },
+      unexpected: true,
+    }).success,
   ).toBe(false)
   expect(failureOf(new Error('bad packet')).kind).toBe('unavailable')
 })

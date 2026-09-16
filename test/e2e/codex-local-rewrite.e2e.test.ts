@@ -136,7 +136,7 @@ describe('compiled generic Codex local object rewrites', () => {
                 toolName: name,
                 input: { ...expected, added_key },
               })
-              return { action: 'accept', content: { confirmed: true } }
+              return { action: 'accept', content: { decision: 'Approve' } }
             },
           )
           expect(live.result.rawExitCode, formatDiagnostics(live.result)).toBe(0)

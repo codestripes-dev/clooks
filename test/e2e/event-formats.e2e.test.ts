@@ -1241,7 +1241,7 @@ pre-ask-full: {}
           reason: 'confirm',
           operation: { toolName: 'Bash', input: { command: 'echo safe' } },
         })
-        return { action: 'accept', content: { confirmed: true } }
+        return { action: 'accept', content: { decision: 'Approve' } }
       },
     )
     expect(prompts).toHaveLength(1)
@@ -1394,7 +1394,7 @@ pre-p2-h3-deny: {}
       invocation(sandbox, 'claude-code'),
       () => ({
         action: 'accept',
-        content: { confirmed: true },
+        content: { decision: 'Approve' },
       }),
       { BREADCRUMB_FILE: breadcrumbFile },
     )

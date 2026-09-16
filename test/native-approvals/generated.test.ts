@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+  assertApprovalPrompt,
   assertOutcome,
   assertPending,
   assertProductionSettled,
@@ -129,6 +130,55 @@ function makeCombinedFixture(provider: 'claude' | 'codex' = 'codex') {
     row.source = join(f.c.home, '.clooks/hooks/hooks.ts')
   return f
 }
+
+test('generated prompt oracle requires readable full content and the exact decline-first schema', () => {
+  const question = {
+    hookName: 'review-hook',
+    ordinal: 2,
+    reason: 'First reason line.\nSecond reason line.',
+    operation: {
+      toolName: 'mcp__fixture__inspect',
+      input: { keep: null, false_value: false, zero_value: 0, nested: { list: ['', 2] } },
+    },
+  }
+  const message = `Hook: review-hook\n\nReason:\nFirst reason line.\nSecond reason line.\n\nTool: mcp__fixture__inspect\n\nInput:\n${JSON.stringify(question.operation.input, null, 2)}`
+  const schema = {
+    type: 'object',
+    properties: {
+      decision: {
+        type: 'string',
+        title: 'Approve this operation?',
+        enum: ['Decline', 'Approve'],
+      },
+    },
+    required: ['decision'],
+  }
+  expect(() => assertApprovalPrompt(message, schema, question)).not.toThrow()
+  for (const mutation of [
+    () => assertApprovalPrompt(JSON.stringify(question), schema, question),
+    () => assertApprovalPrompt(message.replace('Second reason line.', ''), schema, question),
+    () =>
+      assertApprovalPrompt(
+        message.replace(
+          JSON.stringify(question.operation.input, null, 2),
+          JSON.stringify(question.operation.input),
+        ),
+        schema,
+        question,
+      ),
+    () =>
+      assertApprovalPrompt(
+        message,
+        {
+          ...schema,
+          properties: { decision: { ...schema.properties.decision, enum: ['Approve', 'Decline'] } },
+        },
+        question,
+      ),
+    () => assertApprovalPrompt(message, { ...schema, default: { decision: 'Decline' } }, question),
+  ])
+    expect(mutation).toThrow()
+})
 
 function suppressedBox(f: ReturnType<typeof makeCombinedFixture>): Packets {
   const key = { ...f.key, owner: f.c.suppressedOwner }
