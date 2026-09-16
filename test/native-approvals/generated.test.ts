@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+  acceptedElicitationResult,
   assertApprovalPrompt,
   assertOutcome,
   assertPending,
@@ -267,7 +268,7 @@ function makeCombinedFixture(provider: 'claude' | 'codex' = 'codex') {
   return f
 }
 
-test('generated prompt oracle requires readable full content and the exact decline-first schema', () => {
+test('generated prompt oracle requires readable full content and provider-exact schemas', () => {
   const question = {
     hookName: 'review-hook',
     ordinal: 2,
@@ -290,7 +291,14 @@ test('generated prompt oracle requires readable full content and the exact decli
     },
     required: ['decision'],
   }
-  expect(() => assertApprovalPrompt(message, schema, question)).not.toThrow()
+  const claudeSchema = { type: 'object', properties: {} }
+  expect(() => assertApprovalPrompt(message, schema, question, 'codex')).not.toThrow()
+  expect(() => assertApprovalPrompt(message, claudeSchema, question, 'claude')).not.toThrow()
+  expect(acceptedElicitationResult('codex')).toEqual({
+    action: 'accept',
+    content: { decision: 'Approve' },
+  })
+  expect(acceptedElicitationResult('claude')).toEqual({ action: 'accept', content: {} })
   const legacy = {
     hookName: 'legacy-hook',
     ordinal: 1,
@@ -302,11 +310,13 @@ test('generated prompt oracle requires readable full content and the exact decli
       'Full legacy reason.\n\nCommand:\necho exact\n\nRequested by legacy-hook',
       schema,
       legacy,
+      'codex',
     ),
   ).not.toThrow()
   for (const mutation of [
-    () => assertApprovalPrompt(JSON.stringify(question), schema, question),
-    () => assertApprovalPrompt(message.replace('Second reason line.', ''), schema, question),
+    () => assertApprovalPrompt(JSON.stringify(question), schema, question, 'codex'),
+    () =>
+      assertApprovalPrompt(message.replace('Second reason line.', ''), schema, question, 'codex'),
     () =>
       assertApprovalPrompt(
         message.replace(
@@ -315,6 +325,7 @@ test('generated prompt oracle requires readable full content and the exact decli
         ),
         schema,
         question,
+        'codex',
       ),
     () =>
       assertApprovalPrompt(
@@ -324,13 +335,30 @@ test('generated prompt oracle requires readable full content and the exact decli
           properties: { decision: { ...schema.properties.decision, enum: ['Approve', 'Decline'] } },
         },
         question,
+        'codex',
       ),
-    () => assertApprovalPrompt(message, { ...schema, default: { decision: 'Decline' } }, question),
+    () =>
+      assertApprovalPrompt(
+        message,
+        { ...schema, default: { decision: 'Decline' } },
+        question,
+        'codex',
+      ),
     () =>
       assertApprovalPrompt(
         'Full legacy reason.\n\nTool: Bash\nInput:\n{"command":"echo exact"}\n\nRequested by legacy-hook',
         schema,
         legacy,
+        'codex',
+      ),
+    () => assertApprovalPrompt(message, claudeSchema, question, 'codex'),
+    () => assertApprovalPrompt(message, schema, question, 'claude'),
+    () =>
+      assertApprovalPrompt(
+        message,
+        { type: 'object', properties: {}, required: [] },
+        question,
+        'claude',
       ),
   ])
     expect(mutation).toThrow()

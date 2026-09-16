@@ -4,6 +4,7 @@ import { basename, dirname, join, relative } from 'node:path'
 import { createRegistrationSandbox, registrationEnv } from './helpers/registration'
 import { formatDiagnostics, type RunResult, type Sandbox } from './helpers/sandbox'
 import {
+  acceptedApproval,
   assertCompanion,
   assertEmittedDenialReceipt,
   bounded,
@@ -357,7 +358,7 @@ describe('compiled generated approval registrations', () => {
       expect(completion(projectIdentity).start.disposition).toBe('suppressed')
       expect(active.stdout).toBe('')
       expect(calls()).toHaveLength(provider === 'claude-code' ? 1 : 2)
-      prompt.reply({ action: 'accept', content: { decision: 'Approve' } })
+      prompt.reply(acceptedApproval(provider))
       expectAllowed(await active.result, provider)
       assertCompanion(await activeCheck)
       expect(completion(call.identity).start.disposition).toBe('run')
@@ -455,9 +456,7 @@ describe('compiled generated approval registrations', () => {
             operation: { toolName: call.payload.tool_name, input: call.payload.tool_input },
           })
           expect(process.stdout).toBe('')
-          prompt.reply(
-            accept ? { action: 'accept', content: { decision: 'Approve' } } : { action: 'decline' },
-          )
+          prompt.reply(accept ? acceptedApproval(provider) : { action: 'decline' })
           const result = await bounded(process.result, 'Registered command')
           const checkResult = await check
           if (accept) expectAllowed(result, provider)
@@ -519,7 +518,7 @@ describe('compiled generated approval registrations', () => {
       preserved(provider, 'project')
       expect(sandbox.fileExists('.clooks/hooks/observe.ts')).toBe(true)
       expect(project.owner).not.toBe(global.owner)
-      prompt.reply({ action: 'accept', content: { decision: 'Approve' } })
+      prompt.reply(acceptedApproval(provider))
       expectAllowed(await process.result, provider)
       assertCompanion(await check)
       completion(call.identity)
@@ -528,7 +527,7 @@ describe('compiled generated approval registrations', () => {
       const next = callFor(provider, global)
       const surviving = launch(global.command, next.payload)
       const nextCheck = peer.check(next.identity)
-      ;(await peer.nextPrompt()).reply({ action: 'accept', content: { decision: 'Approve' } })
+      ;(await peer.nextPrompt()).reply(acceptedApproval(provider))
       expectAllowed(await surviving.result, provider)
       assertCompanion(await nextCheck)
       expect(calls()).toHaveLength(2)
@@ -562,7 +561,7 @@ export const hook = { meta: { name: 'observe' }, PreToolUse(ctx) {
       const check = peer.check(call.identity)
       const prompt = await peer.nextPrompt()
       expect(prompt.question.reason).toBe('copied registration consent')
-      prompt.reply({ action: 'accept', content: { decision: 'Approve' } })
+      prompt.reply(acceptedApproval(provider))
       const value = output(await process.result)
       if (provider === 'claude-code')
         expect(value.hookSpecificOutput).toEqual({

@@ -3,6 +3,7 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { createSandbox, formatDiagnostics, type RunResult, type Sandbox } from './helpers/sandbox'
 import {
+  acceptedApproval,
   bounded,
   assertCompanion,
   assertEmittedDenialReceipt,
@@ -227,9 +228,7 @@ describe('compiled engine live approvals', () => {
         expect(engine.process.exitCode).toBeNull()
         expect(handlers()).toEqual(['first', 'ask-a'])
         first.reply(
-          scenario.stopAt === 1
-            ? { action: scenario.action }
-            : { action: 'accept', content: { decision: 'Approve' } },
+          scenario.stopAt === 1 ? { action: scenario.action } : acceptedApproval(provider),
         )
         if (scenario.stopAt !== 1) {
           const second = await peer.nextPrompt()
@@ -237,11 +236,7 @@ describe('compiled engine live approvals', () => {
           expect(second.question).not.toHaveProperty('question')
           expect(handlers()).toEqual(['first', 'ask-a', 'middle', 'ask-b'])
           expect(engine.stdout).toBe('')
-          second.reply(
-            scenario.stopAt === 2
-              ? { action: 'decline' }
-              : { action: 'accept', content: { decision: 'Approve' } },
-          )
+          second.reply(scenario.stopAt === 2 ? { action: 'decline' } : acceptedApproval(provider))
         }
         const result = await bounded(engine.result, 'Engine result')
         const checkResult = await check
@@ -393,7 +388,7 @@ describe('compiled engine live approvals', () => {
         })
         expect(first.question.question).toBe('  Use the candidate command?\nReview scope.  ')
         expect(handlers()).toEqual(['ask'])
-        first.reply({ action: 'accept', content: { decision: 'Approve' } })
+        first.reply(acceptedApproval(provider))
         const final = await peer.nextPrompt()
         expect(final.question).toMatchObject({
           hookName: 'ask',
@@ -404,11 +399,7 @@ describe('compiled engine live approvals', () => {
         })
         expect(handlers()).toEqual(['ask', 'rewrite', 'last'])
         expect(engine.stdout).toBe('')
-        final.reply(
-          declineFinal
-            ? { action: 'decline' }
-            : { action: 'accept', content: { decision: 'Approve' } },
-        )
+        final.reply(declineFinal ? { action: 'decline' } : acceptedApproval(provider))
         const result = await engine.result
         const checkResult = await check
         if (declineFinal) {
@@ -446,7 +437,7 @@ describe('compiled engine live approvals', () => {
         expect(prompt.message).toBe(
           `Run this operation?\n\nTool: Bash\nInput:\n${JSON.stringify(input, null, 2)}\n\nExplain risk.\n\nRequested by ask`,
         )
-        return { action: 'accept', content: { decision: 'Approve' } }
+        return acceptedApproval('claude-code')
       },
     )
     expect(result.prompts).toHaveLength(1)
@@ -630,9 +621,7 @@ describe('compiled engine live approvals', () => {
         expect(prompt.question.operation.input).toEqual({
           command: index === 0 ? 'echo candidate' : '/usr/bin/true',
         })
-        return index === 1 && decline
-          ? { action: 'decline' }
-          : { action: 'accept', content: { decision: 'Approve' } }
+        return index === 1 && decline ? { action: 'decline' } : acceptedApproval('claude-code')
       })
       expect(result.prompts).toHaveLength(2)
       if (decline) userDenied(result.result)

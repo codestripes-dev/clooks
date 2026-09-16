@@ -225,17 +225,25 @@ field, and that command is one line with no control characters. Raw Codex names
 such as `exec_command`, Bash inputs with any other field, and every other tool
 use `Tool: <toolName>\nInput:\n<JSON>`. JSON uses two-space indentation, retains
 all fields, supports primitive inputs and is never truncated. The message omits
-the internal question ordinal and serialized question envelope. The form has
-one required string property named `decision`, titled `Decision`, with decline-first enum values
-`Decline` and `Approve` and no default. SDK 1.26's restricted requested-schema
-shape uses only root `type`, `properties` and `required`.
+the internal question ordinal and serialized question envelope. The form is
+selected from the verified mailbox provider. Claude Code receives the exact
+fieldless schema `{ type: "object", properties: {} }`, which its native client
+presents as one `Accept`/`Decline` confirmation. Codex retains one required
+string property named `decision`, titled `Decision`, with decline-first enum
+values `Decline` and `Approve` and no default; an empty form is not used because
+Codex can auto-accept it. The complete human-facing message is identical for
+both providers. SDK 1.26's restricted requested-schema shape uses only root
+`type`, `properties` and, for Codex, `required`.
 
-Only an elicitation response with `action: accept` and exact content
-`{ decision: "Approve" }` approves. The local response parser is strict even
-though the requested form schema cannot advertise `additionalProperties`:
-missing or malformed content and unexpected top-level or content fields do not
-approve. Decline, cancellation, missing peers and expiry of bounded non-human
-work also do not. Wire
+Claude approves only `action: accept` with exact empty-object content `{}`.
+Missing, null, non-object or nonempty acceptance content fails closed. Claude
+decline/cancel accepts absent content or exact `{}` only; malformed content fails
+closed rather than becoming a typed user decision. Codex approves only
+`action: accept` with exact content `{ decision: "Approve" }`; its decline,
+cancel and accepted `Decline` responses remain refusals. Both local parsers
+reject unexpected top-level or content fields. Provider selection uses the
+validated mailbox key, never response shape or client naming. Missing peers and
+expiry of bounded non-human work also do not approve. Wire
 consent is separate from the correlated internal `confirmed: boolean` mailbox
 reply.
 Before attachment and after a response, the active request monitors command

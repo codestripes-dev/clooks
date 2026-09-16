@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process'
 import { chmodSync, existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createSandbox, formatDiagnostics, type Sandbox } from './helpers/sandbox'
-import { invocation, runWithConsent } from './helpers/live-approvals'
+import { acceptedApproval, invocation, runWithConsent } from './helpers/live-approvals'
 
 const packs: Record<string, string> = {
   'prefer-builtin-tools': 'clooks-core-hooks',
@@ -837,9 +837,7 @@ describe('actual removal, script equivalence and tmux hooks', () => {
                 'Requested by no-rm-rf',
               ].join('\n\n'),
             )
-            return accept
-              ? { action: 'accept', content: { decision: 'Approve' } }
-              : { action: 'decline' }
+            return accept ? acceptedApproval(provider) : { action: 'decline' }
           },
         )
         expect(live.result.rawExitCode, formatDiagnostics(live.result)).toBe(0)

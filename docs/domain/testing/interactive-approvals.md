@@ -125,18 +125,29 @@ headline, followed by the operation and attribution. Only exact packet
 `toolName === "Bash"` with an exact, one-line, control-free `{ command: string }`
 input uses `Command`; every other tool or input uses `Tool` plus two-space
 pretty-printed JSON `Input` without dropping fields.
-Its strict form has one required `decision` string titled `Decision`, with the
-decline-first enum `["Decline", "Approve"]` and no default; only accepted
-`Approve` confirms the operation. Test responders must obtain identity and
-ordinal metadata from the mailbox, independently compare the exact message and
-schema with that snapshot, and leave the illustrative fixture's historical
-boolean protocol unchanged.
+The bound mailbox provider selects the strict form. Claude Code receives exactly
+`{ type: "object", properties: {} }`; only `action: "accept"` with exact empty
+object content confirms the operation. Its decline and cancel responses may omit
+content or use exact `{}`. Codex retains one required `decision` string titled
+`Decision`, the decline-first enum `["Decline", "Approve"]`, and no default;
+only accepted exact `{ decision: "Approve" }` confirms. Codex decline/cancel
+responses remain refusals even when accompanied by valid `Approve` content.
+Missing or malformed accept content, extra content, and malformed decline/cancel
+content fail closed. Test responders must obtain provider identity and ordinal
+metadata from the mailbox, independently compare the exact message and the one
+provider-specific schema with that snapshot, and reject the other provider's
+schema rather than accepting either shape. The illustrative fixture's historical
+boolean protocol remains unchanged.
 
 Compiled-engine coverage runs both providers through headline and legacy asks,
 rejects null, other non-string, empty, whitespace-only and
 questions longer than 512 JavaScript UTF-16 code units before later hooks, and
 verifies that an exact multiline headline survives final-operation rewrite
-confirmation.
+confirmation. Shared-runtime responders send exact provider-specific acceptance
+content. Focused transport cases verify Claude's empty-content decline/cancel
+forms and fail closed for missing, null, array, extra-field, Codex-shaped, and
+malformed refusal content without weakening Codex's existing malformed-response
+coverage.
 Operation cases independently cover non-Bash objects and primitives plus Bash
 inputs with extra fields, multiline commands and control characters; none may
 use the compact display or lose input detail.

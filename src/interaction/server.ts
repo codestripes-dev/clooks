@@ -1,7 +1,7 @@
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import type { Readable, Writable } from 'node:stream'
 import type { CallToolResult, ElicitRequestFormParams } from '@modelcontextprotocol/sdk/types.js'
-import type { z } from 'zod'
+import { z } from 'zod'
 import type { questionSchema } from './protocol.js'
 import {
   checkInputJsonSchema,
@@ -24,6 +24,7 @@ import {
   startSchema,
   unavailable,
   userApprovalFailure,
+  type CheckInput,
   type Failure,
   type StartPacket,
 } from './protocol.js'
@@ -39,6 +40,31 @@ export type ElicitApproval = (
   params: ElicitRequestFormParams,
   options: { signal: AbortSignal; timeout: number | null },
 ) => Promise<unknown>
+
+const claudeConfirmationSchema = z.strictObject({
+  action: z.enum(['accept', 'decline', 'cancel']),
+  content: z.strictObject({}).optional(),
+  _meta: z.unknown().optional(),
+})
+
+function parseApprovalResponse(
+  provider: CheckInput['provider'],
+  response: unknown,
+): { action: 'accept' | 'decline' | 'cancel'; approved: boolean } {
+  if (provider === 'claude-code') {
+    const reply = claudeConfirmationSchema.parse(response)
+    if (reply.action === 'accept' && reply.content === undefined)
+      unavailable('Approval response was not positively confirmed')
+    return { action: reply.action, approved: reply.action === 'accept' }
+  }
+  const reply = confirmationSchema.parse(response)
+  if (reply.action === 'accept' && !reply.content)
+    unavailable('Approval response was not positively confirmed')
+  return {
+    action: reply.action,
+    approved: reply.action === 'accept' && reply.content?.decision === 'Approve',
+  }
+}
 
 function approvalMessage(question: z.infer<typeof questionSchema>): string {
   const input = question.operation.input
@@ -166,17 +192,20 @@ export async function handleApprovalCheck(
               {
                 mode: 'form',
                 message: approvalMessage(question.question),
-                requestedSchema: {
-                  type: 'object',
-                  properties: {
-                    decision: {
-                      type: 'string',
-                      title: 'Decision',
-                      enum: ['Decline', 'Approve'],
-                    },
-                  },
-                  required: ['decision'],
-                },
+                requestedSchema:
+                  key.provider === 'claude-code'
+                    ? { type: 'object', properties: {} }
+                    : {
+                        type: 'object',
+                        properties: {
+                          decision: {
+                            type: 'string',
+                            title: 'Decision',
+                            enum: ['Decline', 'Approve'],
+                          },
+                        },
+                        required: ['decision'],
+                      },
               },
               { signal, timeout: null },
             ),
@@ -190,10 +219,8 @@ export async function handleApprovalCheck(
         checkSignal(options.signal)
         remaining(localDeadline, clock.now())
         if (completed()) unavailable('Late approval response after command completion')
-        const reply = confirmationSchema.parse(response)
-        if (reply.action !== 'accept' || reply.content?.decision !== 'Approve') {
-          if (reply.action === 'accept' && !reply.content)
-            unavailable('Approval response was not positively confirmed')
+        const reply = parseApprovalResponse(key.provider, response)
+        if (!reply.approved) {
           const decision = reply.action === 'cancel' ? 'cancelled' : 'declined'
           const refusal = userApprovalFailure(decision, question.question.hookName)
           box.publish(`reply-${ordinal}`, {

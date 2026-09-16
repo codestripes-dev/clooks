@@ -89,7 +89,12 @@ function identity(provider: 'claude-code' | 'codex' = 'claude-code') {
   }
 }
 
-const expectedApprovalSchema = {
+const expectedClaudeApprovalSchema = {
+  type: 'object',
+  properties: {},
+} satisfies ElicitRequestFormParams['requestedSchema']
+
+const expectedCodexApprovalSchema = {
   type: 'object',
   properties: {
     decision: {
@@ -100,6 +105,12 @@ const expectedApprovalSchema = {
   },
   required: ['decision'],
 } satisfies ElicitRequestFormParams['requestedSchema']
+
+function acceptedApproval(provider: ReturnType<typeof identity>['provider']): ElicitResult {
+  return provider === 'claude-code'
+    ? { action: 'accept', content: {} }
+    : { action: 'accept', content: { decision: 'Approve' } }
+}
 
 function approvalMessage(question: any) {
   const { toolName, input } = question.operation
@@ -169,7 +180,9 @@ function assertApprovalRequest(
   if (!('requestedSchema' in request.params)) throw new Error('Expected form elicitation')
   const question = publishedQuestion(key, ordinal)
   expect(request.params.message).toBe(approvalMessage(question))
-  expect(request.params.requestedSchema).toEqual(expectedApprovalSchema)
+  expect(request.params.requestedSchema).toEqual(
+    key.provider === 'claude-code' ? expectedClaudeApprovalSchema : expectedCodexApprovalSchema,
+  )
   return question
 }
 
@@ -290,7 +303,7 @@ describe('compiled shared approval transport', () => {
       let prompts = 0
       connection.client.setRequestHandler(ElicitRequestSchema, async () => {
         prompts++
-        return { action: 'accept', content: { decision: 'Approve' } }
+        return acceptedApproval(provider)
       })
       const result = await connection.client.callTool(
         { name: 'check', arguments: identity(provider) },
@@ -344,9 +357,7 @@ describe('compiled shared approval transport', () => {
         expect(request.params.mode).toBe('form')
         expect(sandbox.fileExists('reply-' + ordinal)).toBe(false)
         expect(sandbox.fileExists('command-closed')).toBe(false)
-        return ordinal === declineAt
-          ? { action: 'decline' }
-          : { action: 'accept', content: { decision: 'Approve' } }
+        return ordinal === declineAt ? { action: 'decline' } : acceptedApproval(provider)
       })
       const result = nativeOutput(
         await connection.client.callTool({ name: 'check', arguments: key }, undefined, {
@@ -374,6 +385,71 @@ describe('compiled shared approval transport', () => {
       expect(connection.stderr()).toBe('')
     },
   )
+
+  test.each([
+    {
+      name: 'decline with empty content',
+      response: { action: 'decline', content: {} },
+      kind: 'declined',
+    },
+    {
+      name: 'cancel with empty content',
+      response: { action: 'cancel', content: {} },
+      kind: 'cancelled',
+    },
+  ] as const)('Claude accepts $name as an explicit refusal', async ({ response, kind }) => {
+    sandbox = createSandbox()
+    const connection = await connect()
+    const key = identity('claude-code')
+    const command = await startCommand(key, 1)
+    connection.client.setRequestHandler(ElicitRequestSchema, async (request) => {
+      assertApprovalRequest(request, key, 1)
+      return structuredClone(response)
+    })
+    const result = nativeOutput(
+      await connection.client.callTool({ name: 'check', arguments: key }, undefined, {
+        timeout: 5000,
+      }),
+    )
+    expect((await command.finish()).map((reply) => reply.kind)).toEqual([kind])
+    expect(result.hookSpecificOutput.permissionDecision).toBe('deny')
+    expect(connection.errors).toEqual([])
+  })
+
+  test.each([
+    { name: 'missing accept content', response: { action: 'accept' } },
+    { name: 'null accept content', response: { action: 'accept', content: null } },
+    { name: 'array accept content', response: { action: 'accept', content: [] } },
+    { name: 'extra accept content', response: { action: 'accept', content: { extra: true } } },
+    {
+      name: 'Codex-shaped accept content',
+      response: { action: 'accept', content: { decision: 'Approve' } },
+    },
+    {
+      name: 'malformed decline content',
+      response: { action: 'decline', content: { decision: 'Approve' } },
+    },
+    { name: 'malformed cancel content', response: { action: 'cancel', content: { extra: true } } },
+  ])('Claude fails closed for $name', async ({ response }) => {
+    sandbox = createSandbox()
+    const connection = await connect()
+    const key = identity('claude-code')
+    const command = await startCommand(key, 1)
+    connection.client.setRequestHandler(ElicitRequestSchema, async (request) => {
+      assertApprovalRequest(request, key, 1)
+      return structuredClone(response) as ElicitResult
+    })
+    const result = nativeOutput(
+      await connection.client.callTool({ name: 'check', arguments: key }, undefined, {
+        timeout: 5000,
+      }),
+    )
+    const replies = await command.finish()
+    expect(replies).toHaveLength(1)
+    expect(replies[0]!.kind).not.toBe('approved')
+    expect(result.hookSpecificOutput.permissionDecision).toBe('deny')
+    expect(connection.errors).toEqual([])
+  })
 
   test.each(['claude-code', 'codex'] as const)(
     '%s corrupt denial acknowledgement keeps the companion fail closed',
@@ -409,7 +485,7 @@ describe('compiled shared approval transport', () => {
       let prompts = 0
       connection.client.setRequestHandler(ElicitRequestSchema, async () => {
         prompts++
-        return { action: 'accept', content: { decision: 'Approve' } }
+        return acceptedApproval('claude-code')
       })
       const result = await connection.client.callTool(
         { name: 'check', arguments: key },

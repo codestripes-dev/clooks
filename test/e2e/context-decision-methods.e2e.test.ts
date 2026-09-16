@@ -1,6 +1,6 @@
 import { describe, test, expect, afterEach } from 'bun:test'
 import { createSandbox, type Sandbox } from './helpers/sandbox'
-import { invocation, runWithConsent } from './helpers/live-approvals'
+import { acceptedApproval, invocation, runWithConsent } from './helpers/live-approvals'
 
 // E2E coverage for ctx decision methods on tool-keyed events.
 //
@@ -326,7 +326,7 @@ pretooluse-ask-method: {}
           toolName: 'Bash',
           input: { command: 'ls', timeout: 60000 },
         })
-        return { action: 'accept', content: { decision: 'Approve' } }
+        return acceptedApproval('claude-code')
       },
     )
     expect(prompts).toHaveLength(1)

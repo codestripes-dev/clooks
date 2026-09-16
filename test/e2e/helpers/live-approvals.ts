@@ -84,7 +84,12 @@ function expectedApprovalMessage(question: ApprovalPrompt['question']): string {
   ].join('\n\n')
 }
 
-const expectedApprovalSchema = {
+const claudeApprovalSchema = {
+  type: 'object',
+  properties: {},
+} satisfies ElicitRequestFormParams['requestedSchema']
+
+const codexApprovalSchema = {
   type: 'object',
   properties: {
     decision: {
@@ -96,9 +101,41 @@ const expectedApprovalSchema = {
   required: ['decision'],
 } satisfies ElicitRequestFormParams['requestedSchema']
 
-function pendingQuestion(home: string): ApprovalPrompt['question'] {
+function expectedApprovalSchema(provider: Provider) {
+  return provider === 'claude-code' ? claudeApprovalSchema : codexApprovalSchema
+}
+
+export function acceptedApproval(provider: Provider): ElicitResult {
+  return provider === 'claude-code'
+    ? { action: 'accept', content: {} }
+    : { action: 'accept', content: { decision: 'Approve' } }
+}
+
+function isUserRefusal(provider: Provider, response: ElicitResult): boolean {
+  if (response.action === 'accept') {
+    return (
+      provider === 'codex' &&
+      response.content !== undefined &&
+      Object.keys(response.content).length === 1 &&
+      response.content.decision === 'Decline'
+    )
+  }
+  if (response.action !== 'decline' && response.action !== 'cancel') return false
+  if (response.content === undefined) return true
+  const keys = Object.keys(response.content)
+  return provider === 'claude-code'
+    ? keys.length === 0
+    : keys.length === 1 &&
+        keys[0] === 'decision' &&
+        (response.content.decision === 'Decline' || response.content.decision === 'Approve')
+}
+
+function pendingQuestion(home: string): {
+  provider: Provider
+  question: ApprovalPrompt['question']
+} {
   const root = join(home, '.clooks/.cache/approvals-live/v1')
-  const pending: ApprovalPrompt['question'][] = []
+  const pending: Array<{ provider: Provider; question: ApprovalPrompt['question'] }> = []
   for (const entry of readdirSync(root, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue
     const directory = join(root, entry.name)
@@ -115,7 +152,7 @@ function pendingQuestion(home: string): ApprovalPrompt['question'] {
       expect(packet.question.ordinal, 'Question filename must match its snapshot ordinal').toBe(
         Number(match[1]),
       )
-      pending.push(packet.question)
+      pending.push({ provider: start.key.provider, question: packet.question })
     }
   }
   expect(pending, 'Expected exactly one live unanswered approval question').toHaveLength(1)
@@ -397,9 +434,9 @@ export async function connectApprovalPeer(
   }
   client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
     if (!('requestedSchema' in request.params)) throw new Error('Expected form elicitation')
-    const question = pendingQuestion(sandbox.home)
+    const { provider, question } = pendingQuestion(sandbox.home)
     expect(request.params.message).toBe(expectedApprovalMessage(question))
-    expect(request.params.requestedSchema).toEqual(expectedApprovalSchema)
+    expect(request.params.requestedSchema).toEqual(expectedApprovalSchema(provider))
     const response = Promise.withResolvers<ElicitResult>()
     const cancel = () => response.resolve({ action: 'cancel' })
     const prompt: ApprovalPrompt = {
@@ -500,7 +537,7 @@ export async function runWithConsent(
         return { result: next.result, companion: next.companion, prompts: peer.prompts }
       }
       const response = await respond(next.prompt, index++)
-      if (response.action !== 'accept' || response.content?.decision !== 'Approve') {
+      if (isUserRefusal(call.identity.provider, response)) {
         commandRefused = true
       }
       next.prompt.reply(response)

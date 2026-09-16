@@ -26,17 +26,26 @@ const homes: string[] = []
 afterEach(() => {
   for (const home of homes.splice(0)) rmSync(home, { recursive: true, force: true })
 })
-function fixture() {
+function fixture(provider: CheckInput['provider'] = 'codex') {
   const home = mkdtempSync(join(tmpdir(), 'clooks-interaction-'))
   homes.push(home)
-  const key: CheckInput = {
-    protocol: 1,
-    provider: 'codex',
-    owner: 'project:test',
-    session_id: 'session',
-    turn_id: 'turn',
-    tool_use_id: crypto.randomUUID(),
-  }
+  const key: CheckInput =
+    provider === 'codex'
+      ? {
+          protocol: 1,
+          provider,
+          owner: 'project:test',
+          session_id: 'session',
+          turn_id: 'turn',
+          tool_use_id: crypto.randomUUID(),
+        }
+      : {
+          protocol: 1,
+          provider,
+          owner: 'project:test',
+          session_id: 'session',
+          tool_use_id: crypto.randomUUID(),
+        }
   return { home, key, clock: runtime({ home }), box: () => new Mailbox(approvalRoot(home), key) }
 }
 function question(ordinal = 1) {
@@ -49,6 +58,7 @@ function question(ordinal = 1) {
 }
 const signal = () => new AbortController().signal
 const yes = async () => ({ action: 'accept', content: { decision: 'Approve' } })
+const claudeYes = async () => ({ action: 'accept', content: {} })
 function output(result: Awaited<ReturnType<typeof handleApprovalCheck>>) {
   const content = result.content[0]
   if (content?.type !== 'text') throw new Error('Missing text result')
@@ -125,6 +135,26 @@ test('elicitation presents readable exact arbitrary JSON without internal envelo
         required: ['decision'],
       })
       return yes()
+    },
+    { runtime: f.clock },
+  )
+  expect(await command.request(q, signal())).toEqual({ kind: 'approved' })
+  await command.close()
+  expect(output(await check)).toEqual({})
+})
+
+test('Claude elicitation preserves the message and uses the exact fieldless schema', async () => {
+  const f = fixture('claude-code')
+  const q = question()
+  const command = await createApprovalInteraction({ identity: f.key }, f.clock)
+  const check = handleApprovalCheck(
+    f.key,
+    async (params) => {
+      expect(params.message).toBe(
+        `Confirm exact operation\n\nTool: Write\nInput:\n${JSON.stringify(q.operation.input, null, 2)}\n\nRequested by guard`,
+      )
+      expect(params.requestedSchema).toEqual({ type: 'object', properties: {} })
+      return claudeYes()
     },
     { runtime: f.clock },
   )
@@ -260,7 +290,7 @@ test('unmatched check closes; late no-ask stays neutral and late ask cannot reop
   expect(g.box().bound('done', doneSchema)?.failure).toBeUndefined()
 })
 
-const nonPositiveResponses: Array<{
+const codexNonPositiveResponses: Array<{
   response: unknown
   kind: 'declined' | 'cancelled' | 'unavailable'
   expectedUserDecision: boolean
@@ -337,8 +367,8 @@ const nonPositiveResponses: Array<{
     expectedUserDecision: false,
   },
 ]
-for (const { response, kind, expectedUserDecision } of nonPositiveResponses)
-  test(`non-positive response cannot approve: ${JSON.stringify(response)}`, async () => {
+for (const { response, kind, expectedUserDecision } of codexNonPositiveResponses)
+  test(`Codex non-positive response cannot approve: ${JSON.stringify(response)}`, async () => {
     const f = fixture()
     const command = await createApprovalInteraction({ identity: f.key }, f.clock)
     const check = handleApprovalCheck(f.key, async () => response, { runtime: f.clock })
@@ -354,6 +384,145 @@ for (const { response, kind, expectedUserDecision } of nonPositiveResponses)
     if (expectedUserDecision) expect(result).toEqual({})
     else expect(result.hookSpecificOutput.permissionDecision).toBe('deny')
     expect((await command.request(question(2), signal())).kind).not.toBe('approved')
+  })
+
+const claudeResponses: Array<{
+  name: string
+  response: unknown
+  kind: 'approved' | 'declined' | 'cancelled' | 'unavailable'
+  expectedUserDecision: boolean
+}> = [
+  {
+    name: 'null response envelope',
+    response: null,
+    kind: 'unavailable',
+    expectedUserDecision: false,
+  },
+  {
+    name: 'response without action',
+    response: {},
+    kind: 'unavailable',
+    expectedUserDecision: false,
+  },
+  {
+    name: 'response with unknown action',
+    response: { action: 'unknown', content: {} },
+    kind: 'unavailable',
+    expectedUserDecision: false,
+  },
+  {
+    name: 'exact empty acceptance',
+    response: { action: 'accept', content: {} },
+    kind: 'approved',
+    expectedUserDecision: false,
+  },
+  {
+    name: 'acceptance without content',
+    response: { action: 'accept' },
+    kind: 'unavailable',
+    expectedUserDecision: false,
+  },
+  {
+    name: 'acceptance with null content',
+    response: { action: 'accept', content: null },
+    kind: 'unavailable',
+    expectedUserDecision: false,
+  },
+  {
+    name: 'acceptance with non-object content',
+    response: { action: 'accept', content: 'Approve' },
+    kind: 'unavailable',
+    expectedUserDecision: false,
+  },
+  {
+    name: 'acceptance with array content',
+    response: { action: 'accept', content: [] },
+    kind: 'unavailable',
+    expectedUserDecision: false,
+  },
+  {
+    name: 'acceptance with extra content field',
+    response: { action: 'accept', content: { decision: 'Approve' } },
+    kind: 'unavailable',
+    expectedUserDecision: false,
+  },
+  {
+    name: 'acceptance with extra top-level field',
+    response: { action: 'accept', content: {}, extra: true },
+    kind: 'unavailable',
+    expectedUserDecision: false,
+  },
+  {
+    name: 'decline without content',
+    response: { action: 'decline' },
+    kind: 'declined',
+    expectedUserDecision: true,
+  },
+  {
+    name: 'decline with empty content',
+    response: { action: 'decline', content: {} },
+    kind: 'declined',
+    expectedUserDecision: true,
+  },
+  {
+    name: 'decline with malformed content',
+    response: { action: 'decline', content: { decision: 'Approve' } },
+    kind: 'unavailable',
+    expectedUserDecision: false,
+  },
+  {
+    name: 'decline with null content',
+    response: { action: 'decline', content: null },
+    kind: 'unavailable',
+    expectedUserDecision: false,
+  },
+  {
+    name: 'decline with non-object content',
+    response: { action: 'decline', content: false },
+    kind: 'unavailable',
+    expectedUserDecision: false,
+  },
+  {
+    name: 'cancel without content',
+    response: { action: 'cancel' },
+    kind: 'cancelled',
+    expectedUserDecision: true,
+  },
+  {
+    name: 'cancel with empty content',
+    response: { action: 'cancel', content: {} },
+    kind: 'cancelled',
+    expectedUserDecision: true,
+  },
+  {
+    name: 'cancel with malformed content',
+    response: { action: 'cancel', content: { decision: 'Approve' } },
+    kind: 'unavailable',
+    expectedUserDecision: false,
+  },
+  {
+    name: 'cancel with array content',
+    response: { action: 'cancel', content: [] },
+    kind: 'unavailable',
+    expectedUserDecision: false,
+  },
+]
+
+for (const { name, response, kind, expectedUserDecision } of claudeResponses)
+  test(`Claude response contract: ${name}`, async () => {
+    const f = fixture('claude-code')
+    const command = await createApprovalInteraction({ identity: f.key }, f.clock)
+    const check = handleApprovalCheck(f.key, async () => response, { runtime: f.clock })
+    const reply = await command.request(question(), signal())
+    expect(reply.kind).toBe(kind)
+    expect(reply.kind !== 'approved' && reply.userDecision === true).toBe(expectedUserDecision)
+    if (kind === 'declined' || kind === 'cancelled') await acknowledge(command, kind)
+    await command.close()
+    const result = output(await check)
+    if (kind === 'approved' || expectedUserDecision) expect(result).toEqual({})
+    else expect(result.hookSpecificOutput.permissionDecision).toBe('deny')
+    if (kind !== 'approved')
+      expect((await command.request(question(2), signal())).kind).not.toBe('approved')
   })
 
 test('one check cannot respond for overlapping tool calls or owners', async () => {

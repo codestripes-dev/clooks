@@ -132,6 +132,14 @@ For PreToolUse, `policy.ts` accepts allow/block/skip and handler-only ask with s
 
 The engine routes handler PreToolUse asks through [shared live checkpoints](./interactive-approvals.md#engine-checkpoints) on both agents, not token retries or native Codex ask. Sequential asks wait before later hooks; parallel asks follow audited configured order. Missing live interaction refuses an ask, and final serialized-operation changes require reconfirmation. Public constructors remain synchronous. Compiled engine tests and [generated-registration native cases](./testing/interactive-approvals.md#generated-registration) have separate evidence boundaries. The [former token fallback](./codex-approvals.md) and its [15-case native suite](./testing/codex-native.md#hybrid-approval-case-evidence) remain historical evidence for shell/direct-patch retries, rewrite permission controls and actual-pack `rm -r` replay refusal, not proof of the new checkpoint flow. The token controller, store and CLI are removed; old databases remain inert and untouched.
 
+The shared checkpoint chooses confirmation presentation from its validated
+mailbox provider. Claude Code uses a fieldless object form and approves only the
+native `accept` response with exact empty content. Codex keeps the required
+decline-first `Decline`/`Approve` field because its client may auto-accept an
+empty form, and only exact `accept` plus `Approve` approves. The displayed
+operation and reason are otherwise identical; response shape is never used to
+infer the provider.
+
 An explicit valid form refusal/cancellation is a typed PreToolUse failure with the
 exact native reason `[hook-name] Approval declined. Operation not run.` or
 `[hook-name] Approval cancelled. Operation not run.` Both providers emit their

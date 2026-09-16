@@ -27,6 +27,7 @@ async function fixture(
     action: 'accept',
     content: { decision: 'Approve' },
   }),
+  provider: CheckInput['provider'] = 'codex',
 ) {
   const home = mkdtempSync(join(tmpdir(), 'clooks-sdk-'))
   cleanups.push(async () => {
@@ -43,14 +44,23 @@ async function fixture(
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
   await instance.server.connect(serverTransport)
   await client.connect(clientTransport)
-  const key: CheckInput = {
-    protocol: 1,
-    provider: 'codex',
-    owner: 'project:test',
-    session_id: 'session',
-    turn_id: 'turn',
-    tool_use_id: 'call',
-  }
+  const key: CheckInput =
+    provider === 'codex'
+      ? {
+          protocol: 1,
+          provider,
+          owner: 'project:test',
+          session_id: 'session',
+          turn_id: 'turn',
+          tool_use_id: 'call',
+        }
+      : {
+          protocol: 1,
+          provider,
+          owner: 'project:test',
+          session_id: 'session',
+          tool_use_id: 'call',
+        }
   return { home, key, client, instance, clientTransport }
 }
 const question = {
@@ -66,6 +76,15 @@ test('official SDK initialization, advertised schema, elicitation and neutral co
   expect(canonical((await f.client.listTools()).tools[0]?.inputSchema)).toBe(
     canonical(checkInputJsonSchema),
   )
+  const command = await createApprovalInteraction({ identity: f.key }, { home: f.home })
+  const check = f.client.callTool({ name: 'check', arguments: f.key })
+  expect(await command.request(question, signal())).toEqual({ kind: 'approved' })
+  await command.close()
+  expect(await check).toEqual({ content: [{ type: 'text', text: '{}' }] })
+})
+
+test('official SDK accepts Claude fieldless confirmation', async () => {
+  const f = await fixture(async () => ({ action: 'accept', content: {} }), 'claude-code')
   const command = await createApprovalInteraction({ identity: f.key }, { home: f.home })
   const check = f.client.callTool({ name: 'check', arguments: f.key })
   expect(await command.request(question, signal())).toEqual({ kind: 'approved' })

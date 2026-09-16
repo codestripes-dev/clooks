@@ -57,7 +57,12 @@ export function expectedNativeDenial(message: string) {
   }
 }
 
-const expectedApprovalSchema = {
+const expectedClaudeApprovalSchema = {
+  type: 'object',
+  properties: {},
+} satisfies ElicitRequestFormParams['requestedSchema']
+
+const expectedCodexApprovalSchema = {
   type: 'object',
   properties: {
     decision: {
@@ -68,6 +73,12 @@ const expectedApprovalSchema = {
   },
   required: ['decision'],
 } satisfies ElicitRequestFormParams['requestedSchema']
+
+export function acceptedElicitationResult(provider: Case['provider']) {
+  return provider === 'claude'
+    ? { action: 'accept' as const, content: {} }
+    : { action: 'accept' as const, content: { decision: 'Approve' } }
+}
 
 function expectedApprovalMessage(question: any): string {
   const { toolName, input } = question.operation
@@ -91,9 +102,18 @@ function expectedApprovalMessage(question: any): string {
   ].join('\n\n')
 }
 
-export function assertApprovalPrompt(message: string, schema: unknown, question: any) {
+export function assertApprovalPrompt(
+  message: string,
+  schema: unknown,
+  question: any,
+  provider: Case['provider'],
+) {
   assert.equal(message, expectedApprovalMessage(question), 'Human approval message mismatch')
-  assert.deepEqual(schema, expectedApprovalSchema, 'Approval response schema mismatch')
+  assert.deepEqual(
+    schema,
+    provider === 'claude' ? expectedClaudeApprovalSchema : expectedCodexApprovalSchema,
+    'Approval response schema mismatch',
+  )
 }
 
 export function packets(home: string): Packets[] {
@@ -365,7 +385,7 @@ export async function respond(message: string, schema: unknown, c: Case, signal?
     .map((ordinal) => active[`question-${ordinal}`].question)
   assert.equal(unanswered.length, 1, 'Expected exactly one live unanswered production question')
   const question = unanswered[0]!
-  assertApprovalPrompt(message, schema, question)
+  assertApprovalPrompt(message, schema, question, c.provider)
   record(c.root, 'ui-request', { message, schema })
   const observationDeadline = Date.now() + 3000
   while (!rows(c.root).some((row) => row.event === 'native-pre')) {
@@ -387,7 +407,7 @@ export async function respond(message: string, schema: unknown, c: Case, signal?
     (c.mode === 'decline-second' && question.ordinal === 2)
   const action = cancel ? 'cancel' : decline ? 'decline' : 'accept'
   record(c.root, 'ui-response', { question, action })
-  return action === 'accept' ? { action, content: { decision: 'Approve' } } : { action }
+  return action === 'accept' ? acceptedElicitationResult(c.provider) : { action }
 }
 
 export function assertOutcome(

@@ -2,7 +2,7 @@ import { describe, test, expect, afterEach } from 'bun:test'
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import { createSandbox, type Sandbox } from './helpers/sandbox'
-import { invocation, runWithConsent } from './helpers/live-approvals'
+import { acceptedApproval, invocation, runWithConsent } from './helpers/live-approvals'
 
 const FIXTURES = join(import.meta.dir, '../fixtures')
 const loadEvent = (name: string) => readFileSync(join(FIXTURES, 'events', name), 'utf8')
@@ -1241,7 +1241,7 @@ pre-ask-full: {}
           reason: 'confirm',
           operation: { toolName: 'Bash', input: { command: 'echo safe' } },
         })
-        return { action: 'accept', content: { decision: 'Approve' } }
+        return acceptedApproval('claude-code')
       },
     )
     expect(prompts).toHaveLength(1)
@@ -1392,10 +1392,7 @@ pre-p2-h3-deny: {}
     const { result, prompts } = await runWithConsent(
       sandbox,
       invocation(sandbox, 'claude-code'),
-      () => ({
-        action: 'accept',
-        content: { decision: 'Approve' },
-      }),
+      () => acceptedApproval('claude-code'),
       { BREADCRUMB_FILE: breadcrumbFile },
     )
     expect(prompts).toHaveLength(1)
