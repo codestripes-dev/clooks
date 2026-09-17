@@ -72,11 +72,11 @@ All 22 lifecycle events: when they fire, what they match on, what input they rec
 
 Deprecated: top-level `decision`/`reason`. Legacy `"approve"` → `"allow"`, `"block"` → `"deny"`.
 
-**Source label:** `ask` prompts display the Claude Code source label assigned to the Clooks entrypoint (`[Project]`, `[User]`, `[Plugin]`, `[Local]`) — not the individual hook name. Use `permissionDecisionReason` to disambiguate which hook asked.
+**Clooks approval prompt:** Clooks handles `ctx.ask(...)` through a shared MCP checkpoint that identifies the asking hook, rather than Claude Code's entrypoint source label. See [Engine Checkpoints](../interactive-approvals.md#engine-checkpoints).
 
 **Headless-detection limitation:** Clooks cannot determine whether the session is headless (`-p`) from inside a hook. Return `defer` unconditionally when that is the desired behavior; Claude Code ignores `defer` in interactive sessions (logs a warning and proceeds normally).
 
-**Multi-hook precedence:** Clooks runs every PreToolUse hook to completion (no short-circuit on block) and reduces via `deny > defer > ask > allow`. Crashed hooks under `onError: "block"` still short-circuit — a crash exits the pipeline entirely and does not participate in the precedence reduction.
+**Multi-hook behavior:** Approvals use [live checkpoints](../interactive-approvals.md#engine-checkpoints); refusal stops the pipeline, while approval resumes without replay. Structured blocks remain votes, suppress later asks, and retain precedence over approved asks. Crashed hooks under `onError: "block"` still short-circuit.
 
 **Defer ignore-fields:** `defer` ignores `updatedInput`, `additionalContext`, and `permissionDecisionReason`. When a losing hook contributed these fields and `defer` wins, Clooks emits a `systemMessage` warning so authors see the discarded data.
 

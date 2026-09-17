@@ -92,7 +92,7 @@ Codex exec_command normalizes to Bash; apply_patch does not become Claude Edit/W
 
 ## Shared Approval Checkpoints
 
-PreToolUse handler `ctx.ask({ reason })` pauses the hook pipeline for confirmation through MCP. Approval continues the same invocation without replaying earlier hooks; decline, cancellation or an unavailable required interaction denies the operation. Each required checkpoint must be approved, and later hooks and native permissions still apply. `ctx.defer()` remains a separate result with its existing event and provider restrictions.
+PreToolUse handler `ctx.ask({ reason })` pauses the hook pipeline for confirmation through MCP. Add an optional `question` for a short prompt; use `reason` to explain why approval is needed. Approval continues the same invocation without replaying earlier hooks; decline, cancellation or an unavailable required interaction denies the operation. Each required checkpoint must be approved, and later hooks and native permissions still apply. `ctx.defer()` remains a separate result with its existing event and provider restrictions.
 
 ## Links
 

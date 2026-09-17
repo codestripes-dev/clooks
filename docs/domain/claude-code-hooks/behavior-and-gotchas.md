@@ -124,15 +124,13 @@ PostToolUse hooks fire after a tool completes — they cannot prevent the tool f
 
 **Clooks auto-downgrade.** When a ConfigChange hook returns `ctx.block({ reason })` for a payload with `source: "policy_settings"`, Clooks downgrades the result to `skip` and emits a `systemMessage` warning before `translateResult` runs. The emitted JSON contains no top-level `decision`/`reason` — only the `systemMessage`. The other four sources (`user_settings`, `project_settings`, `local_settings`, `skills`) honor block normally. Placement rationale: the downgrade lives in `src/engine/run.ts` (not the translator) so the warning joins the existing `systemMessages` aggregation array and cannot be clobbered by other in-flight system messages. This mirrors the engine-layer `trace → continue` runtime fallback in `src/engine/execute.ts` — both are configuration-vs-event-capability mismatches that Clooks detects at runtime, downgrades to a safe default, and surfaces via `systemMessage` so the hook author sees the discrepancy.
 
-### PreToolUse Does Not Short-Circuit
+### PreToolUse Blocks Do Not Short-Circuit
 
-Unlike other guard events (`UserPromptSubmit`, `Stop`, `SubagentStop`, `ConfigChange`, `PreCompact`) where the first `ctx.block(...)` halts the pipeline, every registered PreToolUse hook runs on every tool call. A `deny` vote by one hook does not prevent subsequent hooks from executing; it only determines the winner at reduction time via the `deny > defer > ask > allow` precedence.
+Unlike other guard events (`UserPromptSubmit`, `Stop`, `SubagentStop`, `ConfigChange`, `PreCompact`) where the first `ctx.block(...)` halts the pipeline, a PreToolUse block is a vote and does not prevent subsequent hooks from executing. Approval requests are different: a sequential ask waits before the next hook, and refusal stops the pipeline. See [Engine Checkpoints](../interactive-approvals.md#engine-checkpoints).
 
-**Why it matters:** Audit-log or observability hooks that are registered after a policy-deny hook still fire. Hook registration order does not affect the final decision. A `defer` hook registered before a `deny` hook will still lose to the denial — the outcome is order-independent.
+**Why it matters:** Audit-log or observability hooks registered after a policy block still fire unless an earlier approval refusal or execution failure closes the pipeline. An approved ask reduces as allow; block and defer precedence is retained.
 
 **Crashed hooks still short-circuit.** Under `onError: "block"` (default), a crashed PreToolUse hook exits the pipeline immediately and emits `permissionDecision: "deny"` with the crash diagnostic. A crash is "stop the world," not a structured opinion competing with other hooks. The crash path exits before the precedence reduction runs.
-
-**Migration from short-circuit assumption:** If you relied on registration order to skip a slow hook when an earlier hook blocked, migrate by filtering early in the slow hook itself: check the same condition the blocking hook checks and `return ctx.skip()` if the precondition fails. Do not guard slow work behind `ctx.signal.aborted` — for PreToolUse, the AbortController no longer fires on a `ctx.block(...)` structured result (it only fires on contract violations and crash-path aborts).
 
 ### CONTINUATION `onError: "block"` Semantic
 

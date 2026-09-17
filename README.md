@@ -194,8 +194,9 @@ your-project/
 │   ├── clooks.schema.json    # JSON Schema for editor validation
 │   ├── bin/entrypoint.sh     # Bash entrypoint
 │   └── hooks/types.d.ts      # TypeScript types for authoring
-└── .claude/
-    └── settings.json         # Hook registration (auto-managed)
+├── .claude/
+│   └── settings.json         # Hook registration (auto-managed)
+└── .mcp.json                 # Approval server
 ```
 
 `.gitignore` is updated to exclude `clooks.local.yml`, `.clooks/.cache/`,
@@ -203,6 +204,8 @@ and `.clooks/.failures`.
 
 Hook registration lives in `.claude/settings.json` for Claude Code or
 `.codex/hooks.json` for Codex.
+Init also registers the `clooks` MCP server for approval prompts. Restart the
+agent when it is first added.
 
 ## Write your own hook
 
@@ -314,6 +317,8 @@ For event support and planned events, see the [Parity map](#parity-map).
 `ctx.ask({ reason })` asks for confirmation through MCP. Approval resumes the
 same hook pipeline; rejection or cancellation blocks the operation. Later hooks
 and the agent's own permissions still apply.
+Add an optional `question` for a short prompt; use `reason` to explain why
+approval is needed.
 See [approval details](docs/domain/interactive-approvals.md#engine-checkpoints).
 
 ## Configuration
