@@ -131,7 +131,9 @@ export async function createApprovalInteraction(
         if (start.disposition !== 'run')
           unavailable('Suppressed invocation cannot request approval')
         if (election.state === 'closed')
-          unavailable('MCP check already closed; restart the client after clooks init')
+          unavailable(
+            'MCP check already closed before this command connected; operation was not run',
+          )
         const parsed = questionSchema.parse(question)
         if (parsed.ordinal !== ordinal + 1) unavailable('Approval question ordinal mismatch')
         // Snapshot before yielding. No caller mutation can change displayed or accepted input.

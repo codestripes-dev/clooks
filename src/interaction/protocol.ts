@@ -7,7 +7,7 @@ import { MAX_ASK_QUESTION_LENGTH } from '../engine/ask-question.js'
 export const limits = Object.freeze({
   invocationMs: 300_000,
   reserveMs: 5_000,
-  discoveryMs: 1_000,
+  discoveryMs: 5_000,
   attachmentMs: 3_000,
   pollMs: 20,
   packetBytes: 65_536,

@@ -15,8 +15,21 @@ import {
 import type { HookName } from '../types/branded.js'
 import { createApprovalInteraction } from './channel.js'
 import { createApprovalServer, runApprovalServer, serveApprovalStreams } from './server.js'
-import { canonical, checkInputJsonSchema, limits, type CheckInput } from './protocol.js'
-import { approvalRoot, cleanup, closeCleanup, Mailbox, runtime } from './storage.js'
+import {
+  canonical,
+  checkInputJsonSchema,
+  claimSchema,
+  limits,
+  type CheckInput,
+} from './protocol.js'
+import {
+  approvalRoot,
+  cleanup,
+  closeCleanup,
+  Mailbox,
+  runtime,
+  type InteractionRuntime,
+} from './storage.js'
 
 const cleanups: Array<() => Promise<void>> = []
 afterEach(async () => {
@@ -28,12 +41,13 @@ async function fixture(
     content: { decision: 'Approve' },
   }),
   provider: CheckInput['provider'] = 'codex',
+  runtimeOverrides: Partial<InteractionRuntime> = {},
 ) {
   const home = mkdtempSync(join(tmpdir(), 'clooks-sdk-'))
   cleanups.push(async () => {
     rmSync(home, { recursive: true, force: true })
   })
-  const instance = await createApprovalServer({ runtime: { home } })
+  const instance = await createApprovalServer({ runtime: { home, ...runtimeOverrides } })
   cleanups.push(() => instance.close())
   const client = new Client(
     { name: 'unit-test', version: '1' },
@@ -91,6 +105,64 @@ test('official SDK accepts Claude fieldless confirmation', async () => {
   await command.close()
   expect(await check).toEqual({ content: [{ type: 'text', text: '{}' }] })
 })
+
+for (const provider of ['claude-code', 'codex'] as const)
+  test(`official SDK pairs a ${provider} command starting 1226ms after its check`, async () => {
+    let now = 10_000
+    let pauses = 0
+    const firstEntered = Promise.withResolvers<void>()
+    const firstRelease = Promise.withResolvers<void>()
+    const secondEntered = Promise.withResolvers<void>()
+    const secondRelease = Promise.withResolvers<void>()
+    const pause = async () => {
+      pauses++
+      if (pauses === 1) {
+        firstEntered.resolve()
+        await firstRelease.promise
+        return
+      }
+      if (pauses === 2) {
+        secondEntered.resolve()
+        await secondRelease.promise
+        return
+      }
+      await Bun.sleep(0)
+    }
+    const f = await fixture(
+      async (): Promise<ElicitResult> =>
+        provider === 'claude-code'
+          ? { action: 'accept', content: {} }
+          : { action: 'accept', content: { decision: 'Approve' } },
+      provider,
+      { now: () => now, pause },
+    )
+    const check = f.client.callTool({ name: 'check', arguments: f.key })
+    let command: Awaited<ReturnType<typeof createApprovalInteraction>> | undefined
+    try {
+      await firstEntered.promise
+      expect(new Mailbox(approvalRoot(f.home), f.key).bound('check', claimSchema)).toBeDefined()
+      now += 1_226
+      firstRelease.resolve()
+      expect(
+        await Promise.race([
+          secondEntered.promise.then(() => 'waiting' as const),
+          check.then(() => 'closed' as const),
+        ]),
+      ).toBe('waiting')
+      command = await createApprovalInteraction(
+        { identity: f.key },
+        { home: f.home, now: () => now, pause },
+      )
+      secondRelease.resolve()
+      expect(await command.request(question, signal())).toEqual({ kind: 'approved' })
+      await command.close()
+      expect(await check).toEqual({ content: [{ type: 'text', text: '{}' }] })
+    } finally {
+      firstRelease.resolve()
+      secondRelease.resolve()
+      await command?.close()
+    }
+  })
 
 test('invalid check and unknown tool return successful denial JSON, not isError', async () => {
   const f = await fixture()

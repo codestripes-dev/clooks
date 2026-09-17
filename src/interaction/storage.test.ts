@@ -1,5 +1,7 @@
-import { afterEach, expect, test } from 'bun:test'
+import { afterEach, expect, spyOn, test } from 'bun:test'
+import * as fs from 'node:fs'
 import {
+  appendFileSync,
   chmodSync,
   existsSync,
   mkdirSync,
@@ -137,6 +139,94 @@ test('partial, malformed, foreign, oversized and exposed packets are errors, not
   symlinkSync(outside, file)
   expect(() => f.box.read('command', z.unknown())).toThrow()
   expect(readFileSync(outside, 'utf8')).toBe('{}')
+})
+
+test('bounded packet reads accept the exact byte limit and reject an initially oversized file', () => {
+  const f = fixture()
+  const file = join(f.box.directory, 'command.json')
+  const exact = JSON.stringify('x'.repeat(limits.packetBytes - 2))
+  expect(Buffer.byteLength(exact)).toBe(limits.packetBytes)
+  writeFileSync(file, exact, { mode: 0o600 })
+  expect(f.box.read('command', z.string())).toHaveLength(limits.packetBytes - 2)
+
+  writeFileSync(file, JSON.stringify('x'.repeat(limits.packetBytes - 1)), { mode: 0o600 })
+  expect(() => f.box.read('command', z.string())).toThrow('oversized')
+})
+
+test.each([
+  { name: 'empty', text: '' },
+  { name: 'truncated', text: '{"version":' },
+  { name: 'malformed', text: '{not-json}' },
+])('bounded packet reads fail closed for $name content', ({ text }) => {
+  const f = fixture()
+  writeFileSync(join(f.box.directory, 'command.json'), text, { mode: 0o600 })
+  expect(() => f.box.read('command', z.unknown())).toThrow()
+})
+
+test.each([
+  { name: 'small', suffix: 'bcdef"', expectedLength: 6 },
+  {
+    name: 'exact packet limit',
+    suffix: `${'x'.repeat(limits.packetBytes - 3)}"`,
+    expectedLength: limits.packetBytes - 2,
+  },
+])('bounded packet reads accept $name growth after fstat', ({ suffix, expectedLength }) => {
+  const f = fixture()
+  const file = join(f.box.directory, 'command.json')
+  writeFileSync(file, '"a', { mode: 0o600 })
+  const originalReadSync = fs.readSync
+  const read = spyOn(fs, 'readSync')
+  let appended = false
+  read.mockImplementation(((fd, buffer, offset, length, position) => {
+    if (!appended) {
+      appended = true
+      appendFileSync(file, suffix)
+    }
+    return originalReadSync(fd, buffer, offset, length, position)
+  }) as typeof fs.readSync)
+  try {
+    const value = f.box.read('command', z.string())
+    expect(value).toHaveLength(expectedLength)
+    expect(value?.startsWith('a')).toBe(true)
+  } finally {
+    read.mockRestore()
+  }
+})
+
+test('bounded packet reads reject growth past the limit after fstat', () => {
+  const f = fixture()
+  const file = join(f.box.directory, 'command.json')
+  writeFileSync(file, '"a', { mode: 0o600 })
+  const originalReadSync = fs.readSync
+  const read = spyOn(fs, 'readSync')
+  let appended = false
+  read.mockImplementation(((fd, buffer, offset, length, position) => {
+    if (!appended) {
+      appended = true
+      appendFileSync(file, `${'x'.repeat(limits.packetBytes - 2)}"`)
+    }
+    return originalReadSync(fd, buffer, offset, length, position)
+  }) as typeof fs.readSync)
+  try {
+    expect(() => f.box.read('command', z.string())).toThrow('Oversized')
+  } finally {
+    read.mockRestore()
+  }
+})
+
+test('bounded packet reads retain bytes across partial reads', () => {
+  const f = fixture()
+  const file = join(f.box.directory, 'command.json')
+  writeFileSync(file, '"partial"', { mode: 0o600 })
+  const originalReadSync = fs.readSync
+  const read = spyOn(fs, 'readSync')
+  read.mockImplementation(((fd, buffer, offset, length, position) =>
+    originalReadSync(fd, buffer, offset, Math.min(length, 2), position)) as typeof fs.readSync)
+  try {
+    expect(f.box.read('command', z.string())).toBe('partial')
+  } finally {
+    read.mockRestore()
+  }
 })
 
 function terminal(f: ReturnType<typeof fixture>, at: number) {

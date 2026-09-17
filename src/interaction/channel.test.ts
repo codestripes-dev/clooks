@@ -14,6 +14,7 @@ import {
   denial,
   digest,
   doneSchema,
+  electionSchema,
   limits,
   questionPacketSchema,
   startSchema,
@@ -377,29 +378,30 @@ test('snapshot is immutable across caller mutation while response is pending', a
   expect(output(await check)).toEqual({})
 })
 
-for (const disposition of ['run', 'suppressed'] as const)
-  test(`${disposition} no-ask close does not wait for attachment`, async () => {
-    const f = fixture()
-    const noWait = {
-      ...f.clock,
-      pause: async () => {
-        throw new Error('No-ask must not wait')
-      },
-    }
-    const command = await createApprovalInteraction({ identity: f.key, disposition }, noWait)
-    await command.close()
-    await command.close()
-    expect(f.box().bound('done', doneSchema)).toBeDefined()
-    const check = await handleApprovalCheck(
-      f.key,
-      async () => {
-        throw new Error('Unexpected question')
-      },
-      { runtime: noWait },
-    )
-    expect(output(check)).toEqual({})
-    expect((await command.request(question(), signal())).kind).toBe('unavailable')
-  })
+for (const provider of ['claude-code', 'codex'] as const)
+  for (const disposition of ['run', 'suppressed'] as const)
+    test(`${provider} ${disposition} no-ask close does not wait for attachment`, async () => {
+      const f = fixture(provider)
+      const noWait = {
+        ...f.clock,
+        pause: async () => {
+          throw new Error('No-ask must not wait')
+        },
+      }
+      const command = await createApprovalInteraction({ identity: f.key, disposition }, noWait)
+      await command.close()
+      await command.close()
+      expect(f.box().bound('done', doneSchema)).toBeDefined()
+      const check = await handleApprovalCheck(
+        f.key,
+        async () => {
+          throw new Error('Unexpected question')
+        },
+        { runtime: noWait },
+      )
+      expect(output(check)).toEqual({})
+      expect((await command.request(question(), signal())).kind).toBe('unavailable')
+    })
 
 test('unmatched check closes; late no-ask stays neutral and late ask cannot reopen', async () => {
   const f = fixture()
@@ -412,11 +414,19 @@ test('unmatched check closes; late no-ask stays neutral and late ask cannot reop
     },
   }
   expect(output(await handleApprovalCheck(f.key, yes, { runtime: clock }))).toEqual({})
+  expect(now).toBe(10_000 + limits.discoveryMs)
   expect(f.box().bound('attached', attachedSchema)).toBeUndefined()
+  expect(f.box().bound('election', electionSchema)).toMatchObject({
+    state: 'closed',
+    checkId: expect.any(String),
+    closedAt: now,
+  })
   const command = await createApprovalInteraction({ identity: f.key }, clock)
   const reply = await command.request(question(), signal())
   expect(reply.kind).toBe('unavailable')
-  expect('message' in reply && reply.message).toContain('already closed')
+  expect('message' in reply && reply.message).toBe(
+    'MCP check already closed before this command connected; operation was not run',
+  )
   await command.close()
   const g = fixture()
   expect(
@@ -703,6 +713,7 @@ test('missing attachment and deadline refusal are bounded without real sleeps', 
       now += ms
     },
   }
+  expect(limits.attachmentMs).toBe(3_000)
   const command = await createApprovalInteraction({ identity: f.key }, clock)
   expect((await command.request(question(), signal())).kind).toBe('unavailable')
   expect(now).toBe(10_000 + limits.attachmentMs)

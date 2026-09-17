@@ -110,12 +110,19 @@ function boundedRead<T>(path: string, schema: z.ZodType<T>): T | undefined {
       stat.size > limits.packetBytes
     )
       unavailable('Unsafe or oversized approval packet')
-    const bytes = Buffer.alloc(limits.packetBytes + 1)
+    const maximum = limits.packetBytes + 1
+    let bytes = Buffer.alloc(Math.min(stat.size + 1, maximum))
     let size = 0
-    while (size < bytes.length) {
+    while (true) {
       const count = readSync(fd, bytes, size, bytes.length - size, null)
       if (!count) break
       size += count
+      if (size === bytes.length) {
+        if (bytes.length === maximum) break
+        const grown = Buffer.alloc(maximum)
+        bytes.copy(grown, 0, 0, size)
+        bytes = grown
+      }
     }
     if (size > limits.packetBytes) unavailable('Oversized approval packet')
     return schema.parse(JSON.parse(bytes.subarray(0, size).toString('utf8')))

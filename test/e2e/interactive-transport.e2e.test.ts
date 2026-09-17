@@ -221,13 +221,14 @@ async function startCommand(
   count = 2,
   suppressed = false,
   holdRefusal = false,
+  options: { input?: unknown } = {},
 ) {
   // Exercise the real command API in a separate process, without engine integration.
   sandbox.writeFile(
     'command.ts',
     `import { createApprovalInteraction } from ${JSON.stringify(channelModule)}
 import { existsSync, writeFileSync } from 'node:fs'
-const { key, count, suppressed, holdRefusal } = JSON.parse(process.argv[2])
+const { key, count, suppressed, holdRefusal, options } = JSON.parse(process.argv[2])
 const channel = await createApprovalInteraction({
   identity: key, disposition: suppressed ? 'suppressed' : 'run',
 })
@@ -239,7 +240,10 @@ try {
       hookName: 'checkpoint-' + ordinal,
       ordinal,
       reason: 'Approve checkpoint ' + ordinal,
-      operation: { toolName: 'mcp__fixture__write', input: ['exact', { ordinal }] },
+      operation: {
+        toolName: 'mcp__fixture__write',
+        input: options.input ?? ['exact', { ordinal }],
+      },
     }, new AbortController().signal)
     replies.push(reply)
     writeFileSync('reply-' + ordinal, '')
@@ -259,7 +263,7 @@ console.log(JSON.stringify(replies))
     [
       'bun',
       join(sandbox.dir, 'command.ts'),
-      JSON.stringify({ key, count, suppressed, holdRefusal }),
+      JSON.stringify({ key, count, suppressed, holdRefusal, options }),
     ],
     {
       cwd: sandbox.dir,
@@ -320,13 +324,14 @@ describe('compiled shared approval transport', () => {
       const result = await connection.client.callTool(
         { name: 'check', arguments: identity(provider) },
         undefined,
-        { timeout: 5000 },
+        { timeout: 8000 },
       )
       expect(nativeOutput(result)).toEqual({})
       expect(prompts).toBe(0)
       expect(connection.errors).toEqual([])
       expect(connection.stderr()).toBe('')
     },
+    10_000,
   )
 
   test('invalid protocol returns native denial, not an MCP tool error', async () => {
@@ -393,6 +398,32 @@ describe('compiled shared approval transport', () => {
       } else {
         expect(result).toEqual({})
       }
+      expect(connection.errors).toEqual([])
+      expect(connection.stderr()).toBe('')
+    },
+  )
+
+  test.each(['claude-code', 'codex'] as const)(
+    '%s large in-limit question packet crosses the compiled transport intact',
+    async (provider) => {
+      sandbox = createSandbox()
+      const connection = await connect()
+      const key = identity(provider)
+      const input = ['large', { nested: 'x'.repeat(60_000) }]
+      const command = await startCommand(key, 1, false, false, { input })
+      connection.client.setRequestHandler(ElicitRequestSchema, async (request) => {
+        const question = assertApprovalRequest(request, key, 1)
+        expect(question.operation.input).toEqual(input)
+        expect(request.params.message).toBe(approvalMessage(question, provider))
+        return acceptedApproval(provider)
+      })
+      const result = nativeOutput(
+        await connection.client.callTool({ name: 'check', arguments: key }, undefined, {
+          timeout: 5000,
+        }),
+      )
+      expect(result).toEqual({})
+      expect((await command.finish()).map((reply) => reply.kind)).toEqual(['approved'])
       expect(connection.errors).toEqual([])
       expect(connection.stderr()).toBe('')
     },

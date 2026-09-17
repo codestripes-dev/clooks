@@ -174,6 +174,13 @@ and process death still refuse. Compiled engine E2E holds the prompt beyond a
 deliberately shorter per-hook timeout for both providers, then covers acceptance,
 refusal and cancellation without replay or later-hook execution. Compiled transport cases
 cover request cancellation and peer loss for both provider identities. Focused
+compiled engine regressions start each provider's MCP check, wait for the exact
+identity-bound `check.json` claim, delay command startup by 1,500 milliseconds,
+then require an approval and normal command/check completion. The claim barrier
+ensures the delay measures command startup after discovery actually began rather
+than MCP request startup. The production five-second discovery budget is a
+bounded mitigation; startup later than that can still close before the command.
+Focused
 compiled refusal cases cover both providers and command-first/MCP-first startup:
 the command emits exact denial-only JSON with no redundant Codex `systemMessage`,
 input patch or context, while the companion is neutral only after the
@@ -452,7 +459,7 @@ Normal fixture budgets are 300 seconds per invocation including a five-second
 output reserve, 330-second native handlers/Codex tool limit, and explicit SDK
 timeouts bounded by remaining live time. Missing-peer discovery is three seconds;
 unmatched check discovery is a separate one-second fixture window, followed by
-exclusive closure, not a production timeout selection. An ask requires live
+exclusive closure, not the production five-second timeout selection. An ask requires live
 nonce-bound attachment, not a provisional MCP role claim or server PID;
 mailbox polling is 20 ms. The long case holds the first response for at least
 65 seconds. Controlled deadline cases shorten the internal budget without

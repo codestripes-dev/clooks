@@ -198,9 +198,13 @@ exit-0 denial's stdout write callback completes. Ordinary `done` and `check-done
 publication may precede command output and is never denial acknowledgement.
 
 One immutable election selects a started command or a closed unmatched check.
-The check waits up to one second for a start, then returns neutral if it wins
-closure. A later command may still complete without asking, but an actual ask
-requires a live attachment to its nonce and cannot reopen a closed election.
+The check waits up to five seconds for a start, then returns neutral if it wins
+closure. This longer command-startup discovery window mitigates observed native
+startup delay; it cannot guarantee pairing when startup exceeds five seconds.
+A finite cutoff remains necessary because a running MCP check cannot distinguish
+a delayed command from a command that will never start, such as a missing binary.
+A later command may still complete without asking, but an actual ask requires a
+live attachment to its nonce and cannot reopen a closed election.
 Process existence alone is not attachment. The check rereads completion after
 observing command death, avoiding a false failure when completion publication
 and process exit race.
@@ -325,13 +329,16 @@ real same-owner directories without group/other write permission; existing
 0755 `.clooks` and `.cache` directories are valid. The dedicated namespace and
 mailboxes are private. Existing directories are not chmodded. Packet reads reject
 symlinks, non-files, wrong ownership, exposed permissions and oversized content.
+Their zeroed read buffer starts at the observed file size plus one byte, capped
+at the packet limit plus one; if a packet grows after inspection, one bounded
+fallback buffer preserves in-limit reads and detects growth past the limit.
 
 Internal defaults, not user configuration:
 
 | Limit | Value |
 | --- | --- |
 | Active non-human invocation budget | 295 seconds, from 300 seconds minus a 5-second reserve; paused for each human approval wait |
-| Unmatched check discovery | 1 second |
+| Unmatched check discovery | 5 seconds; bounded startup mitigation, not a guarantee |
 | Command attachment wait | 3 seconds, capped by remaining invocation time |
 | Poll interval | 20 ms |
 | SDK human-response timeout | Disabled with exact `timeout: null`; cancellation and peer/process death remain active |
@@ -368,6 +375,11 @@ tokens.
 identity/JSON validation and exchange scenarios: both arrival orders, immutable
 questions, non-positive replies, crossed identities, duplicate claims, bounded
 missing attachment/deadline, cancellation and command-death completion races.
+SDK-backed fake-clock cases prove both providers can pair when the check starts
+1,226 milliseconds before the command, while exact-bound cases preserve neutral
+unmatched closure, terminal late-ask refusal and late no-ask completion. Healthy
+and suppressed no-ask paths remain immediate, and command attachment remains
+independently bounded at three seconds.
 Injected-clock cases advance 331 seconds inside elicitation before the command
 can poll again, proving approval, decline and cancel are not converted into a
 Clooks timeout. `src/interaction/sdk-timeout.test.ts` exercises the real SDK
@@ -375,8 +387,10 @@ request path: null creates no timer, omitted and numeric values retain timers,
 and abort still cancels and drains a null-timeout request.
 `storage.test.ts` covers permission/publication boundaries, exact terminal
 retention, dead-role grace, active-role preservation and cursor progress beyond
-128 unprunable entries. `server.test.ts` uses the official SDK for initialization,
-schema, elicitation, cancellation, concurrent-check limits and stream shutdown.
+128 unprunable entries. It also covers empty, malformed, partial and exact-limit
+reads plus post-inspection growth through the exact packet limit and one byte
+beyond it. `server.test.ts` uses the official SDK for initialization, schema,
+elicitation, cancellation, concurrent-check limits and stream shutdown.
 `src/commands/mcp.test.ts` covers awaiting server shutdown, signal forwarding,
 startup failure propagation and stderr-only help. The compiled counterpart is
 `test/e2e/interactive-transport.e2e.test.ts`. Focused regressions cover failed

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { readFileSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
 import { createSandbox, formatDiagnostics, type RunResult, type Sandbox } from './helpers/sandbox'
 import {
   acceptedApproval,
@@ -158,6 +159,24 @@ function completion(identity: ApprovalIdentity) {
   }
   throw new Error('Missing command completion')
 }
+async function waitForCheckClaim(identity: ApprovalIdentity) {
+  const home = sandbox.home
+  const root = join(home, '.clooks/.cache/approvals-live/v1')
+  const deadline = performance.now() + 10_000
+  while (performance.now() < deadline) {
+    if (existsSync(root)) {
+      for (const entry of readdirSync(root, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue
+        const path = join(root, entry.name, 'check.json')
+        if (!existsSync(path)) continue
+        const claim = JSON.parse(readFileSync(path, 'utf8'))
+        if (isDeepStrictEqual(claim.key, identity)) return
+      }
+    }
+    await Bun.sleep(10)
+  }
+  throw new Error(`Identity-bound MCP check claim did not appear under ${home}`)
+}
 async function paired(provider: Provider, order: 'command-first' | 'mcp-first' = 'command-first') {
   const peer = await connectApprovalPeer(sandbox)
   peers.push(peer)
@@ -308,6 +327,35 @@ describe('compiled engine live approvals', () => {
         expect(handlers()).toEqual(['ask'])
       }, 15_000)
     }
+
+    test(`${provider}: check-first startup beyond one second reaches the compiled engine approval`, async () => {
+      sandbox = createSandbox()
+      hook('ask', "return ctx.ask({ reason: 'required consent' })")
+      config(['ask'])
+      const peer = await connectApprovalPeer(sandbox)
+      peers.push(peer)
+      const call = invocation(sandbox, provider)
+      const check = peer.check(call.identity)
+      await waitForCheckClaim(call.identity)
+      await Bun.sleep(1_500)
+      const engine = startEngine(sandbox, call)
+      engines.push(engine)
+      const prompt = await peer.nextPrompt()
+      expect(prompt.question).toMatchObject({
+        hookName: 'ask',
+        ordinal: 1,
+        reason: 'required consent',
+        operation: { input: call.payload.tool_input },
+      })
+      prompt.reply(acceptedApproval(provider))
+      approved(await engine.result, provider, { reason: 'required consent' })
+      expect(companion(await check)).toEqual({})
+      expect(handlers()).toEqual(['ask'])
+      expect(completion(call.identity).failure).toBeUndefined()
+      expect(peer.prompts).toHaveLength(1)
+      expect(peer.errors).toEqual([])
+      expect(peer.stderr).toBe('')
+    }, 20_000)
 
     test(`${provider}: early no-config/no-match/no-ask/suppressed exits publish completion before returning`, async () => {
       sandbox = createSandbox()
