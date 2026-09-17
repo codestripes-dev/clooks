@@ -305,14 +305,65 @@ test('generated prompt oracle requires readable full content and provider-exact 
     reason: 'Full legacy reason.',
     operation: { toolName: 'Bash', input: { command: 'echo exact' } },
   }
+  const codexLegacyMessage =
+    'Full legacy reason.\n\nCommand:\necho exact\n\nRequested by legacy-hook'
+  expect(() => assertApprovalPrompt(codexLegacyMessage, schema, legacy, 'codex')).not.toThrow()
+  const claudeLegacyMessage = 'Full legacy reason.\necho exact\nRequested by legacy-hook'
   expect(() =>
-    assertApprovalPrompt(
-      'Full legacy reason.\n\nCommand:\necho exact\n\nRequested by legacy-hook',
-      schema,
-      legacy,
-      'codex',
-    ),
+    assertApprovalPrompt(claudeLegacyMessage, claudeSchema, legacy, 'claude'),
   ).not.toThrow()
+  expect(claudeLegacyMessage.split('\n').slice(0, 3)).toEqual([
+    'Full legacy reason.',
+    'echo exact',
+    'Requested by legacy-hook',
+  ])
+
+  const previewQuestion = {
+    ...legacy,
+    question: 'Inspect this Bash command?',
+    reason: 'Keep the full explanation.',
+  }
+  const previewMessage =
+    'Inspect this Bash command?\necho exact\nRequested by legacy-hook\n\nKeep the full explanation.'
+  expect(() =>
+    assertApprovalPrompt(previewMessage, claudeSchema, previewQuestion, 'claude'),
+  ).not.toThrow()
+  expect(previewMessage.split('\n').slice(0, 3)).toEqual([
+    'Inspect this Bash command?',
+    'echo exact',
+    'Requested by legacy-hook',
+  ])
+
+  const completeInput = {
+    command: 'echo exact',
+    description: 'Describe the operation',
+    timeout: 0,
+  }
+  const completeQuestion = {
+    ...previewQuestion,
+    operation: { toolName: 'Bash', input: completeInput },
+  }
+  const completeMessage = `${previewMessage}\n\nTool: Bash\nInput:\n${JSON.stringify(completeInput, null, 2)}`
+  expect(() =>
+    assertApprovalPrompt(completeMessage, claudeSchema, completeQuestion, 'claude'),
+  ).not.toThrow()
+  expect(completeMessage.split('\n').slice(0, 3)).toEqual([
+    'Inspect this Bash command?',
+    'echo exact',
+    'Requested by legacy-hook',
+  ])
+
+  for (const operation of [
+    { toolName: 'Bash', input: { command: 'echo first\necho second' } },
+    { toolName: 'Bash', input: { command: 'echo\u0007bell' } },
+    { toolName: 'mcp__fixture__inspect', input: { command: 'do not preview', keep: false } },
+  ]) {
+    const fallbackQuestion = { ...previewQuestion, operation }
+    const fallbackMessage = `Inspect this Bash command?\n\nTool: ${operation.toolName}\nInput:\n${JSON.stringify(operation.input, null, 2)}\n\nKeep the full explanation.\n\nRequested by legacy-hook`
+    expect(() =>
+      assertApprovalPrompt(fallbackMessage, claudeSchema, fallbackQuestion, 'claude'),
+    ).not.toThrow()
+  }
   for (const mutation of [
     () => assertApprovalPrompt(JSON.stringify(question), schema, question, 'codex'),
     () =>
@@ -353,6 +404,15 @@ test('generated prompt oracle requires readable full content and provider-exact 
       ),
     () => assertApprovalPrompt(message, claudeSchema, question, 'codex'),
     () => assertApprovalPrompt(message, schema, question, 'claude'),
+    () => assertApprovalPrompt(claudeLegacyMessage, schema, legacy, 'codex'),
+    () => assertApprovalPrompt(codexLegacyMessage, claudeSchema, legacy, 'claude'),
+    () =>
+      assertApprovalPrompt(
+        completeMessage.replace(JSON.stringify(completeInput, null, 2), '{}'),
+        claudeSchema,
+        completeQuestion,
+        'claude',
+      ),
     () =>
       assertApprovalPrompt(
         message,

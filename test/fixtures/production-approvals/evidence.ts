@@ -80,20 +80,32 @@ export function acceptedElicitationResult(provider: Case['provider']) {
     : { action: 'accept' as const, content: { decision: 'Approve' } }
 }
 
-function expectedApprovalMessage(question: any): string {
+function expectedApprovalMessage(question: any, provider: Case['provider']): string {
   const { toolName, input } = question.operation
-  const compactCommand =
+  const previewCommand =
     toolName === 'Bash' &&
     input !== null &&
     typeof input === 'object' &&
     !Array.isArray(input) &&
-    Object.keys(input).length === 1 &&
     Object.hasOwn(input, 'command') &&
     typeof input.command === 'string' &&
     !/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u.test(input.command)
+  const compactCommand = previewCommand && Object.keys(input).length === 1
   const operation = compactCommand
     ? `Command:\n${input.command}`
     : `Tool: ${toolName}\nInput:\n${JSON.stringify(input, null, 2)}`
+  if (provider === 'claude' && previewCommand) {
+    const header = [
+      question.question ?? question.reason,
+      input.command,
+      `Requested by ${question.hookName}`,
+    ].join('\n')
+    return [
+      header,
+      ...(question.question === undefined ? [] : [question.reason]),
+      ...(compactCommand ? [] : [operation]),
+    ].join('\n\n')
+  }
   return [
     question.question ?? question.reason,
     operation,
@@ -108,7 +120,11 @@ export function assertApprovalPrompt(
   question: any,
   provider: Case['provider'],
 ) {
-  assert.equal(message, expectedApprovalMessage(question), 'Human approval message mismatch')
+  assert.equal(
+    message,
+    expectedApprovalMessage(question, provider),
+    'Human approval message mismatch',
+  )
   assert.deepEqual(
     schema,
     provider === 'claude' ? expectedClaudeApprovalSchema : expectedCodexApprovalSchema,

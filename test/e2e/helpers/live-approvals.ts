@@ -62,20 +62,33 @@ export interface ApprovalPrompt {
   reply(response: ElicitResult): void
 }
 
-function expectedApprovalMessage(question: ApprovalPrompt['question']): string {
+function expectedApprovalMessage(question: ApprovalPrompt['question'], provider: Provider): string {
   const { toolName, input } = question.operation
-  const compactCommand =
+  const previewCommand =
     toolName === 'Bash' &&
     input !== null &&
     typeof input === 'object' &&
     !Array.isArray(input) &&
-    Object.keys(input).length === 1 &&
     Object.hasOwn(input, 'command') &&
     typeof (input as { command?: unknown }).command === 'string' &&
     !/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u.test((input as { command: string }).command)
+  const compactCommand =
+    previewCommand && Object.keys(input as Record<string, unknown>).length === 1
   const operation = compactCommand
     ? `Command:\n${(input as { command: string }).command}`
     : `Tool: ${toolName}\nInput:\n${JSON.stringify(input, null, 2)}`
+  if (provider === 'claude-code' && previewCommand) {
+    const header = [
+      question.question ?? question.reason,
+      (input as { command: string }).command,
+      `Requested by ${question.hookName}`,
+    ].join('\n')
+    return [
+      header,
+      ...(question.question === undefined ? [] : [question.reason]),
+      ...(compactCommand ? [] : [operation]),
+    ].join('\n\n')
+  }
   return [
     question.question ?? question.reason,
     operation,
@@ -435,7 +448,7 @@ export async function connectApprovalPeer(
   client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
     if (!('requestedSchema' in request.params)) throw new Error('Expected form elicitation')
     const { provider, question } = pendingQuestion(sandbox.home)
-    expect(request.params.message).toBe(expectedApprovalMessage(question))
+    expect(request.params.message).toBe(expectedApprovalMessage(question, provider))
     expect(request.params.requestedSchema).toEqual(expectedApprovalSchema(provider))
     const response = Promise.withResolvers<ElicitResult>()
     const cancel = () => response.resolve({ action: 'cancel' })

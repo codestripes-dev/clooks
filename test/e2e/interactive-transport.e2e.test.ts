@@ -112,20 +112,32 @@ function acceptedApproval(provider: ReturnType<typeof identity>['provider']): El
     : { action: 'accept', content: { decision: 'Approve' } }
 }
 
-function approvalMessage(question: any) {
+function approvalMessage(question: any, provider: ReturnType<typeof identity>['provider']) {
   const { toolName, input } = question.operation
-  const compactCommand =
+  const previewCommand =
     toolName === 'Bash' &&
     input !== null &&
     typeof input === 'object' &&
     !Array.isArray(input) &&
-    Object.keys(input).length === 1 &&
     Object.hasOwn(input, 'command') &&
     typeof input.command === 'string' &&
     !/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u.test(input.command)
+  const compactCommand = previewCommand && Object.keys(input).length === 1
   const operation = compactCommand
     ? `Command:\n${input.command}`
     : `Tool: ${toolName}\nInput:\n${JSON.stringify(input, null, 2)}`
+  if (provider === 'claude-code' && previewCommand) {
+    const header = [
+      question.question ?? question.reason,
+      input.command,
+      `Requested by ${question.hookName}`,
+    ].join('\n')
+    return [
+      header,
+      ...(question.question === undefined ? [] : [question.reason]),
+      ...(compactCommand ? [] : [operation]),
+    ].join('\n\n')
+  }
   return [
     question.question ?? question.reason,
     operation,
@@ -179,7 +191,7 @@ function assertApprovalRequest(
 ) {
   if (!('requestedSchema' in request.params)) throw new Error('Expected form elicitation')
   const question = publishedQuestion(key, ordinal)
-  expect(request.params.message).toBe(approvalMessage(question))
+  expect(request.params.message).toBe(approvalMessage(question, key.provider))
   expect(request.params.requestedSchema).toEqual(
     key.provider === 'claude-code' ? expectedClaudeApprovalSchema : expectedCodexApprovalSchema,
   )

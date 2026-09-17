@@ -137,8 +137,16 @@ mailbox provider. Claude Code uses a fieldless object form and approves only the
 native `accept` response with exact empty content. Codex keeps the required
 decline-first `Decline`/`Approve` field because its client may auto-accept an
 empty form, and only exact `accept` plus `Approve` approves. The displayed
-operation and reason are otherwise identical; response shape is never used to
-infer the provider.
+message is also provider-scoped. Codex keeps its existing complete layout
+byte-for-byte. For exact Bash with a safe single-line string command, Claude puts
+the optional author question (otherwise the complete reason), actual command and
+requesting hook in its first block, which is three lines when the author headline
+is one line. It then preserves a distinct complete reason and, for extra input
+keys, the complete legacy pretty-JSON operation.
+Non-Bash and unsafe Bash operations keep the legacy layout. Clooks never shortens
+the question or reason; Claude Code 2.1.273's width- and line-limited native
+preview can therefore still hide details and has no expansion option. Response
+shape is never used to infer the provider.
 
 An explicit valid form refusal/cancellation is a typed PreToolUse failure with the
 exact native reason `[hook-name] Approval declined. Operation not run.` or

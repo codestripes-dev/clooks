@@ -66,19 +66,33 @@ function parseApprovalResponse(
   }
 }
 
-function approvalMessage(question: z.infer<typeof questionSchema>): string {
+function approvalMessage(
+  provider: CheckInput['provider'],
+  question: z.infer<typeof questionSchema>,
+): string {
   const input = question.operation.input
-  const command =
+  const inputRecord =
+    input !== null && !Array.isArray(input) && typeof input === 'object' ? input : undefined
+  const inputKeys = inputRecord === undefined ? [] : Object.keys(inputRecord)
+  const previewCommand =
     question.operation.toolName === 'Bash' &&
-    input !== null &&
-    !Array.isArray(input) &&
-    typeof input === 'object' &&
-    Object.keys(input).length === 1 &&
-    Object.keys(input)[0] === 'command' &&
-    typeof input.command === 'string' &&
-    !/[\p{Cc}\u2028\u2029]/u.test(input.command)
-      ? input.command
+    inputRecord !== undefined &&
+    typeof inputRecord.command === 'string' &&
+    !/[\p{Cc}\u2028\u2029]/u.test(inputRecord.command)
+      ? inputRecord.command
       : undefined
+  if (provider === 'claude-code' && previewCommand !== undefined) {
+    return [
+      [
+        question.question ?? question.reason,
+        previewCommand,
+        `Requested by ${question.hookName}`,
+      ].join('\n'),
+      ...(question.question === undefined ? [] : [question.reason]),
+      ...(inputKeys.length === 1 ? [] : [`Tool: Bash\nInput:\n${JSON.stringify(input, null, 2)}`]),
+    ].join('\n\n')
+  }
+  const command = inputKeys.length === 1 && inputKeys[0] === 'command' ? previewCommand : undefined
   const operation =
     command === undefined
       ? `Tool: ${question.operation.toolName}\nInput:\n${JSON.stringify(input, null, 2)}`
@@ -191,7 +205,7 @@ export async function handleApprovalCheck(
             elicit(
               {
                 mode: 'form',
-                message: approvalMessage(question.question),
+                message: approvalMessage(key.provider, question.question),
                 requestedSchema:
                   key.provider === 'claude-code'
                     ? { type: 'object', properties: {} }

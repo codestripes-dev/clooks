@@ -215,25 +215,39 @@ legacy behavior. Invalid values reject the whole ask before elicitation or tool
 effects on both providers. The field is shared presentation metadata and never
 enters native hook JSON.
 
-The human-facing message uses double-newline-separated sections. With a
-question it renders the question, exact operation, complete reason verbatim,
-then `Requested by <hookName>`. Without a question it renders the complete
-reason first, then the operation and attribution; it never derives a headline
-from reason text. An operation renders as `Command:\n<command>` only when the
-packet's exact tool name is `Bash`, its input has exactly one `command` string
-field, and that command is one line with no control characters. Raw Codex names
-such as `exec_command`, Bash inputs with any other field, and every other tool
-use `Tool: <toolName>\nInput:\n<JSON>`. JSON uses two-space indentation, retains
-all fields, supports primitive inputs and is never truncated. The message omits
-the internal question ordinal and serialized question envelope. The form is
-selected from the verified mailbox provider. Claude Code receives the exact
-fieldless schema `{ type: "object", properties: {} }`, which its native client
+Codex retains the existing human-facing message byte-for-byte. Its sections are
+separated by double newlines: optional question, exact operation, complete reason
+when a question exists, and `Requested by <hookName>`. Exact command-only Bash
+input renders as `Command:\n<command>` when the command has no control or Unicode
+line-separator characters. Other inputs render as
+`Tool: <toolName>\nInput:\n<JSON>`.
+
+Claude uses the same complete legacy layout for non-Bash operations and for Bash
+commands containing a newline or another prohibited control character. For an
+exact `Bash` operation with record input and a safe single-line string `command`,
+its first block is the optional question (otherwise the complete reason), the
+actual command, and the existing `Requested by <hookName>` label, joined by
+single newlines. When a question exists, the complete reason follows as its own
+unmodified block. When the input has keys beyond `command`, the complete legacy
+`Tool: Bash\nInput:\n<JSON>` block follows and includes every field, including
+the command. Exact command-only input does not duplicate JSON. All JSON uses
+two-space indentation and is never truncated by Clooks. Neither provider's
+message includes the internal ordinal or serialized question envelope.
+
+Claude Code 2.1.273's native preview shows at most the first three message lines
+plus a continuation marker when a message exceeds four lines, truncates
+individual lines to the available width, and offers no expansion control.
+Leading with the question, command and hook improves that preview but cannot
+promise that every detail is visible. Author questions and reasons are never
+shortened, so a multiline headline can consume the native preview budget.
+
+The form is selected from the verified mailbox provider. Claude Code receives
+the exact fieldless schema `{ type: "object", properties: {} }`, which its native client
 presents as one `Accept`/`Decline` confirmation. Codex retains one required
 string property named `decision`, titled `Decision`, with decline-first enum
 values `Decline` and `Approve` and no default; an empty form is not used because
-Codex can auto-accept it. The complete human-facing message is identical for
-both providers. SDK 1.26's restricted requested-schema shape uses only root
-`type`, `properties` and, for Codex, `required`.
+Codex can auto-accept it. SDK 1.26's restricted requested-schema shape uses only
+root `type`, `properties` and, for Codex, `required`.
 
 Claude approves only `action: accept` with exact empty-object content `{}`.
 Missing, null, non-object or nonempty acceptance content fails closed. Claude

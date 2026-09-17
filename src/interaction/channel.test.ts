@@ -163,7 +163,7 @@ test('Claude elicitation preserves the message and uses the exact fieldless sche
   expect(output(await check)).toEqual({})
 })
 
-test('exact single-line Bash command uses the compact command presentation', async () => {
+test('Codex preserves the exact compact single-line Bash message', async () => {
   const f = fixture()
   const q = {
     ...question(),
@@ -186,6 +186,142 @@ test('exact single-line Bash command uses the compact command presentation', asy
   await command.close()
   expect(output(await check)).toEqual({})
 })
+
+test('Claude puts a safe Bash command and requesting hook in the first block', async () => {
+  const f = fixture('claude-code')
+  const q = {
+    ...question(),
+    operation: { toolName: 'Bash', input: { command: 'printf ok' } },
+  }
+  const command = await createApprovalInteraction({ identity: f.key }, f.clock)
+  const check = handleApprovalCheck(
+    f.key,
+    async (params) => {
+      expect(params.message).toBe('Confirm exact operation\nprintf ok\nRequested by guard')
+      return claudeYes()
+    },
+    { runtime: f.clock },
+  )
+  expect(await command.request(q, signal())).toEqual({ kind: 'approved' })
+  await command.close()
+  expect(output(await check)).toEqual({})
+})
+
+test('Claude retains the full reason and complete input when safe Bash has extra fields', async () => {
+  const f = fixture('claude-code')
+  const q = {
+    ...question(),
+    question: 'Run this exact command?',
+    reason: 'The timeout and environment must also be reviewed.',
+    operation: {
+      toolName: 'Bash',
+      input: { command: 'printf ok', timeout: 10, env: { MODE: 'check' } },
+    },
+  }
+  const command = await createApprovalInteraction({ identity: f.key }, f.clock)
+  const check = handleApprovalCheck(
+    f.key,
+    async (params) => {
+      expect(params.message).toBe(
+        `Run this exact command?\nprintf ok\nRequested by guard\n\nThe timeout and environment must also be reviewed.\n\nTool: Bash\nInput:\n${JSON.stringify(q.operation.input, null, 2)}`,
+      )
+      return claudeYes()
+    },
+    { runtime: f.clock },
+  )
+  expect(await command.request(q, signal())).toEqual({ kind: 'approved' })
+  await command.close()
+  expect(output(await check)).toEqual({})
+})
+
+test.each([
+  {
+    name: 'with a separate question',
+    question: 'Run this exact command?',
+    expected:
+      'Run this exact command?\nprintf ok\nRequested by guard\n\nFirst reason line\nSecond reason line',
+  },
+  {
+    name: 'without a separate question',
+    question: undefined,
+    expected: 'First reason line\nSecond reason line\nprintf ok\nRequested by guard',
+  },
+])(
+  'Claude retains a multiline reason $name for safe Bash',
+  async ({ question: headline, expected }) => {
+    const f = fixture('claude-code')
+    const q = {
+      ...question(),
+      ...(headline === undefined ? {} : { question: headline }),
+      reason: 'First reason line\nSecond reason line',
+      operation: { toolName: 'Bash', input: { command: 'printf ok' } },
+    }
+    const command = await createApprovalInteraction({ identity: f.key }, f.clock)
+    const check = handleApprovalCheck(
+      f.key,
+      async (params) => {
+        expect(params.message).toBe(expected)
+        return claudeYes()
+      },
+      { runtime: f.clock },
+    )
+    expect(await command.request(q, signal())).toEqual({ kind: 'approved' })
+    await command.close()
+    expect(output(await check)).toEqual({})
+  },
+)
+
+test('Claude preserves the legacy complete layout for non-Bash headline messages', async () => {
+  const f = fixture('claude-code')
+  const q = {
+    ...question(),
+    question: 'Write this file?',
+    reason: 'The complete file contents must remain visible.',
+  }
+  const command = await createApprovalInteraction({ identity: f.key }, f.clock)
+  const check = handleApprovalCheck(
+    f.key,
+    async (params) => {
+      expect(params.message).toBe(
+        `Write this file?\n\nTool: Write\nInput:\n${JSON.stringify(q.operation.input, null, 2)}\n\nThe complete file contents must remain visible.\n\nRequested by guard`,
+      )
+      return claudeYes()
+    },
+    { runtime: f.clock },
+  )
+  expect(await command.request(q, signal())).toEqual({ kind: 'approved' })
+  await command.close()
+  expect(output(await check)).toEqual({})
+})
+
+test.each([
+  ['line feed', 'printf one\nprintf two'],
+  ['U+2028', 'printf one\u2028printf two'],
+  ['U+2029', 'printf one\u2029printf two'],
+] as const)(
+  'Claude preserves the legacy complete layout for Bash commands with %s',
+  async (_, script) => {
+    const f = fixture('claude-code')
+    const q = {
+      ...question(),
+      operation: { toolName: 'Bash', input: { command: script } },
+    }
+    const command = await createApprovalInteraction({ identity: f.key }, f.clock)
+    const check = handleApprovalCheck(
+      f.key,
+      async (params) => {
+        expect(params.message).toBe(
+          `Confirm exact operation\n\nTool: Bash\nInput:\n${JSON.stringify(q.operation.input, null, 2)}\n\nRequested by guard`,
+        )
+        return claudeYes()
+      },
+      { runtime: f.clock },
+    )
+    expect(await command.request(q, signal())).toEqual({ kind: 'approved' })
+    await command.close()
+    expect(output(await check)).toEqual({})
+  },
+)
 
 test.each([
   ['extra Bash field', 'Bash', { command: 'printf ok', timeout: 10 }],

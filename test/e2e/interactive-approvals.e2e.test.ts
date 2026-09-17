@@ -218,6 +218,11 @@ describe('compiled engine live approvals', () => {
           reason: 'ask-a',
           operation: { input: call.payload.tool_input },
         })
+        expect(first.message).toBe(
+          provider === 'claude-code'
+            ? 'Can ask-a proceed?\n/usr/bin/true\nRequested by ask-a\n\nask-a'
+            : `Can ask-a proceed?\n\nTool: exec_command\nInput:\n${JSON.stringify({ command: '/usr/bin/true' }, null, 2)}\n\nask-a\n\nRequested by ask-a`,
+        )
         expect(handlers()).toEqual(['first', 'ask-a'])
         expect(journal().find((row) => row.hook === 'ask-a' && row.phase === 'after')?.result).toBe(
           'ask',
@@ -234,6 +239,11 @@ describe('compiled engine live approvals', () => {
           const second = await peer.nextPrompt()
           expect(second.question).toMatchObject({ hookName: 'ask-b', ordinal: 2, reason: 'ask-b' })
           expect(second.question).not.toHaveProperty('question')
+          expect(second.message).toBe(
+            provider === 'claude-code'
+              ? 'ask-b\n/usr/bin/true\nRequested by ask-b'
+              : `ask-b\n\nTool: exec_command\nInput:\n${JSON.stringify({ command: '/usr/bin/true' }, null, 2)}\n\nRequested by ask-b`,
+          )
           expect(handlers()).toEqual(['first', 'ask-a', 'middle', 'ask-b'])
           expect(engine.stdout).toBe('')
           second.reply(scenario.stopAt === 2 ? { action: 'decline' } : acceptedApproval(provider))
@@ -387,6 +397,11 @@ describe('compiled engine live approvals', () => {
           input: { command: 'echo candidate' },
         })
         expect(first.question.question).toBe('  Use the candidate command?\nReview scope.  ')
+        expect(first.message).toBe(
+          provider === 'claude-code'
+            ? '  Use the candidate command?\nReview scope.  \necho candidate\nRequested by ask\n\nconfirm candidate'
+            : `  Use the candidate command?\nReview scope.  \n\nTool: exec_command\nInput:\n${JSON.stringify({ command: 'echo candidate' }, null, 2)}\n\nconfirm candidate\n\nRequested by ask`,
+        )
         expect(handlers()).toEqual(['ask'])
         first.reply(acceptedApproval(provider))
         const final = await peer.nextPrompt()
@@ -397,6 +412,11 @@ describe('compiled engine live approvals', () => {
           reason: 'confirm candidate',
           operation: { toolName: call.payload.tool_name, input: { command: 'echo final' } },
         })
+        expect(final.message).toBe(
+          provider === 'claude-code'
+            ? '  Use the candidate command?\nReview scope.  \necho final\nRequested by ask\n\nconfirm candidate'
+            : `  Use the candidate command?\nReview scope.  \n\nTool: exec_command\nInput:\n${JSON.stringify({ command: 'echo final' }, null, 2)}\n\nconfirm candidate\n\nRequested by ask`,
+        )
         expect(handlers()).toEqual(['ask', 'rewrite', 'last'])
         expect(engine.stdout).toBe('')
         final.reply(declineFinal ? { action: 'decline' } : acceptedApproval(provider))
@@ -424,24 +444,76 @@ describe('compiled engine live approvals', () => {
     }
   }
 
-  test('Claude renders Bash input with an optional field as complete JSON', async () => {
+  test.each([
+    {
+      name: 'safe command-only Bash input in three preview lines without duplicate JSON',
+      question: 'Run this operation?',
+      reason: 'Explain risk.',
+      toolName: 'Bash',
+      input: { command: 'echo exact' },
+      message: 'Run this operation?\necho exact\nRequested by ask\n\nExplain risk.',
+      firstThree: ['Run this operation?', 'echo exact', 'Requested by ask'],
+    },
+    {
+      name: 'safe Bash input with extra fields and complete JSON below the preview',
+      question: 'Run this operation?',
+      reason: 'Explain risk.',
+      toolName: 'Bash',
+      input: { command: 'echo exact', description: 'Describe the operation', timeout: 0 },
+      message: `Run this operation?\necho exact\nRequested by ask\n\nExplain risk.\n\nTool: Bash\nInput:\n${JSON.stringify({ command: 'echo exact', description: 'Describe the operation', timeout: 0 }, null, 2)}`,
+      firstThree: ['Run this operation?', 'echo exact', 'Requested by ask'],
+    },
+    {
+      name: 'legacy reason-only Bash ask',
+      reason: 'Full legacy reason.',
+      toolName: 'Bash',
+      input: { command: 'echo exact' },
+      message: 'Full legacy reason.\necho exact\nRequested by ask',
+      firstThree: ['Full legacy reason.', 'echo exact', 'Requested by ask'],
+    },
+    {
+      name: 'multiline Bash command legacy layout',
+      question: 'Run this operation?',
+      reason: 'Explain risk.',
+      toolName: 'Bash',
+      input: { command: 'printf first\nprintf second' },
+      message: `Run this operation?\n\nTool: Bash\nInput:\n${JSON.stringify({ command: 'printf first\nprintf second' }, null, 2)}\n\nExplain risk.\n\nRequested by ask`,
+    },
+    {
+      name: 'control-bearing Bash command legacy layout',
+      question: 'Run this operation?',
+      reason: 'Explain risk.',
+      toolName: 'Bash',
+      input: { command: 'echo\u0007bell' },
+      message: `Run this operation?\n\nTool: Bash\nInput:\n${JSON.stringify({ command: 'echo\u0007bell' }, null, 2)}\n\nExplain risk.\n\nRequested by ask`,
+    },
+    {
+      name: 'non-Bash input legacy layout',
+      question: 'Run this operation?',
+      reason: 'Explain risk.',
+      toolName: 'mcp__fixture__inspect',
+      input: { command: 'do not preview', keep: false },
+      message: `Run this operation?\n\nTool: mcp__fixture__inspect\nInput:\n${JSON.stringify({ command: 'do not preview', keep: false }, null, 2)}\n\nExplain risk.\n\nRequested by ask`,
+    },
+  ])('Claude renders $name', async ({ question, reason, toolName, input, message, firstThree }) => {
     sandbox = createSandbox()
-    hook('ask', "return ctx.ask({ question: 'Run this operation?', reason: 'Explain risk.' })")
+    hook(
+      'ask',
+      `return ctx.ask({ ${question === undefined ? '' : `question: ${JSON.stringify(question)}, `}reason: ${JSON.stringify(reason)} })`,
+    )
     config(['ask'])
-    const input = { command: 'echo exact', timeout: 0 }
     const result = await runWithConsent(
       sandbox,
-      invocation(sandbox, 'claude-code', { toolName: 'Bash', input }),
+      invocation(sandbox, 'claude-code', { toolName, input }),
       (prompt) => {
-        expect(prompt.question.operation).toEqual({ toolName: 'Bash', input })
-        expect(prompt.message).toBe(
-          `Run this operation?\n\nTool: Bash\nInput:\n${JSON.stringify(input, null, 2)}\n\nExplain risk.\n\nRequested by ask`,
-        )
+        expect(prompt.question.operation).toEqual({ toolName, input })
+        expect(prompt.message).toBe(message)
+        if (firstThree) expect(prompt.message.split('\n').slice(0, 3)).toEqual([...firstThree])
         return acceptedApproval('claude-code')
       },
     )
     expect(result.prompts).toHaveLength(1)
-    approved(result.result, 'claude-code', { reason: 'Explain risk.' })
+    approved(result.result, 'claude-code', { reason })
     expect(handlers()).toEqual(['ask'])
   })
 

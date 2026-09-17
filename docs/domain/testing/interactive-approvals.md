@@ -118,13 +118,24 @@ companion behavior.
 
 Production elicitation keeps transport metadata in the bound mailbox rather
 than displaying it to the user. Hook 2 supplies an optional question headline;
-hook 4 omits it to retain the reason-first compatibility path. With a question,
-the exact message contains the question, operation, complete multiline reason,
-and `Requested by <hook>` sections. Without one, the complete reason is the
-headline, followed by the operation and attribution. Only exact packet
-`toolName === "Bash"` with an exact, one-line, control-free `{ command: string }`
-input uses `Command`; every other tool or input uses `Tool` plus two-space
+hook 4 omits it to retain the reason-first compatibility path. Codex messages
+retain the prior layout byte-for-byte: question or full reason, operation,
+optional complete multiline reason, and `Requested by <hook>` are separate
+blocks. Only an exact one-line, control-free Bash `{ command: string }` uses its
+`Command` block; every other Codex operation uses `Tool` plus two-space
 pretty-printed JSON `Input` without dropping fields.
+
+Claude alone previews an exact `toolName === "Bash"` record with an own string
+`command` when that command is one line and free of the existing control-character
+pattern. Its first block joins the question (or full legacy reason), exact
+command, and `Requested by <hook>` with single newlines. A distinct full reason
+follows verbatim as the next block. If the input has any extra keys, the complete
+legacy `Tool: Bash` and pretty-printed `Input` block follows, including the
+command and every other field; exact command-only input does not duplicate JSON.
+Non-Bash inputs and multiline or control-bearing Bash commands retain the full
+legacy layout. Blocks use one blank line. Questions and reasons are never
+shortened; a multiline headline can consume Claude's bounded native preview, so
+the tests do not promise that all details fit its first three displayed lines.
 The bound mailbox provider selects the strict form. Claude Code receives exactly
 `{ type: "object", properties: {} }`; only `action: "accept"` with exact empty
 object content confirms the operation. Its decline and cancel responses may omit
@@ -143,14 +154,15 @@ Compiled-engine coverage runs both providers through headline and legacy asks,
 rejects null, other non-string, empty, whitespace-only and
 questions longer than 512 JavaScript UTF-16 code units before later hooks, and
 verifies that an exact multiline headline survives final-operation rewrite
-confirmation. Shared-runtime responders send exact provider-specific acceptance
-content. Focused transport cases verify Claude's empty-content decline/cancel
-forms and fail closed for missing, null, array, extra-field, Codex-shaped, and
-malformed refusal content without weakening Codex's existing malformed-response
-coverage.
-Operation cases independently cover non-Bash objects and primitives plus Bash
-inputs with extra fields, multiline commands and control characters; none may
-use the compact display or lose input detail.
+confirmation. Exact-message assertions keep Codex unchanged and bind Claude's
+first three lines for command-only and extra-field Bash inputs. They also cover
+the reason-only compatibility path, no duplicate JSON for exact command-only
+input, complete `command`/`description`/`timeout` retention below the preview,
+and legacy fallback for non-Bash, multiline and control-bearing operations.
+Shared-runtime responders send exact provider-specific acceptance content.
+Focused transport cases verify Claude's empty-content decline/cancel forms and
+fail closed for missing, null, array, extra-field, Codex-shaped, and malformed
+refusal content without weakening Codex's existing malformed-response coverage.
 
 Production Clooks excludes the interval after publication while attachment and
 an elicitation request are outstanding from its local execution deadline and

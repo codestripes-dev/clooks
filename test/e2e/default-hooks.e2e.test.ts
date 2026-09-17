@@ -827,15 +827,17 @@ describe('actual removal, script equivalence and tmux hooks', () => {
             expect(prompt.question.operation.input).toEqual({ command: 'rm -rf src' })
             const operation =
               provider === 'claude-code'
-                ? 'Command:\nrm -rf src'
+                ? 'Delete this path and its contents?\nrm -rf src\nRequested by no-rm-rf'
                 : `Tool: exec_command\nInput:\n${JSON.stringify({ command: 'rm -rf src' }, null, 2)}`
             expect(prompt.message).toBe(
-              [
-                'Delete this path and its contents?',
-                operation,
-                reason,
-                'Requested by no-rm-rf',
-              ].join('\n\n'),
+              provider === 'claude-code'
+                ? [operation, reason].join('\n\n')
+                : [
+                    'Delete this path and its contents?',
+                    operation,
+                    reason,
+                    'Requested by no-rm-rf',
+                  ].join('\n\n'),
             )
             return accept ? acceptedApproval(provider) : { action: 'decline' }
           },
