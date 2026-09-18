@@ -222,6 +222,7 @@ agent-policy-envelope: {}
             'block',
             'defer',
             'event',
+            'helpers',
             'originalToolInput',
             'parallel',
             'provider',

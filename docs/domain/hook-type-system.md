@@ -16,7 +16,9 @@ The type system is organized around the `ClooksHook<C>` interface — a single t
 
 ## Codex Compatibility
 
-The public decision-method surface is unchanged. Every context additionally exposes `provider: Provider`, where `Provider` is the closed union `'claude-code' | 'codex'`, supplied by the selected adapter rather than the payload. Codex's ten-event normalizer selects envelope fields instead of recursively renaming tool data. Unknown tool input remains `Record<string, unknown>` through the existing unknown-tool context types; PostToolUse response remains `unknown` publicly and accepts any JSON value at this boundary. Known discriminators require compatible public field types, including canonical Bash for `exec_command`; aliases do not invent Claude Edit/Write shapes.
+The public decision-method surface is unchanged. Every context exposes `provider: Provider`, where `Provider` is the closed union `'claude-code' | 'codex'`, supplied by the selected adapter rather than the payload. Every context also has `readonly helpers: ContextHelpers`. Its synchronous `ctx.helpers.belongsToPlugin(path)` method reports whether an existing regular file is physically contained by an installed plugin for that provider. Relative paths use `ctx.cwd`; missing, invalid, or uncertain paths return `false`. Paths containing a `..` component intentionally return `false` before lexical normalization because Bun can resolve symlink-directory traversal differently from filesystem open traversal. This is installed-file membership, not command intent, provenance, trust, safety, or authorization.
+
+Codex's ten-event normalizer selects envelope fields instead of recursively renaming tool data. Unknown tool input remains `Record<string, unknown>` through the existing unknown-tool context types; PostToolUse response remains `unknown` publicly and accepts any JSON value at this boundary. Known discriminators require compatible public field types, including canonical Bash for `exec_command`; aliases do not invent Claude Edit/Write shapes.
 
 On relevant events, absent/null transcript paths, child transcript paths, compact instructions/summary and last assistant message become empty strings. This preserves existing string types without fabricated paths, but makes unavailable and genuinely empty values indistinguishable publicly; raw values remain private. Operational IDs are not fabricated. SessionStart preserves the supplied model; PermissionRequest has no invented tool-use ID. These implemented compatibility paths have passed expanded Docker runtime validation. The public types describe the Claude-oriented authoring surface, not a promise that every field or method is supported by Codex; its invocation policy rejects unsupported capabilities.
 
@@ -42,6 +44,7 @@ On relevant events, absent/null transcript paths, child transcript paths, compac
 - `src/types/claude-code.ts` — Raw Claude Code types (snake_case). Used by the engine for stdin parsing and stdout serialization. Not part of the hook-author-facing API.
 - `src/types/permissions.ts` — `PermissionUpdateEntry` discriminated union and `PermissionDestination` enum.
 - `src/normalize.ts` — Recursive snake_case → camelCase key normalization. Used by the engine to convert Claude Code payloads into hook-author-facing context objects.
+- `src/plugin-file-helper.ts` — Provider-local installed-root discovery and conservative regular-file containment for `ctx.helpers`.
 
 ## Gotchas
 

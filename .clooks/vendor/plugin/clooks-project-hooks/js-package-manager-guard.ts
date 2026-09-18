@@ -7,7 +7,8 @@
 //
 // Explicitly NOT blocked:
 //   Non-JS tools (cargo, pip, etc.), pipe targets, PM names in string literals,
-//   PM names in paths, tools outside the known universe (unless in additionalBlocked)
+//   PM names in paths, tools outside the known universe (unless in additionalBlocked),
+//   direct node calls to literal absolute scripts identified as installed plugin files
 //
 // No escape hatch — configuration is the control mechanism.
 // When unconfigured (allowed is empty), injects a SessionStart warning.
@@ -22,6 +23,13 @@ type Config = {
 // --- Constants ---
 
 type ToolRole = 'pm' | 'runner' | 'runtime'
+
+type CommandHead = {
+  executable: string
+  firstArgument?: string
+  hasLeadingAssignments: boolean
+  literal: boolean
+}
 
 const KNOWN_UNIVERSE: ReadonlyMap<string, ToolRole> = new Map([
   ['npm', 'pm'],
@@ -53,13 +61,15 @@ const RUNTIME_CAPABLE = new Set(['node', 'bun', 'deno'])
 
 // Bounded lexical inspection, not shell evaluation. Only pipeline heads count;
 // nested execution and heredocs stop inspection of the remaining input.
-function commandHeads(command: string): string[] {
-  const heads: string[] = []
+function commandHeads(command: string): CommandHead[] {
+  const heads: CommandHead[] = []
   if (command.includes('\0')) return heads
   let i = 0
   let head = true
   let pipeTarget = false
   let pendingPipe = false
+  let hasLeadingAssignments = false
+  let currentHead: CommandHead | undefined
   while (i < command.length) {
     const char = command[i]!
     if (char === '\\' && command[i + 1] === '\n') {
@@ -74,6 +84,12 @@ function commandHeads(command: string): string[] {
       while (i < command.length && command[i] !== '\n') i++
       continue
     }
+    if (command.slice(i, i + 2) === '&>') {
+      if (currentHead) currentHead.literal = false
+      head = false
+      i += 2
+      continue
+    }
     if (';&|\n'.includes(char)) {
       const pair = command.slice(i, i + 2)
       if (char === '|' && pair !== '||') {
@@ -84,11 +100,17 @@ function commandHeads(command: string): string[] {
         pendingPipe = false
       }
       head = true
+      hasLeadingAssignments = false
+      currentHead = undefined
       i += ['&&', '||', '|&'].includes(pair) ? 2 : 1
       continue
     }
-    if ('()'.includes(char) || command.slice(i, i + 2) === '<<') return heads
+    if ('()'.includes(char) || command.slice(i, i + 2) === '<<') {
+      if (currentHead) currentHead.literal = false
+      return heads
+    }
     if ('<>'.includes(char)) {
+      if (currentHead) currentHead.literal = false
       head = false
       i++
       continue
@@ -96,6 +118,7 @@ function commandHeads(command: string): string[] {
     const start = i
     let value = ''
     let quote = ''
+    let literal = true
     while (i < command.length) {
       const next = command[i]!
       if (!quote && /[ \t\r\n;&|<>]/.test(next)) break
@@ -111,7 +134,10 @@ function commandHeads(command: string): string[] {
       }
       if (next === '\\' && quote !== "'") {
         const escaped = command[i + 1]
-        if (escaped === undefined) return heads
+        if (escaped === undefined) {
+          if (currentHead) currentHead.literal = false
+          return heads
+        }
         if (escaped === '\n') {
           i += 2
           continue
@@ -125,17 +151,92 @@ function commandHeads(command: string): string[] {
         }
         continue
       }
-      if (quote !== "'" && (next === '`' || (next === '$' && command[i + 1] === '(') || (!quote && '()'.includes(next)))) return heads
+      if (
+        quote !== "'" &&
+        (next === '`' || (next === '$' && command[i + 1] === '(') || (!quote && '()'.includes(next)))
+      ) {
+        if (currentHead) currentHead.literal = false
+        return heads
+      }
+      if (quote !== "'" && next === '$') literal = false
+      if (!quote && ('*?[{}'.includes(next) || (next === '~' && value.length === 0))) {
+        literal = false
+      }
       value += next
       i++
     }
-    if (quote) return heads
+    if (quote) {
+      if (currentHead) currentHead.literal = false
+      return heads
+    }
     pendingPipe = false
-    if (head && /^[A-Za-z_][A-Za-z0-9_]*=/.test(command.slice(start, i))) continue
-    if (head && !pipeTarget) heads.push(value)
+    if (head && /^[A-Za-z_][A-Za-z0-9_]*=/.test(command.slice(start, i))) {
+      hasLeadingAssignments = true
+      continue
+    }
+    if (head && !pipeTarget) {
+      currentHead = {
+        executable: value,
+        hasLeadingAssignments,
+        literal,
+      }
+      heads.push(currentHead)
+    } else if (currentHead) {
+      currentHead.literal &&= literal
+      currentHead.firstArgument ??= value
+    }
     head = false
   }
   return heads
+}
+
+function isDirectPluginNode(
+  head: CommandHead,
+  belongsToPlugin: ((path: string) => unknown) | undefined,
+): boolean {
+  const path = head.firstArgument
+  if (
+    head.executable !== 'node' ||
+    head.hasLeadingAssignments ||
+    !head.literal ||
+    !path?.startsWith('/') ||
+    !belongsToPlugin
+  ) {
+    return false
+  }
+  try {
+    return belongsToPlugin(path) === true
+  } catch {
+    return false
+  }
+}
+
+function blockedTool(
+  heads: readonly CommandHead[],
+  expandedAllowed: Set<string>,
+  belongsToPlugin?: (path: string) => unknown,
+): string | null {
+  for (const head of heads) {
+    if (
+      isBlocked(head.executable, expandedAllowed) &&
+      !isDirectPluginNode(head, belongsToPlugin)
+    ) {
+      return head.executable
+    }
+  }
+  return null
+}
+
+function additionalBlockedTool(
+  heads: readonly CommandHead[],
+  additionalBlocked: Array<{ tool: string; message: string }>,
+): { tool: string; message: string } | null {
+  for (const head of heads) {
+    for (const entry of additionalBlocked) {
+      if (head.executable === entry.tool) return entry
+    }
+  }
+  return null
 }
 
 // --- Exported utility and detection functions ---
@@ -208,26 +309,16 @@ export function generateBlockMessage(blocked: string, expandedAllowed: Set<strin
   return `[js-package-manager-guard] '${blocked}' is not allowed in this project. Allowed tools: ${allowed.join(', ')}.`
 }
 
-export function detectBlockedTool(command: string, expandedAllowed: Set<string>): string | null {
-  for (const firstWord of commandHeads(command)) {
-    if (isBlocked(firstWord, expandedAllowed)) {
-      return firstWord
-    }
-  }
-
-  return null
+export function detectBlockedTool(
+  command: string,
+  expandedAllowed: Set<string>,
+  belongsToPlugin?: (path: string) => unknown,
+): string | null {
+  return blockedTool(commandHeads(command), expandedAllowed, belongsToPlugin)
 }
 
 export function isAdditionalBlocked(command: string, additionalBlocked: Array<{ tool: string; message: string }>): { tool: string; message: string } | null {
-  for (const firstWord of commandHeads(command)) {
-    for (const entry of additionalBlocked) {
-      if (firstWord === entry.tool) {
-        return entry
-      }
-    }
-  }
-
-  return null
+  return additionalBlockedTool(commandHeads(command), additionalBlocked)
 }
 
 // --- Hook export ---
@@ -235,7 +326,7 @@ export function isAdditionalBlocked(command: string, additionalBlocked: Array<{ 
 export const hook: ClooksHook<Config> = {
   meta: {
     name: 'js-package-manager-guard',
-    description: 'Blocks wrong JS/TS package managers, runners, and runtimes',
+    description: 'Blocks mismatched JS tools with a direct plugin-file node exception',
     config: {
       allowed: [],
       additionalBlocked: [],
@@ -282,9 +373,17 @@ Without configuration, this hook cannot protect against wrong package manager us
     const blockedTools = Array.from(KNOWN_UNIVERSE.keys()).filter(t => !expandedAllowed.has(t))
     const allowedList = allowedTools.map(t => `\`${t}\``).join(', ')
     const blockedList = blockedTools.map(t => `\`${t}\``).join(', ')
+    const hasPluginFileHelper = typeof ctx.helpers?.belongsToPlugin === 'function'
+    const explicitlyBlocksNode = Array.isArray(config.additionalBlocked) &&
+      config.additionalBlocked.some(entry => entry?.tool === 'node')
+    const pluginNodeException = blockedTools.includes('node') &&
+      hasPluginFileHelper &&
+      !explicitlyBlocksNode
+      ? ' Direct node calls to installed plugin scripts are exempt.'
+      : ''
 
     const injectContext = 'INFORMATION (no need to comment on it):' + (blockedTools.length > 0
-      ? `The js-package-manager-guard clooks hook is active in this project. Allowed JS toolchain: ${allowedList}. Calls through shell tools will be blocked for other JS package managers, runners, and runtimes: ${blockedList}.`
+      ? `The js-package-manager-guard clooks hook is active in this project. Allowed JS toolchain: ${allowedList}. Calls through shell tools will be blocked for other JS package managers, runners, and runtimes: ${blockedList}.${pluginNodeException}`
       : `The js-package-manager-guard clooks hook is active in this project. Allowed JS toolchain: ${allowedList}.`)
 
     return ctx.skip({
@@ -309,19 +408,25 @@ Without configuration, this hook cannot protect against wrong package manager us
     const expandedAllowed = expandAllowed(allowed)
 
     // 5. Check against known universe
-    const blockedTool = detectBlockedTool(command, expandedAllowed)
-    if (blockedTool) {
-      const reason = generateBlockMessage(blockedTool, expandedAllowed, allowed)
+    const heads = commandHeads(command)
+    const helpers = ctx.helpers
+    const belongsToPlugin =
+      typeof helpers?.belongsToPlugin === 'function'
+        ? (path: string) => helpers.belongsToPlugin(path)
+        : undefined
+    const blocked = blockedTool(heads, expandedAllowed, belongsToPlugin)
+    if (blocked) {
+      const reason = generateBlockMessage(blocked, expandedAllowed, allowed)
       return ctx.block({
         reason,
-        debugMessage: `js-package-manager-guard: blocked '${blockedTool}'`,
+        debugMessage: `js-package-manager-guard: blocked '${blocked}'`,
       })
     }
 
     // 6. Check additionalBlocked
     const additional = Array.isArray(config.additionalBlocked) ? config.additionalBlocked : []
     if (additional.length > 0) {
-      const match = isAdditionalBlocked(command, additional)
+      const match = additionalBlockedTool(heads, additional)
       if (match) {
         return ctx.block({
           reason: `[js-package-manager-guard] ${match.message}`,

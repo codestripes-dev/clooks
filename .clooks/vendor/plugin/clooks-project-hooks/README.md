@@ -12,6 +12,8 @@ Blocks JS/TS package managers, runners, and runtimes that aren't on your allowli
 
 Checks command heads in Claude and Codex shell tools, including quoted executable names, environment assignments and newline-separated commands. Quoted arguments and comments are inert; escaped newlines continue the same command. Pipe targets (including newline continuations) are always excluded, including from `additionalBlocked`. Executable paths and unknown tools are excluded from the known-tool check; `additionalBlocked` retains exact-name matching for explicitly configured entries. This is bounded lexical inspection, not shell evaluation; nested execution and heredocs are not inspected.
 
+A plain direct `node <absolute-script>` command bypasses the default runtime block only when Clooks identifies the literal script path as an installed plugin file. Assignments, runtime flags, expansions and redirections do not qualify; explicit `additionalBlocked` entries and later compound-command segments still apply.
+
 **When to enable:** Any JS/TS project where the choice of package manager is a team decision captured in a lockfile.
 
 **Config options:**

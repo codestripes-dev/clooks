@@ -311,6 +311,66 @@ describe('public provider identity', () => {
   }
 })
 
+describe('context helpers runtime wiring', () => {
+  test('overwrites payload helpers and shares one frozen helper through lifecycle and hooks', async () => {
+    const trusted = Object.freeze({ belongsToPlugin: (path: string) => path === '/plugin/file.ts' })
+    const seen: unknown[] = []
+    let factoryCalls = 0
+    const first = makeHook('first-helper', {
+      beforeHook(event: { input: Record<string, unknown>; passthrough(): unknown }) {
+        const helpers = event.input.helpers as typeof trusted
+        seen.push(helpers)
+        expect(helpers.belongsToPlugin('/plugin/file.ts')).toBe(true)
+        try {
+          ;(helpers as { belongsToPlugin: (path: string) => boolean }).belongsToPlugin = () => false
+        } catch {
+          // Frozen runtime helpers reject mutation in strict mode.
+        }
+        return event.passthrough()
+      },
+      Stop(ctx: { helpers: typeof trusted; skip(): unknown }) {
+        seen.push(ctx.helpers)
+        return ctx.skip()
+      },
+      afterHook(event: { input: { helpers: typeof trusted }; passthrough(): unknown }) {
+        seen.push(event.input.helpers)
+        return event.passthrough()
+      },
+    })
+    const second = makeHook('second-helper', {
+      Stop(ctx: { helpers: typeof trusted; skip(): unknown }) {
+        seen.push(ctx.helpers)
+        expect(ctx.helpers.belongsToPlugin('/plugin/file.ts')).toBe(true)
+        return ctx.skip()
+      },
+    })
+    const deps = makeDeps(
+      {
+        hook_event_name: 'Stop',
+        cwd: '/event/cwd',
+        helpers: { belongsToPlugin: () => false },
+      },
+      [first, second],
+    )
+    deps.createContextHelpers = (options) => {
+      factoryCalls++
+      expect(options).toEqual({
+        provider: 'claude-code',
+        homeRoot: process.env.CLOOKS_HOME_ROOT!,
+        codexHome: process.env.CODEX_HOME,
+        cwd: '/event/cwd',
+      })
+      return trusted
+    }
+
+    expect((await runCoreWithExitTrap(deps)).code).toBe(0)
+    expect(factoryCalls).toBe(1)
+    expect(seen).toHaveLength(4)
+    expect(seen.every((helpers) => helpers === trusted)).toBe(true)
+    expect(Object.isFrozen(trusted)).toBe(true)
+  })
+})
+
 describe('Codex turn and delivery integration', () => {
   function payload(
     event: 'SessionStart' | 'UserPromptSubmit' | 'Stop' | 'SubagentStop',

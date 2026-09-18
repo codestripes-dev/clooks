@@ -76,6 +76,7 @@ export type {
 
 export type {
   Provider,
+  ContextHelpers,
   BaseContext,
   PreToolUseContext,
   UnknownPreToolUseContext,

@@ -10,6 +10,7 @@ import type { ResultOrigin, RuntimePolicyFailure } from '../agents/types.js'
 import type { HookName } from '../types/branded.js'
 import type { ApprovalQuestion } from '../interaction/types.js'
 import type { createApprovalInteraction } from '../interaction/channel.js'
+import type { createContextHelpers } from '../plugin-file-helper.js'
 
 export interface PreToolUseVote {
   /** Consent changes reduction only; engineResult and raw history retain the ask. */
@@ -85,6 +86,7 @@ export interface RunEngineDeps {
   /** True only while run owns a validated paired PreToolUse lifecycle, including cleanup. */
   onApprovalLifecycle?: (active: boolean) => void
   createApprovalInteraction?: typeof createApprovalInteraction
+  createContextHelpers?: typeof createContextHelpers
   signal?: AbortSignal
   loadConfig: typeof loadConfig
   loadAllHooks: typeof loadAllHooks

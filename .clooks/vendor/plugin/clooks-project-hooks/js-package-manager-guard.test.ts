@@ -71,6 +71,24 @@ describe('quoted executables and multiline commands', () => {
     })
     expect(JSON.stringify(result)).not.toContain('The Bash tool')
   })
+
+  test.each([
+    ['announces the exception', { allowed: ['bun'] }, true],
+    [
+      'omits the exception when node is explicitly blocked',
+      {
+        allowed: ['bun'],
+        additionalBlocked: [{ tool: 'node', message: 'Node is explicitly blocked.' }],
+      },
+      false,
+    ],
+  ] as const)('SessionStart %s', (_label, config, announced) => {
+    const result = hook.SessionStart!(makeSessionStartCtx(true), config)
+    expect(result).toMatchObject({ result: 'skip' })
+    expect(JSON.stringify(result).includes(
+      'Direct node calls to installed plugin scripts are exempt.',
+    )).toBe(announced)
+  })
 })
 
 // --- Helpers ---
@@ -85,9 +103,29 @@ const DEFAULT_CONFIG: Config = {
   additionalBlocked: [],
 }
 
-function makePreToolUseCtx(command: string, toolName = 'Bash'): PreToolUseContext {
+type ContextOptions = {
+  provider?: 'claude-code' | 'codex'
+  helpers?:
+    | 'missing'
+    | 'invalid'
+    | { belongsToPlugin(path: string): unknown }
+}
+
+function makePreToolUseCtx(
+  command: string,
+  toolName = 'Bash',
+  options: ContextOptions = {},
+): PreToolUseContext {
+  const helpers = options.helpers === 'missing'
+    ? undefined
+    : options.helpers === 'invalid'
+      ? { belongsToPlugin: true }
+      : options.helpers ?? { belongsToPlugin: () => false }
+
   return {
     event: 'PreToolUse',
+    provider: options.provider ?? 'claude-code',
+    ...(helpers === undefined ? {} : { helpers }),
     toolName,
     toolInput: { command },
     originalToolInput: { command },
@@ -101,12 +139,15 @@ function makePreToolUseCtx(command: string, toolName = 'Bash'): PreToolUseContex
     skip: (opts = {}) => ({ result: 'skip', ...opts }),
     ask: (opts) => ({ result: 'ask', ...opts }),
     defer: (opts = {}) => ({ result: 'defer', ...opts }),
-  } as PreToolUseContext
+  } as unknown as PreToolUseContext
 }
 
-function makeSessionStartCtx(): SessionStartContext {
+function makeSessionStartCtx(withPluginHelper = false): SessionStartContext {
   return {
     event: 'SessionStart',
+    ...(withPluginHelper
+      ? { helpers: { belongsToPlugin: () => false } }
+      : {}),
     source: 'startup',
     sessionId: 'test-session',
     cwd: '/tmp',
@@ -340,6 +381,148 @@ describe('detectBlockedTool', () => {
       expect(detectBlockedTool(command, expanded)).toBe(expected)
     },
   )
+})
+
+describe('installed plugin node scripts', () => {
+  test.each([
+    ['claude-code', 'node /plugins/clooks/run.mjs', '/plugins/clooks/run.mjs'],
+    ['codex', '"node" "/plugins/clooks tool/run.mjs" --json', '/plugins/clooks tool/run.mjs'],
+    ['codex', "node '/plugins/it'\\''s tool/run.mjs'", "/plugins/it's tool/run.mjs"],
+    ['claude-code', "node '/plugins/$name/*.mjs'", '/plugins/$name/*.mjs'],
+    ['codex', 'node /plugins/\\$name/run.mjs', '/plugins/$name/run.mjs'],
+    ['claude-code', 'node /-plugin/run.mjs', '/-plugin/run.mjs'],
+  ] as const)(
+    'skips a direct literal plugin script for %s: %s',
+    (provider, command, expectedPath) => {
+      const calls: string[] = []
+      const ctx = makePreToolUseCtx(command, 'Bash', {
+        provider,
+        helpers: {
+          belongsToPlugin(path) {
+            calls.push(path)
+            return path === expectedPath
+          },
+        },
+      })
+
+      expect(hook.PreToolUse!(ctx, { allowed: ['bun'] })).toEqual({ result: 'skip' })
+      expect(calls).toEqual([expectedPath])
+    },
+  )
+
+  test('keeps an ordinary absolute node script blocked', () => {
+    const calls: string[] = []
+    const ctx = makePreToolUseCtx('node /work/script.mjs', 'Bash', {
+      helpers: {
+        belongsToPlugin(path) {
+          calls.push(path)
+          return false
+        },
+      },
+    })
+
+    expect(hook.PreToolUse!(ctx, { allowed: ['bun'] })).toMatchObject({ result: 'block' })
+    expect(calls).toEqual(['/work/script.mjs'])
+  })
+
+  test.each([
+    ['object', () => ({ member: true })],
+    ['promise', () => Promise.resolve(true)],
+  ] as const)('requires a literal true helper result, not a truthy %s', (_label, result) => {
+    const ctx = makePreToolUseCtx('node /plugins/clooks/run.mjs', 'Bash', {
+      helpers: { belongsToPlugin: result },
+    })
+
+    expect(hook.PreToolUse!(ctx, { allowed: ['bun'] })).toMatchObject({ result: 'block' })
+  })
+
+  test.each([
+    ['relative path', 'node script.mjs'],
+    ['dot-relative path', 'node ./script.mjs'],
+    ['runtime flag', 'node -r /plugins/clooks/register.mjs'],
+    ['eval short flag', 'node -e "console.log(1)"'],
+    ['eval long flag', 'node --eval "console.log(1)"'],
+    ['option terminator', 'node -- /plugins/clooks/run.mjs'],
+    ['NODE_OPTIONS assignment', 'NODE_OPTIONS=--trace-warnings node /plugins/clooks/run.mjs'],
+    ['other assignment', 'TOKEN=value node /plugins/clooks/run.mjs'],
+    ['variable expansion', 'node "$PLUGIN_SCRIPT"'],
+    ['glob expansion', 'node /plugins/clooks/*.mjs'],
+    ['brace expansion', 'node /plugins/{clooks,other}/run.mjs'],
+    ['tilde expansion', 'node ~/plugins/clooks/run.mjs'],
+    ['later expansion', 'node /plugins/clooks/run.mjs "$ARG"'],
+    ['nested execution', 'node /plugins/clooks/run.mjs $(npm install)'],
+    ['backtick execution', 'node /plugins/clooks/run.mjs `npm install`'],
+    ['redirection before argument', 'node </plugins/clooks/run.mjs'],
+    ['output redirection', 'node /plugins/clooks/run.mjs >log'],
+    ['descriptor redirection', 'node /plugins/clooks/run.mjs 2>&1'],
+    ['combined output redirection', 'node /plugins/clooks/run.mjs &>log'],
+    ['empty first argument', 'node "" /plugins/clooks/run.mjs'],
+    ['unfinished quote', 'node /plugins/clooks/run.mjs "unfinished'],
+    ['trailing escape', 'node /plugins/clooks/run.mjs \\'],
+  ] as const)('blocks ineligible %s syntax', (_label, command) => {
+    const calls: string[] = []
+    const ctx = makePreToolUseCtx(command, 'Bash', {
+      helpers: {
+        belongsToPlugin(path) {
+          calls.push(path)
+          return true
+        },
+      },
+    })
+
+    expect(hook.PreToolUse!(ctx, { allowed: ['bun'] })).toMatchObject({ result: 'block' })
+    expect(calls).toEqual([])
+  })
+
+  test('still checks later commands in a compound command', () => {
+    const helpers = { belongsToPlugin: (path: string) => path === '/plugins/clooks/run.mjs' }
+
+    const npmCtx = makePreToolUseCtx('node /plugins/clooks/run.mjs && npm install', 'Bash', { helpers })
+    expect(hook.PreToolUse!(npmCtx, { allowed: ['bun'] })).toMatchObject({
+      result: 'block',
+      debugMessage: expect.stringContaining("'npm'"),
+    })
+
+    const nodeCtx = makePreToolUseCtx('node /plugins/clooks/run.mjs; node /work/script.mjs', 'Bash', { helpers })
+    expect(hook.PreToolUse!(nodeCtx, { allowed: ['bun'] })).toMatchObject({
+      result: 'block',
+      debugMessage: expect.stringContaining("'node'"),
+    })
+  })
+
+  test.each([
+    ['missing helpers', 'missing'],
+    ['invalid helpers', 'invalid'],
+  ] as const)('keeps old blocking behavior with %s', (_label, helpers) => {
+    const ctx = makePreToolUseCtx('node /plugins/clooks/run.mjs', 'Bash', { helpers })
+    expect(hook.PreToolUse!(ctx, { allowed: ['bun'] })).toMatchObject({ result: 'block' })
+  })
+
+  test('treats a throwing helper as non-membership', () => {
+    const ctx = makePreToolUseCtx('node /plugins/clooks/run.mjs', 'Bash', {
+      helpers: {
+        belongsToPlugin() {
+          throw new Error('unavailable')
+        },
+      },
+    })
+    expect(hook.PreToolUse!(ctx, { allowed: ['bun'] })).toMatchObject({ result: 'block' })
+  })
+
+  test('explicit additionalBlocked node still blocks a plugin script', () => {
+    const ctx = makePreToolUseCtx('node /plugins/clooks/run.mjs', 'Bash', {
+      helpers: { belongsToPlugin: () => true },
+    })
+    const result = hook.PreToolUse!(ctx, {
+      allowed: ['bun'],
+      additionalBlocked: [{ tool: 'node', message: 'Node is explicitly blocked.' }],
+    })
+
+    expect(result).toMatchObject({
+      result: 'block',
+      reason: expect.stringContaining('Node is explicitly blocked.'),
+    })
+  })
 })
 
 // =============================================================================

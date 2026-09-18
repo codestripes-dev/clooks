@@ -32,6 +32,14 @@ declared; `clooks-pack.json` numeric `version: 1` remains the pack schema versio
 
 ## Plugin Cache Discovery
 
+### Installed-file membership is separate
+
+`ctx.helpers.belongsToPlugin(path)` does not run hook-pack discovery or vendoring. It lazily snapshots installed roots for the current provider once per engine invocation, then canonicalizes and stats each candidate file on every call. Relative candidates use the event context's `cwd`; invalid, missing, directory, escaping, or uncertain paths return `false`. A positive result is membership only, never authorization.
+
+For Claude, the snapshot accepts existing non-orphaned absolute roots recorded in `installed_plugins.json` regardless of enabled settings or recorded scope. For Codex, it performs a fixed-depth scan of every materialized `plugins/cache/<marketplace>/<plugin>/<version>` directory under the effective `CODEX_HOME`; each version needs a parseable `.codex-plugin/plugin.json` JSON object whose `name` matches the plugin directory. This identity check does not validate full native plugin metadata or installability. Disabled, unconfigured, and older materialized versions remain installed-file members. This helper does not require `clooks-pack.json`, select an active version, walk plugin file trees, or spawn a native client.
+
+The pack-discovery and activation rules below are unchanged. They decide which hook packs are copied and registered, not whether a file belongs to an installed plugin.
+
 ### Codex file-backed contract
 
 `discoverCodexPluginPacks()` in `src/agents/codex/plugin-discovery.ts` requires explicit `homeRoot` and `projectRoot`, with optional `codexHome`. The engine forwards `CODEX_HOME`; discovery itself never reads process environment or cwd. The existing `resolveCodexHome()` treats unset/empty home as `homeRoot/.codex`, requires an absolute path, and resolves physical locations. A user config reached through a project/home symlink is not reclassified as project activation.
@@ -254,6 +262,7 @@ A project-scope `enabledPlugins: { X: false }` does **not** unregister a user-sc
 - `src/commands/update.ts` — `updatePluginPack()`, `createUpdateCommand()` — explicit update via `clooks update plugin:<pack>`
 - `src/engine/run.ts` — `runEngine()` — engine pipeline with two-phase load for plugin discovery
 - `src/engine/types.ts` — `RunEngineDeps` — DI interface with optional plugin discovery deps
+- `src/plugin-file-helper.ts` — provider-local installed-file membership used by `ctx.helpers`
 - `src/manifest.ts` — `loadManifestFromFile()`, `validateManifest()` — manifest loading and validation
 - `src/loader.ts` — `validateHookExport()` — validates hook module shape after vendoring
 

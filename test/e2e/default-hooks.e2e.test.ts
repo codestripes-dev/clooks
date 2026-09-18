@@ -134,6 +134,57 @@ function permitted(output: ReturnType<typeof run>, provider: Provider, allow = f
   else expect(output.hookSpecificOutput.permissionDecision).toBe('allow')
 }
 
+function expectGuardBlock(output: ReturnType<typeof run>, reason: string) {
+  expect(output).toEqual({
+    hookSpecificOutput: {
+      hookEventName: 'PreToolUse',
+      permissionDecision: 'deny',
+      permissionDecisionReason: reason,
+    },
+  })
+}
+
+function installPluginScript(provider: Provider) {
+  const relativeRoot =
+    provider === 'claude-code'
+      ? '.claude/plugins/cache/original-market/codex-companion/1.0.0'
+      : '.codex/plugins/cache/original-market/codex-companion/1.0.0'
+  const pluginScript = join(sandbox.home, relativeRoot, 'scripts/codex-companion.mjs')
+  const ordinaryScript = join(sandbox.dir, 'ordinary-script.mjs')
+  sandbox.writeHomeFile(`${relativeRoot}/scripts/codex-companion.mjs`, 'export {}\n')
+  sandbox.writeFile('ordinary-script.mjs', 'export {}\n')
+
+  if (provider === 'claude-code') {
+    sandbox.writeHomeFile(
+      '.claude/plugins/installed_plugins.json',
+      JSON.stringify({
+        version: 2,
+        plugins: {
+          'codex-companion@original-market': [
+            {
+              scope: 'user',
+              installPath: join(sandbox.home, relativeRoot),
+              version: '1.0.0',
+            },
+          ],
+        },
+      }),
+    )
+  } else {
+    sandbox.writeHomeFile(
+      `${relativeRoot}/.codex-plugin/plugin.json`,
+      JSON.stringify({ name: 'codex-companion' }),
+    )
+  }
+
+  return { pluginScript, ordinaryScript }
+}
+
+const bunRuntimeBlock =
+  "[js-package-manager-guard] This project uses bun as its JS runtime. Use 'bun' instead of 'node'."
+const bunPackageBlock =
+  "[js-package-manager-guard] This project uses bun for package management. Use 'bun' instead of 'npm'."
+
 describe('actual default packs through the compiled binary', () => {
   const file = (relative: string, decision: string) =>
     run(
@@ -473,6 +524,77 @@ describe('actual default packs through the compiled binary', () => {
         const announcement = run(provider, 'SessionStart', { source: 'startup' }, {})
         expect(announcement.hookSpecificOutput.additionalContext).toContain('shell tools')
         expect(JSON.stringify(announcement)).not.toContain('The Bash tool')
+      })
+
+      test('installed plugin node script exemption is provider-selected and exact on the wire', () => {
+        sandbox = createSandbox()
+        const { pluginScript, ordinaryScript } = installPluginScript(provider)
+        configure({ 'js-package-manager-guard': { config: { allowed: ['bun'] } } })
+        const command = `node "${pluginScript}" task-resume-candidate --json`
+
+        permitted(shell(provider, command, { 'js-package-manager-guard': 'skip' }), provider)
+        expectGuardBlock(
+          shell(provider, `node "${ordinaryScript}"`, { 'js-package-manager-guard': 'block' }),
+          bunRuntimeBlock,
+        )
+      })
+
+      test.each([
+        ['runtime flag', (pluginScript: string) => `node --version "${pluginScript}"`],
+        ['eval', () => 'node -e "console.log(1)"'],
+        [
+          'inline assignment',
+          (pluginScript: string) =>
+            `NODE_OPTIONS='--require ${pluginScript}' node "${pluginScript}"`,
+        ],
+        ['relative script', () => 'node ./scripts/codex-companion.mjs'],
+        ['shell expansion', () => 'node "$PLUGIN_SCRIPT"'],
+      ])('%s does not qualify for the plugin exemption', (_label, command) => {
+        sandbox = createSandbox()
+        const { pluginScript } = installPluginScript(provider)
+        configure({ 'js-package-manager-guard': { config: { allowed: ['bun'] } } })
+        expectGuardBlock(
+          shell(provider, command(pluginScript), { 'js-package-manager-guard': 'block' }),
+          bunRuntimeBlock,
+        )
+      })
+
+      test('plugin exemption does not hide a later blocked compound command head', () => {
+        sandbox = createSandbox()
+        const { pluginScript, ordinaryScript } = installPluginScript(provider)
+        configure({ 'js-package-manager-guard': { config: { allowed: ['bun'] } } })
+
+        expectGuardBlock(
+          shell(provider, `node "${pluginScript}" && npm install`, {
+            'js-package-manager-guard': 'block',
+          }),
+          bunPackageBlock,
+        )
+        expectGuardBlock(
+          shell(provider, `node "${pluginScript}"; node "${ordinaryScript}"`, {
+            'js-package-manager-guard': 'block',
+          }),
+          bunRuntimeBlock,
+        )
+      })
+
+      test('additionalBlocked node retains precedence over the default exemption', () => {
+        sandbox = createSandbox()
+        const { pluginScript } = installPluginScript(provider)
+        configure({
+          'js-package-manager-guard': {
+            config: {
+              allowed: ['bun'],
+              additionalBlocked: [{ tool: 'node', message: 'node is explicitly blocked' }],
+            },
+          },
+        })
+        expectGuardBlock(
+          shell(provider, `node "${pluginScript}" task-resume-candidate --json`, {
+            'js-package-manager-guard': 'block',
+          }),
+          '[js-package-manager-guard] node is explicitly blocked',
+        )
       })
 
       test('git and package guards retain blocking and permissive decisions', () => {

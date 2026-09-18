@@ -62,12 +62,22 @@ import type {
 /** Upstream hook provider selected by the engine. */
 export type Provider = 'claude-code' | 'codex'
 
+/** Read-only helpers available on every hook and lifecycle context. */
+export interface ContextHelpers {
+  /**
+   * True when `path` is an existing regular file under an installed plugin for
+   * the selected provider. This is file membership, not authorization.
+   */
+  belongsToPlugin(path: string): boolean
+}
+
 /** Fields present on every context, regardless of event. */
 export interface BaseContext {
   /** Event name. Narrow on this first inside multi-event hooks. */
   event: EventName
   /** Selected adapter identity, not a tool-availability or capability guarantee. */
   provider: Provider
+  readonly helpers: ContextHelpers
   sessionId: string
   cwd: string
   permissionMode?: PermissionMode

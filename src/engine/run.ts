@@ -50,6 +50,7 @@ import type { ApprovalInteraction } from '../interaction/types.js'
 import { canonical, checkSignal, nativePreToolUseDenialSchema } from '../interaction/protocol.js'
 import { ApprovalFailure, confirmFinalApprovals, approvalSetupMessage } from './live-approvals.js'
 import { legacyResultPolicy } from './result-policy.js'
+import { createContextHelpers } from '../plugin-file-helper.js'
 
 interface InvocationState {
   eventName: EventName | null
@@ -74,6 +75,7 @@ export const defaultDeps: RunEngineDeps = {
   loadConfig,
   loadAllHooks,
   readStdin: readStdinJson,
+  createContextHelpers,
   discoverPluginPacks: claudeCodePluginDeps.discoverPluginPacks,
   discoverCodexPluginPacks,
   vendorAndRegisterPack: claudeCodePluginDeps.vendorAndRegisterPack,
@@ -563,7 +565,16 @@ async function runEngineInvocation(
     state.eventName = eventName
   }
   const eventName = invocation.eventName
-  const normalized: Record<string, unknown> = { ...invocation.context, provider: adapter.id }
+  const normalized: Record<string, unknown> = {
+    ...invocation.context,
+    provider: adapter.id,
+    helpers: (deps.createContextHelpers ?? createContextHelpers)({
+      provider: adapter.id,
+      homeRoot,
+      codexHome: process.env.CODEX_HOME,
+      cwd: typeof invocation.context.cwd === 'string' ? invocation.context.cwd : '',
+    }),
+  }
   const adapterPolicy = adapter.createResultPolicy(invocation)
   const policy = {
     ...adapterPolicy,

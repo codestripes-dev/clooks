@@ -44,6 +44,19 @@ for (const [name, create] of Object.entries({ createContext, createHarnessContex
 }
 
 describe('createHarnessContext — base defaults', () => {
+  test('helpers default to an immutable no-I/O false implementation', () => {
+    const previous = process.env.HOME
+    try {
+      process.env.HOME = '/definitely/not/a/testing/home'
+      const ctx = createHarnessContext('UserPromptSubmit', { prompt: 'hi' })
+      expect(ctx.helpers.belongsToPlugin('/anything')).toBe(false)
+      expect(Object.isFrozen(ctx.helpers)).toBe(true)
+    } finally {
+      if (previous === undefined) delete process.env.HOME
+      else process.env.HOME = previous
+    }
+  })
+
   test('applies the harness-spec sessionId default', () => {
     const ctx = createHarnessContext('UserPromptSubmit', { prompt: 'hi' })
     expect(ctx.sessionId).toBe('test-session-0000000000000000')
@@ -77,6 +90,24 @@ describe('createHarnessContext — base defaults', () => {
 })
 
 describe('createHarnessContext — payload override surface', () => {
+  test('accepts and freezes an explicit testing helper', () => {
+    const helper = {
+      seen: [] as string[],
+      belongsToPlugin(path: string) {
+        this.seen.push(path)
+        return path === '/plugin/file.ts'
+      },
+    }
+    const ctx = createHarnessContext('UserPromptSubmit', {
+      prompt: 'hi',
+      helpers: helper,
+    })
+    expect(ctx.helpers.belongsToPlugin('/plugin/file.ts')).toBe(true)
+    expect(ctx.helpers.belongsToPlugin('/project/file.ts')).toBe(false)
+    expect(helper.seen).toEqual(['/plugin/file.ts', '/project/file.ts'])
+    expect(Object.isFrozen(ctx.helpers)).toBe(true)
+  })
+
   test("caller's sessionId override beats the harness default", () => {
     const ctx = createHarnessContext('UserPromptSubmit', {
       prompt: 'hi',

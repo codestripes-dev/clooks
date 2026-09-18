@@ -1,5 +1,6 @@
 import type {
   Provider,
+  ContextHelpers,
   BaseContext,
   EventContextMap,
   BeforeHookEvent,
@@ -10,6 +11,7 @@ import type {
   UnknownPostToolUseFailureContext,
 } from '../../src/types/index.js'
 import type { Provider as BundledProvider } from '../../src/generated/clooks-types.js'
+import type { ContextHelpers as BundledContextHelpers } from '../../src/generated/clooks-types.js'
 import type { AgentId } from '../../src/agents/types.js'
 import type { CreateContextPayload } from '../../src/testing/create-context.js'
 
@@ -22,6 +24,8 @@ export type ProviderChecks = [
   Assert<Equal<Provider, AgentId>>,
   Assert<Equal<Provider, BundledProvider>>,
   Assert<Equal<BaseContext['provider'], Provider>>,
+  Assert<Equal<BaseContext['helpers'], ContextHelpers>>,
+  Assert<Equal<ContextHelpers, BundledContextHelpers>>,
   Assert<Equal<BeforeHookEvent['input']['provider'], Provider>>,
   Assert<Equal<AfterHookEvent['input']['provider'], Provider>>,
   Assert<Equal<UnknownPreToolUseContext['provider'], Provider>>,
@@ -37,6 +41,11 @@ type EventChecks = {
   [E in keyof EventContextMap]: Equal<EventContextMap[E]['provider'], Provider>
 }[keyof EventContextMap]
 export type EveryEventHasProvider = Assert<Equal<EventChecks, true>>
+
+type HelperChecks = {
+  [E in keyof EventContextMap]: Equal<EventContextMap[E]['helpers'], ContextHelpers>
+}[keyof EventContextMap]
+export type EveryEventHasHelpers = Assert<Equal<HelperChecks, true>>
 
 declare const context: BaseContext
 const valid: Provider = context.provider

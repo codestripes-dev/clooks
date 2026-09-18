@@ -72,6 +72,7 @@ export interface CreateContextEventMap {
  */
 type BaseDefaultedKeys =
   | 'provider'
+  | 'helpers'
   | 'sessionId'
   | 'cwd'
   | 'transcriptPath'
@@ -151,9 +152,17 @@ export function createContext<E extends EventName>(
   if (provider !== 'claude-code' && provider !== 'codex') {
     throw new TypeError('provider must be "claude-code" or "codex"')
   }
+  const suppliedHelpers = payload.helpers
+  const helpers = Object.freeze({
+    belongsToPlugin:
+      typeof suppliedHelpers?.belongsToPlugin === 'function'
+        ? suppliedHelpers.belongsToPlugin.bind(suppliedHelpers)
+        : (_path: string) => false,
+  })
   const base: BaseContext = {
     event,
     provider,
+    helpers,
     sessionId: 'test-session',
     cwd: '/tmp',
     transcriptPath: '/tmp/transcript.json',
@@ -170,6 +179,7 @@ export function createContext<E extends EventName>(
     ...(payload as Record<string, unknown>),
     event,
     provider,
+    helpers,
   }
   attachDecisionMethods(event, ctx)
   return ctx as unknown as CreateContextEventMap[E]
