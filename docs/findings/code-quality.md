@@ -2,6 +2,27 @@
 
 Unwieldy code, smelly patterns, confusing architecture, or excessive complexity that made work harder than it should be.
 
+### Approval prompt for a delete operation does not show the target path
+
+**Severity:** note (was blocker; not reproducible on the current build)
+**Date:** 2026-09-19
+**Repro result (2026-09-19, build `04d579a` deployed to `~/bin/clooks`):** `rm -rf <project>/approval-repro-victim` under Claude Code triggered `no-rm-rf` rule `rm-rf-strict`; the owner confirmed the dialog showed the question, the full command with the path, and the requesting hook. The original sighting happened in a session whose `clooks mcp` approval server had been running since before that deploy, so an older server build is the likely cause but was not confirmed. Remove this entry if it does not recur; if it does, record the tool name and whether the command contained newlines (`approvalMessage` in `src/interaction/server.ts` drops the inline preview for commands with control characters and falls back to the JSON input block).
+**Context:** Owner-observed live approval prompt (`src/interaction/`, `src/agents/approval-operation.ts`, `src/engine/live-approvals.ts`, `docs/domain/interactive-approvals.md`) for a file delete under Claude Code.
+
+The prompt did not display which file would be deleted, even though commit `b5cdf4b` ("Improve Claude approval message previews") was meant to show it. The owner could not give informed consent on a destructive operation. Owner ranks this top priority.
+
+**Disposition:** Unresolved, not yet root-caused. First step: reproduce with a delete (`rm` via Bash, and a native delete tool if one exists) under Claude Code and inspect what `approvalOperation` / the preview builder emits for that tool input.
+
+### Startup and unknown-agent warnings are dropped when an invocation ends in a policy failure
+
+**Severity:** friction
+**Date:** 2026-09-19
+**Context:** Surfaced during the agent-scoping work.
+
+In `src/engine/run.ts:859`, the policy-failure branch calls `adapter.translateFailure({ eventName, invocation, failure: policyFailure })` without passing the accumulated system messages, while the sibling branch at `run.ts:860` (`translateFinalOutput`) does pass `systemMessages: allSystemMessages`. `allSystemMessages` (built at `run.ts:850-855`) includes `startupWarnings` — shadow warnings (`buildShadowWarnings`), the "unknown agent ids in agents lists (ignored)" warning (`buildUnknownAgentWarnings` in `src/engine/match.ts:133`), and order/enabled-mismatch warnings built at `run.ts:716-753` — plus `danglingWarnings`. None of these reach the user when the invocation ends via the policy-failure path.
+
+**Disposition:** Pre-existing behavior, unresolved.
+
 ### Codex registration ownership misses earlier absolute commands
 
 **Severity:** friction

@@ -483,4 +483,33 @@ describe('runEngine load-failure counters', () => {
     )
     expect(await loadCount(failurePath)).toBe(3)
   })
+
+  test('an order list naming a hook that keeps failing to load degrades instead of throwing', async () => {
+    const { root, failurePath } = makeProject()
+    const calls: string[] = []
+    const healthy = makeHook('healthy', {
+      PreToolUse: () => {
+        calls.push('healthy')
+        return { result: 'skip' }
+      },
+    })
+    const config = makeConfig({ flaky: {}, healthy: {} }, undefined, {
+      PreToolUse: { order: [flakyName, 'healthy' as HookName] },
+    })
+    const loadErrors: HookLoadError[] = [{ name: flakyName, error: 'import exploded' }]
+
+    for (const expected of [1, 2]) {
+      const blocked = await runCoreWithExitTrap(makeCounterDeps(root, [], loadErrors, config))
+      expect(JSON.parse(blocked.stdout).hookSpecificOutput.permissionDecision).toBe('deny')
+      expect(await loadCount(failurePath)).toBe(expected)
+    }
+
+    const degraded = await runCoreWithExitTrap(makeCounterDeps(root, [healthy], loadErrors, config))
+    expect(degraded.stderr).not.toContain('does not handle this event')
+    expect(JSON.parse(degraded.stdout).systemMessage).toContain(
+      'has been disabled after 3 consecutive load failures',
+    )
+    expect(calls).toEqual(['healthy'])
+    expect(await loadCount(failurePath)).toBe(3)
+  })
 })

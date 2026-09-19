@@ -785,10 +785,11 @@ async function runEngineInvocation(
     }
   }
 
-  // Ordering treats agent-excluded names like disabled ones: an `order:` list
-  // naming them stays valid under the other agent.
+  // Ordering treats agent-excluded, disabled, and import-failed names alike:
+  // an `order:` list naming any of them stays valid instead of throwing.
   const disabledNames = new Set<HookName>(agentSkippedNames)
   for (const s of disabledSkips) disabledNames.add(s.hook)
+  for (const e of loadErrors) disabledNames.add(e.name)
 
   // Built after the no-match exit, so no snapshot is read when nothing will
   // run. A boundary above already produced the post-boundary state; reuse it

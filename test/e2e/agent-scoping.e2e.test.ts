@@ -309,6 +309,31 @@ broken:
     })
   }
 
+  test('an order list naming a hook whose import throws degrades instead of throwing an ordering error', () => {
+    sandbox = createSandbox()
+    markerHook('healthy', ['PreToolUse'])
+    sandbox.writeHook(
+      'broken.ts',
+      `throw new Error('import exploded')
+export const hook = { meta: { name: 'broken' }, PreToolUse() { return { result: 'skip' } } }
+`,
+    )
+    sandbox.writeConfig(`version: "1.0.0"
+broken:
+  maxFailures: 1
+healthy: {}
+PreToolUse:
+  order: [broken, healthy]
+`)
+
+    const result = run('claude-code', 'PreToolUse')
+    expect(result.exitCode, formatDiagnostics(result)).toBe(0)
+    expect(result.stderr).not.toContain('does not handle this event')
+    const output = JSON.parse(result.stdout)
+    expect(output.systemMessage).toContain('has been disabled after 1 consecutive load failures')
+    expectMarks(result, ['healthy:PreToolUse'])
+  })
+
   test('debug output names the level that excluded the hook', () => {
     sandbox = createSandbox()
     markerHook('by-entry', ['PreToolUse'])

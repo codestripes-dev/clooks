@@ -316,6 +316,7 @@ function git(cwd: string, ...args: string[]) {
   return result.stdout
 }
 const digest = (path: string) => createHash('sha256').update(readFileSync(path)).digest('hex')
+const requiresDocker = process.env.CLOOKS_E2E_DOCKER !== 'true'
 
 describe('static move inspection', () => {
   test.each(unsupportedMoves)('unsupported syntax gets no rewrite: %s', (command) => {
@@ -340,80 +341,86 @@ describe('static move inspection', () => {
     expect(literalMove(command as string)?.argv).toEqual(argv)
     expect(rewriteToGitMv(command as string)).toBe(rewrite)
   })
-  test('unsupported syntax executes no git probe or shell sentinel under either agent', () => {
-    const dir = directory()
-    const probe = spyOn(childProcess, 'spawnSync').mockReturnValue({ status: 0 } as ReturnType<
-      typeof spawnSync
-    >)
-    try {
-      for (const agent of ['claude-code', 'codex'] as const) {
-        for (const command of unsupportedMoves)
-          expect(inspectMove(command, dir, agent)).toEqual({ result: 'skip' })
+  test.skipIf(requiresDocker)(
+    'unsupported syntax executes no git probe or shell sentinel under either agent',
+    () => {
+      const dir = directory()
+      const probe = spyOn(childProcess, 'spawnSync').mockReturnValue({ status: 0 } as ReturnType<
+        typeof spawnSync
+      >)
+      try {
+        for (const agent of ['claude-code', 'codex'] as const) {
+          for (const command of unsupportedMoves)
+            expect(inspectMove(command, dir, agent)).toEqual({ result: 'skip' })
+        }
+        expect(probe).not.toHaveBeenCalled()
+        expect(existsSync(join(dir, 'sentinel'))).toBe(false)
+        let expectedCalls = 0
+        for (const agent of ['claude-code', 'codex'] as const) {
+          for (const [command, argv] of [
+            ['mv a b', ['a', 'b']],
+            ["mv 'literal space' 'new space'", ['literal space', 'new space']],
+            ["mv '$(literal)' a\\;b", ['$(literal)', 'a;b']],
+            ['mv -- -a -b', ['--', '-a', '-b']],
+          ] as const) {
+            expect(inspectMove(command, dir, agent).updatedInput).toEqual({
+              command: `git ${command}`,
+            })
+            expect(probe).toHaveBeenLastCalledWith('git', ['mv', '-n', ...argv], {
+              cwd: dir,
+              timeout: 3000,
+              stdio: 'pipe',
+            })
+            expectedCalls++
+          }
+        }
+        expect(probe).toHaveBeenCalledTimes(expectedCalls)
+      } finally {
+        probe.mockRestore()
       }
-      expect(probe).not.toHaveBeenCalled()
-      expect(existsSync(join(dir, 'sentinel'))).toBe(false)
-      let expectedCalls = 0
+    },
+  )
+  test.skipIf(requiresDocker)(
+    'real git dry-run preserves files/index and fallback for untracked/missing/non-repo',
+    () => {
+      const dir = directory()
+      git(dir, 'init')
+      for (const name of ['a', 'literal space', 'a;b', '-a', '$(literal)'])
+        writeFileSync(join(dir, name), name)
+      git(dir, 'add', '--', 'a', 'literal space', 'a;b', '-a', '$(literal)')
+      writeFileSync(join(dir, 'untracked'), 'untracked')
+      const index = digest(join(dir, '.git/index'))
       for (const agent of ['claude-code', 'codex'] as const) {
-        for (const [command, argv] of [
-          ['mv a b', ['a', 'b']],
-          ["mv 'literal space' 'new space'", ['literal space', 'new space']],
-          ["mv '$(literal)' a\\;b", ['$(literal)', 'a;b']],
-          ['mv -- -a -b', ['--', '-a', '-b']],
-        ] as const) {
+        for (const command of [
+          'mv a b',
+          "mv 'literal space' 'new space'",
+          'mv a\\;b c',
+          'mv -- -a -b',
+          "mv '$(literal)' literal-new",
+        ]) {
           expect(inspectMove(command, dir, agent).updatedInput).toEqual({
             command: `git ${command}`,
           })
-          expect(probe).toHaveBeenLastCalledWith('git', ['mv', '-n', ...argv], {
-            cwd: dir,
-            timeout: 3000,
-            stdio: 'pipe',
-          })
-          expectedCalls++
+          expect(digest(join(dir, '.git/index'))).toBe(index)
+        }
+        for (const command of ['mv untracked new', 'mv missing new', 'mv a untracked']) {
+          const result = inspectMove(command, dir, agent)
+          expect(result.result).toBe('allow')
+          expect(result.updatedInput).toBeUndefined()
+          expect(result.injectContext).toContain('Unable to automatically use git mv')
         }
       }
-      expect(probe).toHaveBeenCalledTimes(expectedCalls)
-    } finally {
-      probe.mockRestore()
-    }
-  })
-  test('real git dry-run preserves files/index and fallback for untracked/missing/non-repo', () => {
-    const dir = directory()
-    git(dir, 'init')
-    for (const name of ['a', 'literal space', 'a;b', '-a', '$(literal)'])
-      writeFileSync(join(dir, name), name)
-    git(dir, 'add', '--', 'a', 'literal space', 'a;b', '-a', '$(literal)')
-    writeFileSync(join(dir, 'untracked'), 'untracked')
-    const index = digest(join(dir, '.git/index'))
-    for (const agent of ['claude-code', 'codex'] as const) {
-      for (const command of [
-        'mv a b',
-        "mv 'literal space' 'new space'",
-        'mv a\\;b c',
-        'mv -- -a -b',
-        "mv '$(literal)' literal-new",
-      ]) {
-        expect(inspectMove(command, dir, agent).updatedInput).toEqual({
-          command: `git ${command}`,
-        })
-        expect(digest(join(dir, '.git/index'))).toBe(index)
-      }
-      for (const command of ['mv untracked new', 'mv missing new', 'mv a untracked']) {
-        const result = inspectMove(command, dir, agent)
-        expect(result.result).toBe('allow')
-        expect(result.updatedInput).toBeUndefined()
-        expect(result.injectContext).toContain('Unable to automatically use git mv')
-      }
-    }
-    for (const name of ['a', 'literal space', 'a;b', '-a', '$(literal)'])
-      expect(readFileSync(join(dir, name), 'utf8')).toBe(name)
-    for (const name of ['b', 'new space', 'c', '-b', 'literal-new', 'new'])
-      expect(existsSync(join(dir, name))).toBe(false)
-    expect(digest(join(dir, '.git/index'))).toBe(index)
-    expect(inspectMove('mv a b', directory()).updatedInput).toBeUndefined()
-    expect(
-      decision(move.PreToolUse!(context('mv a b', { toolName: 'Write' }) as never, {})).result,
-    ).toBe('skip')
-  })
+      for (const name of ['a', 'literal space', 'a;b', '-a', '$(literal)'])
+        expect(readFileSync(join(dir, name), 'utf8')).toBe(name)
+      for (const name of ['b', 'new space', 'c', '-b', 'literal-new', 'new'])
+        expect(existsSync(join(dir, name))).toBe(false)
+      expect(digest(join(dir, '.git/index'))).toBe(index)
+      expect(inspectMove('mv a b', directory()).updatedInput).toBeUndefined()
+      expect(
+        decision(move.PreToolUse!(context('mv a b', { toolName: 'Write' }) as never, {})).result,
+      ).toBe('skip')
+    },
+  )
 })
 
 const confirmations = [
