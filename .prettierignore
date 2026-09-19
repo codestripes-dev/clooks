@@ -6,3 +6,5 @@ src/generated/
 .clooks/hooks/types.d.ts
 .clooks/vendor/
 test/fixtures/github-raw/
+schemas/clooks.schema.json
+.clooks/clooks.schema.json

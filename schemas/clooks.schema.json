@@ -17,7 +17,10 @@
         },
         "onError": {
           "type": "string",
-          "enum": ["block", "continue"]
+          "enum": [
+            "block",
+            "continue"
+          ]
         },
         "maxFailures": {
           "type": "integer",
@@ -350,7 +353,9 @@
       "additionalProperties": {}
     }
   },
-  "required": ["version"],
+  "required": [
+    "version"
+  ],
   "additionalProperties": {
     "type": "object",
     "properties": {
@@ -371,7 +376,11 @@
       },
       "onError": {
         "type": "string",
-        "enum": ["block", "continue", "trace"]
+        "enum": [
+          "block",
+          "continue",
+          "trace"
+        ]
       },
       "parallel": {
         "type": "boolean"
@@ -415,7 +424,11 @@
             "properties": {
               "onError": {
                 "type": "string",
-                "enum": ["block", "continue", "trace"]
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
               },
               "enabled": {
                 "type": "boolean"
@@ -448,7 +461,11 @@
             "properties": {
               "onError": {
                 "type": "string",
-                "enum": ["block", "continue", "trace"]
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
               },
               "enabled": {
                 "type": "boolean"
@@ -481,7 +498,11 @@
             "properties": {
               "onError": {
                 "type": "string",
-                "enum": ["block", "continue", "trace"]
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
               },
               "enabled": {
                 "type": "boolean"
@@ -514,7 +535,11 @@
             "properties": {
               "onError": {
                 "type": "string",
-                "enum": ["block", "continue", "trace"]
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
               },
               "enabled": {
                 "type": "boolean"
@@ -547,7 +572,11 @@
             "properties": {
               "onError": {
                 "type": "string",
-                "enum": ["block", "continue", "trace"]
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
               },
               "enabled": {
                 "type": "boolean"
@@ -580,7 +609,11 @@
             "properties": {
               "onError": {
                 "type": "string",
-                "enum": ["block", "continue", "trace"]
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
               },
               "enabled": {
                 "type": "boolean"
@@ -613,7 +646,11 @@
             "properties": {
               "onError": {
                 "type": "string",
-                "enum": ["block", "continue", "trace"]
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
               },
               "enabled": {
                 "type": "boolean"
@@ -646,7 +683,11 @@
             "properties": {
               "onError": {
                 "type": "string",
-                "enum": ["block", "continue", "trace"]
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
               },
               "enabled": {
                 "type": "boolean"
@@ -679,7 +720,11 @@
             "properties": {
               "onError": {
                 "type": "string",
-                "enum": ["block", "continue", "trace"]
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
               },
               "enabled": {
                 "type": "boolean"
@@ -712,7 +757,11 @@
             "properties": {
               "onError": {
                 "type": "string",
-                "enum": ["block", "continue", "trace"]
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
               },
               "enabled": {
                 "type": "boolean"
@@ -745,7 +794,11 @@
             "properties": {
               "onError": {
                 "type": "string",
-                "enum": ["block", "continue", "trace"]
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
               },
               "enabled": {
                 "type": "boolean"
@@ -778,7 +831,11 @@
             "properties": {
               "onError": {
                 "type": "string",
-                "enum": ["block", "continue", "trace"]
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
               },
               "enabled": {
                 "type": "boolean"
@@ -811,7 +868,11 @@
             "properties": {
               "onError": {
                 "type": "string",
-                "enum": ["block", "continue", "trace"]
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
               },
               "enabled": {
                 "type": "boolean"
@@ -844,7 +905,11 @@
             "properties": {
               "onError": {
                 "type": "string",
-                "enum": ["block", "continue", "trace"]
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
               },
               "enabled": {
                 "type": "boolean"
@@ -877,7 +942,11 @@
             "properties": {
               "onError": {
                 "type": "string",
-                "enum": ["block", "continue", "trace"]
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
               },
               "enabled": {
                 "type": "boolean"
@@ -910,7 +979,11 @@
             "properties": {
               "onError": {
                 "type": "string",
-                "enum": ["block", "continue", "trace"]
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
               },
               "enabled": {
                 "type": "boolean"
@@ -943,7 +1016,11 @@
             "properties": {
               "onError": {
                 "type": "string",
-                "enum": ["block", "continue", "trace"]
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
               },
               "enabled": {
                 "type": "boolean"
@@ -976,7 +1053,11 @@
             "properties": {
               "onError": {
                 "type": "string",
-                "enum": ["block", "continue", "trace"]
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
               },
               "enabled": {
                 "type": "boolean"
@@ -1009,7 +1090,11 @@
             "properties": {
               "onError": {
                 "type": "string",
-                "enum": ["block", "continue", "trace"]
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
               },
               "enabled": {
                 "type": "boolean"
@@ -1042,7 +1127,11 @@
             "properties": {
               "onError": {
                 "type": "string",
-                "enum": ["block", "continue", "trace"]
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
               },
               "enabled": {
                 "type": "boolean"
@@ -1075,7 +1164,11 @@
             "properties": {
               "onError": {
                 "type": "string",
-                "enum": ["block", "continue", "trace"]
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
               },
               "enabled": {
                 "type": "boolean"
@@ -1108,7 +1201,11 @@
             "properties": {
               "onError": {
                 "type": "string",
-                "enum": ["block", "continue", "trace"]
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
               },
               "enabled": {
                 "type": "boolean"
@@ -1141,7 +1238,11 @@
             "properties": {
               "onError": {
                 "type": "string",
-                "enum": ["block", "continue", "trace"]
+                "enum": [
+                  "block",
+                  "continue",
+                  "trace"
+                ]
               },
               "enabled": {
                 "type": "boolean"
