@@ -46,7 +46,7 @@
             "timeout": 2147483,
             "input": {
               "protocol": 1,
-              "provider": "claude-code",
+              "agent": "claude-code",
               "owner": "project:ce0a4cfa47c6b6676e7c84a5014187f8",
               "session_id": "${session_id}",
               "tool_use_id": "${tool_use_id}"

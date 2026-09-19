@@ -38,7 +38,7 @@
             "timeout": 2147483,
             "input": {
               "protocol": 1,
-              "provider": "codex",
+              "agent": "codex",
               "owner": "project:f0975aede24b1554fc50742dd2c0da99",
               "session_id": "${session_id}",
               "tool_use_id": "${tool_use_id}",
