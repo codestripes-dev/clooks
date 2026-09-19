@@ -39,13 +39,13 @@ Only fields the model reads are eligible: `injectContext` on injectable events; 
 
 Config-time validation rejects an event-level `handoff: true` or a number on an event with no eligible payload (mirrors the `trace`-on-non-injectable check). An explicit event-level `handoff: false` is always accepted, even on an ineligible event — global and hook-level `handoff` are accepted everywhere since a hook typically serves multiple events.
 
-### Provider delivery eligibility
+### Agent delivery eligibility
 
 Claude and Codex use the shared file protocol for accepted, eligible payloads. Codex no longer applies a blanket inline-only guard: qualifying context on SessionStart, SubagentStart, PreToolUse, PostToolUse and UserPromptSubmit, and block reasons on PreToolUse, PostToolUse, Stop and SubagentStop, can become file pointers. Decision tags are preserved. Human-facing reasons and diagnostics remain inline, and capability rejection occurs before handoff so refused result effects do not create payload files.
 
 `applyHandoff()` still accepts an invocation policy's optional delivery eligibility and an inline-fallback callback. If a policy marks a qualifying field ineligible, the field stays inline without a file write and the executor collects a human system-message notice. Neither current Claude nor Codex policy imposes that extra restriction. File-write failure separately retains the original inline text with a stderr warning.
 
-Compiled E2E coverage checks exact pointers and file contents, thresholds, preserved decisions, rejection before writes and inline write-failure fallback. The separate [native handoff scenarios](../testing/codex-native.md#native-handoff-interrupt-and-mcp) verify that parent and child tool reads deliver the full contents into subsequent model requests, including sandboxed child reads. The scripted model requests prove delivery, not that a model will follow the instructions.
+Compiled E2E coverage checks exact pointers and file contents, thresholds, preserved decisions, rejection before writes and inline write-failure fallback. The separate [native handoff scenarios](../testing/codex-native/scenarios.md#native-handoff-interrupt-and-mcp) verify that parent and child tool reads deliver the full contents into subsequent model requests, including sandboxed child reads. The scripted model requests prove delivery, not that a model will follow the instructions.
 
 ## File protocol
 

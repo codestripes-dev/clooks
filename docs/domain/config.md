@@ -76,7 +76,8 @@ PreToolUse:
 | `maxFailuresMessage` | string | — | Per-hook override for the reminder message template |
 | `enabled` | boolean | `true` | If `false`, hook is fully disabled — loads but never runs for any event. |
 | `handoff` | `boolean \| positive integer` | — | Per-hook override for long-message delivery. See `docs/domain/config/handoff.md`. |
-| `events` | `Partial<Record<EventName, { onError?: ErrorMode; enabled?: boolean; handoff?: boolean \| positive integer }>>` | — | Per-hook, per-event overrides. Keys are event names, values are objects with `onError`, `enabled`, and/or `handoff`. |
+| `agents` | `string[]` | — | Agent allowlist for this hook. Overrides the hook's own `meta.agents` and the global `config.agents` fallback. See `docs/domain/config/agents.md`. |
+| `events` | `Partial<Record<EventName, { onError?: ErrorMode; enabled?: boolean; handoff?: boolean \| positive integer; agents?: string[] }>>` | — | Per-hook, per-event overrides. Keys are event names, values are objects with `onError`, `enabled`, `handoff`, and/or `agents`. |
 
 ### Event Entry Fields
 
@@ -84,7 +85,7 @@ PreToolUse:
 |-------|------|-------------|
 | `order` | `HookName[]` | Explicit execution order for hooks on this event |
 
-Event-level `timeout` and `onError` have been removed. Use per-hook `timeout` and per-hook event overrides (`hooks.<name>.events.<event>.onError`) instead.
+Event-level `timeout` and `onError` have been removed. Use per-hook `timeout` and per-hook event overrides (`hooks.<name>.events.<event>.onError`) instead. `agents` is likewise not accepted on a top-level event entry — a per-event allowlist belongs on the owning hook, at `hooks.<name>.events.<event>.agents`.
 
 Codex native registration is a separate timeout layer: SessionEnd alone registers `timeout: 3` seconds for the entire pipeline, including entrypoint startup and all hooks. This does not change the per-hook millisecond cascade below. Existing installations require init refresh to add/canonicalize SessionEnd; other native event timeouts stay unchanged.
 
@@ -97,6 +98,7 @@ Codex native registration is a separate timeout layer: SessionEnd alone register
 | `maxFailures` | number | `3` | Consecutive failures before a hook+event pair is degraded. `0` = disabled (classic fail-closed). |
 | `maxFailuresMessage` | string | *(see below)* | Template for the reminder message when a degraded hook is skipped. Supports `{hook}`, `{event}`, `{count}`, `{error}` interpolation. |
 | `handoff` | `boolean \| positive integer` | `false` | Default long-message delivery policy. See `docs/domain/config/handoff.md`. |
+| `agents` | `string[]` | — | Fallback agent allowlist for hooks that declare none. Absent means every agent. See `docs/domain/config/agents.md`. |
 
 ## Hook Path Resolution
 
@@ -212,6 +214,10 @@ The `enabled` field controls whether a hook runs. It can be set at two levels:
 
 **Config layering:** Because hook entries merge atomically across layers, a local override of `enabled: false` replaces the entire hook entry — other fields (`uses`, `timeout`, `onError`, `events`) from the base layer are lost. To re-enable a hook, remove the local entry entirely rather than changing `enabled: false` to `enabled: true` (which would leave the other fields missing).
 
+## Agent Scoping
+
+`agents` restricts which invoking agent (`claude-code`, `codex`) runs a hook — an allowlist with its own five-level cascade, separate from the cascades above. See `docs/domain/config/agents.md` for the precedence order, unknown-id handling, validation errors, and layering across home/project/local config.
+
 ## Execution Group Model and Circuit Breaker
 
 See `docs/domain/config/execution.md` for the full treatment of:
@@ -238,6 +244,7 @@ Config parsing takes ~15ms per invocation using Bun's native YAML parser (`Bun.Y
 - `docs/domain/config/discovery.md` — How project root is resolved via walk-up.
 - `docs/domain/config/execution.md` — Execution groups, ordering, and circuit breaker.
 - `docs/domain/config/handoff.md` — Long-message delivery: value shape, eligibility, file protocol, cleanup.
+- `docs/domain/config/agents.md` — Agent allowlist cascade, unknown ids, validation, layering.
 - `docs/domain/hook-type-system.md` — Hook contract and type system
 - `docs/research/config-file-parsing.md` — YAML parser research and benchmarks
 - `docs/research/yaml-parser-comparison.md` — Bun.YAML vs js-yaml comparison and benchmarks

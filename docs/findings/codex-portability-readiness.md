@@ -4,7 +4,7 @@
 
 **Severity:** friction
 **Date:** 2026-09-08
-**Context:** The ten-event Codex adapter has source-backed mappings and passing Clooks unit and compiled-binary Docker coverage. Those checks do not establish native activation or enforcement. See [Testing evidence levels](../domain/testing.md#codex-evidence-levels) for capability classifications.
+**Context:** The ten-event Codex adapter has source-backed mappings and passing Clooks unit and compiled-binary Docker coverage. Those checks do not establish native activation or enforcement. See [Testing evidence levels](../domain/testing/e2e-conventions.md#codex-evidence-levels) for capability classifications.
 
 Remaining work:
 

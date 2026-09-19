@@ -99,11 +99,11 @@ record inputs support partial patches.
 Typed PreToolUse skip context and PermissionRequest block's `interrupt:false`
 are runtime capabilities, not launcher controls. Configured handoff uses the
 shared file/pointer path, with inline fallback on write failure; no launcher
-inline-only guard applies. See [current capabilities](cross-agent-hooks.md#current-runtime-capabilities).
+inline-only guard applies. See [current capabilities](cross-agent-hooks/codex-capabilities.md#current-runtime-capabilities).
 
 `registration-approvals.ts` supplies the exact metadata prefix and companion
 template. PreToolUse pairs the command with `clooks.check`, using native session
-and tool-use IDs plus Codex turn ID, literal provider/owner and protocol 1. Both
+and tool-use IDs plus Codex turn ID, literal agent/owner and protocol 1. Both
 handlers use shared `APPROVAL_TIMEOUT_SECONDS` of 2,147,483 seconds (about 24.85
 days, a finite native fallback). Codex MCP uses the same seconds value; Claude's
 server `timeout` uses the derived 2,147,483,000 ms to override its wall timer and
@@ -124,7 +124,7 @@ older command-only launcher receipts retain their original snapshot scope.
 The entrypoint is registered with the selected agent hook system. Registration
 points at one Clooks command per event rather than individual hook files, plus
 the PreToolUse MCP companion. Server locations and supported layouts are listed
-in [CLI Architecture](cli-architecture.md#clooks-init--clooks-init---global).
+in [CLI Architecture](cli-architecture/commands-setup.md#clooks-init--clooks-init---global).
 
 Two registration scopes exist:
 
@@ -216,7 +216,7 @@ The shared read-only SessionStart reminder lives in the **sibling marketplace re
 | No executable PATH result, but executable `$HOME/.local/bin/clooks` exists | Exit 0 with an installed-but-unavailable-on-this-agent's-PATH reminder; suggest explicit setup `check` and PATH correction |
 | Neither location has an executable regular file | Exit 0 with an explicit setup reminder; non-executable files and directories do not count as an executable runtime |
 
-**Provider selection:** Only `CLOOKS_AGENT=codex` selects the literal `$clooks:setup` command. An absent, empty, or other value defaults to Claude's `/clooks:setup`. The script does not infer provider identity from `CLAUDE_PLUGIN_ROOT`. The managed-only reminder names `$clooks:setup check` or `/clooks:setup check`, respectively.
+**Agent selection:** Only `CLOOKS_AGENT=codex` selects the literal `$clooks:setup` command. An absent, empty, or other value defaults to Claude's `/clooks:setup`. The script does not infer agent identity from `CLAUDE_PLUGIN_ROOT`. The managed-only reminder names `$clooks:setup check` or `/clooks:setup check`, respectively.
 
 **Output envelope:** Reminder branches emit nonblocking exit 0 JSON with a top-level `systemMessage` for the user-facing warning and `hookSpecificOutput` containing `hookEventName: "SessionStart"` and `additionalContext` for agent context. `systemMessage` is not nested. Only fixed message strings and the selected literal setup command enter JSON; paths and arbitrary environment values are not interpolated into it.
 
@@ -226,7 +226,7 @@ The shared read-only SessionStart reminder lives in the **sibling marketplace re
 
 **Relationship to runtime launchers:** Explicit setup can run `clooks init` to create project/global runtime registrations. Those launchers retain their existing PATH-only resolution, missing-binary exit 0 stderr advisory, stdin capture/replay, binary execution and fail-closed translation of runtime failures. The plugin reminder performs none of that dispatch or translation and needs no runtime deduplication check. Its silence depends on executable PATH presence, not whether init ran.
 
-**Evidence boundary:** The co-located tests exercise the actual script copied into disposable cache-shaped paths, parse JSON, verify stdin delivery/draining, and use command spies plus filesystem snapshots. They cover provider selection, bypass, executable PATH/managed states, non-executable files and paths containing spaces. These are isolated script checks, not verification of native loading, trust, context delivery, or execution of the actual packaged plugin.
+**Evidence boundary:** The co-located tests exercise the actual script copied into disposable cache-shaped paths, parse JSON, verify stdin delivery/draining, and use command spies plus filesystem snapshots. They cover agent selection, bypass, executable PATH/managed states, non-executable files and paths containing spaces. These are isolated script checks, not verification of native loading, trust, context delivery, or execution of the actual packaged plugin.
 
 ### Comparison Table
 

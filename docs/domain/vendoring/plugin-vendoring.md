@@ -34,7 +34,7 @@ declared; `clooks-pack.json` numeric `version: 1` remains the pack schema versio
 
 ### Installed-file membership is separate
 
-`ctx.helpers.belongsToPlugin(path)` does not run hook-pack discovery or vendoring. It lazily snapshots installed roots for the current provider once per engine invocation, then canonicalizes and stats each candidate file on every call. Relative candidates use the event context's `cwd`; invalid, missing, directory, escaping, or uncertain paths return `false`. A positive result is membership only, never authorization.
+`ctx.helpers.belongsToPlugin(path)` does not run hook-pack discovery or vendoring. It lazily snapshots installed roots for the current agent once per engine invocation, then canonicalizes and stats each candidate file on every call. Relative candidates use the event context's `cwd`; invalid, missing, directory, escaping, or uncertain paths return `false`. A positive result is membership only, never authorization.
 
 For Claude, the snapshot accepts existing non-orphaned absolute roots recorded in `installed_plugins.json` regardless of enabled settings or recorded scope. For Codex, it performs a fixed-depth scan of every materialized `plugins/cache/<marketplace>/<plugin>/<version>` directory under the effective `CODEX_HOME`; each version needs a parseable `.codex-plugin/plugin.json` JSON object whose `name` matches the plugin directory. This identity check does not validate full native plugin metadata or installability. Disabled, unconfigured, and older materialized versions remain installed-file members. This helper does not require `clooks-pack.json`, select an active version, walk plugin file trees, or spawn a native client.
 
@@ -145,6 +145,8 @@ enforce-commits:
 
 Hooks with `autoEnable: true` or `autoEnable` omitted produce the standard format (no `enabled` field). Explicitly writing `autoEnable: true` is a no-op — it does not produce `enabled: true` in the YAML.
 
+Plugin auto-registration never writes an `agents` field, regardless of what the hook's own `meta.agents` says or which agent discovered the pack. Author intent about which agents a hook supports travels entirely through `meta.agents` in the hook's source; copying it into the generated yaml entry would promote that default into a user override and freeze it against later metadata updates. A user who wants to scope a vendored hook further adds `agents:` to the entry by hand — see `docs/domain/config/agents.md`.
+
 ### Algorithm
 
 The function operates in two phases:
@@ -194,7 +196,7 @@ The discovery step adds ~5ms per invocation when `installed_plugins.json` exists
 
 ### Dependency Injection
 
-`discoverPluginPacks`, `discoverCodexPluginPacks`, and `vendorAndRegisterPack` are optional fields on `RunEngineDeps`. Default engine dependencies supply both discovery functions; test-owned dependencies missing the selected function do not fall back to default discovery or a real home. The shared preparation helper accepts packs and vendor/load dependencies, never discovers another provider, and has no mutable adapter state. Optional preparation metadata preserves existing injected adapters. Tests use explicit DI, not `mock.module()`.
+`discoverPluginPacks`, `discoverCodexPluginPacks`, and `vendorAndRegisterPack` are optional fields on `RunEngineDeps`. Default engine dependencies supply both discovery functions; test-owned dependencies missing the selected function do not fall back to default discovery or a real home. The shared preparation helper accepts packs and vendor/load dependencies, never discovers another agent, and has no mutable adapter state. Optional preparation metadata preserves existing injected adapters. Tests use explicit DI, not `mock.module()`.
 
 ## Stale Entry Detection
 
@@ -238,14 +240,14 @@ A project-scope `enabledPlugins: { X: false }` does **not** unregister a user-sc
 ### How it works
 
 1. Parses the `plugin:<pack>` argument to extract the pack name.
-2. Discovers matching `manifest.name` values from Claude and Codex independently of inherited `CLOOKS_AGENT`. Optional `--agent claude-code|codex` filters providers before discovery; unsupported values are rejected.
-3. Preflights every matching source before any destination writes or hook imports. Validated manifest structures are compared with `isDeepStrictEqual`, ignoring object key order but preserving arrays/types. Every referenced hook file is read into a byte snapshot and compared with `Buffer.equals`. Missing/unreadable sources fail preflight with provider, plugin key and path.
+2. Discovers matching `manifest.name` values from Claude and Codex independently of inherited `CLOOKS_AGENT`. Optional `--agent claude-code|codex` filters agents before discovery; unsupported values are rejected.
+3. Preflights every matching source before any destination writes or hook imports. Validated manifest structures are compared with `isDeepStrictEqual`, ignoring object key order but preserving arrays/types. Every referenced hook file is read into a byte snapshot and compared with `Buffer.equals`. Missing/unreadable sources fail preflight with agent, plugin key and path.
 4. Groups by physical vendor directory, resolving existing prefixes even when the destination is missing. Root/vendor aliases cannot evade conflict detection. Equivalent sources copy once per destination. Separate project/local config destinations are retained; aliased config files coalesce. Distinct home/project destinations may have different source content.
-5. Differing sources for one destination fail with zero writes anywhere, identifying providers and plugin keys. Cross-provider conflicts can be selected with `--agent`; same-provider marketplace conflicts remain errors after filtering and require disabling the unwanted source. No provider or newest-version preference silently resolves an update conflict.
+5. Differing sources for one destination fail with zero writes anywhere, identifying agents and plugin keys. Cross-agent conflicts can be selected with `--agent`; same-agent marketplace conflicts remain errors after filtering and require disabling the unwanted source. No agent or newest-version preference silently resolves an update conflict.
 6. Writes the preflighted bytes. Existing vendor files are refreshed without changing existing YAML. For absent files, structured YAML inspection checks each target config before copying. A registration whose `uses` resolves to the same physical vendor file is repaired: the file is restored and validated, reported as updated, and its YAML (including comments and disabled settings) is unchanged. A registration pointing elsewhere remains a name collision; all-collision targets create no vendor file. Genuinely new registrations are appended to each eligible config after validation; `autoEnable=false` stays disabled. Invalid new or restored modules are deleted and reported, leaving existing YAML intact. Destination resolution failures identify the vendor or config path, not a Codex-home setting.
 7. Prints updated, registered, skipped and error lists. Ambiguity/source-preflight failure has no successes and exits 1. Later copy/import/registration failures are reported per hook; the update is not a general filesystem transaction.
 
-`updatePluginPack()` retains its fourth-argument discovery-function form for existing callers. That form is Claude-only and never implicitly enables Codex discovery. The options form accepts optional per-provider discovery functions, selected agent and explicit Codex home; test-owned options do not acquire missing default dependencies. CLI defaults supply both providers. No provenance database is maintained.
+`updatePluginPack()` retains its fourth-argument discovery-function form for existing callers. That form is Claude-only and never implicitly enables Codex discovery. The options form accepts optional per-agent discovery functions, selected agent and explicit Codex home; test-owned options do not acquire missing default dependencies. CLI defaults supply both agents. No provenance database is maintained.
 
 ### What it does NOT do
 
@@ -262,7 +264,7 @@ A project-scope `enabledPlugins: { X: false }` does **not** unregister a user-sc
 - `src/commands/update.ts` — `updatePluginPack()`, `createUpdateCommand()` — explicit update via `clooks update plugin:<pack>`
 - `src/engine/run.ts` — `runEngine()` — engine pipeline with two-phase load for plugin discovery
 - `src/engine/types.ts` — `RunEngineDeps` — DI interface with optional plugin discovery deps
-- `src/plugin-file-helper.ts` — provider-local installed-file membership used by `ctx.helpers`
+- `src/plugin-file-helper.ts` — agent-local installed-file membership used by `ctx.helpers`
 - `src/manifest.ts` — `loadManifestFromFile()`, `validateManifest()` — manifest loading and validation
 - `src/loader.ts` — `validateHookExport()` — validates hook module shape after vendoring
 

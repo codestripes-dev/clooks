@@ -25,11 +25,11 @@ Events fall into 4 categories, each with a distinct result pattern:
 
 The `ExitCode` type is `typeof EXIT_OK | typeof EXIT_HOOK_FAILURE | typeof EXIT_STDERR`, which resolves to `0 | 1 | 2`. All `process.exit()` calls in the engine and CLI use the named constants.
 
-## BaseContext provider identity
+## BaseContext agent identity
 
-Every event context, including unknown-tool variants, has required `provider: Provider` (`'claude-code' | 'codex'`). The shared engine assigns the selected adapter's identity after normalization, overriding raw payload fields. An explicit adapter controls this value even if the process environment says otherwise. Provider identifies the upstream hook host, not subagent identity, tool availability or supported decision capabilities. Existing `agentId` and `agentType` retain their subagent meanings.
+Every event context, including unknown-tool variants, has required `agent: AgentId` (`'claude-code' | 'codex'`). The shared engine assigns the selected adapter's identity after normalization, overriding raw payload fields. An explicit adapter controls this value even if the process environment says otherwise. Agent identifies the upstream hook host, not subagent identity, tool availability or supported decision capabilities. Existing `agentId` and `agentType` retain their subagent meanings.
 
-Synthetic `createContext` and `createHarnessContext` default an omitted or undefined provider to Claude, independently of `CLOOKS_AGENT`, and accept either explicit provider. Invalid explicit values throw before dispatch. The public `Provider` type is also the type-only source for internal `AgentId`; author declarations do not import adapter runtime code.
+Synthetic `createContext` and `createHarnessContext` default an omitted or undefined agent to Claude, independently of `CLOOKS_AGENT`, and accept either explicit agent. Invalid explicit values throw before dispatch. `src/agents/types.ts` re-exports the public `AgentId` rather than declaring its own; author declarations do not import adapter runtime code.
 
 ## BaseContext fields for parallel execution
 
@@ -162,6 +162,8 @@ Hook `meta.config` defaults are shallow-merged with config overrides from `clook
 ## Runtime validation
 
 TypeScript types are erased when hook files are dynamically imported. The loader (`src/loader.ts`) performs runtime validation of every hook export via `validateHookExport()`. It checks: `hook` named export exists and is an object, `hook.meta` exists with a `name` string, all property keys are in the allowed set (`meta`, `beforeHook`, `afterHook`, plus 22 event names), and all non-`meta` properties are functions. Invalid hooks cause fail-closed behavior (the engine exits with code 2 and a diagnostic message on stderr).
+
+`hook.meta.agents?: AgentId[]` is validated the same way, when present: a non-empty array of non-empty strings, or a load error naming the file. `HookMeta.agents` is typed as the closed `AgentId[]` union for authors — the type checker keeps a typo like `'claudecode'` out of a hook's own source — but the runtime check accepts any non-empty string, matching the yaml-side `agents` schema. This lets a hook written against a future agent id still load under this version. See `docs/domain/config/agents.md` for how `meta.agents` composes with the `clooks.yml` `agents` cascade.
 
 **`meta.name` relaxation for aliases:** After `validateHookExport()`, the loader checks `meta.name` against an expected name. For regular hooks (no `uses`), `meta.name` must match the YAML key. For aliases with hook-name `uses`, `meta.name` must match the `uses` target (not the YAML key). For aliases with path-like `uses` (`./`, `../`, `/`), `meta.name` validation is skipped entirely — the hook file is a custom path and its `meta.name` is whatever the author set.
 

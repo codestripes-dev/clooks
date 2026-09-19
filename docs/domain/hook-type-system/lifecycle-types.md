@@ -8,7 +8,7 @@ Hook authors can define optional `beforeHook` and `afterHook` methods on their `
 
 `beforeHook` returns one of three universal verbs (`event.block`, `event.skip`, `event.passthrough`) or `void`. `afterHook` is a pure observer with one verb (`event.passthrough`) — it can read `event.handlerResult` typed once narrowed on `event.type`, but it cannot mutate the result.
 
-Both lifecycle slots read provider identity at `event.input.provider`, exactly like the handler's `ctx.provider`. It is not duplicated on `event.meta`. Sequential and parallel dispatch preserve the engine-assigned provider; synthetic harness lifecycle calls use the fixture's validated provider or Claude default.
+Both lifecycle slots read agent identity at `event.input.agent`, exactly like the handler's `ctx.agent`. It is not duplicated on `event.meta`. Sequential and parallel dispatch preserve the engine-assigned agent; synthetic harness lifecycle calls use the fixture's validated agent or Claude default.
 
 ## Why afterHook is observer-only
 

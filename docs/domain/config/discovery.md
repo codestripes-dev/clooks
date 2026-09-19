@@ -14,7 +14,7 @@ Before any `.clooks/clooks.yml` is read, the engine resolves the **project root*
 
 4. **cwd fallback** — If no `.clooks/clooks.yml` is found anywhere on the walk, cwd is used as the project root. This is a no-op for the project config layer. On `SessionStart` events the engine emits a one-line stderr advisory so users in unusual layouts can detect the fallback.
 
-## Provider Environment
+## Agent Environment
 
 Engine mode now calls discovery with `adapter.discoveryEnvironment(process.env)`. Claude uses the environment unchanged. Codex uses an invocation-local copy with `CLAUDE_PROJECT_DIR` removed, so its runtime discovers from cwd unless nonempty `CLOOKS_PROJECT_ROOT` supplies the explicit override. The override retains existing relative/absolute resolution and highest precedence; the adapter does not mutate `process.env`. Standalone discovery/CLI calls retain their normal environment behavior. This integration is implemented but full Docker integration validation has passed; it changes neither config merge rules nor repository trust assumptions.
 

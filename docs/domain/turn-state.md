@@ -2,7 +2,7 @@
 
 Per-hook memory of what a hook already did during the current turn. This is what makes "remind exactly once per turn" a one-line expression instead of a transcript-parsing subsystem each hook author has to build.
 
-The lifecycle rules below describe the unchanged Claude Code runtime. Codex now connects provider-isolated history and boundary handling for the ten-event target. The expanded source implementation is described below; its Docker validation has passed, separately from the completed PreToolUse gate.
+The lifecycle rules below describe the unchanged Claude Code runtime. Codex now connects agent-isolated history and boundary handling for the ten-event target. The expanded source implementation is described below; its Docker validation has passed, separately from the completed PreToolUse gate.
 
 ## Overview
 
@@ -19,7 +19,8 @@ turn: {
 The once-per-turn pattern:
 
 ```ts
-export default {
+export const hook: ClooksHook = {
+  meta: { name: 'lint-reminder' },
   Stop(ctx) {
     if (ctx.turn.priorInterventions > 0) return ctx.skip()
     return ctx.block({ reason: 'Remember to lint the files you changed.' })
@@ -118,15 +119,15 @@ semantics below are unchanged.
 
 One JSON document per session at `<homeRoot>/.clooks/turn-state/<hash>.json`, where `hash` is the first 16 hex characters of `sha256(sessionId)`. The directory is 0700, files 0600. The raw session id is never written into a path or into the file.
 
-### Provider-aware storage helpers
+### Agent-aware storage helpers
 
-The engine reads snapshots with `readTurnState(path, { homeRoot, provider })`. For Codex, the path's parent must match the selected provider directory; `.clooks`, `turn-state` and `codex` must each be real directories, and their resolved location must remain inside the selected home. Invalid parents produce empty history with a warning (missing parents are quiet), without reading through the alias. The subsequent bounded read uses the existing no-follow descriptor and regular-file check. Omitting access metadata or selecting Claude retains the existing parent-validation behavior; the shared reader now also uses `O_NONBLOCK` to avoid waiting on FIFO snapshots. These checks complement provider-aware writes and pruning; they address accidental link isolation, not hostile concurrent filesystem mutation or a new trust boundary. Corrected-source Docker validation has passed.
+The engine reads snapshots with `readTurnState(path, { homeRoot, agent })`. For Codex, the path's parent must match the selected agent directory; `.clooks`, `turn-state` and `codex` must each be real directories, and their resolved location must remain inside the selected home. Invalid parents produce empty history with a warning (missing parents are quiet), without reading through the alias. The subsequent bounded read uses the existing no-follow descriptor and regular-file check. Omitting access metadata or selecting Claude retains the existing parent-validation behavior; the shared reader now also uses `O_NONBLOCK` to avoid waiting on FIFO snapshots. These checks complement agent-aware writes and pruning; they address accidental link isolation, not hostile concurrent filesystem mutation or a new trust boundary. Corrected-source Docker validation has passed.
 
-The storage helpers now accept an optional provider, defaulting to `claude-code`. The default and explicit Claude paths remain unchanged. `turnStatePath(homeRoot, sessionId, 'codex')` selects `<homeRoot>/.clooks/turn-state/codex/<hash>.json`, using the same session hash. The Codex runtime selects this provider through its private turn policy and passes it through tracker creation and commit.
+The storage helpers now accept an optional agent, defaulting to `claude-code`. The default and explicit Claude paths remain unchanged. `turnStatePath(homeRoot, sessionId, 'codex')` selects `<homeRoot>/.clooks/turn-state/codex/<hash>.json`, using the same session hash. The Codex runtime selects this agent through its private turn policy and passes it through tracker creation and commit.
 
-Pass the same provider through `applyTurnBoundary()`, `createTurnTracker({ provider, ... })`, `commitTurnRecords()` and `pruneTurnState()`. The tracker forwards its provider when committing. Boundary and commit operations resolve the selected managed directory and use the supplied path's basename there; changing only the path without passing its provider does not select the Codex write directory. The shared base and selected provider directory retain mode enforcement, symlink refusal and realpath containment checks. Locks and staging files stay beside the selected state file. Pruning reads only regular files in that provider's directory and does not recurse into the other provider's state; Claude pruning skips the Codex subdirectory.
+Pass the same agent through `applyTurnBoundary()`, `createTurnTracker({ agent, ... })`, `commitTurnRecords()` and `pruneTurnState()`. The tracker forwards its agent when committing. Boundary and commit operations resolve the selected managed directory and use the supplied path's basename there; changing only the path without passing its agent does not select the Codex write directory. The shared base and selected agent directory retain mode enforcement, symlink refusal and realpath containment checks. Locks and staging files stay beside the selected state file. Pruning reads only regular files in that agent's directory and does not recurse into the other agent's state; Claude pruning skips the Codex subdirectory.
 
-Provider selection partitions storage, not logical turns. The epoch/generation format, size limits, lock behavior and best-effort loss semantics below still apply. The implemented Codex policy selects `main` for roots and `agent:<agentId>` for children. SessionStart requires session identity without a native turn ID; other events require both. Startup/clear reset the session; resume/compact preserve it. Every root UserPromptSubmit advances all scopes, even when its native turn ID repeats; child prompts and Stop continuations preserve history. SessionStart requests provider-local pruning. The engine applies boundaries before no-hooks/no-matches exits on configured invocations; no-config bypass remains. Expanded Docker validation has passed.
+Agent selection partitions storage, not logical turns. The epoch/generation format, size limits, lock behavior and best-effort loss semantics below still apply. The implemented Codex policy selects `main` for roots and `agent:<agentId>` for children. SessionStart requires session identity without a native turn ID; other events require both. Startup/clear reset the session; resume/compact preserve it. Every root UserPromptSubmit advances all scopes, even when its native turn ID repeats; child prompts and Stop continuations preserve history. SessionStart requests agent-local pruning. The engine applies boundaries before no-hooks/no-matches exits on configured invocations; no-config bypass remains. Expanded Docker validation has passed.
 
 ```json
 {
@@ -211,7 +212,7 @@ The [input loop](https://github.com/openai/codex/blob/3d2ee51ca2d5db578f328aa75e
 
 **Concrete limitation:** internal Review work synthesizes user input, inherits enabled hook configuration, and can emit `UserPromptSubmit` with the root `session_id` but no `agent_id`. The [Review task](https://github.com/openai/codex/blob/3d2ee51ca2d5db578f328aa75e20aa22c0197c9a/codex-rs/core/src/tasks/review.rs#L54-L144), [delegate submission](https://github.com/openai/codex/blob/3d2ee51ca2d5db578f328aa75e20aa22c0197c9a/codex-rs/core/src/codex_delegate.rs#L180-L237), and [command input schema](https://github.com/openai/codex/blob/3d2ee51ca2d5db578f328aa75e20aa22c0197c9a/codex-rs/hooks/src/schema.rs#L567-L584) expose no reliable human-origin discriminator. Root-like internal tool events may also lack child scope. Prompt text, transcript paths, timestamps, permission mode, and native IDs cannot establish genuine-user parity. This is a source counterexample, not a captured run.
 
-Normal best-effort native-prompt history is the approved policy, now implemented in the adapter. Review is an accepted nonblocking limitation, with no special workaround or tracking disablement. The mapping does not promise full genuine-user parity. Provider-isolated history and the boundary mapping above are connected. The earlier PreToolUse gate passed; expanded boundary Docker validation has passed. Existing storage/race limitations still apply. Recorded raw interventions do not prove delivery or enforcement.
+Normal best-effort native-prompt history is the approved policy, now implemented in the adapter. Review is an accepted nonblocking limitation, with no special workaround or tracking disablement. The mapping does not promise full genuine-user parity. Agent-isolated history and the boundary mapping above are connected. The earlier PreToolUse gate passed; expanded boundary Docker validation has passed. Existing storage/race limitations still apply. Recorded raw interventions do not prove delivery or enforcement.
 
 ## Related
 

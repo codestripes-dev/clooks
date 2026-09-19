@@ -28,7 +28,7 @@ import type { ClooksHook } from './types'
 
 This replaces the previous repo-internal import (`../../src/types/hook.js`) and works in any project directory after `clooks init` or `clooks types`.
 
-The bundle exports `Provider = 'claude-code' | 'codex'` and required `BaseContext.provider`; all event contexts and lifecycle inputs inherit it. Generation keeps `src/generated/clooks-types.d.ts.txt` (binary input), `src/generated/clooks-types.d.ts` (typechecking), and `.clooks/hooks/types.d.ts` (local authors) identical. Provider compile checks exercise both the source barrel and generated bundle, including lifecycle and unknown-tool context access.
+The bundle exports `AgentId = 'claude-code' | 'codex'` and required `BaseContext.agent`; all event contexts and lifecycle inputs inherit it. Generation keeps `src/generated/clooks-types.d.ts.txt` (binary input), `src/generated/clooks-types.d.ts` (typechecking), and `.clooks/hooks/types.d.ts` (local authors) identical. Agent compile checks exercise both the source barrel and generated bundle, including lifecycle and unknown-tool context access.
 
 ## Drift gate
 

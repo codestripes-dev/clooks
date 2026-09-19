@@ -246,9 +246,9 @@ export const hook: ClooksHook<Config> = {
 
 `ctx` is a discriminated union typed per event — for example, narrowing on `ctx.toolName` yields a typed `ctx`, so autocomplete reveals the available fields for the tool you're handling, and the response methods (like `ctx.allow()`) are narrowed to the event type. The `Config` generic ties `meta.config` defaults to the typed `config` parameter your handlers receive.
 
-Every context has `ctx.provider: 'claude-code' | 'codex'`. Lifecycle callbacks read
-the same value at `event.input.provider`, not `event.meta`. Branch on it when a
-hook depends on agent-specific tools or results. Provider identity is not capability
+Every context has `ctx.agent: 'claude-code' | 'codex'`. Lifecycle callbacks read
+the same value at `event.input.agent`, not `event.meta`. Branch on it when a
+hook depends on agent-specific tools or results. Agent identity is not capability
 negotiation: Codex tool keys remain opaque rather than recursively camel-cased,
 and matcher aliases do not turn native patch input into Claude Edit/Write input.
 For native tools outside the known-tool union, use the
@@ -319,7 +319,7 @@ same hook pipeline; rejection or cancellation blocks the operation. Later hooks
 and the agent's own permissions still apply.
 Add an optional `question` for a short prompt; use `reason` to explain why
 approval is needed.
-See [approval details](docs/domain/interactive-approvals.md#engine-checkpoints).
+See [approval details](docs/domain/interactive-approvals/engine-checkpoints.md#engine-checkpoints).
 
 ## Configuration
 
@@ -392,6 +392,7 @@ config:
   timeout: 30000        # Per-hook timeout in ms
   onError: "block"      # block | continue (per-hook can also use "trace")
   maxFailures: 3        # Consecutive failures before circuit-breaker disables the hook
+  agents: ["claude-code", "codex"]  # Fallback allowlist for hooks that declare none
 
 # Hook registration — every hook must be listed here
 no-rm-rf: {}            # Minimal: just register it
@@ -402,6 +403,7 @@ log-bash-commands:      # With overrides
   timeout: 5000         # Per-hook timeout
   onError: "continue"   # Don't block if this hook crashes
   parallel: true        # Run independently of the sequential pipeline
+  agents: ["claude-code"]   # Only run under these agents; overrides meta.agents
   events:
     PreToolUse:
       enabled: false    # Don't run on PreToolUse
@@ -420,7 +422,7 @@ PreToolUse:
 
 ### Precedence
 
-Two independent cascades.
+Two independent cascades, plus a third for `agents` (see below).
 
 **Hook config** (`config` parameter your handler receives):
 
@@ -429,13 +431,15 @@ Two independent cascades.
 | 1 (lowest) | `meta.config` defaults in the hook `.ts` file | |
 | 2 (highest) | Per-hook `config:` block in `clooks.yml` | Shallow merge — nested objects are replaced wholesale, not recursively merged |
 
-**Engine behavior** (`timeout`, `onError`, `enabled`, `parallel`):
+**Engine behavior** (`timeout`, `onError`, `enabled`, `parallel`, `agents`):
 
 | Layer | Source | Notes |
 |-------|--------|-------|
-| 1 (lowest) | Global `config:` block in `clooks.yml` | `timeout`, `onError` only |
+| 1 (lowest) | Global `config:` block in `clooks.yml` | `timeout`, `onError`, `agents` only |
 | 2 | Per-hook entry in `clooks.yml` | All fields |
-| 3 (highest) | `events.<EventName>` under the hook entry | `onError`, `enabled` only |
+| 3 (highest) | `events.<EventName>` under the hook entry | `onError`, `enabled`, `agents` only |
+
+`agents` has its own cascade, not this one: hook entry `events.<EventName>.agents` → hook entry `agents` → the hook's own `meta.agents` (set by the hook author, not in `clooks.yml`) → global `config.agents` → every agent. Each level replaces the next outright — nothing merges — which puts the global default *below* the author's `meta.agents`, so a project-wide setting can never override what the hook author declared; only a hook-specific `agents:` line in `clooks.yml` can.
 
 ### Disabling a hook
 
@@ -585,7 +589,7 @@ export const hook: ClooksHook = {
 ```
 
 **`beforeHook(event, config)`** — runs before each matched handler:
-- `event.block({ reason })` — short-circuit where the event/provider permits blocking; unsupported Codex observer blocks are policy failures
+- `event.block({ reason })` — short-circuit where the event/agent permits blocking; unsupported Codex observer blocks are policy failures
 - `event.skip()` — short-circuit; skip the handler (hook is invisible to the agent)
 - `return;` — proceed to the handler; optionally `event.passthrough({ debugMessage })` to surface a debug message in `--debug` output
 
@@ -617,7 +621,7 @@ Control what happens when a hook crashes:
 | Mode | Effect | Use case |
 |------|--------|----------|
 | `block` (default) | Event-specific failure control; failure recorded for the circuit breaker | Guards where the native event supports refusal |
-| `continue` | Continue processing; diagnostic delivery depends on provider/event | Optional / observational hooks |
+| `continue` | Continue processing; diagnostic delivery depends on agent/event | Optional / observational hooks |
 | `trace` | Inject error context where supported, otherwise fall back to continue with a warning | Debugging during development |
 
 Configure per-hook or per-event:
@@ -797,7 +801,7 @@ bun run test:codex-native      # Opt-in pinned Codex native smoke; see prerequis
 
 Use `bun run test:e2e` for E2E orchestration, not direct `bun test test/e2e/...`.
 See [testing](docs/domain/testing.md) and
-[native smoke prerequisites](docs/domain/testing/codex-native.md#opt-in-native-cli-smoke).
+[native smoke prerequisites](docs/domain/testing/codex-native/fixtures-and-evidence.md#opt-in-native-cli-smoke).
 
 </details>
 

@@ -57,7 +57,7 @@ Measured on Bun 1.3.10, Linux x86_64 (WSL2), 20 runs each, using minimal scripts
 | `bun build --compile` binary (stdin JSON parse + output) | **8ms median** (min 7, max 9) | Real work adds ~1ms |
 | Cold start (first invocation after boot) | 100-300ms (estimated) | OS must page in 59-100MB binary. Not measured directly. |
 
-These toy measurements do not establish current Clooks first-invocation, warm-invocation, or no-matching-hook latency. Measure the actual binary, dependency graph, provider and hook workload before setting expectations.
+These toy measurements do not establish current Clooks first-invocation, warm-invocation, or no-matching-hook latency. Measure the actual binary, dependency graph, agent and hook workload before setting expectations.
 
 For profiling, use equivalent fresh disposable project/HOME state per invocation, prepare it outside the timed interval, and validate outputs before accepting samples. Measure total elapsed time in the parent and local monotonic phase durations in the child; do not subtract absolute timestamps across processes. Instrumentation adds overhead, and any residual between the parent total and child spans includes uninstrumented startup, shutdown, I/O, and scheduling, not just OS time. Only non-overlapping phase means are additive; medians are not.
 

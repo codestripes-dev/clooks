@@ -16,7 +16,7 @@ The type system is organized around the `ClooksHook<C>` interface — a single t
 
 ## Codex Compatibility
 
-The public decision-method surface is unchanged. Every context exposes `provider: Provider`, where `Provider` is the closed union `'claude-code' | 'codex'`, supplied by the selected adapter rather than the payload. Every context also has `readonly helpers: ContextHelpers`. Its synchronous `ctx.helpers.belongsToPlugin(path)` method reports whether an existing regular file is physically contained by an installed plugin for that provider. Relative paths use `ctx.cwd`; missing, invalid, or uncertain paths return `false`. Paths containing a `..` component intentionally return `false` before lexical normalization because Bun can resolve symlink-directory traversal differently from filesystem open traversal. This is installed-file membership, not command intent, provenance, trust, safety, or authorization.
+The public decision-method surface is unchanged. Every context exposes `agent: AgentId`, where `AgentId` is the closed union `'claude-code' | 'codex'`, supplied by the selected adapter rather than the payload. Every context also has `readonly helpers: ContextHelpers`. Its synchronous `ctx.helpers.belongsToPlugin(path)` method reports whether an existing regular file is physically contained by an installed plugin for that agent. Relative paths use `ctx.cwd`; missing, invalid, or uncertain paths return `false`. Paths containing a `..` component intentionally return `false` before lexical normalization because Bun can resolve symlink-directory traversal differently from filesystem open traversal. This is installed-file membership, not command intent, provenance, trust, safety, or authorization.
 
 Codex's ten-event normalizer selects envelope fields instead of recursively renaming tool data. Unknown tool input remains `Record<string, unknown>` through the existing unknown-tool context types; PostToolUse response remains `unknown` publicly and accepts any JSON value at this boundary. Known discriminators require compatible public field types, including canonical Bash for `exec_command`; aliases do not invent Claude Edit/Write shapes.
 
@@ -44,7 +44,7 @@ On relevant events, absent/null transcript paths, child transcript paths, compac
 - `src/types/claude-code.ts` — Raw Claude Code types (snake_case). Used by the engine for stdin parsing and stdout serialization. Not part of the hook-author-facing API.
 - `src/types/permissions.ts` — `PermissionUpdateEntry` discriminated union and `PermissionDestination` enum.
 - `src/normalize.ts` — Recursive snake_case → camelCase key normalization. Used by the engine to convert Claude Code payloads into hook-author-facing context objects.
-- `src/plugin-file-helper.ts` — Provider-local installed-root discovery and conservative regular-file containment for `ctx.helpers`.
+- `src/plugin-file-helper.ts` — Agent-local installed-root discovery and conservative regular-file containment for `ctx.helpers`.
 
 ## Gotchas
 
@@ -53,7 +53,7 @@ On relevant events, absent/null transcript paths, child transcript paths, compac
 - **Greenfield rename** — `DebugFields` was renamed to `DebugMessage`, `InjectableContext` to `Inject`. No aliases — the old names are gone. Update any imports accordingly.
 - **`StopEventResult` vs `StopResult`** — `StopResult` is a base result (`{ result: "stop", reason }`) used in continuation events. `StopEventResult` is the per-event result for the `Stop` guard event (allow | block | skip). Don't confuse them.
 - **`hookEventName` → `event` rename** — Generic key normalization converts `hook_event_name` to `hookEventName`. The engine then renames this to `event` to match the context types. This is a domain-specific mapping that lives in the engine, not in `normalizeKeys()`.
-- **Claude `toolInput` fields are camelCase at runtime** — Claude normalization recursively maps nested keys such as `file_path` to `filePath`. Codex preserves opaque tool keys instead; do not assume recursive camelCase conversion across providers.
+- **Claude `toolInput` fields are camelCase at runtime** — Claude normalization recursively maps nested keys such as `file_path` to `filePath`. Codex preserves opaque tool keys instead; do not assume recursive camelCase conversion across agents.
 
 ## Related
 

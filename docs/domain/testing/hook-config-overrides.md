@@ -1,6 +1,6 @@
 # Hook Config Overrides — Worked Example
 
-Worked example for `clooks test`'s `--config` and `--config-json` flags. For the full contract — flag mutex, entry-resolution rule, `--hook-name` escape hatch, `enabled: false` behavior, merge shape — see [hook-author-testing.md](hook-author-testing.md#hookconfig--overriding-via---config----config-json).
+Worked example for `clooks test`'s `--config` and `--config-json` flags. For the full contract — flag mutex, entry-resolution rule, `--hook-name` escape hatch, `enabled: false` behavior, merge shape — see [hook-author-testing.md](hook-author-testing/invocation-and-shape.md#hookconfig--overriding-via---config----config-json).
 
 ## Both flags produce the same merged shape
 
@@ -63,4 +63,4 @@ clooks test ./.clooks/hooks/my-hook.ts --config-json '{"threshold":7}' --input f
 ## Related
 
 - [hook-author-testing.md](hook-author-testing.md) — full `clooks test` harness contract.
-- [cli-architecture.md](../cli-architecture.md) — Command Reference for `clooks test`.
+- [cli-architecture/commands-hooks.md](../cli-architecture/commands-hooks.md) — Command Reference for `clooks test`.

@@ -126,7 +126,7 @@ PostToolUse hooks fire after a tool completes — they cannot prevent the tool f
 
 ### PreToolUse Blocks Do Not Short-Circuit
 
-Unlike other guard events (`UserPromptSubmit`, `Stop`, `SubagentStop`, `ConfigChange`, `PreCompact`) where the first `ctx.block(...)` halts the pipeline, a PreToolUse block is a vote and does not prevent subsequent hooks from executing. Approval requests are different: a sequential ask waits before the next hook, and refusal stops the pipeline. See [Engine Checkpoints](../interactive-approvals.md#engine-checkpoints).
+Unlike other guard events (`UserPromptSubmit`, `Stop`, `SubagentStop`, `ConfigChange`, `PreCompact`) where the first `ctx.block(...)` halts the pipeline, a PreToolUse block is a vote and does not prevent subsequent hooks from executing. Approval requests are different: a sequential ask waits before the next hook, and refusal stops the pipeline. See [Engine Checkpoints](../interactive-approvals/engine-checkpoints.md#engine-checkpoints).
 
 **Why it matters:** Audit-log or observability hooks registered after a policy block still fire unless an earlier approval refusal or execution failure closes the pipeline. An approved ask reduces as allow; block and defer precedence is retained.
 
