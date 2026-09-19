@@ -43,7 +43,6 @@ function withoutGlobalOptions(command: string): string {
   const boundary = (word: string) => /^[#;&|()<>\n]/.test(word)
   let result = ''
   let copied = 0
-  // Indexed words below are bounded by length checks; matchAll supplies each match.
   for (let i = 0; i < words.length; i++) {
     if (words[i]![0] !== 'git') continue
     const start = words[i]!.index!
@@ -325,21 +324,17 @@ export const hook: ClooksHook<Config> = {
   },
 
   PreToolUse(ctx, config) {
-    // 1. Skip non-Bash tools
     if (ctx.toolName !== 'Bash') return ctx.skip()
 
-    // 2. Skip empty commands
     const command = ctx.toolInput.command
     if (!command) return ctx.skip()
 
-    // 3. Sanitize: strip quoted strings and comments
     const sanitized = sanitize(command)
     const builtInCommand = sanitize(withoutGlobalOptions(command))
 
     // 4. Check escape hatch prefix (on original command, not sanitized)
     const hasEscapeHatch = command.startsWith('ALLOW_DESTRUCTIVE_GIT=true')
 
-    // 5. Check each enabled built-in rule
     for (const rule of RULES) {
       if (config[rule.id] === false) continue
       if (hasEscapeHatch && rule.hasEscapeHatch) continue
@@ -367,7 +362,6 @@ export const hook: ClooksHook<Config> = {
       }
     }
 
-    // 7. No match — skip (not allow)
     return ctx.skip()
   },
 }

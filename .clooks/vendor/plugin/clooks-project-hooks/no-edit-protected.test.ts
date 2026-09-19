@@ -87,6 +87,19 @@ describe('native patch and nested lock protection', () => {
     expect(inspect(patch('*** Delete File: /outside/bun.lock'))).toMatchObject({ result: 'skip' })
   })
 
+  test('non-record unknown inputs skip without field access or array coercion', () => {
+    const command = patch('*** Delete File: bun.lock')
+    const inputs = [undefined, null, false, true, 0, 42, '', command, [], [null, { command }],
+      Object.assign([], { command, filePath: '/home/user/project/bun.lock' })]
+    for (const toolName of ['apply_patch', 'mcp__fixture__inspect', 'Write', 'Edit', 'MultiEdit']) {
+      for (const toolInput of inputs) {
+        expect(inspect(command, { toolName, toolInput })).toMatchObject({ result: 'skip' })
+      }
+    }
+    expect(inspect(command)).toMatchObject({ result: 'block' })
+    expect(inspect(command, { toolInput: { command: 42 } })).toMatchObject({ result: 'skip' })
+  })
+
   test('custom rules and exceptions apply after disabled built-ins', () => {
     const config = { ...DEFAULT_CONFIG, 'lock-files': false, rules: [{ pattern: '**/*.lock', message: 'Custom lock policy', except: ['safe/**'] }] }
     expect(inspect(patch('*** Delete File: safe/bun.lock'), {}, config)).toMatchObject({ result: 'skip' })

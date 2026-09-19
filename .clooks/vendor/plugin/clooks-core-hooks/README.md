@@ -62,7 +62,7 @@ Every rule is enabled by default. Set the rule ID to `false` in `clooks.yml` to 
 
 ### no-rm-rf
 
-Blocks recursive `rm` (`rm -rf`, `rm -r`, `rm -R`, and flag-order variants) against catastrophic paths. Expands glob patterns via `Bun.Glob.scanSync` so every concrete target is classified, not just the literal argument string. Keeps its existing target classification, allowlist, strict mode and escape rules. Confirmation classifications return `ctx.ask` for both Claude and Codex. Claude retains native confirmation; Codex requires a Clooks runtime with hybrid approvals, which denies the pending operation and supplies a short-lived token. Other block/skip decisions are unchanged.
+Blocks recursive `rm` (`rm -rf`, `rm -r`, `rm -R`, and flag-order variants) against catastrophic paths. Expands glob patterns via `Bun.Glob.scanSync` so every concrete target is classified, not just the literal argument string. Returns `allow` for build-artifact basenames, `ask` for within-project non-artifact deletes, and `block` for home, system directories, project-root escapes, and unresolvable patterns.
 
 **When to enable:** Always. Catches the catastrophic-rm incidents catalogued in [docs/research/agent-rm-rf-failures.md](https://github.com/codestripes-dev/clooks/blob/master/docs/research/agent-rm-rf-failures.md) (Mike Wolak's home-directory wipe and ~10 other documented agent-caused `rm -rf` disasters from Claude Code, Cursor, Gemini CLI, Replit, Amazon Q, and Google Antigravity).
 
@@ -96,19 +96,17 @@ Each of the 11 rule IDs can be individually disabled (default: enabled). Setting
 6. `rm-rf-expansion-error` — glob scan failed (EACCES) or symlink detected in scan parent (ELOOP_GUARD). Flag-bypassable.
 7. `rm-rf-home` — resolves to a user home. **Unbypassable.**
 8. `rm-rf-root` — resolves to `/` or a system top-level. **Unbypassable.**
-9. `rm-rf-project-root` — resolves to the project root. Asks for user confirmation through Claude native confirmation or Clooks hybrid approval on Codex; blocks under `strictMode`.
+9. `rm-rf-project-root` — resolves to the project root. Asks for user confirmation (or blocks under `strictMode`).
 10. `rm-rf-escape` — resolves outside the project root. Flag-bypassable.
-11. `rm-rf-strict` — inside project, not allowlisted. Asks for user confirmation through Claude native confirmation or Clooks hybrid approval on Codex; blocks under `strictMode`.
+11. `rm-rf-strict` — inside project, not allowlisted. Asks for user confirmation (or blocks under `strictMode`).
 
 **Patterns allowed (default allowlist — 23 basenames):**
 
 `node_modules`, `dist`, `build`, `out`, `.cache`, `tmp`, `.tmp`, `target`, `coverage`, `.next`, `.nuxt`, `.turbo`, `.parcel-cache`, `.vite`, `.svelte-kit`, `.output`, `__pycache__`, `.pytest_cache`, `.mypy_cache`, `.ruff_cache`, `venv`, `.venv`, `vendor`.
 
-Extend via `extraAllowlist` in `clooks.yml`. On Codex, ask the user and wait for explicit approval before presenting the issued token. For an eligible direct shell command, prefix the unchanged command with `CLOOKS_APPROVAL_TOKENS=<issued-token> `. Otherwise run `clooks approve <issued-token>` and retry the unchanged tool arguments. Tokens expire five minutes after issuance, bind the invocation and confirmation, and are consumed on final permission. Other hooks and native permission checks still apply; strict-mode and other explicit blocks cannot be approved away. This local pack change does not update a global installation or establish native acceptance on its own.
+Extend via `extraAllowlist` in `clooks.yml`. Non-allowlisted within-project paths receive `ask` (user confirms), not block.
 
 **Known limitations:**
-
-Quoted-target parsing is unchanged: remaining single-quoted targets can be removed by sanitization, and double-quoted paths containing spaces can lose argument boundaries. Hybrid confirmation does not fix this separate limitation.
 
 1. **Non-recursive `rm file.ts` is not covered.** The hook ignores rm invocations without `-r`/`-R`/`--recursive`. A `no-bare-rm` sibling could ship later if incidents surface.
 2. **Symlink safety.** The hook audits the immediate scan parent for symlinks and fails closed (`rm-rf-expansion-error` with `ELOOP_GUARD`) if any entry matching the glob is a symbolic link — closing the exploit where `build/cache -> /etc` would let `rm -rf build/*` delete `/etc`. One residual gap remains: when rule 4 (`rm-rf-globstar`) has been explicitly bypassed via `ALLOW_DESTRUCTIVE_RM=true`, symlinked directories nested two or more levels under the scan parent are not audited. Opting out of rule 4 means explicitly vouching for the globstar expansion.

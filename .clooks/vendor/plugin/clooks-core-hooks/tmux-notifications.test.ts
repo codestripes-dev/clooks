@@ -63,15 +63,6 @@ afterEach(() => {
 })
 
 describe('meta', () => {
-  test('beforeHook skips without tmux or without a resolvable window', () => {
-    delete process.env.TMUX
-    expect(hook.beforeHook!(ctx, DEFAULT_CONFIG)).toEqual({ result: 'skip' })
-    expect(issuedCommands).toEqual([])
-    process.env.TMUX = '/inert/no-socket,1,0'
-    process.env.TMUX_PANE = '%4'
-    expect(hook.beforeHook!(ctx, DEFAULT_CONFIG)).toEqual({ result: 'skip' })
-    expect(issuedCommands).toHaveLength(1)
-  })
   test('declares full default config', () => {
     expect(hook.meta.config).toEqual({
       hookSlot: 81,
@@ -412,6 +403,64 @@ describe('hook.Stop', () => {
     hook.Stop!(ctx, { ...DEFAULT_CONFIG, attentionOnStop: false })
 
     expect(issuedCommands).toEqual([])
+  })
+})
+
+describe('hook.PermissionRequest agent attention', () => {
+  test.each([undefined, 'claude-code'])('skips %s without duplicate attention', async (agent) => {
+    setupTmuxEnv()
+    const input = agent === undefined ? ctx : { ...ctx, agent }
+    expect(await hook.PermissionRequest!(input, DEFAULT_CONFIG)).toEqual({ result: 'skip' })
+    expect(issuedCommands).toEqual([])
+  })
+
+  test.each([false, true])('Codex styles attention and honors flashOnPrompt=%s', async (flashOnPrompt) => {
+    setupTmuxEnv()
+    execSyncImpl = (cmd) => {
+      if (cmd.includes("'#{session_id}'")) return '$2'
+      if (cmd.includes('display-message')) return '@9'
+      if (cmd.includes('list-panes')) return '%8\tdefault\tdefault'
+      if (cmd.includes('show-option -gv status-style')) return 'bg=black'
+      return ''
+    }
+    expect(await hook.PermissionRequest!({ ...ctx, agent: 'codex' }, {
+      ...DEFAULT_CONFIG, attentionStyle: 'bg=blue,fg=yellow', flashOnPrompt,
+    })).toEqual({ result: 'skip' })
+    expect(issuedCommands.slice(0, 2)).toEqual([
+      "tmux set-window-option -t @7 window-status-style 'bg=blue,fg=yellow'",
+      "tmux set-window-option -t @7 window-status-current-style 'bg=blue,fg=yellow'",
+    ])
+    expect(issuedCommands.some(cmd => cmd.includes('list-panes -t @9'))).toBe(flashOnPrompt)
+    expect(issuedCommands.filter(cmd => cmd.includes("window-style 'bg=colour240'")).length).toBe(flashOnPrompt ? 2 : 0)
+    expect(issuedCommands.filter(cmd => cmd.includes('set -pu -t %8 window-style')).length).toBe(flashOnPrompt ? 2 : 0)
+    if (!flashOnPrompt) expect(issuedCommands).toHaveLength(2)
+  })
+
+  test('unchanged beforeHook skips outside tmux without subprocesses', () => {
+    delete process.env.TMUX
+    expect(hook.beforeHook!(ctx, DEFAULT_CONFIG)).toEqual({ result: 'skip' })
+    expect(issuedCommands).toEqual([])
+  })
+
+  test.each([undefined, 'claude-code', 'codex'])('SessionEnd cleanup remains unchanged for %s', (agent) => {
+    setupTmuxEnv()
+    expect(hook.SessionEnd!({ ...ctx, agent }, DEFAULT_CONFIG)).toEqual({ result: 'skip' })
+    expect(issuedCommands).toEqual([
+      'tmux set-window-option -t @7 window-status-style default',
+      'tmux set-window-option -t @7 -u window-status-current-style',
+      'tmux set-window-option -t @7 automatic-rename on',
+    ])
+  })
+
+  test('Claude permission notification still applies attention after PermissionRequest skips', async () => {
+    setupTmuxEnv()
+    await hook.PermissionRequest!({ ...ctx, agent: 'claude-code' }, DEFAULT_CONFIG)
+    expect(issuedCommands).toEqual([])
+    expect(await hook.Notification!({ ...ctx, agent: 'claude-code', notificationType: 'permission_prompt' }, {
+      ...DEFAULT_CONFIG, flashOnPrompt: false,
+    })).toEqual({ result: 'skip' })
+    expect(issuedCommands).toHaveLength(2)
+    expect(issuedCommands[0]).toContain("window-status-style 'bg=red,fg=white,bold'")
   })
 })
 

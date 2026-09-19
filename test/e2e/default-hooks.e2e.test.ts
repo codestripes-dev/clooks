@@ -20,7 +20,7 @@ const packs: Record<string, string> = {
   'tmux-notifications': 'clooks-core-hooks',
 }
 const originals: Record<string, string> = {
-  'no-destructive-git': '663aa80fa98f8db926fda0c5c292710092696313a89430a5a18de9bb3abe8e00',
+  'no-destructive-git': '814036e8e9f7fb8e575050cd8c4fa43520a684ef6efbb8b74b98412ca8d8f9e2',
 }
 const root = join(import.meta.dir, '../../.clooks/vendor/plugin')
 const digest = (bytes: string | Buffer) => createHash('sha256').update(bytes).digest('hex')

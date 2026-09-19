@@ -418,6 +418,98 @@ describe('hook.PreToolUse', () => {
   })
 })
 
+describe('agent-aware policy', () => {
+  for (const agent of [undefined, 'claude-code', 'codex'] as const) {
+    describe(agent ?? 'legacy missing agent', () => {
+      function context(command = '') {
+        return Object.assign(makeCtx(command), agent === undefined ? {} : { agent })
+      }
+      function inspect(command: string, config: Config = DEFAULT_CONFIG) {
+        return hook.PreToolUse!(context(command), config) as unknown as Record<string, unknown>
+      }
+      function announce(config: Config = DEFAULT_CONFIG) {
+        const ctx = { ...context(), event: 'SessionStart' }
+        return hook.SessionStart!(
+          ctx as unknown as Parameters<NonNullable<typeof hook.SessionStart>>[0],
+          config,
+        ) as unknown as Record<string, unknown>
+      }
+
+      test('only explicit Codex skips built-in reads, searches and listing', () => {
+        for (const command of [
+          'cat a', 'head a', 'tail a', 'grep x a', 'rg x a',
+          'egrep x a', 'fgrep x a', 'find .', 'ls',
+        ]) {
+          expect(inspect(command).result).toBe(agent === 'codex' ? 'skip' : 'block')
+        }
+        expect(inspect('cat a', { ...DEFAULT_CONFIG, cat: false }).result).toBe('skip')
+      })
+
+      test('retains write and sleep guidance, rule disables and escape', () => {
+        for (const [rule, command, claudeGuidance] of [
+          ['sed-inplace', "sed -i 's/a/b/' a", 'Edit tool'],
+          ['echo-redirect', 'echo x > a', 'Write tool'],
+          ['echo-redirect', 'printf x > a', 'Write tool'],
+          ['sleep', 'sleep 1', 'run_in_background'],
+        ]) {
+          const result = inspect(command!)
+          expect(result.result).toBe('block')
+          expect(result.reason).toContain(`[${rule}]`)
+          expect(result.reason).toContain(agent === 'codex'
+            ? rule === 'sleep' ? 'available process tools' : 'apply_patch'
+            : claudeGuidance!)
+          if (agent === 'codex')
+            expect(result.reason).not.toMatch(/Read|Glob|Grep|Edit tool|Write tool|run_in_background/)
+          expect(inspect(command!, { ...DEFAULT_CONFIG, [rule!]: false }).result).toBe('skip')
+          expect(inspect(`ALLOW_BUILTIN_COMMAND=true ${command}`).result).toBe('skip')
+        }
+      })
+
+      test('preserves pipe, tail-follow and stream exceptions', () => {
+        for (const command of [
+          'cat a | sort', 'ps aux | grep node', 'ls | head', 'tail -f a',
+          "sed 's/a/b/' a", "sed -i 's/a/b/' a | tee log", 'echo x > a | cat',
+        ]) expect(inspect(command).result).toBe('skip')
+        expect(inspect('sleep 1 | echo done').result).toBe('block')
+      })
+
+      test('custom rules survive agent skips, disabled rules and escape', () => {
+        const custom = [{ match: '\\bcat\\b', message: 'custom cat rule' }]
+        const config = { ...DEFAULT_CONFIG, cat: false, additionalRules: custom }
+        for (const command of ['cat a', 'ALLOW_BUILTIN_COMMAND=true cat a']) {
+          expect(inspect(command, config)).toMatchObject({
+            result: 'block', reason: 'custom cat rule',
+          })
+        }
+        if (agent === 'codex')
+          expect(inspect('cat a', { ...DEFAULT_CONFIG, additionalRules: custom }).reason)
+            .toBe('custom cat rule')
+      })
+
+      test('SessionStart announces only effective rules with agent guidance', () => {
+        const result = announce({ ...DEFAULT_CONFIG, sleep: false })
+        expect(result.result).toBe('skip')
+        expect(result.injectContext).toContain('sed -i')
+        expect(result.injectContext).not.toContain('sleep')
+        if (agent === 'codex') {
+          expect(result.injectContext).toContain('apply_patch')
+          expect(result.injectContext).toContain('configured additional rules still apply')
+          expect(result.injectContext).not.toMatch(/Read|Glob|Grep|run_in_background|grep\/rg/)
+          expect(announce({
+            ...DEFAULT_CONFIG, 'sed-inplace': false, 'echo-redirect': false, sleep: false,
+          })).toEqual({ result: 'skip' })
+        } else {
+          expect(result.injectContext).toContain('Read, Glob, Grep, Edit, Write')
+          expect(result.injectContext).toContain('cat, head, tail, grep/rg, find')
+        }
+        expect(announce(Object.fromEntries(
+          Object.keys(DEFAULT_CONFIG).map(key => [key, false]),
+        ))).toEqual({ result: 'skip' })
+      })
+    })
+  }
+})
+
 // =============================================================================
 // Section 4: Edge case tests
 // =============================================================================
@@ -541,96 +633,4 @@ describe('edge cases', () => {
     const result = hook.PreToolUse!(makeCtx(command), DEFAULT_CONFIG)
     expect(result).toEqual({ result: 'skip' })
   })
-})
-
-describe('agent-aware policy', () => {
-  for (const agent of [undefined, 'claude-code', 'codex'] as const) {
-    describe(agent ?? 'legacy missing agent', () => {
-      function context(command = '') {
-        return Object.assign(makeCtx(command), agent === undefined ? {} : { agent })
-      }
-      function inspect(command: string, config: Config = DEFAULT_CONFIG) {
-        return hook.PreToolUse!(context(command), config) as unknown as Record<string, unknown>
-      }
-      function announce(config: Config = DEFAULT_CONFIG) {
-        const ctx = { ...context(), event: 'SessionStart' }
-        return hook.SessionStart!(
-          ctx as unknown as Parameters<NonNullable<typeof hook.SessionStart>>[0],
-          config,
-        ) as unknown as Record<string, unknown>
-      }
-
-      test('only explicit Codex skips built-in reads, searches and listing', () => {
-        for (const command of [
-          'cat a', 'head a', 'tail a', 'grep x a', 'rg x a',
-          'egrep x a', 'fgrep x a', 'find .', 'ls',
-        ]) {
-          expect(inspect(command).result).toBe(agent === 'codex' ? 'skip' : 'block')
-        }
-        expect(inspect('cat a', { ...DEFAULT_CONFIG, cat: false }).result).toBe('skip')
-      })
-
-      test('retains write and sleep guidance, rule disables and escape', () => {
-        for (const [rule, command, claudeGuidance] of [
-          ['sed-inplace', "sed -i 's/a/b/' a", 'Edit tool'],
-          ['echo-redirect', 'echo x > a', 'Write tool'],
-          ['echo-redirect', 'printf x > a', 'Write tool'],
-          ['sleep', 'sleep 1', 'run_in_background'],
-        ]) {
-          const result = inspect(command!)
-          expect(result.result).toBe('block')
-          expect(result.reason).toContain(`[${rule}]`)
-          expect(result.reason).toContain(agent === 'codex'
-            ? rule === 'sleep' ? 'available process tools' : 'apply_patch'
-            : claudeGuidance!)
-          if (agent === 'codex')
-            expect(result.reason).not.toMatch(/Read|Glob|Grep|Edit tool|Write tool|run_in_background/)
-          expect(inspect(command!, { ...DEFAULT_CONFIG, [rule!]: false }).result).toBe('skip')
-          expect(inspect(`ALLOW_BUILTIN_COMMAND=true ${command}`).result).toBe('skip')
-        }
-      })
-
-      test('preserves pipe, tail-follow and stream exceptions', () => {
-        for (const command of [
-          'cat a | sort', 'ps aux | grep node', 'ls | head', 'tail -f a',
-          "sed 's/a/b/' a", "sed -i 's/a/b/' a | tee log", 'echo x > a | cat',
-        ]) expect(inspect(command).result).toBe('skip')
-        expect(inspect('sleep 1 | echo done').result).toBe('block')
-      })
-
-      test('custom rules survive agent skips, disabled rules and escape', () => {
-        const custom = [{ match: '\\bcat\\b', message: 'custom cat rule' }]
-        const config = { ...DEFAULT_CONFIG, cat: false, additionalRules: custom }
-        for (const command of ['cat a', 'ALLOW_BUILTIN_COMMAND=true cat a']) {
-          expect(inspect(command, config)).toMatchObject({
-            result: 'block', reason: 'custom cat rule',
-          })
-        }
-        if (agent === 'codex')
-          expect(inspect('cat a', { ...DEFAULT_CONFIG, additionalRules: custom }).reason)
-            .toBe('custom cat rule')
-      })
-
-      test('SessionStart announces only effective rules with agent guidance', () => {
-        const result = announce({ ...DEFAULT_CONFIG, sleep: false })
-        expect(result.result).toBe('skip')
-        expect(result.injectContext).toContain('sed -i')
-        expect(result.injectContext).not.toContain('sleep')
-        if (agent === 'codex') {
-          expect(result.injectContext).toContain('apply_patch')
-          expect(result.injectContext).toContain('configured additional rules still apply')
-          expect(result.injectContext).not.toMatch(/Read|Glob|Grep|run_in_background|grep\/rg/)
-          expect(announce({
-            ...DEFAULT_CONFIG, 'sed-inplace': false, 'echo-redirect': false, sleep: false,
-          })).toEqual({ result: 'skip' })
-        } else {
-          expect(result.injectContext).toContain('Read, Glob, Grep, Edit, Write')
-          expect(result.injectContext).toContain('cat, head, tail, grep/rg, find')
-        }
-        expect(announce(Object.fromEntries(
-          Object.keys(DEFAULT_CONFIG).map(key => [key, false]),
-        ))).toEqual({ result: 'skip' })
-      })
-    })
-  }
 })
