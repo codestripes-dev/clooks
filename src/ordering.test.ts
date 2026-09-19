@@ -256,6 +256,69 @@ describe('orderHooksForEvent', () => {
     expect(names(result)).toEqual(['hookC'])
   })
 
+  test('order list references an agent-excluded hook: silently skipped', () => {
+    const matched = [makeLoaded('hookA')]
+    const hookEntries = makeEntries({
+      hookA: makeEntry(false),
+      onlyCodex: makeEntry(false),
+    })
+    const eventEntry: EventEntry = {
+      order: [hn('onlyCodex'), hn('hookA')],
+    }
+    // run.ts feeds agent-excluded names into the same silent-skip set.
+    const skipped = new Set([hn('onlyCodex')])
+
+    const result = orderHooksForEvent(matched, eventEntry, hookEntries, 'PreToolUse', skipped)
+    expect(names(result)).toEqual(['hookA'])
+  })
+
+  test('agent-excluded hook without a handler for the event: still silently skipped', () => {
+    // The hook never reaches `matched` — neither the agent filter nor the
+    // missing handler may turn a valid order list into an error.
+    const matched = [makeLoaded('hookA')]
+    const hookEntries = makeEntries({
+      hookA: makeEntry(false),
+      noHandler: makeEntry(false),
+    })
+    const eventEntry: EventEntry = {
+      order: [hn('hookA'), hn('noHandler')],
+    }
+    const skipped = new Set([hn('noHandler')])
+
+    const result = orderHooksForEvent(matched, eventEntry, hookEntries, 'PreToolUse', skipped)
+    expect(names(result)).toEqual(['hookA'])
+  })
+
+  test('disabled and agent-excluded names skip together; an unrelated name still throws', () => {
+    const matched = [makeLoaded('hookA')]
+    const hookEntries = makeEntries({
+      hookA: makeEntry(false),
+      disabled: makeEntry(false),
+      onlyCodex: makeEntry(false),
+      typo: makeEntry(false),
+    })
+    const skipped = new Set([hn('disabled'), hn('onlyCodex')])
+
+    const ok = orderHooksForEvent(
+      matched,
+      { order: [hn('disabled'), hn('hookA'), hn('onlyCodex')] },
+      hookEntries,
+      'PreToolUse',
+      skipped,
+    )
+    expect(names(ok)).toEqual(['hookA'])
+
+    expect(() =>
+      orderHooksForEvent(
+        matched,
+        { order: [hn('hookA'), hn('typo')] },
+        hookEntries,
+        'PreToolUse',
+        skipped,
+      ),
+    ).toThrow('event "PreToolUse" order references hook "typo" which does not handle this event')
+  })
+
   test('existing tests pass when disabledNames is omitted (backward compatible)', () => {
     // This test confirms that omitting disabledNames doesn't change behavior
     const matched = [makeLoaded('hookA'), makeLoaded('hookB')]

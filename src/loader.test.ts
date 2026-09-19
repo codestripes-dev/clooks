@@ -141,6 +141,47 @@ describe('validateHookExport', () => {
       validateHookExport({ hook: { meta: { name: 'x' }, beforeHook: 'not-a-fn' } }, 'test.ts'),
     ).toThrow('not a function')
   })
+
+  test('accepts meta.agents with known ids', () => {
+    const result = validateHookExport(
+      { hook: { meta: { name: 'x', agents: ['claude-code', 'codex'] } } },
+      'test.ts',
+    )
+    expect(result.meta.agents).toEqual(['claude-code', 'codex'])
+  })
+
+  test('accepts meta.agents with unknown ids', () => {
+    const result = validateHookExport(
+      { hook: { meta: { name: 'x', agents: ['some-future-agent'] } } },
+      'test.ts',
+    )
+    expect(result.meta.agents as string[] | undefined).toEqual(['some-future-agent'])
+  })
+
+  test('accepts a hook without meta.agents', () => {
+    const result = validateHookExport({ hook: { meta: { name: 'x' } } }, 'test.ts')
+    expect(result.meta.agents).toBeUndefined()
+  })
+
+  const invalidAgents: [label: string, value: unknown][] = [
+    ['empty array', []],
+    ['non-array string', 'claude-code'],
+    ['non-array object', { 'claude-code': true }],
+    ['null', null],
+    ['non-string element', ['claude-code', 7]],
+    ['empty-string element', ['']],
+    // Holes read as undefined but are skipped by Array.prototype.every.
+    ['all-holes sparse array', new Array(1)],
+    ['partially sparse array', Object.assign(['claude-code'], { length: 3 })],
+  ]
+
+  for (const [label, value] of invalidAgents) {
+    test(`rejects meta.agents as ${label}`, () => {
+      expect(() =>
+        validateHookExport({ hook: { meta: { name: 'x', agents: value } } }, 'hooks/x.ts'),
+      ).toThrow('clooks: hooks/x.ts hook.meta.agents must be a non-empty array of agent id strings')
+    })
+  }
 })
 
 // --- loadHook ---
@@ -628,6 +669,21 @@ describe('loadHook with aliases', () => {
     expect(result.name).toBe(hn('my-alias'))
     expect(result.hook.meta.name).toBe(hn('real-hook'))
     expect(result.usesTarget).toBe('real-hook')
+  })
+
+  test('alias takes meta.agents from the imported implementation', async () => {
+    const dir = makeTempDir()
+    const hookFile = join(dir, 'scoped-hook.ts')
+    writeFileSync(
+      hookFile,
+      `export const hook = {
+        meta: { name: "scoped-hook", agents: ["codex"] },
+        PreToolUse() { return { result: "allow" } },
+      }`,
+    )
+    const entry = makeAliasEntry(hookFile, 'scoped-hook')
+    const result = await loadHook(hn('my-alias'), entry, dir)
+    expect(result.hook.meta.agents).toEqual(['codex'])
   })
 
   test('alias meta.name mismatch throws with context mentioning alias and uses target', async () => {

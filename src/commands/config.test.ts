@@ -134,6 +134,55 @@ describe('config command', () => {
     expect(parsed.data.handoff).toBe(false)
   })
 
+  test('global agents are shown in human mode when set', async () => {
+    const { log } = await import('@clack/prompts')
+    const config = makeConfig()
+    config.global.agents = ['claude-code', 'codex']
+    const loadConfig = mock().mockResolvedValue(makeResult({ config }))
+
+    const program = createTestProgram(loadConfig)
+    await program.parseAsync(['config'], { from: 'user' })
+
+    expect(log.info).toHaveBeenCalledWith('agents: claude-code, codex')
+  })
+
+  test('global agents are omitted in human mode when unset', async () => {
+    const { log } = await import('@clack/prompts')
+    const info = log.info as ReturnType<typeof mock>
+    info.mockClear()
+    const loadConfig = mock().mockResolvedValue(makeResult())
+
+    const program = createTestProgram(loadConfig)
+    await program.parseAsync(['config'], { from: 'user' })
+
+    const messages = info.mock.calls.map((c: unknown[]) => String(c[0]))
+    expect(messages.some((m: string) => m.startsWith('agents:'))).toBe(false)
+  })
+
+  test('global agents appear in --json output when set', async () => {
+    const config = makeConfig()
+    config.global.agents = ['codex']
+    const loadConfig = mock().mockResolvedValue(makeResult({ config }))
+
+    const program = createTestProgram(loadConfig)
+    await program.parseAsync(['--json', 'config'], { from: 'user' })
+
+    const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
+    const parsed = JSON.parse(output.trim())
+    expect(parsed.data.agents).toEqual(['codex'])
+  })
+
+  test('global agents are absent from --json output when unset', async () => {
+    const loadConfig = mock().mockResolvedValue(makeResult())
+
+    const program = createTestProgram(loadConfig)
+    await program.parseAsync(['--json', 'config'], { from: 'user' })
+
+    const output = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
+    const parsed = JSON.parse(output.trim())
+    expect('agents' in parsed.data).toBe(false)
+  })
+
   test('null result shows init suggestion', async () => {
     const loadConfig = mock().mockResolvedValue(null)
 

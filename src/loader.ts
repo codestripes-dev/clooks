@@ -35,6 +35,22 @@ export function validateHookExport(mod: Record<string, unknown>, hookPath: strin
     throw new Error(`clooks: ${hookPath} hook.meta.name is missing or not a string`)
   }
 
+  // Any agent id string is accepted so a hook written for a future agent
+  // still loads; only the shape is enforced.
+  const agents = metaObj.agents
+  if (agents !== undefined) {
+    // Array.from materializes holes as undefined; `every` would skip them.
+    const isValid =
+      Array.isArray(agents) &&
+      agents.length > 0 &&
+      Array.from(agents).every((id) => typeof id === 'string' && id.length > 0)
+    if (!isValid) {
+      throw new Error(
+        `clooks: ${hookPath} hook.meta.agents must be a non-empty array of agent id strings`,
+      )
+    }
+  }
+
   const ALLOWED_HOOK_KEYS = new Set<string>([
     'meta',
     'beforeHook',

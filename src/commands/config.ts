@@ -615,16 +615,16 @@ export function createConfigCommand(
         const hookCount = Object.keys(config.hooks).length
 
         if (ctx.json) {
-          process.stdout.write(
-            jsonSuccess('config', {
-              version: config.version,
-              hooks: hookCount,
-              timeout: config.global.timeout,
-              onError: config.global.onError,
-              maxFailures: config.global.maxFailures,
-              handoff: config.global.handoff,
-            }) + '\n',
-          )
+          const summary: Record<string, unknown> = {
+            version: config.version,
+            hooks: hookCount,
+            timeout: config.global.timeout,
+            onError: config.global.onError,
+            maxFailures: config.global.maxFailures,
+            handoff: config.global.handoff,
+          }
+          if (config.global.agents) summary.agents = config.global.agents
+          process.stdout.write(jsonSuccess('config', summary) + '\n')
           return
         }
 
@@ -635,6 +635,7 @@ export function createConfigCommand(
         printInfo(ctx, `onError: ${config.global.onError}`)
         printInfo(ctx, `maxFailures: ${config.global.maxFailures}`)
         printInfo(ctx, `handoff: ${config.global.handoff}`)
+        if (config.global.agents) printInfo(ctx, `agents: ${config.global.agents.join(', ')}`)
         printOutro(ctx, 'Done')
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e)

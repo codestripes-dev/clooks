@@ -23,6 +23,28 @@ function writeValidHook(dir: string, relativePath: string, hookMetaName: string)
 }
 
 /**
+ * Creates a hook .ts file whose meta carries an `agents` list. The list is
+ * embedded as source text so malformed shapes (sparse arrays) survive.
+ */
+function writeHookWithAgents(
+  dir: string,
+  relativePath: string,
+  hookMetaName: string,
+  agentsLiteral: string,
+): void {
+  const absPath = join(dir, relativePath)
+  mkdirSync(join(absPath, '..'), { recursive: true })
+  writeFileSync(
+    absPath,
+    `export const hook = {
+  meta: { name: '${hookMetaName}', agents: ${agentsLiteral} },
+  PreToolUse: () => ({ decision: 'continue' }),
+}
+`,
+  )
+}
+
+/**
  * Creates an invalid hook .ts file that does NOT export the expected shape.
  */
 function writeInvalidHook(dir: string, relativePath: string): void {
@@ -451,6 +473,66 @@ describe('vendorAndRegisterPack', () => {
     const configContent = readFileSync(configPath, 'utf-8')
     expect(configContent).not.toContain('enabled:')
   })
+
+  test('accepts a pack hook with meta.agents but never copies it into clooks.yml', async () => {
+    writeHookWithAgents(installPath, 'hooks/test-hook.ts', 'test-hook', "['codex']")
+
+    const pack = makePack({ installPath, scope: 'project' })
+    const result = await vendorAndRegisterPack(pack, projectRoot, homeRoot)
+
+    expect(result.registered).toEqual(['test-hook'])
+    expect(result.errors).toEqual([])
+
+    const configContent = readFileSync(join(projectRoot, '.clooks', 'clooks.yml'), 'utf-8')
+    expect(configContent).toContain('uses:')
+    expect(configContent).not.toContain('agents')
+    expect(configContent).not.toContain('enabled:')
+  })
+
+  test('a disabled pack hook with meta.agents still registers only uses and enabled', async () => {
+    writeHookWithAgents(installPath, 'hooks/test-hook.ts', 'test-hook', "['claude-code','codex']")
+
+    const manifest = makeManifest({
+      hooks: {
+        'test-hook': { path: 'hooks/test-hook.ts', description: 'A test hook', autoEnable: false },
+      },
+    })
+    const result = await vendorAndRegisterPack(
+      makePack({ installPath, manifest }),
+      projectRoot,
+      homeRoot,
+    )
+
+    expect(result.registered).toEqual(['test-hook'])
+    expect(result.disabledHooks).toEqual(['test-hook'])
+
+    const configContent = readFileSync(join(projectRoot, '.clooks', 'clooks.yml'), 'utf-8')
+    expect(configContent).toContain('enabled: false')
+    expect(configContent).not.toContain('agents')
+  })
+
+  for (const [label, literal] of [
+    ['an empty array', '[]'],
+    ['a non-string element', "['codex', 7]"],
+    ['a sparse array', 'new Array(1)'],
+  ] as const) {
+    test(`rejects a pack hook whose meta.agents is ${label}`, async () => {
+      writeHookWithAgents(installPath, 'hooks/test-hook.ts', 'test-hook', literal)
+
+      const pack = makePack({ installPath, scope: 'project' })
+      const result = await vendorAndRegisterPack(pack, projectRoot, homeRoot)
+
+      expect(result.registered).toEqual([])
+      expect(result.errors).toHaveLength(1)
+      expect(result.errors[0]).toContain('validation failed')
+      expect(result.errors[0]).toContain(
+        'hook.meta.agents must be a non-empty array of agent id strings',
+      )
+      expect(
+        existsSync(join(projectRoot, '.clooks', 'vendor', 'plugin', 'test-pack', 'test-hook.ts')),
+      ).toBe(false)
+    })
+  }
 
   test('mixed pack: some hooks enabled, some disabled', async () => {
     writeValidHook(installPath, 'hooks/hook-a.ts', 'hook-a')

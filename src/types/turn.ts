@@ -27,13 +27,13 @@ export interface TurnRecord {
  *
  * @example
  * // Remind exactly once per turn instead of looping.
- * export default {
- *   meta,
+ * export const hook: ClooksHook = {
+ *   meta: { name: 'lint-reminder' },
  *   Stop(ctx) {
  *     if (ctx.turn.priorInterventions > 0) return ctx.skip()
  *     return ctx.block({ reason: 'Remember to lint the files you changed.' })
  *   },
- * } satisfies ClooksHook
+ * }
  */
 export interface TurnContext {
   /** Every prior run of this hook this turn, across all events, oldest first. */

@@ -490,4 +490,46 @@ describe('mergeThreeLayerConfig', () => {
     expect(result.merged.scanner).toEqual({ handoff: 300 })
     expect(result.shadows).toEqual(['scanner'])
   })
+
+  test('global agents replaces across layers and a layer that omits it inherits', () => {
+    const home = { version: '1.0.0', config: { agents: ['claude-code'], timeout: 5000 } }
+    const project = { config: { agents: ['codex'] } }
+    const local = { config: { timeout: 9000 } }
+
+    const homeOnly = mergeThreeLayerConfig(home, undefined, undefined).merged.config as Record<
+      string,
+      unknown
+    >
+    expect(homeOnly.agents).toEqual(['claude-code'])
+
+    // Arrays replace rather than concatenate
+    const withProject = mergeThreeLayerConfig(home, project, undefined).merged.config as Record<
+      string,
+      unknown
+    >
+    expect(withProject.agents).toEqual(['codex'])
+
+    // Local omits agents, so the project value survives and siblings still merge
+    const all = mergeThreeLayerConfig(home, project, local).merged.config as Record<string, unknown>
+    expect(all.agents).toEqual(['codex'])
+    expect(all.timeout).toBe(9000)
+  })
+
+  test('hook agents are discarded when a higher layer shadows the entry without them', () => {
+    const home = { version: '1.0.0', scanner: { agents: ['codex'], timeout: 5000 } }
+    const project = { scanner: { timeout: 1000 } }
+    const result = mergeThreeLayerConfig(home, project, undefined)
+
+    expect(result.merged.scanner).toEqual({ timeout: 1000 })
+    expect(result.shadows).toEqual(['scanner'])
+  })
+
+  test('hook agents from a local layer replace the project entry entirely', () => {
+    const home = { version: '1.0.0' }
+    const project = { scanner: { agents: ['claude-code'], timeout: 5000 } }
+    const local = { scanner: { agents: ['codex'] } }
+    const result = mergeThreeLayerConfig(home, project, local)
+
+    expect(result.merged.scanner).toEqual({ agents: ['codex'] })
+  })
 })

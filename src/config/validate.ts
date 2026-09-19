@@ -44,6 +44,7 @@ function transformToConfig(validated: z.output<typeof ClooksConfigSchema>): Cloo
     maxFailuresMessage: rawGlobal?.maxFailuresMessage ?? DEFAULT_MAX_FAILURES_MESSAGE,
     handoff: rawGlobal?.handoff ?? DEFAULT_HANDOFF,
   }
+  if (rawGlobal?.agents !== undefined) global.agents = rawGlobal.agents
 
   // Separate hooks and events
   const hooks: Record<HookName, HookEntry> = {} as Record<HookName, HookEntry>
@@ -71,9 +72,13 @@ function transformToConfig(validated: z.output<typeof ClooksConfigSchema>): Cloo
     if (raw.maxFailuresMessage !== undefined) entry.maxFailuresMessage = raw.maxFailuresMessage
     if (raw.enabled !== undefined) entry.enabled = raw.enabled
     if (raw.handoff !== undefined) entry.handoff = raw.handoff as HandoffSetting
+    if (raw.agents !== undefined) entry.agents = raw.agents
     if (raw.events) {
       const eventsMap: Partial<
-        Record<EventName, { onError?: ErrorMode; enabled?: boolean; handoff?: HandoffSetting }>
+        Record<
+          EventName,
+          { onError?: ErrorMode; enabled?: boolean; handoff?: HandoffSetting; agents?: string[] }
+        >
       > = {}
       for (const [ek, ev] of Object.entries(raw.events)) {
         if (ev)
@@ -81,6 +86,7 @@ function transformToConfig(validated: z.output<typeof ClooksConfigSchema>): Cloo
             onError?: ErrorMode
             enabled?: boolean
             handoff?: HandoffSetting
+            agents?: string[]
           }
       }
       if (Object.keys(eventsMap).length > 0) entry.events = eventsMap
@@ -152,7 +158,7 @@ function formatGlobalConfigError(issue: z.ZodIssue, raw: Record<string, unknown>
 
   if (issue.code === 'unrecognized_keys') {
     const keys = (issue as any).keys as string[]
-    return `clooks: global config has unknown key "${keys[0]}". Known keys: handoff, maxFailures, maxFailuresMessage, onError, timeout`
+    return `clooks: global config has unknown key "${keys[0]}". Known keys: agents, handoff, maxFailures, maxFailuresMessage, onError, timeout`
   }
 
   // Non-object config
@@ -178,6 +184,9 @@ function formatGlobalConfigError(issue: z.ZodIssue, raw: Record<string, unknown>
   }
   if (field === 'handoff') {
     return `clooks: global config "handoff" must be true, false, or a positive integer character threshold`
+  }
+  if (field === 'agents') {
+    return `clooks: global config "agents" must be a non-empty array of agent id strings`
   }
 
   return `clooks: global config error: ${issue.message}`
@@ -217,13 +226,13 @@ function formatHookError(
 
     // Root of hook entry
     if (depth <= 1) {
-      return `clooks: hook "${hookName}" has unknown key "${keys[0]}". Known keys: config, enabled, events, handoff, maxFailures, maxFailuresMessage, onError, parallel, timeout, uses`
+      return `clooks: hook "${hookName}" has unknown key "${keys[0]}". Known keys: agents, config, enabled, events, handoff, maxFailures, maxFailuresMessage, onError, parallel, timeout, uses`
     }
 
     // Inside hook.events.EventName
     if (issue.path[1] === 'events' && issue.path.length >= 3) {
       const eventKey = String(issue.path[2])
-      return `clooks: hook "${hookName}" events.${eventKey} has unknown key "${keys[0]}". Known keys: enabled, handoff, onError`
+      return `clooks: hook "${hookName}" events.${eventKey} has unknown key "${keys[0]}". Known keys: agents, enabled, handoff, onError`
     }
   }
 
@@ -258,6 +267,9 @@ function formatHookError(
   if (field === 'handoff') {
     return `clooks: hook "${hookName}" has invalid "handoff": must be true, false, or a positive integer character threshold`
   }
+  if (field === 'agents') {
+    return `clooks: hook "${hookName}" has invalid "agents": must be a non-empty array of agent id strings`
+  }
   if (field === 'config') {
     return `clooks: hook "${hookName}" has invalid "config": must be an object`
   }
@@ -279,6 +291,9 @@ function formatHookError(
       }
       if (subField === 'handoff') {
         return `clooks: hook "${hookName}" events.${eventKey} "handoff" must be true, false, or a positive integer character threshold`
+      }
+      if (subField === 'agents') {
+        return `clooks: hook "${hookName}" events.${eventKey} "agents" must be a non-empty array of agent id strings`
       }
       return `clooks: hook "${hookName}" events.${eventKey} error: ${issue.message}`
     }

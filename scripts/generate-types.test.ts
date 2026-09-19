@@ -38,6 +38,7 @@ describe.skipIf(skip)('generate-types', () => {
     const requiredTypes = [
       'ClooksHook',
       'HookMeta',
+      'AgentId',
       'MaybeAsync',
       'BaseContext',
       'PreToolUseContext',
@@ -56,11 +57,16 @@ describe.skipIf(skip)('generate-types', () => {
     }
   })
 
+  test('HookMeta carries the agent allowlist', async () => {
+    const content = await loadTypes()
+    expect(content).toContain('agents?: AgentId[]')
+  })
+
   test('does NOT export internal types', async () => {
     const content = await loadTypes()
 
     // These internal types should not appear as exported declarations
-    const internalTypes = ['EventName', 'HookName', 'Milliseconds', 'ResultTag']
+    const internalTypes = ['EventName', 'HookName', 'Milliseconds']
 
     for (const typeName of internalTypes) {
       // Check that no export declaration directly exports these names

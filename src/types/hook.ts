@@ -1,4 +1,5 @@
 import type {
+  AgentId,
   PreToolUseContext,
   UserPromptSubmitContext,
   PermissionRequestContext,
@@ -57,31 +58,32 @@ import type { BlockResult, SkipResult } from './results.js'
 /** A handler return type that may be sync or async. */
 export type MaybeAsync<T> = T | Promise<T>
 
-/** The `meta` export every hook file must produce. */
+/** The `meta` object every hook declares on its `hook` export. */
 export interface HookMeta<C extends Record<string, unknown> = Record<string, unknown>> {
   /** Human-readable name. Must be unique within a project. */
   name: string
   /** Optional one-liner describing what the hook does. */
   description?: string
+  /** Agents this hook supports. Omit to support every agent. Users can override via `clooks.yml`. */
+  agents?: AgentId[]
   /** Default config for this hook. Users can override via `clooks.yml`. */
   config?: C
 }
 
 /**
- * The full hook contract. One per `.ts` file: export a `meta` plus one or
- * more event handlers, e.g.:
+ * The full hook contract. One per `.ts` file: a named `hook` export carrying
+ * `meta` plus one or more event handlers, e.g.:
  *
  * @example
- * export const meta: HookMeta = { name: 'guard-rm-rf' }
- * export default {
- *   meta,
+ * export const hook: ClooksHook = {
+ *   meta: { name: 'guard-rm-rf' },
  *   PreToolUse(ctx) {
  *     if (ctx.toolName === 'Bash' && ctx.toolInput.command.includes('rm -rf /')) {
  *       return ctx.block({ reason: 'No.' })
  *     }
  *     return ctx.skip()
  *   },
- * } satisfies ClooksHook
+ * }
  */
 export interface ClooksHook<C extends Record<string, unknown> = Record<string, unknown>> {
   meta: HookMeta<C>

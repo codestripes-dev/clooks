@@ -11,8 +11,15 @@ export { assertCategoryCompleteness } from './events.js'
 export { translateResult } from './translate.js'
 
 // match
-export type { MatchResult } from './match.js'
-export { matchHooksForEvent, buildShadowWarnings } from './match.js'
+export type { MatchResult, SkipRecord, AgentScope } from './match.js'
+export {
+  matchHooksForEvent,
+  buildShadowWarnings,
+  buildUnknownAgentWarnings,
+  resolveAgents,
+  resolveAgentScope,
+  runsUnderAgent,
+} from './match.js'
 
 // execute
 export {

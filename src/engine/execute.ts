@@ -501,11 +501,10 @@ export async function executeHooks(
       }
   }
 
-  // Clear LOAD_ERROR_EVENT counters for hooks that loaded successfully.
-  // This handles recovery after a hook file is restored — without this,
-  // a hook that was degraded due to load errors would remain permanently
-  // degraded even after the file is fixed because the __load__ counter
-  // is never cleared by the per-event success path.
+  // Recovery backstop for direct callers of executeHooks. The engine already
+  // cleared LOAD_ERROR_EVENT for every hook it imported, including the ones
+  // that never reach this list, so in a full run this loop finds nothing and
+  // writes nothing.
   for (const loaded of matched) {
     if (getFailureCount(failureState, loaded.name, LOAD_ERROR_EVENT) > 0) {
       failureState = clearFailure(failureState, loaded.name, LOAD_ERROR_EVENT)

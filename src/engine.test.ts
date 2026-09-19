@@ -9,6 +9,10 @@ import {
   interpolateMessage,
   resolveOnError,
   buildShadowWarnings,
+  buildUnknownAgentWarnings,
+  resolveAgents,
+  resolveAgentScope,
+  runsUnderAgent,
   formatDiagnostic,
   formatTraceMessage,
   assertCategoryCompleteness,
@@ -1215,6 +1219,7 @@ describe('matchHooksForEvent', () => {
       [hookA, hookB, hookC],
       'PreToolUse',
       config,
+      'claude-code',
     )
     expect(matched).toHaveLength(2)
     expect(matched.map((h) => h.name)).toEqual([hn('a'), hn('b')])
@@ -1226,14 +1231,19 @@ describe('matchHooksForEvent', () => {
       PostToolUse: () => ({ result: 'skip' }),
     })
     const config = configForHooks('a')
-    const { matched, disabledSkips } = matchHooksForEvent([hookA], 'PreToolUse', config)
+    const { matched, disabledSkips } = matchHooksForEvent(
+      [hookA],
+      'PreToolUse',
+      config,
+      'claude-code',
+    )
     expect(matched).toEqual([])
     expect(disabledSkips).toEqual([])
   })
 
   it('returns empty array for empty hooks list', () => {
     const config = configForHooks()
-    const { matched, disabledSkips } = matchHooksForEvent([], 'PreToolUse', config)
+    const { matched, disabledSkips } = matchHooksForEvent([], 'PreToolUse', config, 'claude-code')
     expect(matched).toEqual([])
     expect(disabledSkips).toEqual([])
   })
@@ -1244,7 +1254,12 @@ describe('matchHooksForEvent', () => {
     })
     const config = configForHooks('a')
     config.hooks[hn('a')]!.enabled = false
-    const { matched, disabledSkips } = matchHooksForEvent([hookA], 'PreToolUse', config)
+    const { matched, disabledSkips } = matchHooksForEvent(
+      [hookA],
+      'PreToolUse',
+      config,
+      'claude-code',
+    )
     expect(matched).toEqual([])
     expect(disabledSkips).toHaveLength(1)
     expect(disabledSkips[0]!.hook).toBe(hn('a'))
@@ -1261,12 +1276,12 @@ describe('matchHooksForEvent', () => {
       PreToolUse: { enabled: false },
     }
 
-    const pre = matchHooksForEvent([hookA], 'PreToolUse', config)
+    const pre = matchHooksForEvent([hookA], 'PreToolUse', config, 'claude-code')
     expect(pre.matched).toEqual([])
     expect(pre.disabledSkips).toHaveLength(1)
     expect(pre.disabledSkips[0]!.reason).toBe('hook "a" disabled for event "PreToolUse" via config')
 
-    const post = matchHooksForEvent([hookA], 'PostToolUse', config)
+    const post = matchHooksForEvent([hookA], 'PostToolUse', config, 'claude-code')
     expect(post.matched).toHaveLength(1)
     expect(post.matched[0]!.name).toBe(hn('a'))
     expect(post.disabledSkips).toEqual([])
@@ -1281,7 +1296,12 @@ describe('matchHooksForEvent', () => {
     config.hooks[hn('a')]!.events = {
       PreToolUse: { enabled: true },
     }
-    const { matched, disabledSkips } = matchHooksForEvent([hookA], 'PreToolUse', config)
+    const { matched, disabledSkips } = matchHooksForEvent(
+      [hookA],
+      'PreToolUse',
+      config,
+      'claude-code',
+    )
     expect(matched).toEqual([])
     expect(disabledSkips).toHaveLength(1)
     expect(disabledSkips[0]!.reason).toBe('hook "a" disabled entirely via config')
@@ -1293,7 +1313,12 @@ describe('matchHooksForEvent', () => {
     })
     const config = configForHooks('a')
     config.hooks[hn('a')]!.enabled = true
-    const { matched, disabledSkips } = matchHooksForEvent([hookA], 'PreToolUse', config)
+    const { matched, disabledSkips } = matchHooksForEvent(
+      [hookA],
+      'PreToolUse',
+      config,
+      'claude-code',
+    )
     expect(matched).toHaveLength(1)
     expect(matched[0]!.name).toBe(hn('a'))
     expect(disabledSkips).toEqual([])
@@ -1306,7 +1331,12 @@ describe('matchHooksForEvent', () => {
     const config = configForHooks('a')
     config.hooks[hn('a')]!.enabled = false
     // hookA does NOT handle PreToolUse, but enabled: false should still produce a disabledSkip
-    const { matched, disabledSkips } = matchHooksForEvent([hookA], 'PreToolUse', config)
+    const { matched, disabledSkips } = matchHooksForEvent(
+      [hookA],
+      'PreToolUse',
+      config,
+      'claude-code',
+    )
     expect(matched).toEqual([])
     expect(disabledSkips).toHaveLength(1)
     expect(disabledSkips[0]!.hook).toBe(hn('a'))
@@ -1322,11 +1352,364 @@ describe('matchHooksForEvent', () => {
       PreToolUse: { enabled: false },
     }
     // hookA does NOT handle PreToolUse, but per-event enabled: false should still produce a disabledSkip
-    const { matched, disabledSkips } = matchHooksForEvent([hookA], 'PreToolUse', config)
+    const { matched, disabledSkips } = matchHooksForEvent(
+      [hookA],
+      'PreToolUse',
+      config,
+      'claude-code',
+    )
     expect(matched).toEqual([])
     expect(disabledSkips).toHaveLength(1)
     expect(disabledSkips[0]!.hook).toBe(hn('a'))
     expect(disabledSkips[0]!.reason).toBe('hook "a" disabled for event "PreToolUse" via config')
+  })
+
+  // --- agent scoping ---
+
+  describe('agent scoping', () => {
+    function metaAgents(loaded: LoadedHook, agents: string[]): LoadedHook {
+      Object.assign(loaded.hook.meta, { agents })
+      return loaded
+    }
+
+    function preToolUseHook(name: string) {
+      return makeLoadedHook(name, { PreToolUse: () => ({ result: 'skip' }) })
+    }
+
+    it('no agents list anywhere — hook runs under every agent', () => {
+      const hookA = preToolUseHook('a')
+      const config = configForHooks('a')
+      for (const agent of ['claude-code', 'codex']) {
+        const { matched, agentSkips } = matchHooksForEvent([hookA], 'PreToolUse', config, agent)
+        expect(matched.map((h) => h.name)).toEqual([hn('a')])
+        expect(agentSkips).toEqual([])
+      }
+    })
+
+    it('global agents excludes the current agent, reason names config.agents', () => {
+      const hookA = preToolUseHook('a')
+      const config = configForHooks('a')
+      config.global.agents = ['codex']
+
+      const claude = matchHooksForEvent([hookA], 'PreToolUse', config, 'claude-code')
+      expect(claude.matched).toEqual([])
+      expect(claude.agentSkips).toHaveLength(1)
+      expect(claude.agentSkips[0]!.hook).toBe(hn('a'))
+      expect(claude.agentSkips[0]!.reason).toBe(
+        'hook "a" skipped for agent "claude-code" via clooks.yml config.agents',
+      )
+
+      const codex = matchHooksForEvent([hookA], 'PreToolUse', config, 'codex')
+      expect(codex.matched.map((h) => h.name)).toEqual([hn('a')])
+      expect(codex.agentSkips).toEqual([])
+    })
+
+    it('meta beats global — global does not widen or narrow an author statement', () => {
+      const hookA = metaAgents(preToolUseHook('a'), ['claude-code'])
+      const config = configForHooks('a')
+      config.global.agents = ['codex']
+
+      const codex = matchHooksForEvent([hookA], 'PreToolUse', config, 'codex')
+      expect(codex.matched).toEqual([])
+      expect(codex.agentSkips[0]!.reason).toBe(
+        'hook "a" skipped for agent "codex" via hook meta.agents',
+      )
+
+      const claude = matchHooksForEvent([hookA], 'PreToolUse', config, 'claude-code')
+      expect(claude.matched.map((h) => h.name)).toEqual([hn('a')])
+    })
+
+    it('hook yaml beats meta — forces a hook onto an agent its meta excludes', () => {
+      const hookA = metaAgents(preToolUseHook('a'), ['claude-code'])
+      const config = configForHooks('a')
+      config.hooks[hn('a')]!.agents = ['codex']
+
+      const codex = matchHooksForEvent([hookA], 'PreToolUse', config, 'codex')
+      expect(codex.matched.map((h) => h.name)).toEqual([hn('a')])
+      expect(codex.agentSkips).toEqual([])
+
+      const claude = matchHooksForEvent([hookA], 'PreToolUse', config, 'claude-code')
+      expect(claude.matched).toEqual([])
+      expect(claude.agentSkips[0]!.reason).toBe(
+        'hook "a" skipped for agent "claude-code" via clooks.yml hook agents',
+      )
+    })
+
+    it('per-event yaml beats hook yaml, and only for that event', () => {
+      const hookA = makeLoadedHook('a', {
+        PreToolUse: () => ({ result: 'skip' }),
+        PostToolUse: () => ({ result: 'skip' }),
+      })
+      const config = configForHooks('a')
+      config.hooks[hn('a')]!.agents = ['codex']
+      config.hooks[hn('a')]!.events = { PreToolUse: { agents: ['claude-code'] } }
+
+      const pre = matchHooksForEvent([hookA], 'PreToolUse', config, 'claude-code')
+      expect(pre.matched.map((h) => h.name)).toEqual([hn('a')])
+
+      const preCodex = matchHooksForEvent([hookA], 'PreToolUse', config, 'codex')
+      expect(preCodex.matched).toEqual([])
+      expect(preCodex.agentSkips[0]!.reason).toBe(
+        'hook "a" skipped for agent "codex" via clooks.yml events.PreToolUse.agents',
+      )
+
+      // PostToolUse has no per-event list, so the hook-level one applies again.
+      const post = matchHooksForEvent([hookA], 'PostToolUse', config, 'codex')
+      expect(post.matched.map((h) => h.name)).toEqual([hn('a')])
+      const postClaude = matchHooksForEvent([hookA], 'PostToolUse', config, 'claude-code')
+      expect(postClaude.matched).toEqual([])
+      expect(postClaude.agentSkips[0]!.reason).toBe(
+        'hook "a" skipped for agent "claude-code" via clooks.yml hook agents',
+      )
+    })
+
+    it('alias entry uses its own yaml and the imported implementation meta, not the target entry', () => {
+      // The loader gives an alias its own name and the target file's meta.
+      const alias = metaAgents(preToolUseHook('alias'), ['claude-code'])
+      const config = configForHooks('alias', 'target')
+      config.hooks[hn('alias')]!.uses = 'target'
+      config.hooks[hn('target')]!.agents = ['codex']
+
+      const codex = matchHooksForEvent([alias], 'PreToolUse', config, 'codex')
+      expect(codex.matched).toEqual([])
+      expect(codex.agentSkips[0]!.reason).toBe(
+        'hook "alias" skipped for agent "codex" via hook meta.agents',
+      )
+
+      // The alias's own yaml still wins over the imported meta.
+      config.hooks[hn('alias')]!.agents = ['codex']
+      const overridden = matchHooksForEvent([alias], 'PreToolUse', config, 'codex')
+      expect(overridden.matched.map((h) => h.name)).toEqual([hn('alias')])
+    })
+
+    it('mixed known and unknown ids match on the known ones', () => {
+      const hookA = preToolUseHook('a')
+      const config = configForHooks('a')
+      config.hooks[hn('a')]!.agents = ['codex', 'cursor']
+
+      expect(
+        matchHooksForEvent([hookA], 'PreToolUse', config, 'codex').matched.map((h) => h.name),
+      ).toEqual([hn('a')])
+      expect(matchHooksForEvent([hookA], 'PreToolUse', config, 'claude-code').matched).toEqual([])
+    })
+
+    it('a list of only unknown ids matches nothing and does not fall through', () => {
+      const hookA = metaAgents(preToolUseHook('a'), ['claude-code'])
+      const config = configForHooks('a')
+      config.global.agents = ['claude-code', 'codex']
+      config.hooks[hn('a')]!.agents = ['cursor']
+
+      for (const agent of ['claude-code', 'codex']) {
+        const { matched, agentSkips } = matchHooksForEvent([hookA], 'PreToolUse', config, agent)
+        expect(matched).toEqual([])
+        expect(agentSkips[0]!.reason).toBe(
+          `hook "a" skipped for agent "${agent}" via clooks.yml hook agents`,
+        )
+      }
+    })
+
+    it('agent check runs before the handler-presence check', () => {
+      const hookA = makeLoadedHook('a', { PostToolUse: () => ({ result: 'skip' }) })
+      const config = configForHooks('a')
+      config.hooks[hn('a')]!.agents = ['codex']
+
+      const { matched, agentSkips } = matchHooksForEvent(
+        [hookA],
+        'PreToolUse',
+        config,
+        'claude-code',
+      )
+      expect(matched).toEqual([])
+      expect(agentSkips).toHaveLength(1)
+      expect(agentSkips[0]!.hook).toBe(hn('a'))
+    })
+
+    it('enabled: false stays an independent veto regardless of agents', () => {
+      const hookA = preToolUseHook('a')
+      const config = configForHooks('a')
+      config.hooks[hn('a')]!.enabled = false
+      config.hooks[hn('a')]!.agents = ['claude-code', 'codex']
+
+      const { matched, disabledSkips, agentSkips } = matchHooksForEvent(
+        [hookA],
+        'PreToolUse',
+        config,
+        'claude-code',
+      )
+      expect(matched).toEqual([])
+      expect(agentSkips).toEqual([])
+      expect(disabledSkips).toHaveLength(1)
+      expect(disabledSkips[0]!.reason).toBe('hook "a" disabled entirely via config')
+    })
+
+    it('a disabled hook that is also agent-excluded is reported as disabled only', () => {
+      const hookA = preToolUseHook('a')
+      const config = configForHooks('a')
+      config.hooks[hn('a')]!.enabled = false
+      config.hooks[hn('a')]!.agents = ['codex']
+
+      const { disabledSkips, agentSkips } = matchHooksForEvent(
+        [hookA],
+        'PreToolUse',
+        config,
+        'claude-code',
+      )
+      expect(agentSkips).toEqual([])
+      expect(disabledSkips).toHaveLength(1)
+    })
+
+    it('agent inclusion never creates a missing handler', () => {
+      const hookA = metaAgents(makeLoadedHook('a', { PostToolUse: () => ({ result: 'skip' }) }), [
+        'claude-code',
+      ])
+      const config = configForHooks('a')
+
+      const { matched, agentSkips } = matchHooksForEvent(
+        [hookA],
+        'PreToolUse',
+        config,
+        'claude-code',
+      )
+      expect(matched).toEqual([])
+      expect(agentSkips).toEqual([])
+    })
+  })
+})
+
+// --- resolveAgentScope / runsUnderAgent ---
+
+describe('resolveAgentScope', () => {
+  const global = { agents: ['global-id'] } as unknown as import('./config/schema.js').GlobalConfig
+  const bareGlobal = {} as unknown as import('./config/schema.js').GlobalConfig
+
+  function entry(over: Partial<import('./config/schema.js').HookEntry>) {
+    return {
+      resolvedPath: '.clooks/hooks/a.ts',
+      config: {},
+      parallel: false,
+      origin: 'project' as const,
+      ...over,
+    }
+  }
+
+  it('picks the per-event list first', () => {
+    const scope = resolveAgentScope(
+      entry({ agents: ['hook-id'], events: { PreToolUse: { agents: ['event-id'] } } }),
+      { name: 'a', agents: ['meta-id'] } as never,
+      global,
+      'PreToolUse',
+    )
+    expect(scope).toEqual({ agents: ['event-id'], source: 'clooks.yml events.PreToolUse.agents' })
+  })
+
+  it('falls back hook yaml → meta → global → undefined', () => {
+    const meta = { name: 'a', agents: ['meta-id'] } as never
+    expect(resolveAgentScope(entry({ agents: ['hook-id'] }), meta, global, 'PreToolUse')).toEqual({
+      agents: ['hook-id'],
+      source: 'clooks.yml hook agents',
+    })
+    expect(resolveAgentScope(entry({}), meta, global, 'PreToolUse')).toEqual({
+      agents: ['meta-id'],
+      source: 'hook meta.agents',
+    })
+    expect(resolveAgentScope(entry({}), { name: 'a' } as never, global, 'PreToolUse')).toEqual({
+      agents: ['global-id'],
+      source: 'clooks.yml config.agents',
+    })
+    expect(
+      resolveAgentScope(undefined, { name: 'a' } as never, bareGlobal, 'PreToolUse'),
+    ).toBeUndefined()
+  })
+
+  it('resolveAgents returns the selected list only', () => {
+    expect(
+      resolveAgents(entry({ agents: ['hook-id'] }), { name: 'a' } as never, global, 'PreToolUse'),
+    ).toEqual(['hook-id'])
+    expect(
+      resolveAgents(undefined, { name: 'a' } as never, bareGlobal, 'PreToolUse'),
+    ).toBeUndefined()
+  })
+})
+
+describe('runsUnderAgent', () => {
+  it('no list means every agent', () => {
+    expect(runsUnderAgent(undefined, 'codex')).toBe(true)
+  })
+
+  it('membership decides, unknown ids simply never match', () => {
+    expect(runsUnderAgent(['codex'], 'codex')).toBe(true)
+    expect(runsUnderAgent(['codex'], 'claude-code')).toBe(false)
+    expect(runsUnderAgent(['cursor', 'windsurf'], 'codex')).toBe(false)
+    expect(runsUnderAgent([], 'codex')).toBe(false)
+  })
+})
+
+// --- buildUnknownAgentWarnings ---
+
+describe('buildUnknownAgentWarnings', () => {
+  function configWith(
+    global: string[] | undefined,
+    hooks: Record<string, import('./config/schema.js').HookEntry>,
+  ): ClooksConfig {
+    return {
+      version: '1.0.0',
+      global: {
+        timeout: ms(30000),
+        onError: 'block',
+        maxFailures: 3,
+        maxFailuresMessage: DEFAULT_MAX_FAILURES_MESSAGE,
+        handoff: false,
+        ...(global ? { agents: global } : {}),
+      },
+      hooks: hooks as Record<HookName, import('./config/schema.js').HookEntry>,
+      events: {},
+    }
+  }
+
+  function entry(over: Partial<import('./config/schema.js').HookEntry>) {
+    return {
+      resolvedPath: '.clooks/hooks/a.ts',
+      config: {},
+      parallel: false,
+      origin: 'project' as const,
+      ...over,
+    }
+  }
+
+  function loadedWithMeta(name: string, agents?: string[]): LoadedHook {
+    const hook = makeLoadedHook(name, { PreToolUse: () => ({ result: 'skip' }) })
+    if (agents) Object.assign(hook.hook.meta, { agents })
+    return hook
+  }
+
+  it('returns nothing when every id is known', () => {
+    const config = configWith(['claude-code'], { a: entry({ agents: ['codex'] }) })
+    expect(
+      buildUnknownAgentWarnings('SessionStart', config, [loadedWithMeta('a', ['claude-code'])]),
+    ).toEqual([])
+  })
+
+  it('collects from global, hook entries, per-event overrides and metas, sorted and deduped', () => {
+    const config = configWith(['windsurf'], {
+      a: entry({ agents: ['cursor', 'codex'] }),
+      b: entry({ events: { PreToolUse: { agents: ['cursor'] } } }),
+    })
+    expect(
+      buildUnknownAgentWarnings('SessionStart', config, [loadedWithMeta('a', ['aider', 'codex'])]),
+    ).toEqual(['clooks: unknown agent ids in agents lists (ignored): aider, cursor, windsurf'])
+  })
+
+  it('warns even when no hooks are registered', () => {
+    expect(buildUnknownAgentWarnings('SessionStart', configWith(['future-agent'], {}), [])).toEqual(
+      ['clooks: unknown agent ids in agents lists (ignored): future-agent'],
+    )
+  })
+
+  it('is emitted on SessionStart only', () => {
+    const config = configWith(['cursor'], {})
+    expect(buildUnknownAgentWarnings('PreToolUse', config, [])).toEqual([])
+    expect(buildUnknownAgentWarnings('SessionEnd', config, [])).toEqual([])
+    expect(buildUnknownAgentWarnings('SessionStart', config, [])).toHaveLength(1)
   })
 })
 
@@ -2973,6 +3356,7 @@ describe('integration: full pipeline', () => {
       [hookA, hookB],
       'PreToolUse' as import('./types/branded.js').EventName,
       config,
+      'claude-code',
     )
 
     await expect(executeHooks(matched, 'PreToolUse', {}, config, fp(dir))).rejects.toThrow(

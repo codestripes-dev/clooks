@@ -796,17 +796,17 @@ describe('validateConfig', () => {
 
   test('unknown-key messages list handoff as a known key', () => {
     expect(() => validateConfig({ version: '1.0.0', config: { handof: true } })).toThrow(
-      'Known keys: handoff, maxFailures',
+      'Known keys: agents, handoff, maxFailures',
     )
     expect(() => validateConfig({ version: '1.0.0', 'my-hook': { handof: true } })).toThrow(
-      'Known keys: config, enabled, events, handoff, maxFailures',
+      'Known keys: agents, config, enabled, events, handoff, maxFailures',
     )
     expect(() =>
       validateConfig({
         version: '1.0.0',
         scanner: { events: { PreToolUse: { handof: true } } },
       }),
-    ).toThrow('Known keys: enabled, handoff, onError')
+    ).toThrow('Known keys: agents, enabled, handoff, onError')
   })
 
   test('hook entry rejects misspelled onError', () => {
@@ -981,5 +981,93 @@ describe('validateConfig', () => {
     })
     expect(result.events['PostCompact']).toBeDefined()
     expect(result.hooks['PostCompact' as any]).toBeUndefined()
+  })
+})
+
+describe('validateConfig agents', () => {
+  test('accepted at global, hook, and per-event positions', () => {
+    const result = validateConfig({
+      version: '1.0.0',
+      config: { agents: ['claude-code'] },
+      scanner: {
+        agents: ['codex'],
+        events: { PreToolUse: { agents: ['claude-code', 'codex'] } },
+      },
+    })
+
+    expect(result.global.agents).toEqual(['claude-code'])
+    expect(result.hooks[hn('scanner')]!.agents).toEqual(['codex'])
+    expect(result.hooks[hn('scanner')]!.events!.PreToolUse!.agents).toEqual([
+      'claude-code',
+      'codex',
+    ])
+  })
+
+  test('omitted agents stays undefined at every position', () => {
+    const result = validateConfig({
+      version: '1.0.0',
+      scanner: { events: { PreToolUse: { enabled: false } } },
+    })
+
+    expect(result.global.agents).toBeUndefined()
+    expect(result.hooks[hn('scanner')]!.agents).toBeUndefined()
+    expect(result.hooks[hn('scanner')]!.events!.PreToolUse!.agents).toBeUndefined()
+  })
+
+  test('unknown agent ids are preserved verbatim', () => {
+    const result = validateConfig({
+      version: '1.0.0',
+      config: { agents: ['cursor'] },
+      scanner: {
+        agents: ['windsurf', 'codex'],
+        events: { PreToolUse: { agents: ['some-future-agent'] } },
+      },
+    })
+
+    expect(result.global.agents).toEqual(['cursor'])
+    expect(result.hooks[hn('scanner')]!.agents).toEqual(['windsurf', 'codex'])
+    expect(result.hooks[hn('scanner')]!.events!.PreToolUse!.agents).toEqual(['some-future-agent'])
+  })
+
+  const invalid: [label: string, value: unknown][] = [
+    ['empty array', []],
+    ['non-array string', 'claude-code'],
+    ['non-array object', { 'claude-code': true }],
+    ['non-string element', ['claude-code', 7]],
+    ['empty-string element', ['']],
+  ]
+
+  for (const [label, value] of invalid) {
+    test(`global config rejects ${label}`, () => {
+      expect(() => validateConfig({ version: '1.0.0', config: { agents: value } })).toThrow(
+        'clooks: global config "agents" must be a non-empty array of agent id strings',
+      )
+    })
+
+    test(`hook entry rejects ${label}`, () => {
+      expect(() => validateConfig({ version: '1.0.0', scanner: { agents: value } })).toThrow(
+        'clooks: hook "scanner" has invalid "agents": must be a non-empty array of agent id strings',
+      )
+    })
+
+    test(`per-event override rejects ${label}`, () => {
+      expect(() =>
+        validateConfig({
+          version: '1.0.0',
+          scanner: { events: { PreToolUse: { agents: value } } },
+        }),
+      ).toThrow(
+        'clooks: hook "scanner" events.PreToolUse "agents" must be a non-empty array of agent id strings',
+      )
+    })
+  }
+
+  test('top-level event entry rejects agents as an unknown key', () => {
+    expect(() =>
+      validateConfig({
+        version: '1.0.0',
+        PreToolUse: { agents: ['claude-code'] },
+      }),
+    ).toThrow('event "PreToolUse" has unknown key "agents". Known keys: order')
   })
 })

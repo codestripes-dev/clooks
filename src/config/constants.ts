@@ -1,4 +1,18 @@
 import type { EventName, Milliseconds } from '../types/branded.js'
+import type { AgentId } from '../types/contexts.js'
+
+// Agent ids this version recognizes. Config and hook metadata accept any
+// string so a future id keeps validating; anything outside this list matches
+// no agent and is reported once at SessionStart.
+const AGENT_IDS = ['claude-code', 'codex'] as const satisfies readonly AgentId[]
+
+// Compile-time guard: adding an AgentId without listing it above is an error.
+type AssertTrue<T extends true> = T
+type _AllAgentIdsKnown = AssertTrue<
+  Exclude<AgentId, (typeof AGENT_IDS)[number]> extends never ? true : false
+>
+
+export const KNOWN_AGENT_IDS: readonly string[] = AGENT_IDS
 
 // The 22 Claude Code event names. These are reserved — they cannot be
 // used as hook names in clooks.yml because they have special meaning

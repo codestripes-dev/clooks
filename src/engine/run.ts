@@ -19,7 +19,7 @@ import { discoverProjectRoot } from '../config/discovery.js'
 import type { RunEngineDeps, ExitCode } from './types.js'
 import { EXIT_OK, EXIT_STDERR } from './types.js'
 import { formatStdinError, readStdinJson } from './stdin.js'
-import { matchHooksForEvent, buildShadowWarnings } from './match.js'
+import { matchHooksForEvent, buildShadowWarnings, buildUnknownAgentWarnings } from './match.js'
 import { executeHooks } from './execute.js'
 import { pruneHandoffFiles } from './handoff.js'
 import {
@@ -517,13 +517,19 @@ async function runEngineInvocation(
     )
   }
 
-  // Dangling hooks never execute, so stale load-error failures should not keep them quarantined.
-  if (dangling.length > 0) {
+  // A clean import proves the file is healthy, whether or not the hook goes on
+  // to run, so its load-error counter is cleared here rather than after
+  // matching: a hook with no handler for this event, or one excluded for this
+  // agent, would otherwise keep a stale count and degrade early on its next
+  // real failure. Dangling hooks never execute at all. Runs before load errors
+  // are processed, and before both early exits below.
+  const importedNames = [...hooks.map((h) => h.name), ...dangling.map((d) => d.name)]
+  if (importedNames.length > 0) {
     let failureState = await readFailures(failurePath)
     let cleared = false
-    for (const d of dangling) {
-      if (getFailureCount(failureState, d.name, LOAD_ERROR_EVENT) > 0) {
-        failureState = clearFailure(failureState, d.name, LOAD_ERROR_EVENT)
+    for (const name of importedNames) {
+      if (getFailureCount(failureState, name, LOAD_ERROR_EVENT) > 0) {
+        failureState = clearFailure(failureState, name, LOAD_ERROR_EVENT)
         cleared = true
       }
     }
@@ -666,8 +672,12 @@ async function runEngineInvocation(
     )
   }
 
+  // Independent of matching, so a config whose only agents list is a future id
+  // still warns when no hook is registered or none matches.
+  const unknownAgentWarnings = buildUnknownAgentWarnings(eventName, config, hooks)
+
   if (hooks.length === 0 && loadErrors.length === 0) {
-    const earlyMessages = [...pluginSystemMessages, ...danglingWarnings]
+    const earlyMessages = [...pluginSystemMessages, ...danglingWarnings, ...unknownAgentWarnings]
     const exitCode = await emitFinalOutput(
       adapter.translateFinalOutput({
         eventName,
@@ -684,10 +694,16 @@ async function runEngineInvocation(
     finishEngine(exitCode)
   }
 
-  const { matched, disabledSkips } = matchHooksForEvent(hooks, eventName, config)
+  const { matched, disabledSkips, agentSkips } = matchHooksForEvent(
+    hooks,
+    eventName,
+    config,
+    adapter.id,
+  )
+  const agentSkippedNames = new Set<HookName>(agentSkips.map((s) => s.hook))
 
   if (debug) {
-    for (const skip of disabledSkips) {
+    for (const skip of [...disabledSkips, ...agentSkips]) {
       engineDebugLines.push(skip.reason)
     }
     engineDebugLines.push(
@@ -697,7 +713,10 @@ async function runEngineInvocation(
 
   // Computed before the early exit so warnings are emitted even when
   // no hooks match the current event.
-  const startupWarnings: string[] = buildShadowWarnings(eventName, shadows)
+  const startupWarnings: string[] = [
+    ...buildShadowWarnings(eventName, shadows),
+    ...unknownAgentWarnings,
+  ]
 
   for (const [eventKey, eventEntry] of Object.entries(config.events)) {
     if (eventEntry?.order) {
@@ -752,6 +771,7 @@ async function runEngineInvocation(
   }
 
   for (const loaded of hooks) {
+    if (agentSkippedNames.has(loaded.name)) continue
     const hookEntry = config.hooks[loaded.name]
     if (hookEntry?.onError === 'trace' && !INJECTABLE_EVENTS.has(eventName)) {
       const handlesEvent =
@@ -765,7 +785,9 @@ async function runEngineInvocation(
     }
   }
 
-  const disabledNames = new Set<HookName>()
+  // Ordering treats agent-excluded names like disabled ones: an `order:` list
+  // naming them stays valid under the other agent.
+  const disabledNames = new Set<HookName>(agentSkippedNames)
   for (const s of disabledSkips) disabledNames.add(s.hook)
 
   // Built after the no-match exit, so no snapshot is read when nothing will

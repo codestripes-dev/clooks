@@ -26,6 +26,14 @@ const HandoffSchema = z.union([z.boolean(), z.number().int().positive()], {
   error: 'must be true, false, or a positive integer character threshold',
 })
 
+// Any string is accepted so a config written for a future agent id still
+// validates under this version. Known ids live in KNOWN_AGENT_IDS.
+const AGENTS_ERROR = '"agents" must be a non-empty array of agent id strings'
+
+const AgentsSchema = z
+  .array(z.string().min(1, { error: AGENTS_ERROR }), { error: AGENTS_ERROR })
+  .min(1, { error: AGENTS_ERROR })
+
 // ── GlobalConfig schema ──
 
 export const GlobalConfigSchema = z
@@ -46,6 +54,7 @@ export const GlobalConfigSchema = z
       .optional(),
     maxFailuresMessage: z.string().optional(),
     handoff: HandoffSchema.optional(),
+    agents: AgentsSchema.optional(),
   })
   .strict()
 
@@ -56,6 +65,7 @@ const HookEventOverrideSchema = z
     onError: ErrorModeSchema.optional(),
     enabled: z.boolean().optional(),
     handoff: HandoffSchema.optional(),
+    agents: AgentsSchema.optional(),
   })
   .strict()
 
@@ -79,6 +89,7 @@ export const HookEntrySchema = z
     maxFailuresMessage: z.string().optional(),
     enabled: z.boolean().optional(),
     handoff: HandoffSchema.optional(),
+    agents: AgentsSchema.optional(),
     events: HookEventsMapSchema.optional(),
   })
   .strict()
@@ -321,6 +332,8 @@ export interface GlobalConfig {
   maxFailuresMessage: string
   /** Default handoff policy for every hook. Resolved — always present. */
   handoff: HandoffSetting
+  /** Fallback agent allowlist for hooks that declare none. Absent means every agent. */
+  agents?: string[]
 }
 
 export interface HookEntry {
@@ -344,9 +357,14 @@ export interface HookEntry {
   enabled?: boolean
   /** Per-hook handoff policy override, if set. */
   handoff?: HandoffSetting
-  /** Per-hook, per-event overrides. Currently only onError, enabled, and handoff are supported. */
+  /** Agent allowlist for this hook. Overrides the hook's own meta and the global fallback. */
+  agents?: string[]
+  /** Per-hook, per-event overrides: onError, enabled, handoff, and agents. */
   events?: Partial<
-    Record<EventName, { onError?: ErrorMode; enabled?: boolean; handoff?: HandoffSetting }>
+    Record<
+      EventName,
+      { onError?: ErrorMode; enabled?: boolean; handoff?: HandoffSetting; agents?: string[] }
+    >
   >
   /** Which config layer this hook originated from. */
   origin: HookOrigin
