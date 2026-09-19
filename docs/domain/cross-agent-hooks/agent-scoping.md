@@ -79,7 +79,7 @@ hook "x" skipped for agent "codex" via clooks.yml config.agents
 
 ## The reserved `agent` context key
 
-Every context object is built by spreading the upstream wire payload and then setting `agent: adapter.id` on top, so `agent` is a reserved key at the top level of a hook's context: an upstream payload field literally named `agent` would be silently overwritten by the invoking-agent id. This is unrelated to the subagent identity fields `agentId` and `agentType`, which name a *child* agent and pass through untouched.
+The engine spreads the adapter-normalized invocation context and then sets `agent: adapter.id` on top; native payload fields follow that adapter's normalization rules (Claude Code passes unknown top-level fields through, Codex builds its context fields explicitly). So `agent` is a reserved key at the top level of a hook's context: a normalized field literally named `agent` would be silently overwritten by the invoking-agent id. This is unrelated to the subagent identity fields `agentId` and `agentType`, which name a *child* agent and pass through untouched.
 
 ## `clooks test` does not simulate this
 
