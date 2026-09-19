@@ -6,7 +6,7 @@ import { hook, sanitize, extractTargets } from './no-rm-rf'
 import type { PreToolUseContext } from './types'
 
 type Config = Parameters<NonNullable<typeof hook.PreToolUse>>[1]
-type Provider = 'claude-code' | 'codex' | undefined
+type AgentId = 'claude-code' | 'codex' | undefined
 let cwd: string
 
 beforeEach(() => {
@@ -17,9 +17,9 @@ beforeEach(() => {
 })
 afterEach(() => rmSync(cwd, { recursive: true, force: true }))
 
-function context(command: string, provider: Provider, toolName = 'Bash'): PreToolUseContext {
+function context(command: string, agent: AgentId, toolName = 'Bash'): PreToolUseContext {
   return {
-    provider,
+    agent,
     cwd,
     toolName,
     toolInput: { command },
@@ -32,13 +32,13 @@ function context(command: string, provider: Provider, toolName = 'Bash'): PreToo
   } as PreToolUseContext
 }
 
-async function invoke(command: string, provider: Provider, config: Config = {}) {
-  const result = await hook.PreToolUse!(context(command, provider), config)
+async function invoke(command: string, agent: AgentId, config: Config = {}) {
+  const result = await hook.PreToolUse!(context(command, agent), config)
   expect(readFileSync(join(cwd, 'sentinel'), 'utf8')).toBe('unchanged')
   return result
 }
 
-describe('actual vendored removal decisions are provider independent', () => {
+describe('actual vendored removal decisions are agent independent', () => {
   const cases: Array<[string, Config, string, string]> = [
     ['rm -rf src', {}, 'ask', 'rm-rf-strict'],
     ['rm -rf .', {}, 'ask', 'rm-rf-project-root'],
@@ -94,8 +94,8 @@ describe('actual vendored removal decisions are provider independent', () => {
     expect(source.result).toBe('ask')
     expect(root.result).toBe('ask')
     if (source.result !== 'ask' || root.result !== 'ask') throw new Error('Expected asks')
-    for (const provider of [undefined, 'claude-code', 'codex'] as const) {
-      expect(await invoke('rm -rf src .', provider)).toEqual({
+    for (const agent of [undefined, 'claude-code', 'codex'] as const) {
+      expect(await invoke('rm -rf src .', agent)).toEqual({
         result: 'ask',
         reason: `${source.reason}\n\n${root.reason}`,
         debugMessage: 'no-rm-rf: asking on rm-rf-strict',
@@ -105,15 +105,15 @@ describe('actual vendored removal decisions are provider independent', () => {
 
   test('missing project and symlink glob remain explicit blocks', async () => {
     symlinkSync(join(cwd, 'sentinel'), join(cwd, 'linked'))
-    for (const provider of [undefined, 'claude-code', 'codex'] as const) {
-      expect(await invoke('rm -rf link*', provider)).toMatchObject({
+    for (const agent of [undefined, 'claude-code', 'codex'] as const) {
+      expect(await invoke('rm -rf link*', agent)).toMatchObject({
         result: 'block',
         reason: expect.stringContaining('[rm-rf-expansion-error]'),
       })
     }
     rmSync(join(cwd, '.clooks/clooks.yml'))
-    for (const provider of [undefined, 'claude-code', 'codex'] as const) {
-      expect(await invoke('rm -rf src', provider)).toMatchObject({
+    for (const agent of [undefined, 'claude-code', 'codex'] as const) {
+      expect(await invoke('rm -rf src', agent)).toMatchObject({
         result: 'block',
         reason: expect.stringContaining('[rm-rf-no-project-root]'),
       })
@@ -121,8 +121,8 @@ describe('actual vendored removal decisions are provider independent', () => {
   })
 
   test('non-Bash tools still skip', async () => {
-    for (const provider of [undefined, 'claude-code', 'codex'] as const) {
-      expect(await hook.PreToolUse!(context('rm -rf src', provider, 'Read'), {})).toEqual({
+    for (const agent of [undefined, 'claude-code', 'codex'] as const) {
+      expect(await hook.PreToolUse!(context('rm -rf src', agent, 'Read'), {})).toEqual({
         result: 'skip',
       })
     }

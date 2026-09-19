@@ -64,7 +64,7 @@ export const hook: ClooksHook = {
   },
 
   SessionStart(ctx) {
-    if ('provider' in ctx && ctx.provider === 'codex') return ctx.skip({
+    if ('agent' in ctx && ctx.agent === 'codex') return ctx.skip({
       injectContext: `The no-compound-commands clooks hook is active in this project. Shell tools will refuse compound commands joined with \`&&\`, \`||\`, or \`;\`. Issue each command in a separate shell call, or write a script under \`tmp/\` for multi-step sequences. A single leading \`cd <path> && <one-command>\` is allowed as a special case.`,
       debugMessage: 'no-compound-commands: announced',
     })
@@ -87,7 +87,7 @@ export const hook: ClooksHook = {
 
     if (isCompoundCommand(command)) {
       return ctx.block({
-        reason: 'provider' in ctx && ctx.provider === 'codex' ? CODEX_BLOCK_REASON : BLOCK_REASON,
+        reason: 'agent' in ctx && ctx.agent === 'codex' ? CODEX_BLOCK_REASON : BLOCK_REASON,
         debugMessage: `no-compound-commands: blocked "${command}"`,
       })
     }

@@ -3,18 +3,18 @@ import type { AgentId, NormalizedInvocation, TranslatedAgentOutput } from './typ
 import { checkInputSchema, operationSchema } from '../interaction/protocol.js'
 
 export function approvalIdentity(
-  provider: AgentId,
+  agent: AgentId,
   raw: Record<string, unknown>,
   owner: string,
   protocol: string,
 ) {
   return checkInputSchema.parse({
     protocol: protocol === '1' ? 1 : protocol,
-    provider,
+    agent,
     owner,
     session_id: raw.session_id,
     tool_use_id: raw.tool_use_id,
-    ...(provider === 'codex' ? { turn_id: raw.turn_id } : {}),
+    ...(agent === 'codex' ? { turn_id: raw.turn_id } : {}),
   })
 }
 
@@ -25,7 +25,7 @@ export function approvalOperation(
 ) {
   const raw = invocation.private.raw
   const encoded = changed
-    ? invocation.private.provider === 'codex'
+    ? invocation.private.agent === 'codex'
       ? invocation.private.tool?.encode(input as Record<string, unknown>)
       : input
     : raw.tool_input

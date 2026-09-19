@@ -59,31 +59,31 @@ test('generated pair oracle rejects stale, overflowing and asynchronous registra
 
 test.each(['claude', 'codex'] as const)(
   '%s generated server oracle enforces the correct timeout unit',
-  (provider) => {
+  (agent) => {
     const root = mkdtempSync(join(tmpdir(), 'clooks-generated-server-timeout-'))
-    const path = join(root, provider === 'claude' ? '.mcp.json' : 'config.toml')
+    const path = join(root, agent === 'claude' ? '.mcp.json' : 'config.toml')
     try {
       const put = (timeout: number | undefined) =>
         writeFileSync(
           path,
-          provider === 'claude'
+          agent === 'claude'
             ? JSON.stringify({
                 mcpServers: { clooks: { command: 'clooks', args: ['mcp'], timeout } },
               })
             : '[mcp_servers.clooks]\ncommand = "clooks"\nargs = ["mcp"]\nstartup_timeout_sec = 10\n' +
                 (timeout === undefined ? '' : `tool_timeout_sec = ${timeout}\n`),
         )
-      put(provider === 'claude' ? 2_147_483_000 : 2_147_483)
-      expect(() => assertApprovalServer(path, provider)).not.toThrow()
+      put(agent === 'claude' ? 2_147_483_000 : 2_147_483)
+      expect(() => assertApprovalServer(path, agent)).not.toThrow()
       for (const timeout of [
         undefined,
         0,
         330,
         330_000,
-        provider === 'claude' ? 2_147_483 : 2_147_483_000,
+        agent === 'claude' ? 2_147_483 : 2_147_483_000,
       ]) {
         put(timeout)
-        expect(() => assertApprovalServer(path, provider)).toThrow()
+        expect(() => assertApprovalServer(path, agent)).toThrow()
       }
     } finally {
       rmSync(root, { recursive: true, force: true })
@@ -92,13 +92,13 @@ test.each(['claude', 'codex'] as const)(
 )
 
 function fixture(
-  provider: 'claude' | 'codex' = 'codex',
+  agent: 'claude' | 'codex' = 'codex',
   operation: Case['operation'] = { toolName: 'Bash', input: { command: 'true' } },
 ) {
   const c: Case = {
     root: '/unused',
     home: '/unused',
-    provider,
+    agent,
     mode: 'approve',
     callId: 'native-call',
     owner: 'project:abc',
@@ -106,17 +106,17 @@ function fixture(
   }
   const key = {
     protocol: 1,
-    provider: provider === 'claude' ? 'claude-code' : 'codex',
+    agent: agent === 'claude' ? 'claude-code' : 'codex',
     owner: c.owner,
     session_id: 'native-session',
-    ...(provider === 'codex' ? { turn_id: 'native-turn' } : {}),
+    ...(agent === 'codex' ? { turn_id: 'native-turn' } : {}),
     tool_use_id: c.callId,
   }
   const input = {
     tool_name: c.operation.toolName,
     tool_input: c.operation.input,
     session_id: key.session_id,
-    ...(provider === 'codex' ? { turn_id: key.turn_id } : {}),
+    ...(agent === 'codex' ? { turn_id: key.turn_id } : {}),
     tool_use_id: key.tool_use_id,
   }
   const question = (ordinal: number) => ({
@@ -157,7 +157,7 @@ function fixture(
   }
   const journal = [row('native-pre', { input }), row('1'), row('2-ask')]
   const anchor = {
-    provider: 'codex',
+    agent: 'codex',
     session_id: key.session_id,
     tool_use_id: c.callId,
     turn_id: key.turn_id,
@@ -248,8 +248,8 @@ function refusal(
   return failure
 }
 
-function nonShellFixture(provider: 'claude' | 'codex', toolName: 'Write' | 'apply_patch') {
-  return fixture(provider, {
+function nonShellFixture(agent: 'claude' | 'codex', toolName: 'Write' | 'apply_patch') {
+  return fixture(agent, {
     toolName,
     input:
       toolName === 'Write'
@@ -258,8 +258,8 @@ function nonShellFixture(provider: 'claude' | 'codex', toolName: 'Write' | 'appl
   })
 }
 
-function makeCombinedFixture(provider: 'claude' | 'codex' = 'codex') {
-  const f = fixture(provider)
+function makeCombinedFixture(agent: 'claude' | 'codex' = 'codex') {
+  const f = fixture(agent)
   f.c.owner = 'global'
   f.c.suppressedOwner = 'project:abc'
   f.key.owner = 'global'
@@ -268,7 +268,7 @@ function makeCombinedFixture(provider: 'claude' | 'codex' = 'codex') {
   return f
 }
 
-test('generated prompt oracle requires readable full content and provider-exact schemas', () => {
+test('generated prompt oracle requires readable full content and agent-exact schemas', () => {
   const question = {
     hookName: 'review-hook',
     ordinal: 2,
@@ -447,11 +447,8 @@ function suppressedBox(f: ReturnType<typeof makeCombinedFixture>): Packets {
   }
 }
 
-function combinedFixture(
-  provider: 'claude' | 'codex',
-  mode: 'approve' | 'decline-second' | 'noask',
-) {
-  const f = makeCombinedFixture(provider)
+function combinedFixture(agent: 'claude' | 'codex', mode: 'approve' | 'decline-second' | 'noask') {
+  const f = makeCombinedFixture(agent)
   f.c.mode = mode
   if (mode === 'decline-second') {
     f.box['question-2'] = {
@@ -480,7 +477,7 @@ function combinedFixture(
       f.row('ui-response', { question: f.question(2), action: 'decline' }),
     )
     f.native.output.output = `Command blocked by PreToolUse hook: ${failure.message}`
-    if (provider === 'claude') (f.native.output as any).is_error = true
+    if (agent === 'claude') (f.native.output as any).is_error = true
   } else {
     f.finish()
     if (mode === 'noask') {
@@ -560,22 +557,19 @@ test.each([
   ['codex', 'approve'],
   ['codex', 'decline-second'],
   ['codex', 'noask'],
-] as const)(
-  'combined %s %s requires one active and one neutral suppressed peer',
-  (provider, mode) => {
-    const f = combinedFixture(provider, mode)
-    expect(() =>
-      assertOutcome(
-        f.c,
-        [f.suppressed, f.box],
-        f.journal,
-        f.anchor,
-        mode === 'decline-second' ? undefined : 'native-effect\n',
-        f.native,
-      ),
-    ).not.toThrow()
-  },
-)
+] as const)('combined %s %s requires one active and one neutral suppressed peer', (agent, mode) => {
+  const f = combinedFixture(agent, mode)
+  expect(() =>
+    assertOutcome(
+      f.c,
+      [f.suppressed, f.box],
+      f.journal,
+      f.anchor,
+      mode === 'decline-second' ? undefined : 'native-effect\n',
+      f.native,
+    ),
+  ).not.toThrow()
+})
 
 test('combined pending accepts an absent, empty or partially written suppressed peer', () => {
   const f = makeCombinedFixture()
@@ -913,10 +907,10 @@ test('Claude success uses native session identity and rejects native error resul
 test.each([
   ['claude', 'Write'],
   ['codex', 'apply_patch'],
-] as const)('non-shell %s %s success requires substantive post evidence', (provider, toolName) => {
-  const f = nonShellFixture(provider, toolName)
+] as const)('non-shell %s %s success requires substantive post evidence', (agent, toolName) => {
+  const f = nonShellFixture(agent, toolName)
   f.finish(true)
-  if (provider === 'claude')
+  if (agent === 'claude')
     f.native.output.content = [{ type: 'text', text: 'Wrote effect.txt successfully' }]
   else f.native.output.output = 'Applied patch to effect.txt'
   expect(() =>

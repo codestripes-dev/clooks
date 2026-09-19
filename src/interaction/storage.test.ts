@@ -30,7 +30,7 @@ function fixture() {
   homes.push(home)
   const key: CheckInput = {
     protocol: 1,
-    provider: 'claude-code',
+    agent: 'claude-code',
     owner: 'global',
     session_id: 'session',
     tool_use_id: 'call',

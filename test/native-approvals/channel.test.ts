@@ -30,7 +30,7 @@ import { finishPrimingFailure } from './native'
 
 describe('illustrative approval protocol checks, not production enforcement', () => {
   const key = {
-    provider: 'codex' as const,
+    agent: 'codex' as const,
     owner: 'project:m1',
     session_id: 'session',
     turn_id: 'turn',
@@ -39,15 +39,15 @@ describe('illustrative approval protocol checks, not production enforcement', ()
   test('retains exact native identity without command-text correlation', () => {
     expect(identity({ ...key, tool_input: { command: 'ignored' } })).toEqual(key)
   })
-  for (const field of ['provider', 'owner', 'session_id', 'turn_id', 'tool_use_id']) {
+  for (const field of ['agent', 'owner', 'session_id', 'turn_id', 'tool_use_id']) {
     test(`rejects missing or unexpanded ${field}`, () => {
       expect(() => identity({ ...key, [field]: undefined })).toThrow()
       expect(() => identity({ ...key, [field]: '${' + field + '}' })).toThrow()
     })
   }
   test('Claude requires session and tool identity but no invented turn', () => {
-    expect(identity({ ...key, provider: 'claude', turn_id: undefined })).toEqual({
-      provider: 'claude',
+    expect(identity({ ...key, agent: 'claude', turn_id: undefined })).toEqual({
+      agent: 'claude',
       owner: key.owner,
       session_id: key.session_id,
       tool_use_id: key.tool_use_id,
@@ -170,7 +170,7 @@ describe('illustrative approval protocol checks, not production enforcement', ()
       ),
     ).toThrow('peer exited')
   })
-  for (const field of ['provider', 'owner', 'session_id', 'turn_id', 'tool_use_id']) {
+  for (const field of ['agent', 'owner', 'session_id', 'turn_id', 'tool_use_id']) {
     test(`cannot move a response across ${field}`, () => {
       expect(() =>
         validateReply({ ...reply, key: { ...key, [field]: 'foreign' } }, start, 1),

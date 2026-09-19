@@ -47,7 +47,7 @@ export async function checkStdinClosure() {
       name: 'check',
       arguments: {
         protocol: 1,
-        provider: 'claude',
+        agent: 'claude',
         owner: 'project:m1',
         session_id: input.session_id,
         tool_use_id: input.tool_use_id,

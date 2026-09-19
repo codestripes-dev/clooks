@@ -1280,7 +1280,7 @@ describe('Codex global registration recovery E2E', () => {
     launchReceiptCommand(registeredCommand(sandbox.dir), 'suppressed')
   })
 
-  test('malformed all-agent preflight publishes neither provider and project Codex still launches', () => {
+  test('malformed all-agent preflight publishes neither agent and project Codex still launches', () => {
     sandbox = createSandbox()
     expect(sandbox.run(['init', '--agent', 'all']).exitCode).toBe(0)
     receiptProbe()

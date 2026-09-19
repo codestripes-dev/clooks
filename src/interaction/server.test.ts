@@ -40,7 +40,7 @@ async function fixture(
     action: 'accept',
     content: { decision: 'Approve' },
   }),
-  provider: CheckInput['provider'] = 'codex',
+  agent: CheckInput['agent'] = 'codex',
   runtimeOverrides: Partial<InteractionRuntime> = {},
 ) {
   const home = mkdtempSync(join(tmpdir(), 'clooks-sdk-'))
@@ -59,10 +59,10 @@ async function fixture(
   await instance.server.connect(serverTransport)
   await client.connect(clientTransport)
   const key: CheckInput =
-    provider === 'codex'
+    agent === 'codex'
       ? {
           protocol: 1,
-          provider,
+          agent,
           owner: 'project:test',
           session_id: 'session',
           turn_id: 'turn',
@@ -70,7 +70,7 @@ async function fixture(
         }
       : {
           protocol: 1,
-          provider,
+          agent,
           owner: 'project:test',
           session_id: 'session',
           tool_use_id: 'call',
@@ -106,8 +106,8 @@ test('official SDK accepts Claude fieldless confirmation', async () => {
   expect(await check).toEqual({ content: [{ type: 'text', text: '{}' }] })
 })
 
-for (const provider of ['claude-code', 'codex'] as const)
-  test(`official SDK pairs a ${provider} command starting 1226ms after its check`, async () => {
+for (const agent of ['claude-code', 'codex'] as const)
+  test(`official SDK pairs a ${agent} command starting 1226ms after its check`, async () => {
     let now = 10_000
     let pauses = 0
     const firstEntered = Promise.withResolvers<void>()
@@ -130,10 +130,10 @@ for (const provider of ['claude-code', 'codex'] as const)
     }
     const f = await fixture(
       async (): Promise<ElicitResult> =>
-        provider === 'claude-code'
+        agent === 'claude-code'
           ? { action: 'accept', content: {} }
           : { action: 'accept', content: { decision: 'Approve' } },
-      provider,
+      agent,
       { now: () => now, pause },
     )
     const check = f.client.callTool({ name: 'check', arguments: f.key })

@@ -76,7 +76,7 @@ function wire(event: Event, overrides: Record<string, unknown> = {}) {
   }
 }
 
-function replay(event: Event, overrides: Record<string, unknown> = {}, provider = 'codex') {
+function replay(event: Event, overrides: Record<string, unknown> = {}, agent = 'codex') {
   for (const file of [marker, observation]) {
     rmSync(join(sandbox.dir, file), { force: true })
     expect(sandbox.fileExists(file)).toBe(false)
@@ -84,7 +84,7 @@ function replay(event: Event, overrides: Record<string, unknown> = {}, provider 
   return sandbox.run([], {
     stdin: JSON.stringify(wire(event, overrides)),
     timeout: 10_000,
-    env: { CLOOKS_AGENT: provider, CODEX_HOME: join(sandbox.home, '.codex') },
+    env: { CLOOKS_AGENT: agent, CODEX_HOME: join(sandbox.home, '.codex') },
   })
 }
 
@@ -162,7 +162,7 @@ describe('Codex event no-ops, public envelopes and lifecycle', () => {
       sandbox = createSandbox()
       install(
         event,
-        `observe({ event: ctx.event, provider: ctx.provider, sessionId: ctx.sessionId, transcriptPath: ctx.transcriptPath,
+        `observe({ event: ctx.event, agent: ctx.agent, sessionId: ctx.sessionId, transcriptPath: ctx.transcriptPath,
         model: ctx.model,
         privateKeys: ['private', 'raw', 'nativeTurnId', 'codec', ${event === 'SessionStart' ? '' : "'model'"}].filter(key => Object.hasOwn(ctx, key)) }); return ctx.skip()`,
       )
@@ -170,7 +170,7 @@ describe('Codex event no-ops, public envelopes and lifecycle', () => {
       marks()
       expect(observed()).toEqual({
         event,
-        provider: 'codex',
+        agent: 'codex',
         sessionId: 'agent-codex-events-session',
         transcriptPath: '',
         privateKeys: [],
@@ -629,9 +629,9 @@ export const hook = {
 `,
     )
     sandbox.writeConfig(`version: "1.0.0"\n${name}: {}\n`)
-    const stop = (event: 'Stop' | 'SubagentStop', prior: number, provider = 'codex') => {
+    const stop = (event: 'Stop' | 'SubagentStop', prior: number, agent = 'codex') => {
       output(
-        replay(event, { stop_hook_active: prior > 0 }, provider),
+        replay(event, { stop_hook_active: prior > 0 }, agent),
         prior === 0 ? { decision: 'block', reason: 'reminder' } : undefined,
       )
       marks(`import\n${event}\n`)
@@ -692,7 +692,7 @@ export const hook = {
     stop('SubagentStop', 0)
   })
 
-  test('provider reminders stay isolated when Codex startup resets its reminders', () => {
+  test('agent reminders stay isolated when Codex startup resets its reminders', () => {
     const { start, stop } = setupReminders()
     start('startup')
     stop('Stop', 0)

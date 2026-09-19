@@ -24,7 +24,7 @@ const originals: Record<string, string> = {
 }
 const root = join(import.meta.dir, '../../.clooks/vendor/plugin')
 const digest = (bytes: string | Buffer) => createHash('sha256').update(bytes).digest('hex')
-type Provider = 'claude-code' | 'codex'
+type AgentId = 'claude-code' | 'codex'
 let sandbox: Sandbox
 let sequence = 0
 afterEach(() => sandbox?.cleanup())
@@ -44,7 +44,7 @@ function configure(entries: Record<string, { config?: unknown; enabled?: boolean
 
 // Wire replay through the compiled engine. No tested command is dispatched.
 function run(
-  provider: Provider,
+  agent: AgentId,
   event: string,
   fields: Record<string, unknown>,
   decisions: Record<string, string>,
@@ -63,7 +63,7 @@ function run(
       tool_use_id: `call-${sequence}`,
       ...fields,
     }),
-    env: { CLOOKS_AGENT: provider, CODEX_HOME: join(sandbox.home, '.codex'), ...extraEnv },
+    env: { CLOOKS_AGENT: agent, CODEX_HOME: join(sandbox.home, '.codex'), ...extraEnv },
     timeout: 10_000,
   })
   expect(result.rawExitCode, formatDiagnostics(result)).toBe(0)
@@ -73,7 +73,7 @@ function run(
     const path = join(
       sandbox.home,
       '.clooks/turn-state',
-      ...(provider === 'codex' ? ['codex'] : []),
+      ...(agent === 'codex' ? ['codex'] : []),
       `${digest(session).slice(0, 16)}.json`,
     )
     expect(existsSync(path), formatDiagnostics(result)).toBe(true)
@@ -89,16 +89,16 @@ function run(
 }
 
 function shell(
-  provider: Provider,
+  agent: AgentId,
   command: string,
   decisions: Record<string, string>,
   extraEnv: Record<string, string> = {},
 ) {
   return run(
-    provider,
+    agent,
     'PreToolUse',
     {
-      tool_name: provider === 'codex' ? 'exec_command' : 'Bash',
+      tool_name: agent === 'codex' ? 'exec_command' : 'Bash',
       tool_input: { command },
     },
     decisions,
@@ -129,8 +129,8 @@ function approvalDenied(output: ReturnType<typeof run>, kind: 'declined' | 'unav
     ),
   })
 }
-function permitted(output: ReturnType<typeof run>, provider: Provider, allow = false) {
-  if (provider === 'codex' || !allow) expect(output).toBeNull()
+function permitted(output: ReturnType<typeof run>, agent: AgentId, allow = false) {
+  if (agent === 'codex' || !allow) expect(output).toBeNull()
   else expect(output.hookSpecificOutput.permissionDecision).toBe('allow')
 }
 
@@ -144,9 +144,9 @@ function expectGuardBlock(output: ReturnType<typeof run>, reason: string) {
   })
 }
 
-function installPluginScript(provider: Provider) {
+function installPluginScript(agent: AgentId) {
   const relativeRoot =
-    provider === 'claude-code'
+    agent === 'claude-code'
       ? '.claude/plugins/cache/original-market/codex-companion/1.0.0'
       : '.codex/plugins/cache/original-market/codex-companion/1.0.0'
   const pluginScript = join(sandbox.home, relativeRoot, 'scripts/codex-companion.mjs')
@@ -154,7 +154,7 @@ function installPluginScript(provider: Provider) {
   sandbox.writeHomeFile(`${relativeRoot}/scripts/codex-companion.mjs`, 'export {}\n')
   sandbox.writeFile('ordinary-script.mjs', 'export {}\n')
 
-  if (provider === 'claude-code') {
+  if (agent === 'claude-code') {
     sandbox.writeHomeFile(
       '.claude/plugins/installed_plugins.json',
       JSON.stringify({
@@ -218,7 +218,7 @@ describe('actual default packs through the compiled binary', () => {
     permitted(file(`packages/${name}.backup`, 'skip'), 'claude-code')
   })
   test('Claude Write: disabled defaults and custom exclusions', () => {
-    const provider = 'claude-code'
+    const agent = 'claude-code'
     sandbox = createSandbox()
     configure({
       'no-edit-protected': {
@@ -229,28 +229,28 @@ describe('actual default packs through the compiled binary', () => {
       },
     })
     denied(file('pkg/bun.lock', 'block'), 'custom lock')
-    permitted(file('safe/bun.lock', 'skip'), provider)
-    permitted(file('pkg/yarn.lock', 'skip'), provider)
+    permitted(file('safe/bun.lock', 'skip'), agent)
+    permitted(file('pkg/yarn.lock', 'skip'), agent)
     configure({
       'no-edit-protected': {
         config: { 'lock-files': false, rules: [{ pattern: 'bun.lock', message: 'root only' }] },
       },
     })
     denied(file('bun.lock', 'block'), 'root only')
-    permitted(file('pkg/bun.lock', 'skip'), provider)
+    permitted(file('pkg/bun.lock', 'skip'), agent)
   })
 
-  for (const provider of ['claude-code', 'codex'] as const) {
-    describe(provider, () => {
+  for (const agent of ['claude-code', 'codex'] as const) {
+    describe(agent, () => {
       test.each(['cat a', 'head a', 'tail a', 'grep x a', 'rg x a', 'find .', 'ls'])(
-        'provider-specific read/search preference: %s',
+        'agent-specific read/search preference: %s',
         (command) => {
           sandbox = createSandbox()
           configure({ 'prefer-builtin-tools': {} })
-          const output = shell(provider, command, {
-            'prefer-builtin-tools': provider === 'codex' ? 'skip' : 'block',
+          const output = shell(agent, command, {
+            'prefer-builtin-tools': agent === 'codex' ? 'skip' : 'block',
           })
-          if (provider === 'codex') permitted(output, provider)
+          if (agent === 'codex') permitted(output, agent)
           else denied(output, 'tool')
         },
       )
@@ -260,8 +260,8 @@ describe('actual default packs through the compiled binary', () => {
           sandbox = createSandbox()
           configure({ 'prefer-builtin-tools': {} })
           denied(
-            shell(provider, command, { 'prefer-builtin-tools': 'block' }),
-            provider === 'codex'
+            shell(agent, command, { 'prefer-builtin-tools': 'block' }),
+            agent === 'codex'
               ? command.startsWith('sleep')
                 ? 'available process tools'
                 : 'apply_patch'
@@ -275,10 +275,10 @@ describe('actual default packs through the compiled binary', () => {
         sandbox = createSandbox()
         configure({ 'prefer-builtin-tools': {} })
         permitted(
-          shell(provider, 'ALLOW_BUILTIN_COMMAND=true sed -i s/a/b/ a', {
+          shell(agent, 'ALLOW_BUILTIN_COMMAND=true sed -i s/a/b/ a', {
             'prefer-builtin-tools': 'skip',
           }),
-          provider,
+          agent,
         )
       })
       test('additional rules survive escape and built-in disable', () => {
@@ -292,25 +292,25 @@ describe('actual default packs through the compiled binary', () => {
           },
         })
         denied(
-          shell(provider, 'ALLOW_BUILTIN_COMMAND=true cat a', { 'prefer-builtin-tools': 'block' }),
+          shell(agent, 'ALLOW_BUILTIN_COMMAND=true cat a', { 'prefer-builtin-tools': 'block' }),
           'custom cat restriction',
         )
-        permitted(shell(provider, 'sed -i s/a/b/ a', { 'prefer-builtin-tools': 'skip' }), provider)
+        permitted(shell(agent, 'sed -i s/a/b/ a', { 'prefer-builtin-tools': 'skip' }), agent)
       })
       test('tool preference respects whole-hook disable', () => {
         sandbox = createSandbox()
         configure({ 'prefer-builtin-tools': { enabled: false } })
-        permitted(shell(provider, 'echo x > a', {}), provider)
+        permitted(shell(agent, 'echo x > a', {}), agent)
       })
 
-      test('provider-specific announcements reflect config and preserve compound prefix customization', () => {
+      test('agent-specific announcements reflect config and preserve compound prefix customization', () => {
         sandbox = createSandbox()
         configure({
           'prefer-builtin-tools': { config: { sleep: false } },
           'no-compound-commands': {},
         })
         const output = run(
-          provider,
+          agent,
           'SessionStart',
           { source: 'startup' },
           { 'prefer-builtin-tools': 'skip', 'no-compound-commands': 'skip' },
@@ -319,13 +319,13 @@ describe('actual default packs through the compiled binary', () => {
         expect(message).toContain('sed -i')
         expect(message).not.toContain('sleep')
         expect(message).not.toContain('INFORMATION (no need to comment on it): The no-compound')
-        if (provider === 'codex') {
+        if (agent === 'codex') {
           expect(message).toContain('apply_patch')
           expect(message).not.toMatch(/Read|Glob|Grep|Bash|run_in_background/)
         } else expect(message).toContain('Read, Glob, Grep, Edit, Write')
       })
 
-      test('paste placeholder formats block on both providers with task-notification compatibility', () => {
+      test('paste placeholder formats block on both agents with task-notification compatibility', () => {
         sandbox = createSandbox()
         configure({ 'no-pasted-placeholder': {} })
         for (const prompt of [
@@ -340,7 +340,7 @@ describe('actual default packs through the compiled binary', () => {
           ' <task-notification>[Pasted Content 123 chars]',
         ]) {
           const output = run(
-            provider,
+            agent,
             'UserPromptSubmit',
             { prompt },
             { 'no-pasted-placeholder': 'block' },
@@ -360,12 +360,12 @@ describe('actual default packs through the compiled binary', () => {
           '<task-notification>[Pasted text #1 +10 lines] [Pasted Content 123 chars]</task-notification>',
         ]) {
           expect(
-            run(provider, 'UserPromptSubmit', { prompt }, { 'no-pasted-placeholder': 'skip' }),
+            run(agent, 'UserPromptSubmit', { prompt }, { 'no-pasted-placeholder': 'skip' }),
           ).toBeNull()
         }
       })
 
-      test('compound cd exception requires &&; escape and provider guidance remain', () => {
+      test('compound cd exception requires &&; escape and agent guidance remain', () => {
         sandbox = createSandbox()
         configure({ 'no-compound-commands': {} })
         for (const command of [
@@ -379,8 +379,8 @@ describe('actual default packs through the compiled binary', () => {
           'cd "/path with spaces"; echo a',
         ]) {
           denied(
-            shell(provider, command, { 'no-compound-commands': 'block' }),
-            provider === 'codex' ? 'individual shell tool calls' : 'individual Bash calls',
+            shell(agent, command, { 'no-compound-commands': 'block' }),
+            agent === 'codex' ? 'individual shell tool calls' : 'individual Bash calls',
           )
         }
         for (const command of [
@@ -392,7 +392,7 @@ describe('actual default packs through the compiled binary', () => {
           'ALLOW_COMPOUND=true echo a && echo b',
           'echo "a && b"',
         ]) {
-          permitted(shell(provider, command, { 'no-compound-commands': 'allow' }), provider, true)
+          permitted(shell(agent, command, { 'no-compound-commands': 'allow' }), agent, true)
         }
       })
 
@@ -406,9 +406,9 @@ describe('actual default packs through the compiled binary', () => {
         sandbox = createSandbox()
         sandbox.writeFile('sentinel.txt', 'unchanged')
         configure({ 'no-destructive-git': {} })
-        denied(shell(provider, command, { 'no-destructive-git': 'block' }), `[${rule}]`)
+        denied(shell(agent, command, { 'no-destructive-git': 'block' }), `[${rule}]`)
         configure({ 'no-destructive-git': { config: { [rule]: false } } })
-        permitted(shell(provider, command, { 'no-destructive-git': 'skip' }), provider)
+        permitted(shell(agent, command, { 'no-destructive-git': 'skip' }), agent)
         expect(sandbox.readFile('sentinel.txt')).toBe('unchanged')
       })
 
@@ -421,7 +421,7 @@ describe('actual default packs through the compiled binary', () => {
         sandbox = createSandbox()
         sandbox.writeFile('sentinel.txt', 'unchanged')
         configure({ 'no-destructive-git': {} })
-        permitted(shell(provider, command, { 'no-destructive-git': 'skip' }), provider)
+        permitted(shell(agent, command, { 'no-destructive-git': 'skip' }), agent)
         expect(sandbox.readFile('sentinel.txt')).toBe('unchanged')
       })
 
@@ -431,14 +431,14 @@ describe('actual default packs through the compiled binary', () => {
         configure({ 'no-destructive-git': { config: { 'reset-hard': false } } })
         for (const prefix of ['', 'ALLOW_DESTRUCTIVE_GIT=true ']) {
           denied(
-            shell(provider, `${prefix}git --git-dir=/tmp/inert-repo.git add -A`, {
+            shell(agent, `${prefix}git --git-dir=/tmp/inert-repo.git add -A`, {
               'no-destructive-git': 'block',
             }),
             '[broad-add]',
           )
         }
         denied(
-          shell(provider, 'git -c push.default=current push --force', {
+          shell(agent, 'git -c push.default=current push --force', {
             'no-destructive-git': 'block',
           }),
           '[force-push]',
@@ -462,16 +462,16 @@ describe('actual default packs through the compiled binary', () => {
         })
         for (const prefix of ['', 'ALLOW_DESTRUCTIVE_GIT=true ']) {
           denied(
-            shell(provider, `${prefix}git -c core.pager=cat reset --hard`, {
+            shell(agent, `${prefix}git -c core.pager=cat reset --hard`, {
               'no-destructive-git': 'block',
             }),
             '[custom-global]',
           )
           permitted(
-            shell(provider, `${prefix}git -c 'core.pager=cat' reset --hard`, {
+            shell(agent, `${prefix}git -c 'core.pager=cat' reset --hard`, {
               'no-destructive-git': 'skip',
             }),
-            provider,
+            agent,
           )
         }
         expect(sandbox.readFile('sentinel.txt')).toBe('unchanged')
@@ -500,7 +500,7 @@ describe('actual default packs through the compiled binary', () => {
           'bun install\nTOKEN="two words" fruity deploy',
         ]) {
           denied(
-            shell(provider, command, { 'js-package-manager-guard': 'block' }),
+            shell(agent, command, { 'js-package-manager-guard': 'block' }),
             'js-package-manager-guard',
           )
         }
@@ -519,22 +519,22 @@ describe('actual default packs through the compiled binary', () => {
           './fruity deploy',
           'cargo build',
         ]) {
-          permitted(shell(provider, command, { 'js-package-manager-guard': 'skip' }), provider)
+          permitted(shell(agent, command, { 'js-package-manager-guard': 'skip' }), agent)
         }
-        const announcement = run(provider, 'SessionStart', { source: 'startup' }, {})
+        const announcement = run(agent, 'SessionStart', { source: 'startup' }, {})
         expect(announcement.hookSpecificOutput.additionalContext).toContain('shell tools')
         expect(JSON.stringify(announcement)).not.toContain('The Bash tool')
       })
 
-      test('installed plugin node script exemption is provider-selected and exact on the wire', () => {
+      test('installed plugin node script exemption is agent-selected and exact on the wire', () => {
         sandbox = createSandbox()
-        const { pluginScript, ordinaryScript } = installPluginScript(provider)
+        const { pluginScript, ordinaryScript } = installPluginScript(agent)
         configure({ 'js-package-manager-guard': { config: { allowed: ['bun'] } } })
         const command = `node "${pluginScript}" task-resume-candidate --json`
 
-        permitted(shell(provider, command, { 'js-package-manager-guard': 'skip' }), provider)
+        permitted(shell(agent, command, { 'js-package-manager-guard': 'skip' }), agent)
         expectGuardBlock(
-          shell(provider, `node "${ordinaryScript}"`, { 'js-package-manager-guard': 'block' }),
+          shell(agent, `node "${ordinaryScript}"`, { 'js-package-manager-guard': 'block' }),
           bunRuntimeBlock,
         )
       })
@@ -551,27 +551,27 @@ describe('actual default packs through the compiled binary', () => {
         ['shell expansion', () => 'node "$PLUGIN_SCRIPT"'],
       ])('%s does not qualify for the plugin exemption', (_label, command) => {
         sandbox = createSandbox()
-        const { pluginScript } = installPluginScript(provider)
+        const { pluginScript } = installPluginScript(agent)
         configure({ 'js-package-manager-guard': { config: { allowed: ['bun'] } } })
         expectGuardBlock(
-          shell(provider, command(pluginScript), { 'js-package-manager-guard': 'block' }),
+          shell(agent, command(pluginScript), { 'js-package-manager-guard': 'block' }),
           bunRuntimeBlock,
         )
       })
 
       test('plugin exemption does not hide a later blocked compound command head', () => {
         sandbox = createSandbox()
-        const { pluginScript, ordinaryScript } = installPluginScript(provider)
+        const { pluginScript, ordinaryScript } = installPluginScript(agent)
         configure({ 'js-package-manager-guard': { config: { allowed: ['bun'] } } })
 
         expectGuardBlock(
-          shell(provider, `node "${pluginScript}" && npm install`, {
+          shell(agent, `node "${pluginScript}" && npm install`, {
             'js-package-manager-guard': 'block',
           }),
           bunPackageBlock,
         )
         expectGuardBlock(
-          shell(provider, `node "${pluginScript}"; node "${ordinaryScript}"`, {
+          shell(agent, `node "${pluginScript}"; node "${ordinaryScript}"`, {
             'js-package-manager-guard': 'block',
           }),
           bunRuntimeBlock,
@@ -580,7 +580,7 @@ describe('actual default packs through the compiled binary', () => {
 
       test('additionalBlocked node retains precedence over the default exemption', () => {
         sandbox = createSandbox()
-        const { pluginScript } = installPluginScript(provider)
+        const { pluginScript } = installPluginScript(agent)
         configure({
           'js-package-manager-guard': {
             config: {
@@ -590,7 +590,7 @@ describe('actual default packs through the compiled binary', () => {
           },
         })
         expectGuardBlock(
-          shell(provider, `node "${pluginScript}" task-resume-candidate --json`, {
+          shell(agent, `node "${pluginScript}" task-resume-candidate --json`, {
             'js-package-manager-guard': 'block',
           }),
           '[js-package-manager-guard] node is explicitly blocked',
@@ -604,21 +604,21 @@ describe('actual default packs through the compiled binary', () => {
           'js-package-manager-guard': { config: { allowed: ['bun'] } },
         })
         denied(
-          shell(provider, 'git reset --hard', {
+          shell(agent, 'git reset --hard', {
             'no-destructive-git': 'block',
             'js-package-manager-guard': 'skip',
           }),
           '[reset-hard]',
         )
         denied(
-          shell(provider, 'npm install', {
+          shell(agent, 'npm install', {
             'no-destructive-git': 'skip',
             'js-package-manager-guard': 'block',
           }),
           'js-package-manager-guard',
         )
         denied(
-          shell(provider, 'ALLOW_DESTRUCTIVE_GIT=true git add .', {
+          shell(agent, 'ALLOW_DESTRUCTIVE_GIT=true git add .', {
             'no-destructive-git': 'block',
             'js-package-manager-guard': 'skip',
           }),
@@ -631,11 +631,11 @@ describe('actual default packs through the compiled binary', () => {
           'bunx prettier',
         ]) {
           permitted(
-            shell(provider, command, {
+            shell(agent, command, {
               'no-destructive-git': 'skip',
               'js-package-manager-guard': 'skip',
             }),
-            provider,
+            agent,
           )
         }
       })
@@ -651,26 +651,23 @@ describe('actual default packs through the compiled binary', () => {
           ),
         )
         denied(
-          shell(provider, 'echo x > a', { 'prefer-builtin-tools': 'block' }),
-          provider === 'codex' ? 'apply_patch' : 'Write tool',
+          shell(agent, 'echo x > a', { 'prefer-builtin-tools': 'block' }),
+          agent === 'codex' ? 'apply_patch' : 'Write tool',
         )
+        denied(shell(agent, 'git reset --hard', { 'no-destructive-git': 'block' }), '[reset-hard]')
         denied(
-          shell(provider, 'git reset --hard', { 'no-destructive-git': 'block' }),
-          '[reset-hard]',
-        )
-        denied(
-          shell(provider, 'npm install', { 'js-package-manager-guard': 'block' }),
+          shell(agent, 'npm install', { 'js-package-manager-guard': 'block' }),
           'js-package-manager-guard',
         )
         permitted(
-          shell(provider, 'bun run test', {
+          shell(agent, 'bun run test', {
             'prefer-builtin-tools': 'skip',
             'no-compound-commands': 'allow',
             'no-destructive-git': 'skip',
             'js-package-manager-guard': 'skip',
             'no-edit-protected': 'skip',
           }),
-          provider,
+          agent,
           true,
         )
         sandbox.writeLocalConfig(
@@ -682,15 +679,8 @@ describe('actual default packs through the compiled binary', () => {
             },
           }),
         )
-        permitted(
-          shell(provider, 'echo x > a', { 'no-compound-commands': 'allow' }),
-          provider,
-          true,
-        )
-        denied(
-          shell(provider, 'git reset --hard', { 'no-destructive-git': 'block' }),
-          '[reset-hard]',
-        )
+        permitted(shell(agent, 'echo x > a', { 'no-compound-commands': 'allow' }), agent, true)
+        denied(shell(agent, 'git reset --hard', { 'no-destructive-git': 'block' }), '[reset-hard]')
       })
     })
   }
@@ -807,8 +797,8 @@ describe('actual patch paths, move inspection and confirmation', () => {
     denied(nativePatch(patch('*** Delete File: bun.lock'), 'block'), 'no-edit-protected')
     permitted(nativePatch(patch('*** Add File: ordinary.ts', '+new'), 'skip'), 'codex')
   })
-  for (const provider of ['claude-code', 'codex'] as const) {
-    test(`${provider}: real argv-only move dry-run leaves files/index unchanged and retains fallback`, () => {
+  for (const agent of ['claude-code', 'codex'] as const) {
+    test(`${agent}: real argv-only move dry-run leaves files/index unchanged and retains fallback`, () => {
       sandbox = createSandbox()
       configure({ 'no-bare-mv': {} })
       const git = (...args: string[]) => {
@@ -821,13 +811,13 @@ describe('actual patch paths, move inspection and confirmation', () => {
       sandbox.writeFile('untracked', 'untracked')
       const index = digest(readFileSync(join(sandbox.dir, '.git/index')))
       for (const command of ["mv 'old file.ts' 'new file.ts'", 'mv -- -old -new', 'mv a\\;b new']) {
-        const output = shell(provider, command, { 'no-bare-mv': 'allow' })
+        const output = shell(agent, command, { 'no-bare-mv': 'allow' })
         expect(output.hookSpecificOutput.permissionDecision).toBe('allow')
         expect(output.hookSpecificOutput.updatedInput).toEqual({ command: `git ${command}` })
         expect(digest(readFileSync(join(sandbox.dir, '.git/index')))).toBe(index)
       }
       for (const command of ['mv untracked new', 'mv missing new']) {
-        const output = shell(provider, command, { 'no-bare-mv': 'allow' })
+        const output = shell(agent, command, { 'no-bare-mv': 'allow' })
         expect(output.hookSpecificOutput?.updatedInput).toBeUndefined()
         expect(output.hookSpecificOutput.additionalContext).toContain(
           'Unable to automatically use git mv',
@@ -857,13 +847,13 @@ describe('actual patch paths, move inspection and confirmation', () => {
       'mv *.ts b',
       'mv a b c',
       'mv a b # comment',
-    ])(`${provider}: unsupported move has no probe, rewrite or sentinel: %s`, (command) => {
+    ])(`${agent}: unsupported move has no probe, rewrite or sentinel: %s`, (command) => {
       const env = moveProbe()
-      permitted(shell(provider, command, { 'no-bare-mv': 'skip' }, env), provider)
+      permitted(shell(agent, command, { 'no-bare-mv': 'skip' }, env), agent)
       expect(sandbox.fileExists('probes')).toBe(false)
       expect(sandbox.fileExists('sentinel')).toBe(false)
       expect(
-        shell(provider, 'mv a b', { 'no-bare-mv': 'allow' }, env).hookSpecificOutput.updatedInput,
+        shell(agent, 'mv a b', { 'no-bare-mv': 'allow' }, env).hookSpecificOutput.updatedInput,
       ).toEqual({ command: 'git mv a b' })
       expect(sandbox.readFile('probes')).toBe([sandbox.dir, 'mv', '-n', 'a', 'b'].join('\0') + '\0')
     })
@@ -872,10 +862,10 @@ describe('actual patch paths, move inspection and confirmation', () => {
       ["mv 'literal space' 'new space'", ['literal space', 'new space']],
       ["mv '$(literal)' a\\;b", ['$(literal)', 'a;b']],
       ['mv -- -a -b', ['--', '-a', '-b']],
-    ] as const)(`${provider}: literal move passes exact argv and cwd: %s`, (command, argv) => {
+    ] as const)(`${agent}: literal move passes exact argv and cwd: %s`, (command, argv) => {
       const env = moveProbe()
       expect(
-        shell(provider, command, { 'no-bare-mv': 'allow' }, env).hookSpecificOutput.updatedInput,
+        shell(agent, command, { 'no-bare-mv': 'allow' }, env).hookSpecificOutput.updatedInput,
       ).toEqual({ command: `git ${command}` })
       expect(sandbox.readFile('probes')).toBe([sandbox.dir, 'mv', '-n', ...argv].join('\0') + '\0')
     })
@@ -891,10 +881,10 @@ describe('actual patch paths, move inspection and confirmation', () => {
       'yes "$ANSWER" | command',
       'yes | command; echo $(date)',
       'echo "yes" | command; echo `date`',
-    ])(`${provider}: real quoted confirmation pipeline blocks: %s`, (command) => {
+    ])(`${agent}: real quoted confirmation pipeline blocks: %s`, (command) => {
       sandbox = createSandbox()
       configure({ 'no-auto-confirm': {} })
-      denied(shell(provider, command, { 'no-auto-confirm': 'block' }), 'non-interactive mode')
+      denied(shell(agent, command, { 'no-auto-confirm': 'block' }), 'non-interactive mode')
     })
     test.each([
       "echo 'yes | command'",
@@ -909,20 +899,20 @@ describe('actual patch paths, move inspection and confirmation', () => {
       'echo hello > yes | cat',
       'echo hello >> yes | cat',
       'cat < yes | cat',
-    ])(`${provider}: inert or unsupported confirmation text skips: %s`, (command) => {
+    ])(`${agent}: inert or unsupported confirmation text skips: %s`, (command) => {
       sandbox = createSandbox()
       configure({ 'no-auto-confirm': {} })
-      permitted(shell(provider, command, { 'no-auto-confirm': 'skip' }), provider)
+      permitted(shell(agent, command, { 'no-auto-confirm': 'skip' }), agent)
       denied(
-        shell(provider, "echo 'y' | command", { 'no-auto-confirm': 'block' }),
+        shell(agent, "echo 'y' | command", { 'no-auto-confirm': 'block' }),
         'non-interactive mode',
       )
     })
-    test(`${provider}: combined pack preserves quoted confirmation denial`, () => {
+    test(`${agent}: combined pack preserves quoted confirmation denial`, () => {
       sandbox = createSandbox()
       configure(Object.fromEntries(Object.keys(packs).map((name) => [name, {}])))
       denied(
-        shell(provider, "echo 'y' | command", { 'no-auto-confirm': 'block' }),
+        shell(agent, "echo 'y' | command", { 'no-auto-confirm': 'block' }),
         'non-interactive mode',
       )
     })
@@ -932,7 +922,7 @@ describe('actual patch paths, move inspection and confirmation', () => {
 describe('actual removal, script equivalence and tmux hooks', () => {
   test.each(['claude-code', 'codex'] as const)(
     '%s: actual removal hook requires a fresh live answer on each invocation',
-    async (provider) => {
+    async (agent) => {
       sandbox = createSandbox()
       configure({ 'no-rm-rf': {} })
       sandbox.writeFile('src/owned.ts', 'unchanged')
@@ -940,7 +930,7 @@ describe('actual removal, script equivalence and tmux hooks', () => {
         const reason = `"${join(sandbox.dir, 'src')}" is not on the cleanup allowlist.`
         const live = await runWithConsent(
           sandbox,
-          invocation(sandbox, provider, {
+          invocation(sandbox, agent, {
             input: { command: 'rm -rf src' },
           }),
           (prompt) => {
@@ -948,11 +938,11 @@ describe('actual removal, script equivalence and tmux hooks', () => {
             expect(prompt.question.reason).toBe(reason)
             expect(prompt.question.operation.input).toEqual({ command: 'rm -rf src' })
             const operation =
-              provider === 'claude-code'
+              agent === 'claude-code'
                 ? 'Delete this path and its contents?\nrm -rf src\nRequested by no-rm-rf'
                 : `Tool: exec_command\nInput:\n${JSON.stringify({ command: 'rm -rf src' }, null, 2)}`
             expect(prompt.message).toBe(
-              provider === 'claude-code'
+              agent === 'claude-code'
                 ? [operation, reason].join('\n\n')
                 : [
                     'Delete this path and its contents?',
@@ -961,7 +951,7 @@ describe('actual removal, script equivalence and tmux hooks', () => {
                     'Requested by no-rm-rf',
                   ].join('\n\n'),
             )
-            return accept ? acceptedApproval(provider) : { action: 'decline' }
+            return accept ? acceptedApproval(agent) : { action: 'decline' }
           },
         )
         expect(live.result.rawExitCode, formatDiagnostics(live.result)).toBe(0)
@@ -970,7 +960,7 @@ describe('actual removal, script equivalence and tmux hooks', () => {
         expect(live.prompts).toHaveLength(1)
         const output = JSON.parse(live.result.stdout)
         if (!accept) approvalDenied(output, 'declined')
-        else if (provider === 'claude-code') {
+        else if (agent === 'claude-code') {
           expect(output.hookSpecificOutput.permissionDecision).toBe('allow')
           expect(output.hookSpecificOutput.permissionDecisionReason).toBe(reason)
         } else {
@@ -986,7 +976,7 @@ describe('actual removal, script equivalence and tmux hooks', () => {
     },
   )
 
-  for (const provider of ['claude-code', 'codex'] as const) {
+  for (const agent of ['claude-code', 'codex'] as const) {
     test.each([
       ['rm -rf src', {}, 'ask', 'rm-rf-strict'],
       ['rm -rf .', {}, 'ask', 'rm-rf-project-root'],
@@ -996,12 +986,12 @@ describe('actual removal, script equivalence and tmux hooks', () => {
       ['rm -rf src', { extraAllowlist: ['src'] }, 'skip', ''],
       ['rm -rf dist', {}, 'skip', ''],
       ['ALLOW_DESTRUCTIVE_RM=true rm -rf src', {}, 'ask', 'rm-rf-strict'],
-    ])(`${provider}: removal %s %j`, (command, config, expected, rule) => {
+    ])(`${agent}: removal %s %j`, (command, config, expected, rule) => {
       sandbox = createSandbox()
       configure({ 'no-rm-rf': { config } })
       sandbox.writeFile('src/owned.ts', 'unchanged')
-      const output = shell(provider, command, { 'no-rm-rf': expected })
-      if (expected === 'skip') permitted(output, provider)
+      const output = shell(agent, command, { 'no-rm-rf': expected })
+      if (expected === 'skip') permitted(output, agent)
       else if (expected === 'ask') {
         approvalDenied(output, 'unavailable')
         expect(output.hookSpecificOutput.permissionDecisionReason).toMatch(/registration|restart/i)
@@ -1040,26 +1030,23 @@ describe('actual removal, script equivalence and tmux hooks', () => {
       ['eslint ~/target', "eslint '~/target'", {}, 'bun run task', 'skip'],
       ["eslint '~/target'", 'eslint ~/target', {}, 'bun run task', 'skip'],
       ['ALLOW_DIRECT_TOOL=true eslint src/', 'eslint src/', {}, 'bun run task', 'skip'],
-    ])(
-      `${provider}: scripts %s / %s / %j / %s`,
-      (command, body, lifecycle, recommend, decision) => {
-        sandbox = createSandbox()
-        configure({
-          'prefer-project-scripts': {
-            config: { mappings: [{ match: 'eslint|prettier|tsc|ruff|spacetime', recommend }] },
-          },
-        })
-        sandbox.writeFile('package.json', JSON.stringify({ scripts: { task: body, ...lifecycle } }))
-        sandbox.writeFile('src/a.ts', 'unchanged')
-        const output = shell(provider, command, { 'prefer-project-scripts': decision })
-        if (decision === 'block') denied(output, recommend)
-        else permitted(output, provider)
-        expect(sandbox.readFile('src/a.ts')).toBe('unchanged')
-        expect(sandbox.fileExists('sentinel')).toBe(false)
-      },
-    )
+    ])(`${agent}: scripts %s / %s / %j / %s`, (command, body, lifecycle, recommend, decision) => {
+      sandbox = createSandbox()
+      configure({
+        'prefer-project-scripts': {
+          config: { mappings: [{ match: 'eslint|prettier|tsc|ruff|spacetime', recommend }] },
+        },
+      })
+      sandbox.writeFile('package.json', JSON.stringify({ scripts: { task: body, ...lifecycle } }))
+      sandbox.writeFile('src/a.ts', 'unchanged')
+      const output = shell(agent, command, { 'prefer-project-scripts': decision })
+      if (decision === 'block') denied(output, recommend)
+      else permitted(output, agent)
+      expect(sandbox.readFile('src/a.ts')).toBe('unchanged')
+      expect(sandbox.fileExists('sentinel')).toBe(false)
+    })
 
-    test(`${provider}: merged guards retain independent decisions`, () => {
+    test(`${agent}: merged guards retain independent decisions`, () => {
       sandbox = createSandbox()
       configure({
         'prefer-project-scripts': {
@@ -1071,11 +1058,11 @@ describe('actual removal, script equivalence and tmux hooks', () => {
       })
       sandbox.writeFile('package.json', JSON.stringify({ scripts: { lint: 'eslint src/' } }))
       denied(
-        shell(provider, 'eslint src/', { 'prefer-project-scripts': 'block', 'no-rm-rf': 'skip' }),
+        shell(agent, 'eslint src/', { 'prefer-project-scripts': 'block', 'no-rm-rf': 'skip' }),
         'bun run lint',
       )
       denied(
-        shell(provider, 'git reset --hard', {
+        shell(agent, 'git reset --hard', {
           'prefer-project-scripts': 'skip',
           'no-destructive-git': 'block',
           'no-rm-rf': 'skip',
@@ -1096,7 +1083,7 @@ describe('actual removal, script equivalence and tmux hooks', () => {
       ['PermissionRequest', {}, false, false],
       ['SessionEnd', {}, true, false],
       ['SessionEnd', {}, false, false],
-    ])(`${provider}: tmux %s / %j / available=%s`, (event, config, available, attention) => {
+    ])(`${agent}: tmux %s / %j / available=%s`, (event, config, available, attention) => {
       sandbox = createSandbox()
       configure({ 'tmux-notifications': { config } })
       const log = join(sandbox.dir, 'tmux-log.jsonl')
@@ -1123,20 +1110,20 @@ if (args[0] === 'set-hook') {
       )
       chmodSync(join(sandbox.dir, 'stub-bin/tmux'), 0o755)
       const output = run(
-        provider,
+        agent,
         event,
         {
           stop_hook_active: false,
           last_assistant_message: 'done',
           prompt: 'continue',
           source: 'startup',
-          tool_name: provider === 'codex' ? 'exec_command' : 'Bash',
+          tool_name: agent === 'codex' ? 'exec_command' : 'Bash',
           tool_input: { command: 'echo inert' },
           tool_response: { stdout: 'inert', stderr: '', exit_code: 0 },
           ...(event === 'SessionEnd'
             ? {
                 reason: 'other',
-                ...(provider === 'codex'
+                ...(agent === 'codex'
                   ? {
                       model: undefined,
                       permission_mode: undefined,
@@ -1154,7 +1141,7 @@ if (args[0] === 'set-hook') {
               }
             : {}),
         },
-        event === 'SessionEnd' && provider === 'codex' ? {} : { 'tmux-notifications': 'skip' },
+        event === 'SessionEnd' && agent === 'codex' ? {} : { 'tmux-notifications': 'skip' },
         {
           TMUX: available ? '/inert/no-socket,1,0' : '',
           TMUX_PANE: available ? '%4' : '',
@@ -1163,7 +1150,7 @@ if (args[0] === 'set-hook') {
           PATH: `${join(sandbox.dir, 'stub-bin')}:${process.env.PATH}`,
         },
       )
-      permitted(output, provider)
+      permitted(output, agent)
       const commands: string[][] = existsSync(log)
         ? readFileSync(log, 'utf8')
             .trim()
@@ -1188,7 +1175,7 @@ if (args[0] === 'set-hook') {
           expect(commands).toContainEqual(['set-option', '-wu', '-t', '@7', '@clooks-attention'])
       }
       if (available && event === 'PermissionRequest') {
-        if (provider === 'codex') {
+        if (agent === 'codex') {
           expect(commands).toContainEqual([
             'set-window-option',
             '-t',

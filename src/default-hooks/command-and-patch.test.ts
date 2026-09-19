@@ -32,7 +32,7 @@ function decision(result: unknown) {
 }
 function context(command: string, extra = {}) {
   return {
-    provider: 'codex',
+    agent: 'codex',
     cwd: '/project',
     toolName: 'Bash',
     toolInput: { command },
@@ -50,8 +50,8 @@ function inspect(command: string, config = protectedFiles.meta.config, extra = {
     ),
   )
 }
-function inspectMove(command: string, cwd: string, provider: 'codex' | 'claude-code' = 'codex') {
-  return decision(move.PreToolUse!(context(command, { cwd, provider }) as never, {}))
+function inspectMove(command: string, cwd: string, agent: 'codex' | 'claude-code' = 'codex') {
+  return decision(move.PreToolUse!(context(command, { cwd, agent }) as never, {}))
 }
 
 describe('native patch path scanner', () => {
@@ -237,10 +237,10 @@ describe('native patch path scanner', () => {
       }).reason,
     ).toContain('generated')
   })
-  test('provider/tool/payload boundaries and legacy Claude file handling', () => {
+  test('agent/tool/payload boundaries and legacy Claude file handling', () => {
     const text = patch('*** Delete File: bun.lock')
-    for (const provider of [undefined, 'claude-code'])
-      expect(inspect(text, undefined, { provider }).result).toBe('skip')
+    for (const agent of [undefined, 'claude-code'])
+      expect(inspect(text, undefined, { agent }).result).toBe('skip')
     for (const toolName of ['Bash', 'Read', 'mcp__apply_patch'])
       expect(inspect(text, undefined, { toolName }).result).toBe('skip')
     for (const toolInput of [{}, { command: 2 }, { patch: text }])
@@ -248,7 +248,7 @@ describe('native patch path scanner', () => {
     expect(inspect(text, undefined, { cwd: '' }).result).toBe('skip')
     expect(
       inspect('', undefined, {
-        provider: 'claude-code',
+        agent: 'claude-code',
         toolName: 'Edit',
         toolInput: { filePath: '/project/bun.lock' },
       }).result,
@@ -340,27 +340,27 @@ describe('static move inspection', () => {
     expect(literalMove(command as string)?.argv).toEqual(argv)
     expect(rewriteToGitMv(command as string)).toBe(rewrite)
   })
-  test('unsupported syntax executes no git probe or shell sentinel under either provider', () => {
+  test('unsupported syntax executes no git probe or shell sentinel under either agent', () => {
     const dir = directory()
     const probe = spyOn(childProcess, 'spawnSync').mockReturnValue({ status: 0 } as ReturnType<
       typeof spawnSync
     >)
     try {
-      for (const provider of ['claude-code', 'codex'] as const) {
+      for (const agent of ['claude-code', 'codex'] as const) {
         for (const command of unsupportedMoves)
-          expect(inspectMove(command, dir, provider)).toEqual({ result: 'skip' })
+          expect(inspectMove(command, dir, agent)).toEqual({ result: 'skip' })
       }
       expect(probe).not.toHaveBeenCalled()
       expect(existsSync(join(dir, 'sentinel'))).toBe(false)
       let expectedCalls = 0
-      for (const provider of ['claude-code', 'codex'] as const) {
+      for (const agent of ['claude-code', 'codex'] as const) {
         for (const [command, argv] of [
           ['mv a b', ['a', 'b']],
           ["mv 'literal space' 'new space'", ['literal space', 'new space']],
           ["mv '$(literal)' a\\;b", ['$(literal)', 'a;b']],
           ['mv -- -a -b', ['--', '-a', '-b']],
         ] as const) {
-          expect(inspectMove(command, dir, provider).updatedInput).toEqual({
+          expect(inspectMove(command, dir, agent).updatedInput).toEqual({
             command: `git ${command}`,
           })
           expect(probe).toHaveBeenLastCalledWith('git', ['mv', '-n', ...argv], {
@@ -384,7 +384,7 @@ describe('static move inspection', () => {
     git(dir, 'add', '--', 'a', 'literal space', 'a;b', '-a', '$(literal)')
     writeFileSync(join(dir, 'untracked'), 'untracked')
     const index = digest(join(dir, '.git/index'))
-    for (const provider of ['claude-code', 'codex'] as const) {
+    for (const agent of ['claude-code', 'codex'] as const) {
       for (const command of [
         'mv a b',
         "mv 'literal space' 'new space'",
@@ -392,13 +392,13 @@ describe('static move inspection', () => {
         'mv -- -a -b',
         "mv '$(literal)' literal-new",
       ]) {
-        expect(inspectMove(command, dir, provider).updatedInput).toEqual({
+        expect(inspectMove(command, dir, agent).updatedInput).toEqual({
           command: `git ${command}`,
         })
         expect(digest(join(dir, '.git/index'))).toBe(index)
       }
       for (const command of ['mv untracked new', 'mv missing new', 'mv a untracked']) {
-        const result = inspectMove(command, dir, provider)
+        const result = inspectMove(command, dir, agent)
         expect(result.result).toBe('allow')
         expect(result.updatedInput).toBeUndefined()
         expect(result.injectContext).toContain('Unable to automatically use git mv')
@@ -489,8 +489,8 @@ describe('quoted confirmation pipelines', () => {
   })
   test.each(confirmations)('detects real pipeline %s', (command) => {
     expect(isAutoConfirm(command)).toBe(true)
-    for (const provider of ['claude-code', 'codex']) {
-      const result = decision(confirmation.PreToolUse!(context(command, { provider }) as never, {}))
+    for (const agent of ['claude-code', 'codex']) {
+      const result = decision(confirmation.PreToolUse!(context(command, { agent }) as never, {}))
       expect(result.result).toBe('block')
       expect(result.reason).toContain('non-interactive mode')
       expect(result.debugMessage).toContain(command)

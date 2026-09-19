@@ -15,9 +15,9 @@ import {
 } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
 
-export type Provider = 'claude' | 'codex'
+export type AgentId = 'claude' | 'codex'
 export interface Identity {
-  provider: Provider
+  agent: AgentId
   owner: string
   session_id: string
   tool_use_id: string
@@ -27,13 +27,13 @@ export const checkpointInputSchema = {
   type: 'object' as const,
   properties: {
     protocol: { type: 'integer', const: 1 },
-    provider: { type: 'string' },
+    agent: { type: 'string' },
     owner: { type: 'string' },
     session_id: { type: 'string' },
     tool_use_id: { type: 'string' },
     turn_id: { type: 'string' },
   },
-  required: ['protocol', 'provider', 'owner', 'session_id', 'tool_use_id'],
+  required: ['protocol', 'agent', 'owner', 'session_id', 'tool_use_id'],
 }
 export const budgets = {
   invocation: 300000,
@@ -97,12 +97,12 @@ export const journal = (directory = root()): any[] =>
         .map((line) => JSON.parse(line))
     : []
 export function identity(value: any): Identity {
-  assert.ok(value.provider === 'claude' || value.provider === 'codex', 'Missing literal provider')
+  assert.ok(value.agent === 'claude' || value.agent === 'codex', 'Missing literal agent')
   for (const field of [
     'owner',
     'session_id',
     'tool_use_id',
-    ...(value.provider === 'codex' ? ['turn_id'] : []),
+    ...(value.agent === 'codex' ? ['turn_id'] : []),
   ]) {
     assert.ok(
       typeof value[field] === 'string' &&
@@ -113,11 +113,11 @@ export function identity(value: any): Identity {
     )
   }
   return {
-    provider: value.provider,
+    agent: value.agent,
     owner: value.owner,
     session_id: value.session_id,
     tool_use_id: value.tool_use_id,
-    ...(value.provider === 'codex' ? { turn_id: value.turn_id } : {}),
+    ...(value.agent === 'codex' ? { turn_id: value.turn_id } : {}),
   }
 }
 export function mailbox(key: Identity, directory = coordinationRoot()) {

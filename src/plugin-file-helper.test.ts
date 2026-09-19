@@ -81,7 +81,7 @@ describe('Claude installed plugin membership', () => {
     })
     write(join(home, '.claude/settings.json'), '{"enabledPlugins":{"disabled@market":false}}')
     const helpers = createContextHelpers({
-      provider: 'claude-code',
+      agent: 'claude-code',
       homeRoot: home,
       cwd: disabled,
     })
@@ -109,7 +109,7 @@ describe('Claude installed plugin membership', () => {
     symlinkSync(inside, outsideAlias)
     writeClaudeRegistry(home, { 'plugin@market': [{ installPath: plugin }] })
     const helpers = createContextHelpers({
-      provider: 'claude-code',
+      agent: 'claude-code',
       homeRoot: home,
       cwd: join(plugin, 'nested'),
     })
@@ -136,7 +136,7 @@ describe('Claude installed plugin membership', () => {
     mkdirSync(join(plugin, 'nested'))
     writeClaudeRegistry(home, { 'plugin@market': [{ installPath: rawRoot }] })
     const rejectedRoot = createContextHelpers({
-      provider: 'claude-code',
+      agent: 'claude-code',
       homeRoot: home,
       cwd: plugin,
     })
@@ -144,7 +144,7 @@ describe('Claude installed plugin membership', () => {
 
     writeClaudeRegistry(home, { 'plugin@market': [{ installPath: plugin }] })
     const helpers = createContextHelpers({
-      provider: 'claude-code',
+      agent: 'claude-code',
       homeRoot: home,
       cwd: join(plugin, 'nested'),
     })
@@ -152,7 +152,7 @@ describe('Claude installed plugin membership', () => {
     expect(helpers.belongsToPlugin(`${plugin}/nested/../file.txt`)).toBe(false)
     expect(
       createContextHelpers({
-        provider: 'claude-code',
+        agent: 'claude-code',
         homeRoot: home,
         cwd: 'relative',
       }).belongsToPlugin('file.txt'),
@@ -169,7 +169,7 @@ describe('Claude installed plugin membership', () => {
     symlinkSync(join(plugin, 'subdir'), join(base, 'symlink-dir'))
     const candidate = `${base}/symlink-dir/../chosen.txt`
     writeClaudeRegistry(home, { 'plugin@market': [{ installPath: plugin }] })
-    const helpers = createContextHelpers({ provider: 'claude-code', homeRoot: home, cwd: plugin })
+    const helpers = createContextHelpers({ agent: 'claude-code', homeRoot: home, cwd: plugin })
 
     expect(readFileSync(candidate, 'utf8')).toBe('physical-plugin-file')
     if (Bun.version === '1.3.10') expect(realpathSync(candidate)).toBe(join(base, 'chosen.txt'))
@@ -195,10 +195,7 @@ describe('Claude installed plugin membership', () => {
         return realpathSync(path)
       },
     }
-    const helpers = createContextHelpers(
-      { provider: 'claude-code', homeRoot: home, cwd: alias },
-      fs,
-    )
+    const helpers = createContextHelpers({ agent: 'claude-code', homeRoot: home, cwd: alias }, fs)
 
     expect(helpers.belongsToPlugin(file)).toBe(true)
     expect(rootRealpaths).toEqual([physical, alias])
@@ -209,20 +206,20 @@ describe('Claude installed plugin membership', () => {
     const home = join(base, 'home')
     const plugin = join(base, 'plugin')
     mkdirSync(plugin, { recursive: true })
-    const missing = createContextHelpers({ provider: 'claude-code', homeRoot: home, cwd: plugin })
+    const missing = createContextHelpers({ agent: 'claude-code', homeRoot: home, cwd: plugin })
     expect(missing.belongsToPlugin(join(plugin, 'missing'))).toBe(false)
 
     write(join(home, '.claude/plugins/installed_plugins.json'), '{')
     expect(
       createContextHelpers({
-        provider: 'claude-code',
+        agent: 'claude-code',
         homeRoot: home,
         cwd: plugin,
       }).belongsToPlugin(plugin),
     ).toBe(false)
 
     const unreadable = createContextHelpers(
-      { provider: 'claude-code', homeRoot: home, cwd: plugin },
+      { agent: 'claude-code', homeRoot: home, cwd: plugin },
       {
         ...nodeFileSystem,
         readText: () => {
@@ -248,7 +245,7 @@ describe('Codex materialized plugin membership', () => {
     for (const codexHome of [undefined, '']) {
       expect(
         createContextHelpers({
-          provider: 'codex',
+          agent: 'codex',
           homeRoot: rawHome,
           codexHome,
           cwd: root,
@@ -257,7 +254,7 @@ describe('Codex materialized plugin membership', () => {
     }
     expect(
       createContextHelpers({
-        provider: 'codex',
+        agent: 'codex',
         homeRoot: rawHome,
         codexHome: join(base, '.codex'),
         cwd: root,
@@ -281,7 +278,7 @@ describe('Codex materialized plugin membership', () => {
     ]
     write(join(codexHome, 'config.toml'), 'this is deliberately malformed and ignored')
     const helpers = createContextHelpers({
-      provider: 'codex',
+      agent: 'codex',
       homeRoot: home,
       codexHome,
       cwd: oldRoot,
@@ -303,7 +300,7 @@ describe('Codex materialized plugin membership', () => {
     const mismatchFile = write(join(mismatch, 'asset.txt'))
     const missingFile = write(join(noManifest, 'asset.txt'))
     write(join(malformed, '.codex-plugin/plugin.json'), '{')
-    const helpers = createContextHelpers({ provider: 'codex', homeRoot: home, cwd: valid })
+    const helpers = createContextHelpers({ agent: 'codex', homeRoot: home, cwd: valid })
 
     expect(helpers.belongsToPlugin(validFile)).toBe(true)
     for (const file of [malformedFile, mismatchFile, missingFile]) {
@@ -327,7 +324,7 @@ describe('Codex materialized plugin membership', () => {
     }
     expect(
       createContextHelpers(
-        { provider: 'codex', homeRoot: home, codexHome, cwd: root },
+        { agent: 'codex', homeRoot: home, codexHome, cwd: root },
         configUnreadable,
       ).belongsToPlugin(file),
     ).toBe(true)
@@ -343,7 +340,7 @@ describe('Codex materialized plugin membership', () => {
       },
     }
     const helpers = createContextHelpers(
-      { provider: 'codex', homeRoot: home, codexHome, cwd: root },
+      { agent: 'codex', homeRoot: home, codexHome, cwd: root },
       manifestUnreadable,
     )
 
@@ -359,7 +356,7 @@ describe('Codex materialized plugin membership', () => {
     mkdirSync(cache, { recursive: true })
 
     const unreadableDirectory = createContextHelpers(
-      { provider: 'codex', homeRoot: home, codexHome, cwd: base },
+      { agent: 'codex', homeRoot: home, codexHome, cwd: base },
       {
         ...nodeFileSystem,
         readDirectory() {
@@ -370,7 +367,7 @@ describe('Codex materialized plugin membership', () => {
     expect(unreadableDirectory.belongsToPlugin(write(join(base, 'outside.txt')))).toBe(false)
 
     const unreadableEntry = createContextHelpers(
-      { provider: 'codex', homeRoot: home, codexHome, cwd: base },
+      { agent: 'codex', homeRoot: home, codexHome, cwd: base },
       {
         ...nodeFileSystem,
         readDirectory(path) {
@@ -404,7 +401,7 @@ test('canonical root validation skips non-directories and filesystem errors', ()
       return lstatSync(path)
     },
   }
-  const helpers = createContextHelpers({ provider: 'claude-code', homeRoot: home, cwd: base }, fs)
+  const helpers = createContextHelpers({ agent: 'claude-code', homeRoot: home, cwd: base }, fs)
 
   expect(helpers.belongsToPlugin(fileRoot)).toBe(false)
 })
@@ -428,7 +425,7 @@ test('discovery is lazy and roots are snapshotted once while candidates are not 
       return readdirSync(path)
     },
   }
-  const helpers = createContextHelpers({ provider: 'claude-code', homeRoot: home, cwd: plugin }, fs)
+  const helpers = createContextHelpers({ agent: 'claude-code', homeRoot: home, cwd: plugin }, fs)
   expect(registryReads).toBe(0)
   expect(directoryReads).toBe(0)
   expect(helpers.belongsToPlugin(first)).toBe(true)
@@ -444,7 +441,7 @@ test('discovery is lazy and roots are snapshotted once while candidates are not 
   })
   expect(helpers.belongsToPlugin(second)).toBe(false)
   expect(
-    createContextHelpers({ provider: 'claude-code', homeRoot: home, cwd: plugin }).belongsToPlugin(
+    createContextHelpers({ agent: 'claude-code', homeRoot: home, cwd: plugin }).belongsToPlugin(
       second,
     ),
   ).toBe(true)

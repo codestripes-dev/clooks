@@ -9,16 +9,16 @@
 
 import { describe, test, expect } from 'bun:test'
 import { createContext, createHarnessContext } from './create-context.js'
-import type { Provider } from '../types/index.js'
+import type { AgentId } from '../types/index.js'
 
 for (const [name, create] of Object.entries({ createContext, createHarnessContext })) {
-  describe(`${name} provider identity`, () => {
-    test('defaults omitted and undefined provider to Claude regardless of environment', () => {
+  describe(`${name} agent identity`, () => {
+    test('defaults omitted and undefined agent to Claude regardless of environment', () => {
       const previous = process.env.CLOOKS_AGENT
       try {
         process.env.CLOOKS_AGENT = 'codex'
-        expect(create('UserPromptSubmit', { prompt: 'hi' }).provider).toBe('claude-code')
-        expect(create('UserPromptSubmit', { prompt: 'hi', provider: undefined }).provider).toBe(
+        expect(create('UserPromptSubmit', { prompt: 'hi' }).agent).toBe('claude-code')
+        expect(create('UserPromptSubmit', { prompt: 'hi', agent: undefined }).agent).toBe(
           'claude-code',
         )
       } finally {
@@ -27,17 +27,17 @@ for (const [name, create] of Object.entries({ createContext, createHarnessContex
       }
     })
 
-    test.each(['claude-code', 'codex'] as Provider[])('preserves explicit %s', (provider) => {
-      const ctx = create('UserPromptSubmit', { prompt: 'hi', provider })
-      expect(ctx.provider).toBe(provider)
+    test.each(['claude-code', 'codex'] as AgentId[])('preserves explicit %s', (agent) => {
+      const ctx = create('UserPromptSubmit', { prompt: 'hi', agent })
+      expect(ctx.agent).toBe(agent)
       expect(ctx.skip()).toEqual({ result: 'skip' })
     })
 
     for (const invalid of [null, '', 'unknown', 0, false, {}, []]) {
       test(`rejects explicit ${JSON.stringify(invalid)}`, () => {
         expect(() =>
-          create('UserPromptSubmit', { prompt: 'hi', provider: invalid as Provider }),
-        ).toThrow('provider must be "claude-code" or "codex"')
+          create('UserPromptSubmit', { prompt: 'hi', agent: invalid as AgentId }),
+        ).toThrow('agent must be "claude-code" or "codex"')
       })
     }
   })

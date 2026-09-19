@@ -24,11 +24,11 @@ function install(name: 'lifecycle-example' | 'kitchen-sink') {
 }
 
 // Synthetic wire input through compiled Clooks and exact example source, not a native agent.
-function invoke(provider: 'claude-code' | 'codex', event: string, fields = {}, debug = true) {
+function invoke(agent: 'claude-code' | 'codex', event: string, fields = {}, debug = true) {
   const result = sandbox.run([], {
     stdin: JSON.stringify({
       hook_event_name: event,
-      session_id: `example-${provider}-${event}`,
+      session_id: `example-${agent}-${event}`,
       cwd: sandbox.dir,
       transcript_path: null,
       ...(event === 'SessionEnd'
@@ -42,7 +42,7 @@ function invoke(provider: 'claude-code' | 'codex', event: string, fields = {}, d
       ...fields,
     }),
     env: {
-      CLOOKS_AGENT: provider,
+      CLOOKS_AGENT: agent,
       CODEX_HOME: join(sandbox.home, '.codex'),
       CLOOKS_DEBUG: String(debug),
     },
@@ -54,8 +54,8 @@ function invoke(provider: 'claude-code' | 'codex', event: string, fields = {}, d
 }
 
 describe('corrected lifecycle and kitchen examples', () => {
-  for (const provider of ['claude-code', 'codex'] as const) {
-    test(`${provider}: lifecycle keeps protocol stdout clean, actual branch denial and intentional allow`, () => {
+  for (const agent of ['claude-code', 'codex'] as const) {
+    test(`${agent}: lifecycle keeps protocol stdout clean, actual branch denial and intentional allow`, () => {
       install('lifecycle-example')
       const git = (...args: string[]) => {
         const result = Bun.spawnSync(['git', ...args], {
@@ -76,14 +76,14 @@ describe('corrected lifecycle and kitchen examples', () => {
         'fixture',
       )
       const fields = {
-        tool_name: provider === 'codex' ? 'exec_command' : 'Bash',
+        tool_name: agent === 'codex' ? 'exec_command' : 'Bash',
         tool_input: { command: 'echo inert' },
       }
       for (const debug of [false, true]) {
         sandbox.writeConfig(
           'version: "1.0.0"\nlifecycle-example:\n  config:\n    protectedBranches: [staging]\n',
         )
-        const blocked = invoke(provider, 'PreToolUse', fields, debug)
+        const blocked = invoke(agent, 'PreToolUse', fields, debug)
         const output = JSON.parse(blocked.stdout)
         expect(output.hookSpecificOutput.permissionDecision).toBe('deny')
         expect(output.hookSpecificOutput.permissionDecisionReason).toContain('staging branch')
@@ -92,8 +92,8 @@ describe('corrected lifecycle and kitchen examples', () => {
         sandbox.writeConfig(
           'version: "1.0.0"\nlifecycle-example:\n  config:\n    protectedBranches: [production]\n',
         )
-        const allowed = invoke(provider, 'PreToolUse', fields, debug)
-        if (provider === 'claude-code') {
+        const allowed = invoke(agent, 'PreToolUse', fields, debug)
+        if (agent === 'claude-code') {
           expect(JSON.parse(allowed.stdout).hookSpecificOutput.permissionDecision).toBe('allow')
         } else expect(allowed.stdout).toBe('')
         if (debug)
@@ -102,13 +102,13 @@ describe('corrected lifecycle and kitchen examples', () => {
       }
     })
 
-    test(`${provider}: kitchen PreToolUse and compact/end remain debug-only`, () => {
+    test(`${agent}: kitchen PreToolUse and compact/end remain debug-only`, () => {
       install('kitchen-sink')
       for (const [event, fields, marker] of [
         [
           'PreToolUse',
           {
-            tool_name: provider === 'codex' ? 'exec_command' : 'Bash',
+            tool_name: agent === 'codex' ? 'exec_command' : 'Bash',
             tool_input: { command: 'echo inert-marker' },
           },
           'inert-marker',
@@ -117,8 +117,8 @@ describe('corrected lifecycle and kitchen examples', () => {
         ['SessionEnd', {}, 'other'],
       ] as const) {
         for (const debug of [false, true]) {
-          const result = invoke(provider, event, fields, debug)
-          if (debug && provider === 'claude-code' && event === 'PreToolUse') {
+          const result = invoke(agent, event, fields, debug)
+          if (debug && agent === 'claude-code' && event === 'PreToolUse') {
             const output = JSON.parse(result.stdout)
             expect(output).toEqual({
               hookSpecificOutput: {

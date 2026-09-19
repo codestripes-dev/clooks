@@ -103,7 +103,7 @@ export function assertBootstrap(r: ReturnType<typeof setup>, native: any, rows: 
     assert.ok(rows.indexOf(only('native-effect')) < rows.indexOf(post))
     if (!noStart) assert.ok(rows.indexOf(only('5')) < rows.indexOf(done))
   }
-  if (r.provider === 'claude') assert.equal(Boolean(native.output.is_error), !permits)
+  if (r.agent === 'claude') assert.equal(Boolean(native.output.is_error), !permits)
   else
     assert.equal(
       String(native.output.output).includes('Command blocked by PreToolUse hook'),

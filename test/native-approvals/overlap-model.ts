@@ -24,9 +24,9 @@ export function checkArguments(schema: any, args: Record<string, unknown>) {
   assert.ok(result.valid, result.errorMessage)
 }
 
-export function claudeHello(provider: OverlapManifest['provider'], request: Request) {
+export function claudeHello(agent: OverlapManifest['agent'], request: Request) {
   return (
-    provider === 'claude' &&
+    agent === 'claude' &&
     request.method === 'HEAD' &&
     new URL(request.url).pathname === '/api/hello'
   )
@@ -64,7 +64,7 @@ export function assertColdChildRefusal(
   callId: string,
   output: any,
 ) {
-  assert.equal(manifest.provider, 'codex')
+  assert.equal(manifest.agent, 'codex')
   assert.equal(manifest.serialChildControl, true)
   assert.equal(output.call_id, callId)
   assert.equal(
@@ -125,7 +125,7 @@ export function overlapModel(directory: string, manifest: OverlapManifest) {
   const results = new Map<string, any>()
   const observed = new Set<string>()
   const message = (text: string) =>
-    manifest.provider === 'claude'
+    manifest.agent === 'claude'
       ? { type: 'text' as const, text }
       : { type: 'message' as const, role: 'assistant', content: [{ type: 'output_text', text }] }
   const call = (
@@ -136,7 +136,7 @@ export function overlapModel(directory: string, manifest: OverlapManifest) {
     namespace?: string,
   ) => {
     checkArguments(advertisedTool(body, name, namespace), args)
-    return manifest.provider === 'claude'
+    return manifest.agent === 'claude'
       ? { type: 'tool_use' as const, id, name, input: args }
       : {
           type: 'function_call' as const,
@@ -149,7 +149,7 @@ export function overlapModel(directory: string, manifest: OverlapManifest) {
   const effect = (body: any, id: string) => {
     assert.ok(!observed.has(id), 'Script attempted to replay original native operation')
     observed.add(id)
-    return manifest.provider === 'claude'
+    return manifest.agent === 'claude'
       ? call(body, id, 'Bash', manifest.calls[id]!.operation.input)
       : call(body, id, 'exec_command', {
           cmd: manifest.calls[id]!.operation.input.command,
@@ -159,7 +159,7 @@ export function overlapModel(directory: string, manifest: OverlapManifest) {
   }
   const feedback = (body: any, id: string) => {
     const outputs =
-      manifest.provider === 'claude'
+      manifest.agent === 'claude'
         ? body.messages
             .flatMap((entry: any) => (Array.isArray(entry.content) ? entry.content : []))
             .filter((entry: any) => entry.type === 'tool_result' && entry.tool_use_id === id)
@@ -173,12 +173,12 @@ export function overlapModel(directory: string, manifest: OverlapManifest) {
     const output = feedback(body, id)
     if (id === a) {
       assert.ok(JSON.stringify(output).includes(`overlap-native-effect:${a}`))
-      if (manifest.provider === 'claude') assert.equal(output.is_error, false)
+      if (manifest.agent === 'claude') assert.equal(output.is_error, false)
       else assert.ok(output.output.includes('Process exited with code 0'))
     } else {
       if (manifest.serialChildControl) assertColdChildRefusal(directory, manifest, id, output)
       else assert.ok(JSON.stringify(output).includes('Checkpoint 1 declined'))
-      if (manifest.provider === 'claude') assert.equal(output.is_error, true)
+      if (manifest.agent === 'claude') assert.equal(output.is_error, true)
     }
     assert.ok(!results.has(id), 'Original result consumed twice')
     results.set(id, output)
@@ -186,7 +186,7 @@ export function overlapModel(directory: string, manifest: OverlapManifest) {
   }
   const route = (body: any, headers: Record<string, string>, index: number) => {
     let isChild = false
-    if (manifest.provider === 'codex') {
+    if (manifest.agent === 'codex') {
       const thread = headers['x-client-request-id']
       assert.ok(typeof thread === 'string' && thread.length)
       if (!parent) parent = thread
@@ -239,7 +239,7 @@ export function overlapModel(directory: string, manifest: OverlapManifest) {
           assert.equal(metadata.thread_id, child)
           const args = {
             protocol: 1,
-            provider: manifest.provider,
+            agent: manifest.agent,
             owner: manifest.owner,
             session_id: metadata.session_id,
             turn_id: metadata.turn_id,
@@ -283,7 +283,7 @@ export function overlapModel(directory: string, manifest: OverlapManifest) {
       return [message('OVERLAP_CHILD_COMPLETE')]
     }
     const spawn = () => [
-      manifest.provider === 'claude'
+      manifest.agent === 'claude'
         ? call(body, spawnId, 'Agent', {
             description: 'Overlap approval child',
             prompt: childPrompt,
@@ -301,7 +301,7 @@ export function overlapModel(directory: string, manifest: OverlapManifest) {
     const captureSpawn = () => {
       const output = feedback(body, spawnId)
       save(join(directory, 'overlap-spawn-result.json'), output)
-      if (manifest.provider === 'codex') {
+      if (manifest.agent === 'codex') {
         spawned = JSON.parse(output.output).agent_id
         assert.ok(typeof spawned === 'string' && spawned !== parent)
         if (child) assert.equal(child, spawned)
@@ -311,7 +311,7 @@ export function overlapModel(directory: string, manifest: OverlapManifest) {
       }
     }
     const waitForChild = () => [
-      manifest.provider === 'claude'
+      manifest.agent === 'claude'
         ? call(body, waitId, 'TaskOutput', { task_id: task, block: true, timeout: 30000 })
         : call(
             body,
@@ -350,7 +350,7 @@ export function overlapModel(directory: string, manifest: OverlapManifest) {
     hostname: '127.0.0.1',
     port: 0,
     async fetch(request) {
-      if (claudeHello(manifest.provider, request)) {
+      if (claudeHello(manifest.agent, request)) {
         appendFileSync(
           join(directory, 'overlap-auxiliary.jsonl'),
           JSON.stringify({ method: request.method, path: '/api/hello', at: Date.now() }) + '\n',
@@ -362,7 +362,7 @@ export function overlapModel(directory: string, manifest: OverlapManifest) {
         assert.equal(request.method, 'POST')
         assert.equal(
           new URL(request.url).pathname,
-          manifest.provider === 'claude' ? '/v1/messages' : '/v1/responses',
+          manifest.agent === 'claude' ? '/v1/messages' : '/v1/responses',
         )
         const body = await request.json()
         const headers = Object.fromEntries(request.headers)
@@ -376,7 +376,7 @@ export function overlapModel(directory: string, manifest: OverlapManifest) {
         const event = (type: string, value: unknown) =>
           `event: ${type}\ndata: ${JSON.stringify(value)}\n\n`
         let wire: string
-        if (manifest.provider === 'codex') {
+        if (manifest.agent === 'codex') {
           const id = `overlap_response_${index}`
           wire =
             event('response.created', { type: 'response.created', response: { id } }) +
@@ -449,7 +449,7 @@ export function overlapModel(directory: string, manifest: OverlapManifest) {
       assert.equal(parentStep, manifest.topology === 'same-session' ? 2 : 4)
       if (manifest.topology === 'parent-child') {
         assert.equal(childStep, manifest.primedChildControl ? 3 : 2)
-        if (manifest.provider === 'codex') assert.equal(child, spawned)
+        if (manifest.agent === 'codex') assert.equal(child, spawned)
       }
       return { parent, child, spawned, task, requests: requests.length }
     },

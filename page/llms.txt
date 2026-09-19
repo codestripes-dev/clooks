@@ -2,7 +2,7 @@
 
 > A TypeScript hook runtime for Claude Code and Codex CLI. Both integrations are shipped. Codex supports eleven events, not full Claude capability parity. Other native agent integrations are not shipped; Claude Code can also run through its IDE integrations.
 
-Clooks sits between native hooks and user-defined scripts. A bash entrypoint invokes a compiled Bun binary that reads `.clooks/clooks.yml`. Configuration, matching, ordering, execution, and tests are shared; normalization and decisions are provider-specific. The default onError: block requests the event's available refusal. Post-tool feedback cannot undo effects; observational events cannot universally prevent native actions. Repositories and hook code are trusted, not sandboxed by Clooks.
+Clooks sits between native hooks and user-defined scripts. A bash entrypoint invokes a compiled Bun binary that reads `.clooks/clooks.yml`. Configuration, matching, ordering, execution, and tests are shared; normalization and decisions are agent-specific. The default onError: block requests the event's available refusal. Post-tool feedback cannot undo effects; observational events cannot universally prevent native actions. Repositories and hook code are trusted, not sandboxed by Clooks.
 
 Hooks use the named export `export const hook: ClooksHook = { ... }` with meta and per-event handlers, importing ClooksHook from `./types`. Custom hooks live in `.clooks/hooks/`; installed hooks are vendored into `.clooks/vendor/`. Commit configuration and vendored hooks, but install the runtime separately. Codex project registrations contain absolute paths: re-run init after cloning, moving, or creating a worktree.
 
@@ -72,7 +72,7 @@ Install a concrete single hook after init:
 
     clooks add https://github.com/codestripes-dev/clooks-marketplace/blob/master/clooks-core-hooks/hooks/no-rm-rf.ts
 
-`clooks add https://github.com/<owner>/<repo>` requires clooks-pack.json at the repository root; `--all` installs all hooks without the picker. A tree/pack URL does not select a nested marketplace pack. Review code and provider-specific tool assumptions. The Codex onboarding plugin does not auto-vendor Codex plugin packs; custom hooks and existing vendored hooks remain usable.
+`clooks add https://github.com/<owner>/<repo>` requires clooks-pack.json at the repository root; `--all` installs all hooks without the picker. A tree/pack URL does not select a nested marketplace pack. Review code and agent-specific tool assumptions. The Codex onboarding plugin does not auto-vendor Codex plugin packs; custom hooks and existing vendored hooks remain usable.
 
 ## Codex Event And Capability Scope
 
@@ -88,11 +88,11 @@ Supported events: SessionStart, SubagentStart, PreToolUse, PermissionRequest, Po
 - Stop/SubagentStop: allow/block/skip; block requests continuation. Failure instead requests termination. No context.
 - SessionEnd: skip/debug only, including no-op returns. Observation-only; no context or closure veto. Registration allows three seconds for the entire pipeline. Successful diagnostics are local stderr, discarded natively.
 
-Codex exec_command normalizes to Bash; apply_patch does not become Claude Edit/Write input. Command rewrites are command-only; supported MCP input rewrites use an opaque-record codec. Other tools may be observable without being rewritable. Hosted tools and specialized native paths may bypass hooks. Codex defer is unsupported. Check ctx.provider and actual event/tool contracts rather than assuming parity from names. Native invocation evidence is bounded, not full conformance; existing website recordings show Claude Code only.
+Codex exec_command normalizes to Bash; apply_patch does not become Claude Edit/Write input. Command rewrites are command-only; supported MCP input rewrites use an opaque-record codec. Other tools may be observable without being rewritable. Hosted tools and specialized native paths may bypass hooks. Codex defer is unsupported. Check ctx.agent and actual event/tool contracts rather than assuming parity from names. Native invocation evidence is bounded, not full conformance; existing website recordings show Claude Code only.
 
 ## Shared Approval Checkpoints
 
-PreToolUse handler `ctx.ask({ reason })` pauses the hook pipeline for confirmation through MCP. Add an optional `question` for a short prompt; use `reason` to explain why approval is needed. Approval continues the same invocation without replaying earlier hooks; decline, cancellation or an unavailable required interaction denies the operation. Each required checkpoint must be approved, and later hooks and native permissions still apply. `ctx.defer()` remains a separate result with its existing event and provider restrictions.
+PreToolUse handler `ctx.ask({ reason })` pauses the hook pipeline for confirmation through MCP. Add an optional `question` for a short prompt; use `reason` to explain why approval is needed. Approval continues the same invocation without replaying earlier hooks; decline, cancellation or an unavailable required interaction denies the operation. Each required checkpoint must be approved, and later hooks and native permissions still apply. `ctx.defer()` remains a separate result with its existing event and agent restrictions.
 
 ## Links
 

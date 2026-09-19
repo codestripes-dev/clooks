@@ -71,7 +71,7 @@ export interface CreateContextEventMap {
  * Fields the helper supplies defaults for. Callers may override any of them.
  */
 type BaseDefaultedKeys =
-  | 'provider'
+  | 'agent'
   | 'helpers'
   | 'sessionId'
   | 'cwd'
@@ -148,9 +148,9 @@ export function createContext<E extends EventName>(
   event: E,
   payload: CreateContextPayload<E>,
 ): CreateContextEventMap[E] {
-  const provider = payload.provider === undefined ? 'claude-code' : payload.provider
-  if (provider !== 'claude-code' && provider !== 'codex') {
-    throw new TypeError('provider must be "claude-code" or "codex"')
+  const agent = payload.agent === undefined ? 'claude-code' : payload.agent
+  if (agent !== 'claude-code' && agent !== 'codex') {
+    throw new TypeError('agent must be "claude-code" or "codex"')
   }
   const suppliedHelpers = payload.helpers
   const helpers = Object.freeze({
@@ -161,7 +161,7 @@ export function createContext<E extends EventName>(
   })
   const base: BaseContext = {
     event,
-    provider,
+    agent,
     helpers,
     sessionId: 'test-session',
     cwd: '/tmp',
@@ -178,7 +178,7 @@ export function createContext<E extends EventName>(
     ...base,
     ...(payload as Record<string, unknown>),
     event,
-    provider,
+    agent,
     helpers,
   }
   attachDecisionMethods(event, ctx)

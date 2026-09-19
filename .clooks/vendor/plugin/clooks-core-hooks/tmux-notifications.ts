@@ -267,7 +267,7 @@ export const hook: ClooksHook<TmuxNotificationsConfig> = {
   },
 
   async PermissionRequest(ctx, config) {
-    if (!('provider' in ctx && ctx.provider === 'codex')) return ctx.skip()
+    if (!('agent' in ctx && ctx.agent === 'codex')) return ctx.skip()
     setAttentionStyle(w, config.attentionStyle)
     if (config.flashOnPrompt) await flashFocusedWindow()
     return ctx.skip()

@@ -1,11 +1,11 @@
 function ComparisonSection({ accent, content }) {
   const rows = [
-    ['Failure mode',           'Provider- and event-defined behavior',        'Configurable error policy; refusal depends on the native event'],
-    ['Language',               'Provider-defined handler contracts',          'TypeScript with typed event contracts'],
-    ['Composition',            'Provider-defined execution and ordering',     'Parallel or sequential with explicit order'],
-    ['Input modification',     'Provider- and tool-specific rewrites',         'Sequential pipeline; validated updates reach later hooks'],
+    ['Failure mode',           'Agent- and event-defined behavior',           'Configurable error policy; refusal depends on the native event'],
+    ['Language',               'Agent-defined handler contracts',             'TypeScript with typed event contracts'],
+    ['Composition',            'Agent-defined execution and ordering',        'Parallel or sequential with explicit order'],
+    ['Input modification',     'Agent- and tool-specific rewrites',           'Sequential pipeline; validated updates reach later hooks'],
     ['Retries',                'Per invocation only',                         'Circuit breaker auto-disables after N failures'],
-    ['Distribution',           'Provider-specific packaging and settings',    'Vendor GitHub hook files or root-manifest packs'],
+    ['Distribution',           'Agent-specific packaging and settings',       'Vendor GitHub hook files or root-manifest packs'],
     ['Portability',            'Lives in your settings',                      'Vendored into .clooks/, committed'],
   ];
   const vp = useViewport();

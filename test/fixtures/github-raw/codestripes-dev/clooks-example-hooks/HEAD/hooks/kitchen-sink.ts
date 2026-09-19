@@ -74,7 +74,7 @@ export const hook: ClooksHook = {
   // WorktreeCreate requires actual creation and success/failure, not an observation.
   // Omit it rather than claim success with a placeholder directory.
 
-  // Debug-only events; not every provider supports every event.
+  // Debug-only events; not every agent supports every event.
   StopFailure: (ctx) => ctx.skip(debugOpts("StopFailure", ctx as any)),
   PermissionDenied: (ctx) => ctx.skip(debugOpts("PermissionDenied", ctx as any)),
   PostCompact: (ctx) => ctx.skip(debugOpts("PostCompact", ctx as any)),

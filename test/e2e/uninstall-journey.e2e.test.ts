@@ -255,9 +255,9 @@ describe('automatic uninstall agent selection', () => {
           '--unhook',
         )
         expect(output).not.toContain('Delete ')
-        for (const provider of ['claude-code', 'codex'] as const) {
-          if (agent === 'all' || agent === provider) expectUnregistered(scope, provider)
-          else expect(bytes(scope, provider)).toBe(before[provider])
+        for (const target of ['claude-code', 'codex'] as const) {
+          if (agent === 'all' || agent === target) expectUnregistered(scope, target)
+          else expect(bytes(scope, target)).toBe(before[target])
         }
         expectRuntimeRetained(scope)
       })
@@ -381,7 +381,7 @@ describe('automatic uninstall agent selection', () => {
     expectRuntimeRetained('global')
   })
 
-  test('scope picker both independently selects different sole providers', async () => {
+  test('scope picker both independently selects different sole agents', async () => {
     sandbox = createSandbox()
     expect(sandbox.run(['init', '--agent', 'codex']).exitCode).toBe(0)
     expect(sandbox.run(['init', '--global', '--agent', 'claude-code']).exitCode).toBe(0)
@@ -404,7 +404,7 @@ describe('automatic uninstall agent selection', () => {
     expect(existsSync(join(sandbox.home, '.clooks/bin/entrypoint.sh'))).toBe(true)
   })
 
-  test('scope picker both offers independent choices for dual-provider scopes', async () => {
+  test('scope picker both offers independent choices for dual-agent scopes', async () => {
     sandbox = createSandbox()
     expect(sandbox.run(['init', '--agent', 'all']).exitCode).toBe(0)
     expect(sandbox.run(['init', '--global', '--agent', 'all']).exitCode).toBe(0)

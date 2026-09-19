@@ -63,7 +63,7 @@ describe('quoted executables and multiline commands', () => {
     })
   }
 
-  test('SessionStart uses provider-neutral shell tools wording', () => {
+  test('SessionStart uses agent-neutral shell tools wording', () => {
     const result = hook.SessionStart!(makeSessionStartCtx(), { allowed: ['bun'] })
     expect(result).toMatchObject({
       result: 'skip',
@@ -104,7 +104,7 @@ const DEFAULT_CONFIG: Config = {
 }
 
 type ContextOptions = {
-  provider?: 'claude-code' | 'codex'
+  agent?: 'claude-code' | 'codex'
   helpers?:
     | 'missing'
     | 'invalid'
@@ -124,7 +124,7 @@ function makePreToolUseCtx(
 
   return {
     event: 'PreToolUse',
-    provider: options.provider ?? 'claude-code',
+    agent: options.agent ?? 'claude-code',
     ...(helpers === undefined ? {} : { helpers }),
     toolName,
     toolInput: { command },
@@ -393,10 +393,10 @@ describe('installed plugin node scripts', () => {
     ['claude-code', 'node /-plugin/run.mjs', '/-plugin/run.mjs'],
   ] as const)(
     'skips a direct literal plugin script for %s: %s',
-    (provider, command, expectedPath) => {
+    (agent, command, expectedPath) => {
       const calls: string[] = []
       const ctx = makePreToolUseCtx(command, 'Bash', {
-        provider,
+        agent,
         helpers: {
           belongsToPlugin(path) {
             calls.push(path)

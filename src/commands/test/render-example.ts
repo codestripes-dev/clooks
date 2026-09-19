@@ -54,9 +54,9 @@ const OPTIONAL_KEYS_INDENT = '  '
 // `createHarnessContext` in src/testing/create-context.ts.
 const OPTIONAL_KEYS: ReadonlyArray<{ name: string; type: string; description: string }> = [
   {
-    name: 'provider',
+    name: 'agent',
     type: '"claude-code" | "codex"',
-    description: 'Default: "claude-code". Synthetic identity only; no provider wire translation.',
+    description: 'Default: "claude-code". Synthetic identity only; no agent wire translation.',
   },
   {
     name: 'sessionId',

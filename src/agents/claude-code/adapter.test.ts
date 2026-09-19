@@ -14,7 +14,7 @@ describe('claudeCodeAdapter', () => {
       { ...payload, session_id: 'second' },
       'PreToolUse',
     )
-    expect(first.private.provider).toBe('claude-code')
+    expect(first.private.agent).toBe('claude-code')
     expect(first.private.sessionId).toBe('first')
     expect(second.private.sessionId).toBe('second')
     expect(first.private.referencedAgentId).toBe('child')

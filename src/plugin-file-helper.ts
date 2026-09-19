@@ -1,6 +1,6 @@
 import { lstatSync, readFileSync, readdirSync, realpathSync } from 'fs'
 import { isAbsolute, join, relative, sep } from 'path'
-import type { ContextHelpers, Provider } from './types/contexts.js'
+import type { ContextHelpers, AgentId } from './types/contexts.js'
 
 export interface PluginFileSystem {
   readText(path: string): string
@@ -10,7 +10,7 @@ export interface PluginFileSystem {
 }
 
 export interface CreateContextHelpersOptions {
-  provider: Provider
+  agent: AgentId
   homeRoot: string
   codexHome?: string
   cwd: string
@@ -165,7 +165,7 @@ export function createContextHelpers(
   const installedRoots = (): readonly string[] => {
     if (roots !== undefined) return roots
     const discovered =
-      options.provider === 'claude-code'
+      options.agent === 'claude-code'
         ? discoverClaudeRoots(options.homeRoot, fs)
         : discoverCodexRoots(options.homeRoot, options.codexHome, fs)
     roots = canonicalRoots(discovered, fs)

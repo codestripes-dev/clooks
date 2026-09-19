@@ -10,19 +10,19 @@ afterEach(() => {
   for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true })
 })
 
-function fixture(provider = 'claude', dual = false) {
+function fixture(agent = 'claude', dual = false) {
   const root = mkdtempSync(join(tmpdir(), 'approval-boundary-'))
   directories.push(root)
   const at = Date.parse('2026-09-15T18:00:00Z')
   const key = {
-    provider,
+    agent,
     owner: 'project:m1',
     session_id: 'session',
     turn_id: 'turn',
     tool_use_id: 'call',
   }
   const r = {
-    provider,
+    agent,
     root,
     project: root,
     callId: 'call',
@@ -50,7 +50,7 @@ function fixture(provider = 'claude', dual = false) {
   writeFileSync(join(root, 'debug.log'), debug)
   const native: any = {
     output:
-      provider === 'claude'
+      agent === 'claude'
         ? { is_error: true, content: 'unrelated execution error' }
         : { output: 'Command blocked by PreToolUse hook: peer exited' },
     messages: [
@@ -84,7 +84,7 @@ function fixture(provider = 'claude', dual = false) {
     })
   }
   const execute = (when = at + 2100) => {
-    native.output = provider === 'claude' ? { is_error: false, content: '' } : { output: 'success' }
+    native.output = agent === 'claude' ? { is_error: false, content: '' } : { output: 'success' }
     writeFileSync(join(root, 'effect.txt'), 'native-effect\n')
     rows.push({ event: 'native-effect', at: when })
     rows.push({

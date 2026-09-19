@@ -45,11 +45,11 @@ function wire(event: Event, fields: Record<string, unknown> = {}) {
   }
 }
 
-function options(event: Event, fields: Record<string, unknown> = {}, provider = 'codex') {
+function options(event: Event, fields: Record<string, unknown> = {}, agent = 'codex') {
   return {
     stdin: JSON.stringify(wire(event, fields)),
     timeout: 10_000,
-    env: { CLOOKS_AGENT: provider, CODEX_HOME: join(sandbox.home, '.codex') },
+    env: { CLOOKS_AGENT: agent, CODEX_HOME: join(sandbox.home, '.codex') },
   }
 }
 
@@ -60,9 +60,9 @@ function clearArtifacts() {
   }
 }
 
-function replay(event: Event, fields: Record<string, unknown> = {}, provider = 'codex') {
+function replay(event: Event, fields: Record<string, unknown> = {}, agent = 'codex') {
   clearArtifacts()
-  return sandbox.run([], options(event, fields, provider))
+  return sandbox.run([], options(event, fields, agent))
 }
 
 function output(result: RunResult, expected?: unknown) {
@@ -99,7 +99,7 @@ export const hook = { meta: { name: '${name}' }, Stop: stop, SubagentStop: stop 
   )
 }
 
-function stop(prior: number, session = 'shared-session', child?: string, provider = 'codex') {
+function stop(prior: number, session = 'shared-session', child?: string, agent = 'codex') {
   output(
     replay(
       child ? 'SubagentStop' : 'Stop',
@@ -108,7 +108,7 @@ function stop(prior: number, session = 'shared-session', child?: string, provide
         stop_hook_active: prior > 0,
         ...(child ? { agent_id: child } : {}),
       },
-      provider,
+      agent,
     ),
     prior ? undefined : { decision: 'block', reason: 'reminder' },
   )

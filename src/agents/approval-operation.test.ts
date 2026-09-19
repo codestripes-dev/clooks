@@ -29,8 +29,8 @@ for (const adapter of [claudeCodeAdapter, codexAdapter]) {
       session_id: 'native-session',
       tool_use_id: 'native-call',
       ...(adapter.id === 'codex'
-        ? { provider: 'codex' as const, turn_id: 'native-turn' }
-        : { provider: 'claude-code' as const }),
+        ? { agent: 'codex' as const, turn_id: 'native-turn' }
+        : { agent: 'claude-code' as const }),
     })
     for (const [owner, version] of [
       ['foreign', '1'],

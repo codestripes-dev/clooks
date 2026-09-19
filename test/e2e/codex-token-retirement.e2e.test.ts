@@ -96,7 +96,7 @@ export const hook = { meta: { name: 'ask' }, PreToolUse(ctx) {
       hookEventName: 'PreToolUse',
       permissionDecision: 'deny',
       permissionDecisionReason:
-        'clooks: Codex PreToolUse hook "ask" capability "approval": clooks: Approval unavailable: Live approval unavailable. Repair the Clooks registration for this provider and scope, then restart the client and retry. Pending call denial requested.',
+        'clooks: Codex PreToolUse hook "ask" capability "approval": clooks: Approval unavailable: Live approval unavailable. Repair the Clooks registration for this agent and scope, then restart the client and retry. Pending call denial requested.',
     })
     expect(denial.updatedInput).toBeUndefined()
     expect(result.stdout).not.toContain('Approval token')

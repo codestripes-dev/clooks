@@ -37,7 +37,7 @@ export function approvalCompanion(agent: AgentId, owner: string): Record<string,
     timeout: APPROVAL_TIMEOUT_SECONDS,
     input: {
       protocol: 1,
-      provider: agent,
+      agent,
       owner,
       session_id: '${session_id}',
       tool_use_id: '${tool_use_id}',

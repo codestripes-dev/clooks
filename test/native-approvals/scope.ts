@@ -14,7 +14,7 @@ export function assertScope(r: ReturnType<typeof setup>, native: any, rows: any[
   assert.equal(servers.length, 1)
   assert.equal(servers[0].ipcRoot, ipc)
   assert.equal(realpathSync(servers[0].environment.HOME), realpathSync(r.home))
-  if (r.provider === 'codex') assert.equal(servers[0].environment.CLOOKS_HOME_ROOT, undefined)
+  if (r.agent === 'codex') assert.equal(servers[0].environment.CLOOKS_HOME_ROOT, undefined)
   const commandRows = rows.filter((row) => row.event === 'command-start')
   assert.equal(commandRows.length, owners.length)
   assert.equal(rows.filter((row) => row.event === 'mcp-call').length, owners.length)

@@ -18,7 +18,7 @@ import {
   type Case,
 } from '../fixtures/production-approvals/evidence'
 import { rows } from '../fixtures/production-approvals/records'
-import type { Provider } from '../fixtures/interactive-approvals/channel'
+import type { AgentId } from '../fixtures/interactive-approvals/channel'
 
 const fixtures = '/app/test/fixtures/production-approvals'
 const binary = '/export/build/clooks'
@@ -26,7 +26,7 @@ type GeneratedScope = 'project' | 'global' | 'combined'
 type GeneratedOperation = 'shell' | 'non-shell'
 export interface GeneratedCaseDescriptor {
   name: string
-  provider: Provider
+  agent: AgentId
   mode: Mode
   scope: GeneratedScope
   operation: GeneratedOperation
@@ -40,32 +40,32 @@ const modes: Mode[] = [
   'cancel-second',
   'noask',
 ]
-const providers: Provider[] = ['claude', 'codex']
-export const generatedCases: GeneratedCaseDescriptor[] = providers.flatMap((provider) => [
+const agents: AgentId[] = ['claude', 'codex']
+export const generatedCases: GeneratedCaseDescriptor[] = agents.flatMap((agent) => [
   ...modes.map((mode) => ({
-    name: `${provider}-generated-${mode}`,
-    provider,
+    name: `${agent}-generated-${mode}`,
+    agent,
     mode,
     scope: 'project' as const,
     operation: 'shell' as const,
   })),
   ...(['approve', 'decline-second'] as const).map((mode) => ({
-    name: `${provider}-generated-global-${mode}`,
-    provider,
+    name: `${agent}-generated-global-${mode}`,
+    agent,
     mode,
     scope: 'global' as const,
     operation: 'shell' as const,
   })),
   ...(['approve', 'decline-second'] as const).map((mode) => ({
-    name: `${provider}-generated-project-non-shell-${mode}`,
-    provider,
+    name: `${agent}-generated-project-non-shell-${mode}`,
+    agent,
     mode,
     scope: 'project' as const,
     operation: 'non-shell' as const,
   })),
   ...(['approve', 'decline-second', 'noask'] as const).map((mode) => ({
-    name: `${provider}-generated-combined-${mode}`,
-    provider,
+    name: `${agent}-generated-combined-${mode}`,
+    agent,
     mode,
     scope: 'combined' as const,
     operation: 'shell' as const,
@@ -121,9 +121,9 @@ export function assertApprovalPair(
   assert.equal(pair[1].input.owner, owner)
 }
 
-export function assertApprovalServer(path: string, provider: Provider) {
+export function assertApprovalServer(path: string, agent: AgentId) {
   const text = readFileSync(path, 'utf8')
-  if (provider === 'claude') {
+  if (agent === 'claude') {
     const server = JSON.parse(text).mcpServers.clooks
     assert.equal(server.command, 'clooks')
     assert.deepEqual(server.args, ['mcp'])
@@ -162,10 +162,10 @@ function copyFixtureHooks(root: string, numbers: number[]) {
 }
 
 function setupGenerated(root: string, descriptor: GeneratedCaseDescriptor) {
-  const { provider, mode } = descriptor
+  const { agent, mode } = descriptor
   const project = join(root, 'project'),
     home = join(root, 'home')
-  const config = join(home, provider === 'claude' ? '.claude' : '.codex')
+  const config = join(home, agent === 'claude' ? '.claude' : '.codex')
   for (const dir of [project, config, join(root, 'temp'), join(root, 'bin')])
     mkdirSync(dir, { recursive: true })
   symlinkSync(binary, join(root, 'bin/clooks'))
@@ -194,8 +194,8 @@ function setupGenerated(root: string, descriptor: GeneratedCaseDescriptor) {
     customApiKeyResponses: { approved: ['local-test-only'], rejected: [] },
     projects: { [project]: { hasTrustDialogAccepted: true } },
   }
-  if (provider === 'claude') save(join(home, '.claude.json'), onboarding)
-  if (provider === 'codex' && descriptor.scope !== 'project')
+  if (agent === 'claude') save(join(home, '.claude.json'), onboarding)
+  if (agent === 'codex' && descriptor.scope !== 'project')
     writeFileSync(
       join(config, 'config.toml'),
       `[projects.${JSON.stringify(project)}]\ntrust_level = "trusted"\n`,
@@ -211,7 +211,7 @@ function setupGenerated(root: string, descriptor: GeneratedCaseDescriptor) {
   }
   const git = Bun.spawnSync(['git', 'init', project], { env, timeout: 5000 })
   assert.equal(git.exitCode, 0, git.stderr.toString())
-  if (descriptor.scope === 'combined' && provider === 'codex') {
+  if (descriptor.scope === 'combined' && agent === 'codex') {
     mkdirSync(join(project, '.codex'), { recursive: true })
     save(join(project, '.codex/hooks.json'), { hooks: observers })
   }
@@ -222,7 +222,7 @@ function setupGenerated(root: string, descriptor: GeneratedCaseDescriptor) {
         'init',
         ...(global ? ['--global'] : []),
         '--agent',
-        provider === 'claude' ? 'claude-code' : 'codex',
+        agent === 'claude' ? 'claude-code' : 'codex',
         '--json',
       ],
       { cwd: project, env, timeout: 15000 },
@@ -245,11 +245,11 @@ function setupGenerated(root: string, descriptor: GeneratedCaseDescriptor) {
     )
     const idPath = join(
       project,
-      `.clooks/bin/${provider === 'claude' ? 'claude-project-id' : 'codex-project-id'}`,
+      `.clooks/bin/${agent === 'claude' ? 'claude-project-id' : 'codex-project-id'}`,
     )
     suppressedOwner = `project:${readFileSync(idPath, 'utf8').trim()}`
     const projectManaged: ManagedSnapshot[] =
-      provider === 'claude'
+      agent === 'claude'
         ? [
             snapshot(join(project, '.clooks/hooks/types.d.ts')),
             snapshot(join(project, '.clooks/clooks.schema.json')),
@@ -282,18 +282,18 @@ function setupGenerated(root: string, descriptor: GeneratedCaseDescriptor) {
       )
     owner = 'global'
     const projectRegistration =
-      provider === 'claude'
+      agent === 'claude'
         ? join(project, '.claude/settings.json')
         : join(project, '.codex/hooks.json')
     const globalRegistration =
-      provider === 'claude' ? join(home, '.claude/settings.json') : join(home, '.codex/hooks.json')
+      agent === 'claude' ? join(home, '.claude/settings.json') : join(home, '.codex/hooks.json')
     assertApprovalPair(
       projectRegistration,
       suppressedOwner,
-      provider === 'codex' ? observation : undefined,
+      agent === 'codex' ? observation : undefined,
     )
     assertApprovalPair(globalRegistration, owner)
-    if (provider === 'codex') {
+    if (agent === 'codex') {
       const projectHooks = JSON.parse(readFileSync(projectRegistration, 'utf8')).hooks
       assert.ok(
         projectHooks.PostToolUse.flatMap((group: any) => group.hooks).some((handler: unknown) =>
@@ -304,7 +304,7 @@ function setupGenerated(root: string, descriptor: GeneratedCaseDescriptor) {
     }
     initialManaged = [
       ...projectManaged,
-      ...(provider === 'claude'
+      ...(agent === 'claude'
         ? [
             snapshot(join(home, '.clooks/hooks/types.d.ts')),
             snapshot(join(home, '.clooks/clooks.schema.json')),
@@ -333,7 +333,7 @@ function setupGenerated(root: string, descriptor: GeneratedCaseDescriptor) {
         : `project:${readFileSync(
             join(
               project,
-              `.clooks/bin/${provider === 'claude' ? 'claude-project-id' : 'codex-project-id'}`,
+              `.clooks/bin/${agent === 'claude' ? 'claude-project-id' : 'codex-project-id'}`,
             ),
             'utf8',
           ).trim()}`
@@ -352,7 +352,7 @@ function setupGenerated(root: string, descriptor: GeneratedCaseDescriptor) {
   }
   if (descriptor.scope !== 'combined') {
     const registrationPath =
-      provider === 'claude'
+      agent === 'claude'
         ? join(descriptor.scope === 'global' ? home : project, '.claude/settings.json')
         : join(descriptor.scope === 'global' ? home : project, '.codex/hooks.json')
     assertApprovalPair(registrationPath, owner)
@@ -365,13 +365,13 @@ function setupGenerated(root: string, descriptor: GeneratedCaseDescriptor) {
     assertApprovalServer(
       join(
         root,
-        provider === 'claude'
+        agent === 'claude'
           ? scope === 'global'
             ? '.claude.json'
             : '.mcp.json'
           : '.codex/config.toml',
       ),
-      provider,
+      agent,
     )
   }
 
@@ -383,7 +383,7 @@ function setupGenerated(root: string, descriptor: GeneratedCaseDescriptor) {
       descriptor.scope === 'global' ? join(home, '.clooks') : join(project, '.clooks')
     copyFixtureHooks(hookRoot, [1, 2, 3, 4, 5])
   }
-  if (provider === 'claude') {
+  if (agent === 'claude') {
     mkdirSync(join(project, '.claude'), { recursive: true })
     save(join(project, '.claude/settings.local.json'), {
       permissions: { allow: ['Bash(*)', 'Write(*)'] },
@@ -415,12 +415,10 @@ function setupGenerated(root: string, descriptor: GeneratedCaseDescriptor) {
           ...initialManaged,
           snapshot(join(home, '.clooks/clooks.yml')),
           snapshot(join(project, '.clooks/clooks.yml')),
-          ...(provider === 'claude'
-            ? [snapshot(join(project, '.claude/settings.local.json'))]
-            : []),
+          ...(agent === 'claude' ? [snapshot(join(project, '.claude/settings.local.json'))] : []),
         ]
       : descriptor.scope === 'global'
-        ? provider === 'claude'
+        ? agent === 'claude'
           ? [
               snapshot(join(home, '.clooks/hooks/types.d.ts')),
               snapshot(join(home, '.clooks/clooks.schema.json')),
@@ -440,7 +438,7 @@ function setupGenerated(root: string, descriptor: GeneratedCaseDescriptor) {
               snapshot(join(home, '.clooks/.codex-registration-home')),
               snapshot(join(home, '.codex/hooks.json')),
             ]
-        : provider === 'claude'
+        : agent === 'claude'
           ? [
               snapshot(join(project, '.claude/settings.json')),
               snapshot(join(project, '.mcp.json')),
@@ -459,7 +457,7 @@ function setupGenerated(root: string, descriptor: GeneratedCaseDescriptor) {
   const patch = '*** Begin Patch\n*** Add File: effect.txt\n+native-effect\n*** End Patch'
   const operation =
     descriptor.operation === 'non-shell'
-      ? provider === 'claude'
+      ? agent === 'claude'
         ? {
             toolName: 'Write',
             input: { file_path: join(project, 'effect.txt'), content: 'native-effect\n' },
@@ -469,7 +467,7 @@ function setupGenerated(root: string, descriptor: GeneratedCaseDescriptor) {
   const c: Case = {
     root,
     home,
-    provider,
+    agent,
     mode,
     callId,
     owner,
@@ -484,7 +482,7 @@ function setupGenerated(root: string, descriptor: GeneratedCaseDescriptor) {
     home,
     config,
     env,
-    provider,
+    agent,
     cmd,
     callId,
     c,
@@ -528,14 +526,14 @@ export async function runGenerated(args: string[]) {
   const selected = selectGenerated(args)
   const results: any[] = []
   const versions: Record<string, unknown> = {}
-  for (const provider of ['claude', 'codex']) {
-    const path = `/native/${provider}`
+  for (const agent of ['claude', 'codex']) {
+    const path = `/native/${agent}`
     const version = Bun.spawnSync([path, '--version'], {
       env: { HOME: '/tmp', PATH: '/usr/local/bin:/usr/bin:/bin' },
       timeout: 5000,
     })
     assert.equal(version.exitCode, 0)
-    versions[provider] = {
+    versions[agent] = {
       version: version.stdout.toString().trim(),
       sha256: createHash('sha256').update(readFileSync(path)).digest('hex'),
     }
@@ -544,12 +542,12 @@ export async function runGenerated(args: string[]) {
   for (const name of selected) {
     const descriptor = generatedCases.find((candidate) => candidate.name === name)
     assert.ok(descriptor, `Missing generated descriptor for ${name}`)
-    const { provider, mode } = descriptor
+    const { agent, mode } = descriptor
     let runtime: GeneratedRuntime | undefined
     const result: any = { name, passed: false }
     try {
       runtime = setupGenerated(join('/export', name), descriptor)
-      const native = await (provider === 'claude' ? claude(runtime) : codex(runtime))
+      const native = await (agent === 'claude' ? claude(runtime) : codex(runtime))
       const anchor = JSON.parse(readFileSync(join(runtime.root, 'native-identity.json'), 'utf8'))
       const effect = join(runtime.project, 'effect.txt')
       assertOutcome(
@@ -560,7 +558,7 @@ export async function runGenerated(args: string[]) {
         existsSync(effect) ? readFileSync(effect, 'utf8') : undefined,
         native,
       )
-      if (provider === 'codex') {
+      if (agent === 'codex') {
         const responders = JSON.parse(readFileSync(join(runtime.root, 'responders.json'), 'utf8'))
         assert.equal(responders.pending, 0)
         assert.equal(responders.started, responders.settled)

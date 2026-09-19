@@ -57,8 +57,8 @@ export async function holdBoundary(
   throw new Error('Boundary holder outlived the 20-second native observation ceiling')
 }
 
-function nativeExpiry(provider: string, key: Identity, native: any, debug: string, heldAt: number) {
-  if (provider === 'codex') {
+function nativeExpiry(agent: string, key: Identity, native: any, debug: string, heldAt: number) {
+  if (agent === 'codex') {
     const timeouts = (native.messages ?? []).filter((message: any) => {
       const run = message.params?.run
       return (
@@ -153,7 +153,7 @@ export function observeBoundary(r: ReturnType<typeof setup>, native: any, rows: 
       handlers.every((handler) => handler.timeout === 2),
       'Both native handler budgets must be 2s',
     )
-    cause = nativeExpiry(r.provider, command.key, native, debug, held.at)
+    cause = nativeExpiry(r.agent, command.key, native, debug, held.at)
   }
   assert.ok(command.start.deadline > cause.at, 'Native boundary must precede internal expiry')
   const denials = rows.filter(
@@ -180,11 +180,11 @@ export function observeBoundary(r: ReturnType<typeof setup>, native: any, rows: 
   })
   const executed = existsSync(join(r.project, 'effect.txt'))
   const nativeError =
-    r.provider === 'claude'
+    r.agent === 'claude'
       ? Boolean(native.output.is_error)
       : String(native.output.output).includes('Command blocked by PreToolUse hook')
   const feedback =
-    r.provider === 'claude'
+    r.agent === 'claude'
       ? typeof native.output.content === 'string'
         ? native.output.content
         : (native.output.content ?? []).map((part: any) => part.text ?? '').join('\n')

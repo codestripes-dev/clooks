@@ -2323,17 +2323,17 @@ describe('uninstall automatic agent selection', () => {
           }),
         )
         expect(clack.confirm).toHaveBeenCalledTimes(1)
-        for (const [index, provider] of (['claude-code', 'codex'] as const).entries()) {
-          const path = provider === 'codex' ? '.codex/hooks.json' : '.claude/settings.json'
+        for (const [index, target] of (['claude-code', 'codex'] as const).entries()) {
+          const path = target === 'codex' ? '.codex/hooks.json' : '.claude/settings.json'
           const bytes = readFileSync(join(root(), path), 'utf8')
-          if (agent === 'all' || agent === provider) expect(JSON.parse(bytes).hooks).toBeUndefined()
+          if (agent === 'all' || agent === target) expect(JSON.parse(bytes).hooks).toBeUndefined()
           else expect(bytes).toBe(before[index]!)
         }
         expect(readFileSync(join(root(), '.clooks/bin/entrypoint.sh'), 'utf8')).toBe(before[2]!)
       })
     }
 
-    test(`${scope}: cancelling agent picker preserves both providers and runtime`, async () => {
+    test(`${scope}: cancelling agent picker preserves both agents and runtime`, async () => {
       setup('claude-code')
       setup('codex')
       const before = snapshot()
@@ -2350,7 +2350,7 @@ describe('uninstall automatic agent selection', () => {
     })
 
     for (const tty of [false, true]) {
-      test(`${scope}: force full with both providers rejects selection even with tty=${tty}`, async () => {
+      test(`${scope}: force full with both agents rejects selection even with tty=${tty}`, async () => {
         setup('claude-code')
         setup('codex')
         const before = snapshot()
@@ -2473,7 +2473,7 @@ describe('uninstall automatic agent selection', () => {
     expect(readFileSync(defaultPath, 'utf8')).toBe(before)
   })
 
-  test('scope both detects different sole providers independently', async () => {
+  test('scope both detects different sole agents independently', async () => {
     setupCodexProject(tempDir)
     setupGlobal(fakeHome)
     Object.defineProperty(process.stdin, 'isTTY', { value: true, writable: true })

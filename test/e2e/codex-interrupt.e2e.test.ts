@@ -17,7 +17,7 @@ export const hook = {
   meta: { name: 'interrupt-observer' },
   Interrupt(ctx) {
     writeFileSync(${JSON.stringify(join(sandbox.dir, 'observed.json'))}, JSON.stringify({
-      event: ctx.event, provider: ctx.provider, model: ctx.model,
+      event: ctx.event, agent: ctx.agent, model: ctx.model,
       permissionMode: ctx.permissionMode, transcriptPath: ctx.transcriptPath, turn: ctx.turn,
     }));
     ${body}
@@ -63,7 +63,7 @@ describe('Codex Interrupt compiled registration replay', () => {
     expect(invoke().exitCode).toBe(0)
     expect(JSON.parse(sandbox.readFile('observed.json'))).toMatchObject({
       event: 'Interrupt',
-      provider: 'codex',
+      agent: 'codex',
       model: 'gpt-5',
       permissionMode: 'default',
       transcriptPath: '',

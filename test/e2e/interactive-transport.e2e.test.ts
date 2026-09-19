@@ -78,14 +78,14 @@ async function bounded<T>(promise: Promise<T>): Promise<T> {
   }
 }
 
-function identity(provider: 'claude-code' | 'codex' = 'claude-code') {
+function identity(agent: 'claude-code' | 'codex' = 'claude-code') {
   return {
     protocol: 1,
-    provider,
+    agent,
     owner: 'project:e2e',
     session_id: 'compiled-session',
     tool_use_id: crypto.randomUUID(),
-    ...(provider === 'codex' ? { turn_id: 'compiled-turn' } : {}),
+    ...(agent === 'codex' ? { turn_id: 'compiled-turn' } : {}),
   }
 }
 
@@ -106,13 +106,13 @@ const expectedCodexApprovalSchema = {
   required: ['decision'],
 } satisfies ElicitRequestFormParams['requestedSchema']
 
-function acceptedApproval(provider: ReturnType<typeof identity>['provider']): ElicitResult {
-  return provider === 'claude-code'
+function acceptedApproval(agent: ReturnType<typeof identity>['agent']): ElicitResult {
+  return agent === 'claude-code'
     ? { action: 'accept', content: {} }
     : { action: 'accept', content: { decision: 'Approve' } }
 }
 
-function approvalMessage(question: any, provider: ReturnType<typeof identity>['provider']) {
+function approvalMessage(question: any, agent: ReturnType<typeof identity>['agent']) {
   const { toolName, input } = question.operation
   const previewCommand =
     toolName === 'Bash' &&
@@ -126,7 +126,7 @@ function approvalMessage(question: any, provider: ReturnType<typeof identity>['p
   const operation = compactCommand
     ? `Command:\n${input.command}`
     : `Tool: ${toolName}\nInput:\n${JSON.stringify(input, null, 2)}`
-  if (provider === 'claude-code' && previewCommand) {
+  if (agent === 'claude-code' && previewCommand) {
     const header = [
       question.question ?? question.reason,
       input.command,
@@ -191,9 +191,9 @@ function assertApprovalRequest(
 ) {
   if (!('requestedSchema' in request.params)) throw new Error('Expected form elicitation')
   const question = publishedQuestion(key, ordinal)
-  expect(request.params.message).toBe(approvalMessage(question, key.provider))
+  expect(request.params.message).toBe(approvalMessage(question, key.agent))
   expect(request.params.requestedSchema).toEqual(
-    key.provider === 'claude-code' ? expectedClaudeApprovalSchema : expectedCodexApprovalSchema,
+    key.agent === 'claude-code' ? expectedClaudeApprovalSchema : expectedCodexApprovalSchema,
   )
   return question
 }
@@ -313,16 +313,16 @@ describe('compiled shared approval transport', () => {
 
   test.each(['claude-code', 'codex'] as const)(
     '%s unmatched check is neutral and never elicits approval',
-    async (provider) => {
+    async (agent) => {
       sandbox = createSandbox()
       const connection = await connect()
       let prompts = 0
       connection.client.setRequestHandler(ElicitRequestSchema, async () => {
         prompts++
-        return acceptedApproval(provider)
+        return acceptedApproval(agent)
       })
       const result = await connection.client.callTool(
-        { name: 'check', arguments: identity(provider) },
+        { name: 'check', arguments: identity(agent) },
         undefined,
         { timeout: 8000 },
       )
@@ -351,16 +351,16 @@ describe('compiled shared approval transport', () => {
   })
 
   test.each([
-    { provider: 'claude-code', declineAt: 0 },
-    { provider: 'codex', declineAt: 0 },
-    { provider: 'claude-code', declineAt: 1 },
-    { provider: 'codex', declineAt: 2 },
+    { agent: 'claude-code', declineAt: 0 },
+    { agent: 'codex', declineAt: 0 },
+    { agent: 'claude-code', declineAt: 1 },
+    { agent: 'codex', declineAt: 2 },
   ] as const)(
     'real command channel relays approvals and fails closed without denial acknowledgement: %j',
-    async ({ provider, declineAt }) => {
+    async ({ agent, declineAt }) => {
       sandbox = createSandbox()
       const connection = await connect()
-      const key = identity(provider)
+      const key = identity(agent)
       const command = await startCommand(key)
       let ordinal = 0
       connection.client.setRequestHandler(ElicitRequestSchema, async (request) => {
@@ -374,7 +374,7 @@ describe('compiled shared approval transport', () => {
         expect(request.params.mode).toBe('form')
         expect(sandbox.fileExists('reply-' + ordinal)).toBe(false)
         expect(sandbox.fileExists('command-closed')).toBe(false)
-        return ordinal === declineAt ? { action: 'decline' } : acceptedApproval(provider)
+        return ordinal === declineAt ? { action: 'decline' } : acceptedApproval(agent)
       })
       const result = nativeOutput(
         await connection.client.callTool({ name: 'check', arguments: key }, undefined, {
@@ -405,17 +405,17 @@ describe('compiled shared approval transport', () => {
 
   test.each(['claude-code', 'codex'] as const)(
     '%s large in-limit question packet crosses the compiled transport intact',
-    async (provider) => {
+    async (agent) => {
       sandbox = createSandbox()
       const connection = await connect()
-      const key = identity(provider)
+      const key = identity(agent)
       const input = ['large', { nested: 'x'.repeat(60_000) }]
       const command = await startCommand(key, 1, false, false, { input })
       connection.client.setRequestHandler(ElicitRequestSchema, async (request) => {
         const question = assertApprovalRequest(request, key, 1)
         expect(question.operation.input).toEqual(input)
-        expect(request.params.message).toBe(approvalMessage(question, provider))
-        return acceptedApproval(provider)
+        expect(request.params.message).toBe(approvalMessage(question, agent))
+        return acceptedApproval(agent)
       })
       const result = nativeOutput(
         await connection.client.callTool({ name: 'check', arguments: key }, undefined, {
@@ -496,10 +496,10 @@ describe('compiled shared approval transport', () => {
 
   test.each(['claude-code', 'codex'] as const)(
     '%s corrupt denial acknowledgement keeps the companion fail closed',
-    async (provider) => {
+    async (agent) => {
       sandbox = createSandbox()
       const connection = await connect()
-      const key = identity(provider)
+      const key = identity(agent)
       const command = await startCommand(key, 1, false, true)
       connection.client.setRequestHandler(ElicitRequestSchema, async () => ({ action: 'decline' }))
       const check = connection.client.callTool({ name: 'check', arguments: key }, undefined, {
@@ -542,20 +542,20 @@ describe('compiled shared approval transport', () => {
   )
 
   test.each([
-    { provider: 'claude-code', action: 'request-cancel' },
-    { provider: 'codex', action: 'request-cancel' },
-    { provider: 'claude-code', action: 'EOF' },
-    { provider: 'codex', action: 'EOF' },
-    { provider: 'claude-code', action: 'SIGINT' },
-    { provider: 'codex', action: 'SIGINT' },
-    { provider: 'claude-code', action: 'SIGTERM' },
-    { provider: 'codex', action: 'SIGTERM' },
+    { agent: 'claude-code', action: 'request-cancel' },
+    { agent: 'codex', action: 'request-cancel' },
+    { agent: 'claude-code', action: 'EOF' },
+    { agent: 'codex', action: 'EOF' },
+    { agent: 'claude-code', action: 'SIGINT' },
+    { agent: 'codex', action: 'SIGINT' },
+    { agent: 'claude-code', action: 'SIGTERM' },
+    { agent: 'codex', action: 'SIGTERM' },
   ] as const)(
     'active check cancellation or peer loss releases the command without approval: %j',
-    async ({ provider, action }) => {
+    async ({ agent, action }) => {
       sandbox = createSandbox()
       const connection = await connect()
-      const key = identity(provider)
+      const key = identity(agent)
       const command = await startCommand(key)
       const prompt = Promise.withResolvers<void>()
       const response = Promise.withResolvers<ElicitResult>()

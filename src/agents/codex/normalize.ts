@@ -76,7 +76,7 @@ export function normalizeInvocation(
       eventName,
       context,
       private: {
-        provider: 'codex',
+        agent: 'codex',
         raw: cloneDeep(payload),
         sessionId,
         nativeTurnId: null,
@@ -173,7 +173,7 @@ export function normalizeInvocation(
     eventName,
     context,
     private: {
-      provider: 'codex',
+      agent: 'codex',
       raw: cloneDeep(payload),
       sessionId,
       nativeTurnId,

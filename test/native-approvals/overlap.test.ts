@@ -38,7 +38,7 @@ function fixture() {
   mkdirSync(home)
   mkdirSync(join(directory, 'project'))
   const manifest: OverlapManifest = {
-    provider: 'codex',
+    agent: 'codex',
     owner: 'test-only',
     home,
     topology: 'same-session',
@@ -53,7 +53,7 @@ function fixture() {
   put(join(directory, 'overlap-manifest.json'), manifest)
   const start = (id: string, turn = 'synthetic-turn', agent?: string) => {
     const key: Identity = identity({
-      provider: 'codex',
+      agent: 'codex',
       owner: 'test-only',
       session_id: 'synthetic-session',
       turn_id: turn,
@@ -258,7 +258,7 @@ test('scripted arguments require the actual advertised namespace and full input 
 
 test('checkpoint tool advertises and requires the parser protocol version', () => {
   const key = {
-    provider: 'codex' as const,
+    agent: 'codex' as const,
     owner: 'test-only',
     session_id: 'parent',
     turn_id: 'child-turn',

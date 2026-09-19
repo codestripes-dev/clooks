@@ -18,7 +18,7 @@ import {
   journal,
   signalProcess,
   wait,
-  type Provider,
+  type AgentId,
 } from '../fixtures/interactive-approvals/channel'
 import { respond } from '../fixtures/interactive-approvals/responder'
 import { startFixture } from '../native-codex/fixture-server'
@@ -41,7 +41,7 @@ export type InteractiveConfig = 'cli' | 'disk' | 'cli-no-tools' | 'cli-restart' 
 export type InteractiveReadiness = 'input-render' | 'mcp-status'
 export function setup(
   root: string,
-  provider: Provider,
+  agent: AgentId,
   mode: string,
   reverse: boolean,
   interactiveConfig: InteractiveConfig = 'cli',
@@ -49,7 +49,7 @@ export function setup(
 ) {
   const project = join(root, 'project'),
     home = join(root, 'home'),
-    config = join(home, provider === 'codex' ? '.codex' : '.claude')
+    config = join(home, agent === 'codex' ? '.codex' : '.claude')
   for (const dir of [project, config, join(root, 'temp')]) mkdirSync(dir, { recursive: true })
   const env: Record<string, string> = {
     HOME: home,
@@ -92,7 +92,7 @@ export function setup(
   }
   const command = {
     type: 'command',
-    command: `exec bun ${quote(join(fixtures, 'command.ts'))} ${provider} ${projectOwner} 1${globalScope ? ' suppressed' : ''}`,
+    command: `exec bun ${quote(join(fixtures, 'command.ts'))} ${agent} ${projectOwner} 1${globalScope ? ' suppressed' : ''}`,
     timeout: mode === 'boundary-timeout' ? 2 : budgets.native,
   }
   const mcp = {
@@ -101,11 +101,11 @@ export function setup(
     tool: 'check',
     input: {
       protocol: 1,
-      provider,
+      agent,
       owner: projectOwner,
       session_id: '${session_id}',
       tool_use_id: '${tool_use_id}',
-      ...(provider === 'codex' ? { turn_id: '${turn_id}' } : {}),
+      ...(agent === 'codex' ? { turn_id: '${turn_id}' } : {}),
     },
     timeout: mode === 'boundary-timeout' ? 2 : budgets.native,
   }
@@ -113,7 +113,7 @@ export function setup(
   const pair = reverse ? [mcp, command] : [command, mcp]
   const globalCommand = {
     ...command,
-    command: `exec bun ${quote(join(fixtures, 'command.ts'))} ${provider} global 1`,
+    command: `exec bun ${quote(join(fixtures, 'command.ts'))} ${agent} global 1`,
   }
   const globalMcp = { ...mcp, input: { ...mcp.input, owner: 'global' } }
   const globalHooks = {
@@ -143,7 +143,7 @@ export function setup(
           ],
         },
       ],
-      ...(provider === 'claude'
+      ...(agent === 'claude'
         ? {
             Elicitation: [
               {
@@ -166,8 +166,8 @@ export function setup(
       ? { ...hooks, permissions: { allow: ['Bash(*)'] } }
       : hooks,
   )
-  if (interactiveConfig === 'disk' || (scoped && provider === 'claude')) {
-    assert.ok(provider === 'claude' && (interactive || scoped))
+  if (interactiveConfig === 'disk' || (scoped && agent === 'claude')) {
+    assert.ok(agent === 'claude' && (interactive || scoped))
     mkdirSync(join(project, '.claude'), { recursive: true })
     save(join(project, '.claude/settings.local.json'), {
       ...hooks,
@@ -176,20 +176,20 @@ export function setup(
     })
   }
   if (scoped) {
-    if (provider === 'claude') save(join(config, 'settings.json'), globalHooks)
+    if (agent === 'claude') save(join(config, 'settings.json'), globalHooks)
     else {
       mkdirSync(join(project, '.codex'), { recursive: true })
       save(join(project, '.codex', 'hooks.json'), hooks)
     }
   }
-  if (interactive || (scoped && provider === 'claude'))
+  if (interactive || (scoped && agent === 'claude'))
     save(join(config, '.claude.json'), {
       hasCompletedOnboarding: true,
       theme: 'dark',
       customApiKeyResponses: { approved: ['local-test-only'], rejected: [] },
       projects: { [project]: { hasTrustDialogAccepted: true } },
     })
-  if (mode.endsWith('disabled') && provider === 'claude')
+  if (mode.endsWith('disabled') && agent === 'claude')
     save(join(config, '.claude.json'), {
       projects: { [project]: { disabledMcpServers: ['checkpoints'] } },
     })
@@ -199,7 +199,7 @@ export function setup(
   save(
     join(root, 'operation.json'),
     mode === 'non-shell'
-      ? provider === 'claude'
+      ? agent === 'claude'
         ? {
             toolName: 'Write',
             input: { file_path: join(project, 'effect.txt'), content: 'native-effect\n' },
@@ -210,7 +210,7 @@ export function setup(
   return {
     kind: 'illustrative' as const,
     root,
-    provider,
+    agent,
     project,
     home,
     config,
@@ -569,7 +569,7 @@ export async function claude(r: Runtime) {
       assert.equal(typeof output.session_id, 'string')
       assert.ok(output.session_id.length > 0)
       save(join(r.root, 'native-identity.json'), {
-        provider: 'claude',
+        agent: 'claude',
         session_id: output.session_id,
         tool_use_id: r.callId,
       })
@@ -848,7 +848,7 @@ stream_idle_timeout_ms = 15000
         })
         save(join(r.root, 'turn-start.json'), turn)
         save(join(r.root, 'native-identity.json'), {
-          provider: 'codex',
+          agent: 'codex',
           session_id: thread.thread.id,
           turn_id: turn.turn.id,
           tool_use_id: r.callId,

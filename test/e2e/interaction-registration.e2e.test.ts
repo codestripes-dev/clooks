@@ -13,7 +13,7 @@ import {
   invocation,
   startCommand,
   type ApprovalIdentity,
-  type Provider,
+  type AgentId,
 } from './helpers/live-approvals'
 
 // Execute generated registrations with the SDK, without emulating native trust or tool dispatch.
@@ -40,7 +40,7 @@ afterEach(async () =>
 )
 
 function paths(
-  provider: Provider,
+  agent: AgentId,
   scope: Scope,
   env: Record<string, string> = {},
   projectRoot = sandbox.dir,
@@ -48,7 +48,7 @@ function paths(
   const root = scope === 'project' ? projectRoot : sandbox.home
   const codex =
     scope === 'project' ? join(root, '.codex') : (env.CODEX_HOME ?? join(root, '.codex'))
-  return provider === 'claude-code'
+  return agent === 'claude-code'
     ? {
         hooks: join(root, '.claude/settings.json'),
         server: join(root, scope === 'project' ? '.mcp.json' : '.claude.json'),
@@ -79,32 +79,32 @@ function publicationFailure(result: RunResult, destination: string) {
   expect(value.error).toContain(join(dirname(destination), '.' + basename(destination) + '.'))
   expect(value.error).toContain('.tmp')
 }
-function init(provider: Provider | 'all', scope: Scope, env: Record<string, string> = {}) {
-  return cli(['init', '--agent', provider, ...(scope === 'global' ? ['--global'] : [])], env)
+function init(agent: AgentId | 'all', scope: Scope, env: Record<string, string> = {}) {
+  return cli(['init', '--agent', agent, ...(scope === 'global' ? ['--global'] : [])], env)
 }
-function unhook(provider: Provider, scope: Scope, env: Record<string, string> = {}) {
-  return cli(['uninstall', `--${scope}`, '--agent', provider, '--unhook', '--force'], env)
+function unhook(agent: AgentId, scope: Scope, env: Record<string, string> = {}) {
+  return cli(['uninstall', `--${scope}`, '--agent', agent, '--unhook', '--force'], env)
 }
 function server(
-  provider: Provider,
+  agent: AgentId,
   scope: Scope,
   env: Record<string, string> = {},
   projectRoot = sandbox.dir,
 ): Server | undefined {
-  const path = paths(provider, scope, env, projectRoot).server
+  const path = paths(agent, scope, env, projectRoot).server
   const text = bytes(path)
   if (text === undefined) return undefined
-  return provider === 'claude-code'
+  return agent === 'claude-code'
     ? JSON.parse(text).mcpServers?.clooks
     : (Bun.TOML.parse(text) as { mcp_servers?: Record<string, Server> }).mcp_servers?.clooks
 }
 function pairing(
-  provider: Provider,
+  agent: AgentId,
   scope: Scope,
   env: Record<string, string> = {},
   projectRoot = sandbox.dir,
 ) {
-  const document = json(paths(provider, scope, env, projectRoot).hooks) as HooksFile
+  const document = json(paths(agent, scope, env, projectRoot).hooks) as HooksFile
   const groups = document.hooks?.PreToolUse ?? []
   const paired = groups.filter((group) =>
     group.hooks.some((hook) => hook.type === 'mcp_tool' && hook.server === 'clooks'),
@@ -128,11 +128,11 @@ function pairing(
     timeout: 2_147_483,
     input: {
       protocol: 1,
-      provider,
+      agent,
       owner,
       session_id: '${session_id}',
       tool_use_id: '${tool_use_id}',
-      ...(provider === 'codex' ? { turn_id: '${turn_id}' } : {}),
+      ...(agent === 'codex' ? { turn_id: '${turn_id}' } : {}),
     },
   })
   for (const [event, entries] of Object.entries(document.hooks!)) {
@@ -141,15 +141,15 @@ function pairing(
       false,
     )
   }
-  const registeredServer = server(provider, scope, env, projectRoot)
+  const registeredServer = server(agent, scope, env, projectRoot)
   expect(registeredServer).toMatchObject({ command: 'clooks', args: ['mcp'] })
-  if (provider === 'codex')
+  if (agent === 'codex')
     expect(registeredServer).toMatchObject({ startup_timeout_sec: 10, tool_timeout_sec: 2_147_483 })
   else expect(registeredServer).toMatchObject({ timeout: 2_147_483_000 })
   return { command: command.command!, check, server: registeredServer!, owner: owner as string }
 }
-function callFor(provider: Provider, pair: ReturnType<typeof pairing>) {
-  const call = invocation(sandbox, provider, { owner: pair.owner })
+function callFor(agent: AgentId, pair: ReturnType<typeof pairing>) {
+  const call = invocation(sandbox, agent, { owner: pair.owner })
   // Expand only native schema placeholders; literal registration values remain authoritative.
   const payload: Record<string, unknown> = call.payload
   const identity = Object.fromEntries(
@@ -196,9 +196,9 @@ function output(result: RunResult) {
   expect(result.stderr, formatDiagnostics(result)).toBe('')
   return result.stdout ? JSON.parse(result.stdout) : {}
 }
-function expectAllowed(result: RunResult, provider: Provider) {
+function expectAllowed(result: RunResult, agent: AgentId) {
   expect(output(result)).toEqual(
-    provider === 'claude-code'
+    agent === 'claude-code'
       ? {
           hookSpecificOutput: {
             hookEventName: 'PreToolUse',
@@ -261,8 +261,8 @@ const foreignTomlRoot = '# retain unrelated formatting\nmodel = "fixture"\n\n'
 const foreignTomlTable =
   '[mcp_servers.foreign]\ncommand = "foreign-server"\nargs = ["--keep"] # preserve comment\n'
 const foreignToml = foreignTomlRoot + foreignTomlTable
-function seed(provider: Provider, scope: Scope, env: Record<string, string> = {}) {
-  const destination = paths(provider, scope, env)
+function seed(agent: AgentId, scope: Scope, env: Record<string, string> = {}) {
+  const destination = paths(agent, scope, env)
   const put = (path: string, text: string) => sandbox.writeFile(relative(sandbox.dir, path), text)
   put(
     destination.hooks,
@@ -273,18 +273,18 @@ function seed(provider: Provider, scope: Scope, env: Record<string, string> = {}
   )
   put(
     destination.server,
-    provider === 'claude-code'
+    agent === 'claude-code'
       ? JSON.stringify({ keep: { trust: false }, mcpServers: { foreign: foreignServer } }) + '\n'
       : foreignToml,
   )
 }
-function preserved(provider: Provider, scope: Scope, env: Record<string, string> = {}) {
-  const destination = paths(provider, scope, env)
+function preserved(agent: AgentId, scope: Scope, env: Record<string, string> = {}) {
+  const destination = paths(agent, scope, env)
   expect(json(destination.hooks).permissions).toEqual({ keep: ['unchanged'] })
   expect(
     json(destination.hooks).hooks.PreToolUse.flatMap((group: { hooks: Handler[] }) => group.hooks),
   ).toContainEqual(foreignHandler)
-  if (provider === 'claude-code') {
+  if (agent === 'claude-code') {
     expect(json(destination.server).keep).toEqual({ trust: false })
     expect(json(destination.server).mcpServers.foreign).toEqual(foreignServer)
   } else {
@@ -342,11 +342,11 @@ describe('compiled generated approval registrations', () => {
     init('all', 'project')
     init('all', 'global')
     installHook()
-    for (const provider of ['claude-code', 'codex'] as const) {
-      const project = pairing(provider, 'project')
-      const global = pairing(provider, 'global')
+    for (const agent of ['claude-code', 'codex'] as const) {
+      const project = pairing(agent, 'project')
+      const global = pairing(agent, 'global')
       const peer = await connect(global.server)
-      const call = callFor(provider, global)
+      const call = callFor(agent, global)
       const projectIdentity = { ...call.identity, owner: project.owner }
       const suppressed = launch(project.command, call.payload)
       const active = launch(global.command, call.payload)
@@ -357,9 +357,9 @@ describe('compiled generated approval registrations', () => {
       assertCompanion(await suppressedCheck)
       expect(completion(projectIdentity).start.disposition).toBe('suppressed')
       expect(active.stdout).toBe('')
-      expect(calls()).toHaveLength(provider === 'claude-code' ? 1 : 2)
-      prompt.reply(acceptedApproval(provider))
-      expectAllowed(await active.result, provider)
+      expect(calls()).toHaveLength(agent === 'claude-code' ? 1 : 2)
+      prompt.reply(acceptedApproval(agent))
+      expectAllowed(await active.result, agent)
       assertCompanion(await activeCheck)
       expect(completion(call.identity).start.disposition).toBe('run')
       expect(peer.prompts).toHaveLength(1)
@@ -367,14 +367,14 @@ describe('compiled generated approval registrations', () => {
     expect(calls()).toHaveLength(2)
   }, 20_000)
 
-  for (const provider of ['claude-code', 'codex'] as const) {
+  for (const agent of ['claude-code', 'codex'] as const) {
     for (const scope of ['project', 'global'] as const) {
-      test(`${provider} ${scope}: re-init upgrades 330-second approvals and preserves unrelated metadata`, () => {
+      test(`${agent} ${scope}: re-init upgrades 330-second approvals and preserves unrelated metadata`, () => {
         sandbox = createRegistrationSandbox()
-        seed(provider, scope)
-        init(provider, scope)
-        const original = pairing(provider, scope)
-        const destination = paths(provider, scope)
+        seed(agent, scope)
+        init(agent, scope)
+        const original = pairing(agent, scope)
+        const destination = paths(agent, scope)
         const document = json(destination.hooks) as HooksFile
         const group = document.hooks!.PreToolUse!.find((entry) =>
           entry.hooks.some((hook) => hook.type === 'mcp_tool' && hook.server === 'clooks'),
@@ -388,7 +388,7 @@ describe('compiled generated approval registrations', () => {
           env: { KEEP_APPROVAL_METADATA: 'retained' },
           description: 'keep server metadata',
         }
-        if (provider === 'claude-code') {
+        if (agent === 'claude-code') {
           const servers = json(destination.server)
           Object.assign(servers.mcpServers.clooks, metadata, { timeout: 330_000 })
           sandbox.writeFile(relative(sandbox.dir, destination.server), JSON.stringify(servers))
@@ -403,50 +403,50 @@ describe('compiled generated approval registrations', () => {
               foreignTomlTable,
           )
         }
-        init(provider, scope)
-        const upgraded = pairing(provider, scope)
+        init(agent, scope)
+        const upgraded = pairing(agent, scope)
         expect(upgraded.owner).toBe(original.owner)
         expect(upgraded.command).toBe(original.command)
         expect(upgraded.server).toMatchObject(metadata)
-        preserved(provider, scope)
+        preserved(agent, scope)
         const { PreToolUse, ...remainingEvents } = json(destination.hooks).hooks
         expect(remainingEvents).toEqual(otherEvents)
         expect(PreToolUse.flatMap((entry: { hooks: Handler[] }) => entry.hooks)).toContainEqual(
           unrelated,
         )
-        if (provider === 'codex')
+        if (agent === 'codex')
           expect(bytes(destination.server)).toContain(
             'tool_timeout_sec = 2147483 # upgrade this value',
           )
         const upgradedBytes = [bytes(destination.hooks), bytes(destination.server)]
-        init(provider, scope)
+        init(agent, scope)
         expect([bytes(destination.hooks), bytes(destination.server)]).toEqual(upgradedBytes)
-        expect(pairing(provider, scope).owner).toBe(original.owner)
+        expect(pairing(agent, scope).owner).toBe(original.owner)
       })
 
-      test(`${provider} ${scope}: generated command and server consent, preservation and byte-stable init`, async () => {
+      test(`${agent} ${scope}: generated command and server consent, preservation and byte-stable init`, async () => {
         sandbox = createRegistrationSandbox()
-        seed(provider, scope)
-        init(provider, scope)
-        const pair = pairing(provider, scope)
-        preserved(provider, scope)
-        const destination = paths(provider, scope)
+        seed(agent, scope)
+        init(agent, scope)
+        const pair = pairing(agent, scope)
+        preserved(agent, scope)
+        const destination = paths(agent, scope)
         const before = [
           bytes(destination.hooks),
           bytes(destination.server),
           bytes(join(scope === 'global' ? sandbox.home : sandbox.dir, '.clooks/bin/entrypoint.sh')),
         ]
-        init(provider, scope)
+        init(agent, scope)
         expect([
           bytes(destination.hooks),
           bytes(destination.server),
           bytes(join(scope === 'global' ? sandbox.home : sandbox.dir, '.clooks/bin/entrypoint.sh')),
         ]).toEqual(before)
-        expect(pairing(provider, scope).owner).toBe(pair.owner)
+        expect(pairing(agent, scope).owner).toBe(pair.owner)
         installHook()
         const peer = await connect(pair.server)
         for (const accept of [true, false]) {
-          const call = callFor(provider, pair)
+          const call = callFor(agent, pair)
           const process = launch(pair.command, call.payload)
           const check = peer.check(call.identity)
           const prompt = await peer.nextPrompt()
@@ -456,10 +456,10 @@ describe('compiled generated approval registrations', () => {
             operation: { toolName: call.payload.tool_name, input: call.payload.tool_input },
           })
           expect(process.stdout).toBe('')
-          prompt.reply(accept ? acceptedApproval(provider) : { action: 'decline' })
+          prompt.reply(accept ? acceptedApproval(agent) : { action: 'decline' })
           const result = await bounded(process.result, 'Registered command')
           const checkResult = await check
-          if (accept) expectAllowed(result, provider)
+          if (accept) expectAllowed(result, agent)
           else {
             const value = output(result)
             expect(value).toEqual({
@@ -481,12 +481,12 @@ describe('compiled generated approval registrations', () => {
         expect(peer.stderr).toBe('')
       }, 20_000)
 
-      test(`${provider} ${scope}: no-ask completion precedes return without a peer`, async () => {
+      test(`${agent} ${scope}: no-ask completion precedes return without a peer`, async () => {
         sandbox = createRegistrationSandbox()
-        init(provider, scope)
-        const pair = pairing(provider, scope)
+        init(agent, scope)
+        const pair = pairing(agent, scope)
         installHook(false)
-        const call = callFor(provider, pair)
+        const call = callFor(agent, pair)
         expect(output(await launch(pair.command, call.payload).result)).toEqual({})
         expect(completion(call.identity).done.failure).toBeUndefined()
         expect(calls()).toHaveLength(1)
@@ -496,48 +496,48 @@ describe('compiled generated approval registrations', () => {
       })
     }
 
-    test(`${provider}: scoped unhook preserves the other scope and live server coordination`, async () => {
+    test(`${agent}: scoped unhook preserves the other scope and live server coordination`, async () => {
       sandbox = createRegistrationSandbox()
-      seed(provider, 'project')
-      seed(provider, 'global')
-      init(provider, 'project')
-      init(provider, 'global')
-      const project = pairing(provider, 'project')
-      const global = pairing(provider, 'global')
-      const globalPaths = paths(provider, 'global')
+      seed(agent, 'project')
+      seed(agent, 'global')
+      init(agent, 'project')
+      init(agent, 'global')
+      const project = pairing(agent, 'project')
+      const global = pairing(agent, 'global')
+      const globalPaths = paths(agent, 'global')
       const before = [bytes(globalPaths.hooks), bytes(globalPaths.server)]
       const peer = await connect(global.server)
       installHook()
-      const call = callFor(provider, global)
+      const call = callFor(agent, global)
       const process = launch(global.command, call.payload)
       const check = peer.check(call.identity)
       const prompt = await peer.nextPrompt()
-      unhook(provider, 'project')
+      unhook(agent, 'project')
       expect([bytes(globalPaths.hooks), bytes(globalPaths.server)]).toEqual(before)
-      expect(server(provider, 'project')).toBeUndefined()
-      preserved(provider, 'project')
+      expect(server(agent, 'project')).toBeUndefined()
+      preserved(agent, 'project')
       expect(sandbox.fileExists('.clooks/hooks/observe.ts')).toBe(true)
       expect(project.owner).not.toBe(global.owner)
-      prompt.reply(acceptedApproval(provider))
-      expectAllowed(await process.result, provider)
+      prompt.reply(acceptedApproval(agent))
+      expectAllowed(await process.result, agent)
       assertCompanion(await check)
       completion(call.identity)
       expect(calls()).toHaveLength(1)
       expect((await peer.client.listTools()).tools.map((tool) => tool.name)).toEqual(['check'])
-      const next = callFor(provider, global)
+      const next = callFor(agent, global)
       const surviving = launch(global.command, next.payload)
       const nextCheck = peer.check(next.identity)
-      ;(await peer.nextPrompt()).reply(acceptedApproval(provider))
-      expectAllowed(await surviving.result, provider)
+      ;(await peer.nextPrompt()).reply(acceptedApproval(agent))
+      expectAllowed(await surviving.result, agent)
       assertCompanion(await nextCheck)
       expect(calls()).toHaveLength(2)
     }, 15_000)
 
-    test(`${provider}: copied project keeps its owner and executes hooks from the new quoted path`, async () => {
+    test(`${agent}: copied project keeps its owner and executes hooks from the new quoted path`, async () => {
       sandbox = createRegistrationSandbox()
-      init(provider, 'project')
+      init(agent, 'project')
       installHook()
-      const original = pairing(provider, 'project')
+      const original = pairing(agent, 'project')
       const copy = join(dirname(sandbox.dir), "copied project's path")
       cpSync(sandbox.dir, copy, { recursive: true })
       sandbox.writeFile(
@@ -550,20 +550,20 @@ export const hook = { meta: { name: 'observe' }, PreToolUse(ctx) {
 } }
 `,
       )
-      const copied = pairing(provider, 'project', {}, copy)
+      const copied = pairing(agent, 'project', {}, copy)
       expect(copied.owner).toBe(original.owner)
       expect(copied.command).toBe(original.command)
       expect(copied.command).not.toContain(sandbox.dir)
       const peer = await connect(copied.server)
-      const call = callFor(provider, copied)
+      const call = callFor(agent, copied)
       call.payload.cwd = copy
       const process = launch(copied.command, call.payload, {}, copy)
       const check = peer.check(call.identity)
       const prompt = await peer.nextPrompt()
       expect(prompt.question.reason).toBe('copied registration consent')
-      prompt.reply(acceptedApproval(provider))
+      prompt.reply(acceptedApproval(agent))
       const value = output(await process.result)
-      if (provider === 'claude-code')
+      if (agent === 'claude-code')
         expect(value.hookSpecificOutput).toEqual({
           hookEventName: 'PreToolUse',
           permissionDecision: 'allow',
@@ -577,31 +577,29 @@ export const hook = { meta: { name: 'observe' }, PreToolUse(ctx) {
       assertCompanion(await check)
       expect(readFileSync(join(copy, 'copied-calls'), 'utf8')).toBe('copy\n')
       expect(calls()).toHaveLength(0)
-      expect(sandbox.run(['init', '--agent', provider, '--json'], { cwd: copy }).rawExitCode).toBe(
-        0,
-      )
-      expect(pairing(provider, 'project', {}, copy).owner).toBe(original.owner)
+      expect(sandbox.run(['init', '--agent', agent, '--json'], { cwd: copy }).rawExitCode).toBe(0)
+      expect(pairing(agent, 'project', {}, copy).owner).toBe(original.owner)
     }, 15_000)
 
     for (const damage of ['foreign-server', 'malformed-server'] as const) {
-      test(`${provider} ${damage}: all-agent preflight leaves every selected destination unchanged`, () => {
+      test(`${agent} ${damage}: all-agent preflight leaves every selected destination unchanged`, () => {
         sandbox = createRegistrationSandbox()
         seed('claude-code', 'project')
         seed('codex', 'project')
-        const destination = paths(provider, 'project').server
+        const destination = paths(agent, 'project').server
         const damaged =
           damage === 'malformed-server'
-            ? provider === 'codex'
+            ? agent === 'codex'
               ? '[mcp_servers.clooks\n'
               : '{ bad'
-            : provider === 'codex'
+            : agent === 'codex'
               ? '[mcp_servers.clooks]\ncommand = "foreign-command"\nargs = ["--keep"]\n'
               : JSON.stringify({
                   mcpServers: { clooks: { command: 'foreign-command', args: ['--keep'] } },
                 })
         sandbox.writeFile(relative(sandbox.dir, destination), damaged)
-        const selected = ['claude-code', 'codex'].flatMap((provider) =>
-          Object.values(paths(provider as Provider, 'project')),
+        const selected = ['claude-code', 'codex'].flatMap((agent) =>
+          Object.values(paths(agent as AgentId, 'project')),
         )
         const before = selected.map(bytes)
         const result = sandbox.run(['init', '--agent', 'all', '--json'])
@@ -614,12 +612,12 @@ export const hook = { meta: { name: 'observe' }, PreToolUse(ctx) {
     }
 
     for (const remnant of ['server-only', 'companion-only'] as const) {
-      test(`${provider}: ${remnant} is detected and unhooked without touching foreign configuration`, () => {
+      test(`${agent}: ${remnant} is detected and unhooked without touching foreign configuration`, () => {
         sandbox = createRegistrationSandbox()
-        seed(provider, 'project')
-        init(provider, 'project')
-        const destination = paths(provider, 'project')
-        const pair = pairing(provider, 'project')
+        seed(agent, 'project')
+        init(agent, 'project')
+        const destination = paths(agent, 'project')
+        const pair = pairing(agent, 'project')
         sandbox.writeFile(
           relative(sandbox.dir, destination.hooks),
           JSON.stringify({
@@ -634,24 +632,24 @@ export const hook = { meta: { name: 'observe' }, PreToolUse(ctx) {
         if (remnant === 'companion-only')
           sandbox.writeFile(
             relative(sandbox.dir, destination.server),
-            provider === 'claude-code'
+            agent === 'claude-code'
               ? JSON.stringify({ keep: { trust: false }, mcpServers: { foreign: foreignServer } })
               : foreignToml,
           )
         cli(['uninstall', '--project', '--unhook', '--force'])
         expect(json(destination.hooks).hooks).toEqual({ PreToolUse: [{ hooks: [foreignHandler] }] })
-        expect(server(provider, 'project')).toBeUndefined()
-        preserved(provider, 'project')
+        expect(server(agent, 'project')).toBeUndefined()
+        preserved(agent, 'project')
         expect(sandbox.fileExists('.clooks/bin/entrypoint.sh')).toBe(true)
       })
     }
 
-    test(`${provider}: explicit native disable stays intact and no-peer only refuses an actual ask`, async () => {
+    test(`${agent}: explicit native disable stays intact and no-peer only refuses an actual ask`, async () => {
       sandbox = createRegistrationSandbox()
-      init(provider, 'project')
-      const destination = paths(provider, 'project')
+      init(agent, 'project')
+      const destination = paths(agent, 'project')
       let disabledPath: string
-      if (provider === 'claude-code') {
+      if (agent === 'claude-code') {
         disabledPath = join(sandbox.home, '.claude.json')
         sandbox.writeHomeFile(
           '.claude.json',
@@ -668,28 +666,28 @@ export const hook = { meta: { name: 'observe' }, PreToolUse(ctx) {
           '.codex/config.toml',
           readFileSync(disabledPath, 'utf8') + '\nmcp_servers.clooks.enabled = false\n',
         )
-        expect(server(provider, 'project')!.enabled).toBe(false)
+        expect(server(agent, 'project')!.enabled).toBe(false)
         expect(Bun.TOML.parse(readFileSync(disabledPath, 'utf8'))).not.toHaveProperty('enabled')
       }
       const disabledBefore = bytes(disabledPath)
-      init(provider, 'project')
+      init(agent, 'project')
       expect(bytes(disabledPath)).toBe(disabledBefore)
-      if (provider === 'claude-code')
+      if (agent === 'claude-code')
         expect(sandbox.readFile('.claude/settings.local.json')).toBe(
           '{"enableAllProjectMcpServers":false}\n',
         )
       else {
-        expect(server(provider, 'project')!.enabled).toBe(false)
+        expect(server(agent, 'project')!.enabled).toBe(false)
         expect(Bun.TOML.parse(readFileSync(disabledPath, 'utf8'))).not.toHaveProperty('enabled')
       }
-      const pair = pairing(provider, 'project')
+      const pair = pairing(agent, 'project')
       // No native client is launched: deliberately omit the disabled connection.
       installHook(false)
-      const noAsk = callFor(provider, pair)
+      const noAsk = callFor(agent, pair)
       expect(output(await launch(pair.command, noAsk.payload).result)).toEqual({})
       expect(completion(noAsk.identity).done.failure).toBeUndefined()
       installHook()
-      const ask = callFor(provider, pair)
+      const ask = callFor(agent, pair)
       const denied = output(await launch(pair.command, ask.payload).result)
       expect(denied.hookSpecificOutput.permissionDecision).toBe('deny')
       expect(denied.hookSpecificOutput.permissionDecisionReason).toContain('Approval unavailable')
@@ -699,22 +697,22 @@ export const hook = { meta: { name: 'observe' }, PreToolUse(ctx) {
       expect(bytes(disabledPath)).toBe(disabledBefore)
     }, 15_000)
 
-    test(`${provider}: re-init repairs missing server or companion without changing ownership`, () => {
+    test(`${agent}: re-init repairs missing server or companion without changing ownership`, () => {
       sandbox = createRegistrationSandbox()
-      init(provider, 'project')
-      const original = pairing(provider, 'project')
-      const destination = paths(provider, 'project')
+      init(agent, 'project')
+      const original = pairing(agent, 'project')
+      const destination = paths(agent, 'project')
       rmSync(destination.server)
-      init(provider, 'project')
-      expect(pairing(provider, 'project').owner).toBe(original.owner)
+      init(agent, 'project')
+      expect(pairing(agent, 'project').owner).toBe(original.owner)
       const document = json(destination.hooks) as HooksFile
       for (const group of document.hooks!.PreToolUse!)
         group.hooks = group.hooks.filter((hook) => hook.type !== 'mcp_tool')
       sandbox.writeFile(relative(sandbox.dir, destination.hooks), JSON.stringify(document))
-      init(provider, 'project')
-      expect(pairing(provider, 'project').owner).toBe(original.owner)
+      init(agent, 'project')
+      expect(pairing(agent, 'project').owner).toBe(original.owner)
       const repaired = [bytes(destination.hooks), bytes(destination.server)]
-      init(provider, 'project')
+      init(agent, 'project')
       expect([bytes(destination.hooks), bytes(destination.server)]).toEqual(repaired)
     })
   }
@@ -906,15 +904,15 @@ export const hook = { meta: { name: 'observe' }, PreToolUse(ctx) {
         sandbox.writeHomeFile('.claude/.config.json', '{"legacy":"untouched"}')
       if (choice === 'custom-directory')
         sandbox.writeHomeFile('custom-claude/.claude.json', '{"override":"untouched"}')
-      const destinations = (['claude-code', 'codex'] as const).flatMap((provider) =>
-        (['project', 'global'] as const).flatMap((scope) => Object.values(paths(provider, scope))),
+      const destinations = (['claude-code', 'codex'] as const).flatMap((agent) =>
+        (['project', 'global'] as const).flatMap((scope) => Object.values(paths(agent, scope))),
       )
       destinations.push(
         join(sandbox.home, '.claude/.config.json'),
         join(sandbox.home, 'custom-claude/.claude.json'),
       )
       const before = destinations.map(bytes)
-      for (const [command, provider, scope] of [
+      for (const [command, agent, scope] of [
         ['init', 'claude-code', 'project'],
         ['init', 'all', 'global'],
         ['uninstall', 'all', 'project'],
@@ -924,7 +922,7 @@ export const hook = { meta: { name: 'observe' }, PreToolUse(ctx) {
           [
             command,
             '--agent',
-            provider,
+            agent,
             ...(command === 'init'
               ? scope === 'global'
                 ? ['--global']

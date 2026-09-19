@@ -21,13 +21,13 @@ import {
 
 const key = {
   protocol: 1,
-  provider: 'codex',
+  agent: 'codex',
   owner: 'project:test',
   session_id: 'session',
   turn_id: 'turn',
   tool_use_id: 'call',
 } as const
-test('canonical provider and literal native identity are required', () => {
+test('canonical agent and literal native identity are required', () => {
   expect(checkInputSchema.parse(key)).toEqual(key)
   for (const field of Object.keys(key)) {
     expect(checkInputSchema.safeParse({ ...key, [field]: undefined }).success).toBe(false)
@@ -35,30 +35,30 @@ test('canonical provider and literal native identity are required', () => {
   }
   for (const change of [
     { protocol: 2 },
-    { provider: 'claude' },
+    { agent: 'claude' },
     { owner: 'project:' },
     { owner: '../global' },
     { extra: true },
   ]) {
     expect(checkInputSchema.safeParse({ ...key, ...change }).success).toBe(false)
   }
-  expect(
-    checkInputSchema.parse({ ...key, provider: 'claude-code', turn_id: undefined }).provider,
-  ).toBe('claude-code')
+  expect(checkInputSchema.parse({ ...key, agent: 'claude-code', turn_id: undefined }).agent).toBe(
+    'claude-code',
+  )
   expect(checkInputJsonSchema.required).toContain('protocol')
 })
 
-test('advertised root-object tool schema agrees with parser for both providers', () => {
+test('advertised root-object tool schema agrees with parser for both agents', () => {
   expect(checkInputJsonSchema.type).toBe('object')
   expect(checkInputJsonSchema.properties?.turn_id).toBeDefined()
   const validator = new AjvJsonSchemaValidator()
   const validate = validator.getValidator(
     checkInputJsonSchema as unknown as Parameters<typeof validator.getValidator>[0],
   )
-  for (const provider of ['claude-code', 'codex', 'claude']) {
+  for (const agent of ['claude-code', 'codex', 'claude']) {
     for (const turn_id of [undefined, 'turn', '', '${turn_id}']) {
       for (const protocol of [undefined, 1, 2, '1']) {
-        const input = JSON.parse(JSON.stringify({ ...key, provider, turn_id, protocol }))
+        const input = JSON.parse(JSON.stringify({ ...key, agent, turn_id, protocol }))
         expect(validate(input).valid).toBe(checkInputSchema.safeParse(input).success)
       }
     }
@@ -69,7 +69,7 @@ test('canonical identity is structured, ordered and separated by all native fiel
   expect(digest({ b: 2, a: 1 })).toBe(digest({ a: 1, b: 2 }))
   expect(canonical({ optional: undefined })).toBe('{}')
   expect(() => same({ a: 1 }, { a: 2 }, 'identity')).toThrow('identity mismatch')
-  for (const field of ['provider', 'owner', 'session_id', 'turn_id', 'tool_use_id']) {
+  for (const field of ['agent', 'owner', 'session_id', 'turn_id', 'tool_use_id']) {
     expect(digest({ ...key, [field]: 'different' })).not.toBe(digest(key))
   }
 })

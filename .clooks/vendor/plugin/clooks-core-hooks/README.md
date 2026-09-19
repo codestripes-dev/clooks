@@ -121,7 +121,7 @@ Quoted-target parsing is unchanged: remaining single-quoted targets can be remov
 
 Blocks bash commands that duplicate Claude Code's first-class tools: `cat`/`head`/`tail` → Read, `grep`/`rg`/`egrep`/`fgrep` → Grep, `find` → Glob, `sed -i` → Edit, `ls` → Glob, `echo`/`printf` with `>` → Write. Also refuses `sleep` outright. Stream uses (piped `grep`, `sed` without `-i`, `tail -f`) are explicitly allowed.
 
-**When to enable:** Always when working with Claude Code. Built-in tools provide structured output, permission caching, and integrate with the rest of the toolchain. For explicit Codex, built-in read/search/listing restrictions are skipped; applicable sed-in-place, redirected-write and sleep rules remain, with apply_patch or available process-wait guidance. Configured additional rules and rule disables still apply. Claude and legacy undefined-provider contexts keep their existing guidance. Provider identity is not tool discovery.
+**When to enable:** Always when working with Claude Code. Built-in tools provide structured output, permission caching, and integrate with the rest of the toolchain. For explicit Codex, built-in read/search/listing restrictions are skipped; applicable sed-in-place, redirected-write and sleep rules remain, with apply_patch or available process-wait guidance. Configured additional rules and rule disables still apply. Claude and legacy undefined-agent contexts keep their existing guidance. Agent identity is not tool discovery.
 
 **Config options:**
 
@@ -165,7 +165,7 @@ Blocks commands that pipe automatic responses (`yes`, `echo y`, `printf y`, etc.
 
 ### no-pasted-placeholder
 
-Claude, Codex and legacy undefined-provider contexts check both formats, except prompts starting with `<task-notification>`, which skip to preserve completion notices.
+Claude, Codex and legacy undefined-agent contexts check both formats, except prompts starting with `<task-notification>`, which skip to preserve completion notices.
 
 Blocks `UserPromptSubmit` on literal `[Pasted text #N +N lines]` (Claude) or `[Pasted Content N chars]` (Codex) markers. This is a heuristic for potentially unexpanded pastes, not proof that content is missing; literal examples also match.
 
@@ -188,7 +188,7 @@ Blocks `UserPromptSubmit` on literal `[Pasted text #N +N lines]` (Claude) or `[P
 
 ### tmux-notifications
 
-Visual tmux indicators for supported session events. Stop colors the window status orange by default and marks it for reset on focus. New prompts, completed tool use and session start reset attention. Claude notifications retain idle and permission/elicitation feedback; flashing targets the currently focused window and restores its pane/status styles. Explicit Codex PermissionRequest applies attentionStyle and optional flashOnPrompt, then skips without deciding approval. This is an approval-request signal that may auto-resolve, not proof that a prompt was displayed. Claude and absent-provider PermissionRequest skip without duplicating notification feedback. SessionEnd restores window styles and automatic rename on both providers; Codex requires the eleven-event adapter and init refresh. No Codex idle, Interrupt, Notification or PostToolUseFailure event is synthesized.
+Visual tmux indicators for supported session events. Stop colors the window status orange by default and marks it for reset on focus. New prompts, completed tool use and session start reset attention. Claude notifications retain idle and permission/elicitation feedback; flashing targets the currently focused window and restores its pane/status styles. Explicit Codex PermissionRequest applies attentionStyle and optional flashOnPrompt, then skips without deciding approval. This is an approval-request signal that may auto-resolve, not proof that a prompt was displayed. Claude and absent-agent PermissionRequest skip without duplicating notification feedback. SessionEnd restores window styles and automatic rename on both agents; Codex requires the eleven-event adapter and init refresh. No Codex idle, Interrupt, Notification or PostToolUseFailure event is synthesized.
 
 **When to enable:** When running a supported agent inside tmux and visual session feedback is useful. Select the hook through existing pack/config activation; this description does not change registration.
 

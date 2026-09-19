@@ -73,7 +73,7 @@ export async function interruptScenario(logRoot: string) {
       `import { writeFileSync, readFileSync } from 'node:fs'
 export const hook = { meta: { name: 'native-interrupt' }, Interrupt(ctx) {
   writeFileSync(${JSON.stringify(marker)}, JSON.stringify({
-    provider: ctx.provider, event: ctx.event, sessionId: ctx.sessionId,
+    agent: ctx.agent, event: ctx.event, sessionId: ctx.sessionId,
     model: ctx.model, permissionMode: ctx.permissionMode,
     transcript: readFileSync(ctx.transcriptPath, 'utf8')
   }))
@@ -152,7 +152,7 @@ stream_idle_timeout_ms = 60000
     requireThat(existsSync(marker), 'Native interruption did not execute the Clooks hook')
     const observed = JSON.parse(readFileSync(marker, 'utf8'))
     requireThat(
-      observed.event === 'Interrupt' && observed.provider === 'codex',
+      observed.event === 'Interrupt' && observed.agent === 'codex',
       'Wrong interrupt context',
     )
     requireThat(

@@ -21,7 +21,7 @@ export const hook = {
   meta: { name: 'end-observer' },
   SessionEnd(ctx) {
     writeFileSync(${JSON.stringify(join(sandbox.dir, 'observed.json'))}, JSON.stringify({
-      event: ctx.event, provider: ctx.provider, reason: ctx.reason,
+      event: ctx.event, agent: ctx.agent, reason: ctx.reason,
       transcriptPath: ctx.transcriptPath, turn: ctx.turn,
       extra: ['model', 'permissionMode', 'turnId', 'nativeTurnId'].filter(key => Object.hasOwn(ctx, key)),
     }));
@@ -89,7 +89,7 @@ describe('Codex SessionEnd registered compiled smoke', () => {
     const observed = JSON.parse(sandbox.readFile('observed.json'))
     expect(observed).toMatchObject({
       event: 'SessionEnd',
-      provider: 'codex',
+      agent: 'codex',
       reason: 'other',
       transcriptPath: '',
       extra: [],

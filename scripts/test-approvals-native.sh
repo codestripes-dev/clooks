@@ -10,11 +10,11 @@ attempt=$(mktemp -d "$root/tmp/approvals-native/run-XXXXXXXX")
 name="clooks-approvals-$$-$(date +%s)"
 mkdir "$attempt/input" "$attempt/native" "$attempt/export"
 chmod 0777 "$attempt/export"
-for provider in claude codex; do
-  variable="CLOOKS_${provider^^}_BINARY"
+for agent in claude codex; do
+  variable="CLOOKS_${agent^^}_BINARY"
   source=$(readlink -f -- "${!variable}")
   [[ -f "$source" && -x "$source" ]]
-  cp -- "$source" "$attempt/native/$provider"
+  cp -- "$source" "$attempt/native/$agent"
   sha256sum -- "$source" >> "$attempt/original-binaries.sha256"
 done
 # Freeze native approval fixtures, reused native model helpers, and installed dependencies.

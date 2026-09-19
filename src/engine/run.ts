@@ -567,9 +567,9 @@ async function runEngineInvocation(
   const eventName = invocation.eventName
   const normalized: Record<string, unknown> = {
     ...invocation.context,
-    provider: adapter.id,
+    agent: adapter.id,
     helpers: (deps.createContextHelpers ?? createContextHelpers)({
-      provider: adapter.id,
+      agent: adapter.id,
       homeRoot,
       codexHome: process.env.CODEX_HOME,
       cwd: typeof invocation.context.cwd === 'string' ? invocation.context.cwd : '',
@@ -777,8 +777,8 @@ async function runEngineInvocation(
       turnTracker = createTurnTracker({
         path: turnPath,
         homeRoot,
-        provider: adapter.id,
-        state: boundaryState ?? (await readTurnState(turnPath, { homeRoot, provider: adapter.id })),
+        agent: adapter.id,
+        state: boundaryState ?? (await readTurnState(turnPath, { homeRoot, agent: adapter.id })),
         scopeKey: turnPolicy.scopeKey,
       })
     } catch {

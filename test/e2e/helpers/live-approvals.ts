@@ -15,7 +15,7 @@ import type { RunResult, Sandbox } from './sandbox'
 
 const binary = join(import.meta.dir, '../../../dist/clooks')
 const timeout = 10_000
-export type Provider = 'claude-code' | 'codex'
+export type AgentId = 'claude-code' | 'codex'
 
 export async function cleanupAll(...steps: Array<() => unknown | Promise<unknown>>) {
   const errors: unknown[] = []
@@ -42,7 +42,7 @@ export function assertCompanion(
 
 export interface ApprovalIdentity {
   protocol: 1
-  provider: Provider
+  agent: AgentId
   owner: string
   session_id: string
   tool_use_id: string
@@ -62,7 +62,7 @@ export interface ApprovalPrompt {
   reply(response: ElicitResult): void
 }
 
-function expectedApprovalMessage(question: ApprovalPrompt['question'], provider: Provider): string {
+function expectedApprovalMessage(question: ApprovalPrompt['question'], agent: AgentId): string {
   const { toolName, input } = question.operation
   const previewCommand =
     toolName === 'Bash' &&
@@ -77,7 +77,7 @@ function expectedApprovalMessage(question: ApprovalPrompt['question'], provider:
   const operation = compactCommand
     ? `Command:\n${(input as { command: string }).command}`
     : `Tool: ${toolName}\nInput:\n${JSON.stringify(input, null, 2)}`
-  if (provider === 'claude-code' && previewCommand) {
+  if (agent === 'claude-code' && previewCommand) {
     const header = [
       question.question ?? question.reason,
       (input as { command: string }).command,
@@ -114,20 +114,20 @@ const codexApprovalSchema = {
   required: ['decision'],
 } satisfies ElicitRequestFormParams['requestedSchema']
 
-function expectedApprovalSchema(provider: Provider) {
-  return provider === 'claude-code' ? claudeApprovalSchema : codexApprovalSchema
+function expectedApprovalSchema(agent: AgentId) {
+  return agent === 'claude-code' ? claudeApprovalSchema : codexApprovalSchema
 }
 
-export function acceptedApproval(provider: Provider): ElicitResult {
-  return provider === 'claude-code'
+export function acceptedApproval(agent: AgentId): ElicitResult {
+  return agent === 'claude-code'
     ? { action: 'accept', content: {} }
     : { action: 'accept', content: { decision: 'Approve' } }
 }
 
-function isUserRefusal(provider: Provider, response: ElicitResult): boolean {
+function isUserRefusal(agent: AgentId, response: ElicitResult): boolean {
   if (response.action === 'accept') {
     return (
-      provider === 'codex' &&
+      agent === 'codex' &&
       response.content !== undefined &&
       Object.keys(response.content).length === 1 &&
       response.content.decision === 'Decline'
@@ -136,7 +136,7 @@ function isUserRefusal(provider: Provider, response: ElicitResult): boolean {
   if (response.action !== 'decline' && response.action !== 'cancel') return false
   if (response.content === undefined) return true
   const keys = Object.keys(response.content)
-  return provider === 'claude-code'
+  return agent === 'claude-code'
     ? keys.length === 0
     : keys.length === 1 &&
         keys[0] === 'decision' &&
@@ -144,11 +144,11 @@ function isUserRefusal(provider: Provider, response: ElicitResult): boolean {
 }
 
 function pendingQuestion(home: string): {
-  provider: Provider
+  agent: AgentId
   question: ApprovalPrompt['question']
 } {
   const root = join(home, '.clooks/.cache/approvals-live/v1')
-  const pending: Array<{ provider: Provider; question: ApprovalPrompt['question'] }> = []
+  const pending: Array<{ agent: AgentId; question: ApprovalPrompt['question'] }> = []
   for (const entry of readdirSync(root, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue
     const directory = join(root, entry.name)
@@ -165,7 +165,7 @@ function pendingQuestion(home: string): {
       expect(packet.question.ordinal, 'Question filename must match its snapshot ordinal').toBe(
         Number(match[1]),
       )
-      pending.push({ provider: start.key.provider, question: packet.question })
+      pending.push({ agent: start.key.agent, question: packet.question })
     }
   }
   expect(pending, 'Expected exactly one live unanswered approval question').toHaveLength(1)
@@ -174,16 +174,16 @@ function pendingQuestion(home: string): {
 
 export function invocation(
   sandbox: Sandbox,
-  provider: Provider,
+  agent: AgentId,
   options: { owner?: string; sessionId?: string; toolName?: string; input?: unknown } = {},
 ) {
   const identity: ApprovalIdentity = {
     protocol: 1,
-    provider,
+    agent,
     owner: options.owner ?? 'project:compiled-approvals',
     session_id: options.sessionId ?? crypto.randomUUID(),
     tool_use_id: crypto.randomUUID(),
-    ...(provider === 'codex' ? { turn_id: crypto.randomUUID() } : {}),
+    ...(agent === 'codex' ? { turn_id: crypto.randomUUID() } : {}),
   }
   return {
     identity,
@@ -196,7 +196,7 @@ export function invocation(
       transcript_path: null,
       model: 'fixture',
       permission_mode: 'default',
-      tool_name: options.toolName ?? (provider === 'codex' ? 'exec_command' : 'Bash'),
+      tool_name: options.toolName ?? (agent === 'codex' ? 'exec_command' : 'Bash'),
       tool_input: options.input === undefined ? { command: '/usr/bin/true' } : options.input,
     },
   }
@@ -317,7 +317,7 @@ export function startEngine(
   extraEnvironment: Record<string, string> = {},
 ) {
   return startCommand(sandbox, [binary], call.payload, {
-    CLOOKS_AGENT: call.identity.provider,
+    CLOOKS_AGENT: call.identity.agent,
     ...registrationEnvironment(call.identity),
     ...extraEnvironment,
     ...environment(sandbox),
@@ -447,9 +447,9 @@ export async function connectApprovalPeer(
   }
   client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
     if (!('requestedSchema' in request.params)) throw new Error('Expected form elicitation')
-    const { provider, question } = pendingQuestion(sandbox.home)
-    expect(request.params.message).toBe(expectedApprovalMessage(question, provider))
-    expect(request.params.requestedSchema).toEqual(expectedApprovalSchema(provider))
+    const { agent, question } = pendingQuestion(sandbox.home)
+    expect(request.params.message).toBe(expectedApprovalMessage(question, agent))
+    expect(request.params.requestedSchema).toEqual(expectedApprovalSchema(agent))
     const response = Promise.withResolvers<ElicitResult>()
     const cancel = () => response.resolve({ action: 'cancel' })
     const prompt: ApprovalPrompt = {
@@ -550,7 +550,7 @@ export async function runWithConsent(
         return { result: next.result, companion: next.companion, prompts: peer.prompts }
       }
       const response = await respond(next.prompt, index++)
-      if (isUserRefusal(call.identity.provider, response)) {
+      if (isUserRefusal(call.identity.agent, response)) {
         commandRefused = true
       }
       next.prompt.reply(response)

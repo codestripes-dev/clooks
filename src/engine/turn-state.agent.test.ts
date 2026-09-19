@@ -24,21 +24,21 @@ import {
   turnStatePath,
 } from './turn-state.js'
 
-describe('provider-qualified turn storage', () => {
+describe('agent-qualified turn storage', () => {
   for (const boundary of [null, 'advance', 'reset'] as const) {
     test(`Codex captured writer ${boundary ?? 'no boundary'} preserves only its valid generation`, async () => {
-      const homeRoot = await mkdtemp(join(tmpdir(), 'clooks-provider-generation-'))
+      const homeRoot = await mkdtemp(join(tmpdir(), 'clooks-agent-generation-'))
       try {
         const path = turnStatePath(homeRoot, 'shared', 'codex')
         const foreignPath = turnStatePath(homeRoot, 'shared')
-        for (const [provider, target] of [
+        for (const [agent, target] of [
           ['codex', path],
           ['claude-code', foreignPath],
         ] as const) {
           const seed = createTurnTracker({
             path: target,
             homeRoot,
-            provider,
+            agent,
             state: emptyTurnState(),
             scopeKey: 'main',
           })
@@ -46,28 +46,28 @@ describe('provider-qualified turn storage', () => {
           await seed.commit()
         }
         const foreignBytes = await readFile(foreignPath, 'utf8')
-        const snapshot = await readTurnState(path, { homeRoot, provider: 'codex' })
+        const snapshot = await readTurnState(path, { homeRoot, agent: 'codex' })
         const stale = createTurnTracker({
           path,
           homeRoot,
-          provider: 'codex',
+          agent: 'codex',
           state: snapshot,
           scopeKey: 'agent:child-a',
         })
         stale.record(hn('late'), 'SubagentStop', 'block')
         if (boundary) await applyTurnBoundary(path, homeRoot, boundary, 'codex')
-        const current = await readTurnState(path, { homeRoot, provider: 'codex' })
+        const current = await readTurnState(path, { homeRoot, agent: 'codex' })
         const fresh = createTurnTracker({
           path,
           homeRoot,
-          provider: 'codex',
+          agent: 'codex',
           state: current,
           scopeKey: 'main',
         })
         fresh.record(hn('fresh'), 'Stop', 'skip')
         await fresh.commit()
         await stale.commit()
-        const stored = await readTurnState(path, { homeRoot, provider: 'codex' })
+        const stored = await readTurnState(path, { homeRoot, agent: 'codex' })
         expect(stored.scopes.main?.[hn('fresh')]).toHaveLength(1)
         expect(stored.generation).toBe(snapshot.generation + (boundary ? 1 : 0))
         if (boundary) expect(stored.scopes['agent:child-a']).toBeUndefined()
@@ -80,23 +80,23 @@ describe('provider-qualified turn storage', () => {
   }
 
   test('Codex prune and recreation rejects an equal-generation writer from the old epoch', async () => {
-    const homeRoot = await mkdtemp(join(tmpdir(), 'clooks-provider-epoch-'))
+    const homeRoot = await mkdtemp(join(tmpdir(), 'clooks-agent-epoch-'))
     try {
       const path = turnStatePath(homeRoot, 'shared', 'codex')
       const initial = createTurnTracker({
         path,
         homeRoot,
-        provider: 'codex',
+        agent: 'codex',
         state: emptyTurnState(),
         scopeKey: 'main',
       })
       initial.record(hn('seed'), 'Stop', 'block')
       await initial.commit()
-      const old = await readTurnState(path, { homeRoot, provider: 'codex' })
+      const old = await readTurnState(path, { homeRoot, agent: 'codex' })
       const stale = createTurnTracker({
         path,
         homeRoot,
-        provider: 'codex',
+        agent: 'codex',
         state: old,
         scopeKey: 'main',
       })
@@ -108,47 +108,45 @@ describe('provider-qualified turn storage', () => {
       const replacement = createTurnTracker({
         path,
         homeRoot,
-        provider: 'codex',
+        agent: 'codex',
         state: emptyTurnState(),
         scopeKey: 'main',
       })
       replacement.record(hn('fresh'), 'Stop', 'skip')
       await replacement.commit()
-      const fresh = await readTurnState(path, { homeRoot, provider: 'codex' })
+      const fresh = await readTurnState(path, { homeRoot, agent: 'codex' })
       expect(fresh.generation).toBe(old.generation)
       expect(fresh.epoch).not.toBe(old.epoch)
       expect(fresh.scopes.main?.[hn('fresh')]).toHaveLength(1)
       expect(fresh.scopes.main?.[hn('fresh')]?.[0]?.decision).toBe('skip')
       await stale.commit()
-      expect((await readTurnState(path, { homeRoot, provider: 'codex' })).scopes).toEqual(
-        fresh.scopes,
-      )
+      expect((await readTurnState(path, { homeRoot, agent: 'codex' })).scopes).toEqual(fresh.scopes)
     } finally {
       await rm(homeRoot, { recursive: true, force: true })
     }
   })
 
   test('Codex concurrent commits preserve each scope and repeated commits are idempotent', async () => {
-    const homeRoot = await mkdtemp(join(tmpdir(), 'clooks-provider-concurrent-'))
+    const homeRoot = await mkdtemp(join(tmpdir(), 'clooks-agent-concurrent-'))
     try {
       const path = turnStatePath(homeRoot, 'shared', 'codex')
       const initial = createTurnTracker({
         path,
         homeRoot,
-        provider: 'codex',
+        agent: 'codex',
         state: emptyTurnState(),
         scopeKey: 'main',
       })
       initial.record(hn('seed'), 'Stop', 'skip')
       await initial.commit()
-      const state = await readTurnState(path, { homeRoot, provider: 'codex' })
+      const state = await readTurnState(path, { homeRoot, agent: 'codex' })
       const trackers = ['main', 'agent:child-a', 'agent:child-b'].map((scopeKey) => {
-        const tracker = createTurnTracker({ path, homeRoot, provider: 'codex', state, scopeKey })
+        const tracker = createTurnTracker({ path, homeRoot, agent: 'codex', state, scopeKey })
         tracker.record(hn('same-hook'), 'Stop', 'block')
         return tracker
       })
       await Promise.all(trackers.map((tracker) => tracker.commit()))
-      const stored = await readTurnState(path, { homeRoot, provider: 'codex' })
+      const stored = await readTurnState(path, { homeRoot, agent: 'codex' })
       for (const scopeKey of ['main', 'agent:child-a', 'agent:child-b']) {
         expect(stored.scopes[scopeKey]?.[hn('same-hook')]).toHaveLength(1)
       }
@@ -160,18 +158,18 @@ describe('provider-qualified turn storage', () => {
     }
   })
 
-  for (const provider of ['claude-code', 'codex'] as const) {
+  for (const agent of ['claude-code', 'codex'] as const) {
     test.skipIf(process.env.CLOOKS_E2E_DOCKER !== 'true')(
-      `${provider} history rejects an unread FIFO within a subprocess deadline`,
+      `${agent} history rejects an unread FIFO within a subprocess deadline`,
       async () => {
         const home = await mkdtemp(join(tmpdir(), 'clooks-fifo-turn-'))
         try {
-          const regularPath = turnStatePath(home, 'regular', provider)
-          const fifoPath = turnStatePath(home, 'fifo', provider)
+          const regularPath = turnStatePath(home, 'regular', agent)
+          const fifoPath = turnStatePath(home, 'fifo', agent)
           const tracker = createTurnTracker({
             path: regularPath,
             homeRoot: home,
-            provider,
+            agent,
             state: emptyTurnState(),
             scopeKey: 'main',
           })
@@ -192,8 +190,7 @@ describe('provider-qualified turn storage', () => {
           const before = await lstat(fifoPath)
           expect(before.isFIFO()).toBe(true)
           const reader = join(home, 'read-turn.ts')
-          const access =
-            provider === 'codex' ? `, ${JSON.stringify({ homeRoot: home, provider })}` : ''
+          const access = agent === 'codex' ? `, ${JSON.stringify({ homeRoot: home, agent })}` : ''
           await writeFile(
             reader,
             [
@@ -231,7 +228,7 @@ describe('provider-qualified turn storage', () => {
     )
   }
 
-  test.each(['provider-directory', 'state-file'] as const)(
+  test.each(['agent-directory', 'state-file'] as const)(
     'Codex snapshot refuses a linked %s without reading Claude history',
     async (kind) => {
       const home = await mkdtemp(join(tmpdir(), 'clooks-linked-turn-'))
@@ -254,7 +251,7 @@ describe('provider-qualified turn storage', () => {
         const owned = createTurnTracker({
           path: ownedPath,
           homeRoot: home,
-          provider: 'codex',
+          agent: 'codex',
           state: emptyTurnState(),
           scopeKey: 'main',
         })
@@ -264,13 +261,13 @@ describe('provider-qualified turn storage', () => {
         await pruneTurnState(home, 'codex')
         expect(await readdir(dirname(ownedPath))).toEqual([])
         expect(await readFile(claudePath, 'utf8')).toBe(before)
-        if (kind === 'provider-directory') {
+        if (kind === 'agent-directory') {
           await rm(dirname(codexPath), { recursive: true })
           await symlink(dirname(claudePath), dirname(codexPath))
         } else {
           await symlink(claudePath, codexPath)
         }
-        const snapshot = await readTurnState(codexPath, { homeRoot: home, provider: 'codex' })
+        const snapshot = await readTurnState(codexPath, { homeRoot: home, agent: 'codex' })
         expect(snapshot.scopes).toEqual({})
         expect(await readFile(claudePath, 'utf8')).toBe(before)
         await pruneTurnState(home, 'codex')
@@ -282,22 +279,22 @@ describe('provider-qualified turn storage', () => {
   )
 
   test('equal sessions retain independent commits, boundaries and pruning', async () => {
-    const home = await mkdtemp(join(tmpdir(), 'clooks-provider-turn-'))
+    const home = await mkdtemp(join(tmpdir(), 'clooks-agent-turn-'))
     try {
       const claudePath = turnStatePath(home, 'same-session')
       const codexPath = turnStatePath(home, 'same-session', 'codex')
       expect(turnStatePath(home, 'same-session', 'claude-code')).toBe(claudePath)
       expect(basename(codexPath)).toBe(basename(claudePath))
       expect(dirname(codexPath)).toBe(join(dirname(claudePath), 'codex'))
-      for (const provider of ['claude-code', 'codex'] as const) {
+      for (const agent of ['claude-code', 'codex'] as const) {
         const tracker = createTurnTracker({
-          path: turnStatePath(home, 'same-session', provider),
+          path: turnStatePath(home, 'same-session', agent),
           homeRoot: home,
-          provider,
+          agent,
           state: emptyTurnState(),
           scopeKey: 'main',
         })
-        tracker.record(hn('shared'), 'PreToolUse', provider === 'codex' ? 'block' : 'allow')
+        tracker.record(hn('shared'), 'PreToolUse', agent === 'codex' ? 'block' : 'allow')
         await tracker.commit()
       }
       const claudeBytes = await readFile(claudePath, 'utf8')

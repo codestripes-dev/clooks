@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { journal, type Provider } from '../fixtures/interactive-approvals/channel'
+import { journal, type AgentId } from '../fixtures/interactive-approvals/channel'
 import {
   claude,
   codex,
@@ -71,35 +71,35 @@ if (configFlags.length)
       /^claude-defer-interactive(?:-decline)?-(?:command|mcp)-first$/.test(selected[0]!),
     'Interactive config discriminator requires exactly one existing Claude interactive case',
   )
-const providers: Provider[] = ['claude', 'codex']
+const agents: AgentId[] = ['claude', 'codex']
 const results: any[] = []
-for (const provider of providers) {
-  const binary = `/native/${provider}`
+for (const agent of agents) {
+  const binary = `/native/${agent}`
   const version = Bun.spawnSync([binary, '--version'], {
     env: { PATH: '/usr/local/bin:/usr/bin:/bin', HOME: '/tmp' },
     timeout: 5000,
   })
   assert.equal(version.exitCode, 0)
-  save(`/export/${provider}-version.json`, {
+  save(`/export/${agent}-version.json`, {
     version: version.stdout.toString().trim(),
     sha256: createHash('sha256').update(readFileSync(binary)).digest('hex'),
   })
   for (const topology of [
     'same-session',
     'parent-child',
-    ...(provider === 'codex' && !baseline && selected.includes('codex-overlap-serial-child-control')
+    ...(agent === 'codex' && !baseline && selected.includes('codex-overlap-serial-child-control')
       ? ['serial-child-control' as const]
       : []),
-    ...(provider === 'codex' && !baseline && selected.includes('codex-overlap-primed-child-control')
+    ...(agent === 'codex' && !baseline && selected.includes('codex-overlap-primed-child-control')
       ? ['primed-child-control' as const]
       : []),
   ] as const) {
-    const name = `${provider}-overlap-${topology}`
+    const name = `${agent}-overlap-${topology}`
     if (baseline || (selected.length && !selected.includes(name))) continue
     const directory = join('/export', name)
     let result: any
     try {
-      result = { name, ...(await runOverlap(directory, provider, topology)) }
+      result = { name, ...(await runOverlap(directory, agent, topology)) }
     } catch (error) {
       result = {
         name,
@@ -154,15 +154,15 @@ for (const provider of providers) {
           'scope-project-decline',
           'scope-global-approve',
           'scope-global-decline',
-          ...(provider === 'claude'
+          ...(agent === 'claude'
             ? ['defer', 'defer-decline', 'defer-interactive', 'defer-interactive-decline']
             : []),
         ]) {
-      const name = `${provider}-${mode}-${reverse ? 'mcp-first' : 'command-first'}`
+      const name = `${agent}-${mode}-${reverse ? 'mcp-first' : 'command-first'}`
       if (selected.length && !selected.includes(name)) continue
       const r = setup(
         join('/export', name),
-        provider,
+        agent,
         mode,
         reverse,
         interactiveConfig,
@@ -178,16 +178,16 @@ for (const provider of providers) {
         passed: false,
       }
       try {
-        const native = await (provider === 'claude' ? claude(r) : codex(r))
+        const native = await (agent === 'claude' ? claude(r) : codex(r))
         const rows = journal(r.root),
           events = rows.map((row) => row.event)
-        if (provider === 'codex' || !mode.startsWith('defer-interactive')) {
+        if (agent === 'codex' || !mode.startsWith('defer-interactive')) {
           const anchor = JSON.parse(readFileSync(join(r.root, 'native-identity.json'), 'utf8'))
-          assert.equal(anchor.provider, provider)
+          assert.equal(anchor.agent, agent)
           assert.equal(anchor.tool_use_id, r.callId)
           assert.equal(typeof anchor.session_id, 'string')
           assert.ok(anchor.session_id.length > 0)
-          if (provider === 'codex') {
+          if (agent === 'codex') {
             assert.equal(typeof anchor.turn_id, 'string')
             assert.ok(anchor.turn_id.length > 0)
           }
@@ -199,7 +199,7 @@ for (const provider of providers) {
           ))
             for (const [field, value] of Object.entries(anchor)) assert.equal(row.key[field], value)
         }
-        if (provider === 'codex') {
+        if (agent === 'codex') {
           const responders = JSON.parse(readFileSync(join(r.root, 'responders.json'), 'utf8'))
           const cleanup = JSON.parse(readFileSync(join(r.root, 'cleanup.json'), 'utf8'))
           assert.equal(responders.pending, 0)
@@ -238,7 +238,7 @@ for (const provider of providers) {
           assert.ok(!existsSync(join(r.project, 'effect.txt')))
           assert.equal(events.filter((e) => e === 'ui-response').length, 0)
           assert.equal(events.filter((e) => e === 'native-effect' || e === 'native-post').length, 0)
-          if (provider === 'codex') {
+          if (agent === 'codex') {
             const commands = rows.filter((row) => row.event === 'command-start')
             const calls = rows.filter((row) => row.event === 'mcp-call')
             const finished = rows.filter((row) => row.event === 'mcp-finished')
@@ -320,7 +320,7 @@ for (const provider of providers) {
           assert.equal(existsSync(join(r.project, 'effect.txt')), permits)
           if (permits)
             assert.equal(readFileSync(join(r.project, 'effect.txt'), 'utf8'), 'native-effect\n')
-          if (provider === 'claude')
+          if (agent === 'claude')
             assert.equal(Boolean(native.output.is_error), !permits && mode !== 'defer')
           else
             assert.equal(
@@ -357,7 +357,7 @@ for (const provider of providers) {
           }
           if (!permits && mode !== 'defer') {
             const feedback =
-              provider === 'claude'
+              agent === 'claude'
                 ? typeof native.output.content === 'string'
                   ? native.output.content
                   : native.output.content.map((b: any) => b.text ?? '').join('\n')
@@ -385,11 +385,11 @@ for (const provider of providers) {
               assert.equal(events.filter((e) => e === 'duplicate-response-injected').length, 1)
             } else if (mode === 'deadline') {
               assert.deepEqual(commands[0].key, {
-                provider,
+                agent,
                 owner: 'project:m1',
                 session_id: commands[0].input.session_id,
                 tool_use_id: r.callId,
-                ...(provider === 'codex' ? { turn_id: commands[0].input.turn_id } : {}),
+                ...(agent === 'codex' ? { turn_id: commands[0].input.turn_id } : {}),
               })
               assert.notEqual(commands[0].pid, calls[0].pid)
               assert.equal(events.filter((value) => value === 'native-effect').length, 0)

@@ -257,23 +257,23 @@ afterEach(() => {
   tempDirs = []
 })
 
-describe('public provider identity', () => {
+describe('public agent identity', () => {
   for (const adapter of [claudeCodeAdapter, codexAdapter]) {
-    test(`${adapter.id} overrides raw provider and opposite environment in every lifecycle stage`, async () => {
+    test(`${adapter.id} overrides raw agent and opposite environment in every lifecycle stage`, async () => {
       const opposite = adapter.id === 'codex' ? 'claude-code' : 'codex'
       process.env.CLOOKS_AGENT = opposite
-      for (const rawProvider of [opposite, null, '', 'unknown']) {
+      for (const rawAgent of [opposite, null, '', 'unknown']) {
         const received: unknown[] = []
         const observe = (phase: string, input: Record<string, unknown>) => {
-          received.push([phase, input.provider, input.toolName, input.parallel])
+          received.push([phase, input.agent, input.toolName, input.parallel])
         }
-        const hook = makeHook('provider-probe', {
+        const hook = makeHook('agent-probe', {
           beforeHook(event) {
             observe('before', event.input as unknown as Record<string, unknown>)
           },
           PreToolUse(ctx) {
             observe('handler', ctx as unknown as Record<string, unknown>)
-            return ctx.allow({ injectContext: `provider:${ctx.provider}` })
+            return ctx.allow({ injectContext: `agent:${ctx.agent}` })
           },
           afterHook(event) {
             observe('after', event.input as unknown as Record<string, unknown>)
@@ -283,16 +283,16 @@ describe('public provider identity', () => {
           makeDeps(
             {
               hook_event_name: 'PreToolUse',
-              provider: rawProvider,
-              session_id: 'provider-session',
+              agent: rawAgent,
+              session_id: 'agent-session',
               cwd: '/tmp/clooks-test-project',
               transcript_path: '/tmp/transcript',
               permission_mode: 'default',
               model: 'model',
-              turn_id: 'provider-turn',
+              turn_id: 'agent-turn',
               tool_name: 'Bash',
-              tool_use_id: 'provider-call',
-              tool_input: { command: 'printf provider' },
+              tool_use_id: 'agent-call',
+              tool_input: { command: 'printf agent' },
             },
             [hook],
           ),
@@ -301,7 +301,7 @@ describe('public provider identity', () => {
         expect(result.code).toBe(0)
         expect(result.stderr).toBe('')
         expect(JSON.parse(result.stdout).hookSpecificOutput.additionalContext).toBe(
-          `provider:${adapter.id}`,
+          `agent:${adapter.id}`,
         )
         expect(received).toEqual(
           ['before', 'handler', 'after'].map((phase) => [phase, adapter.id, 'Bash', false]),
@@ -355,7 +355,7 @@ describe('context helpers runtime wiring', () => {
     deps.createContextHelpers = (options) => {
       factoryCalls++
       expect(options).toEqual({
-        provider: 'claude-code',
+        agent: 'claude-code',
         homeRoot: process.env.CLOOKS_HOME_ROOT!,
         codexHome: process.env.CODEX_HOME,
         cwd: '/event/cwd',
@@ -395,18 +395,16 @@ describe('Codex turn and delivery integration', () => {
     }
   }
 
-  async function seed(provider: 'codex' | 'claude-code' = 'codex', session = 'shared') {
+  async function seed(agent: 'codex' | 'claude-code' = 'codex', session = 'shared') {
     const homeRoot = process.env.CLOOKS_HOME_ROOT!
-    const path = turnStatePath(homeRoot, session, provider)
+    const path = turnStatePath(homeRoot, session, agent)
     for (const scopeKey of ['main', 'agent:child-a', 'agent:child-b']) {
       const tracker = createTurnTracker({
         path,
         homeRoot,
-        provider,
+        agent,
         scopeKey,
-        state: existsSync(path)
-          ? await readTurnState(path, { homeRoot, provider })
-          : emptyTurnState(),
+        state: existsSync(path) ? await readTurnState(path, { homeRoot, agent }) : emptyTurnState(),
       })
       tracker.record(hn('reminder'), scopeKey === 'main' ? 'Stop' : 'SubagentStop', 'block')
       await tracker.commit()
@@ -539,7 +537,7 @@ describe('Codex turn and delivery integration', () => {
     },
   )
 
-  test('two sessions and two child scopes retain independent history across equal provider IDs', async () => {
+  test('two sessions and two child scopes retain independent history across equal agent IDs', async () => {
     const observed: number[] = []
     const handler = (ctx: { turn: TurnContext }) => {
       observed.push(ctx.turn.priorRuns)
@@ -549,21 +547,21 @@ describe('Codex turn and delivery integration', () => {
     const replay = async (
       session: string,
       child: string | null,
-      provider: 'codex' | 'claude-code',
+      agent: 'codex' | 'claude-code',
       expected: number,
     ) => {
       const event = child ? 'SubagentStop' : 'Stop'
       const raw = payload(event, { session_id: session, ...(child ? { agent_id: child } : {}) })
       const result = await runCoreWithExitTrap(
         makeDeps(raw, hooks),
-        provider === 'codex' ? codexAdapter : claudeCodeAdapter,
+        agent === 'codex' ? codexAdapter : claudeCodeAdapter,
       )
       expect(result).toEqual({ code: 0, stdout: '', stderr: '' })
       expect(observed.at(-1)).toBe(expected)
     }
     for (const session of ['shared', 'second']) {
-      for (const provider of ['codex', 'claude-code'] as const) {
-        for (const child of [null, 'child-a', 'child-b']) await replay(session, child, provider, 0)
+      for (const agent of ['codex', 'claude-code'] as const) {
+        for (const child of [null, 'child-a', 'child-b']) await replay(session, child, agent, 0)
       }
     }
     for (const session of ['shared', 'second']) {

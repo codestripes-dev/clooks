@@ -1,4 +1,4 @@
-// prefer-builtin-tools — Provider-aware shell tool preferences
+// prefer-builtin-tools — Agent-aware shell tool preferences
 //
 // Blocked (9 rules):
 //   cat, head, tail, grep (grep/rg/egrep/fgrep), find, sed-inplace,
@@ -154,7 +154,7 @@ const RULE_LABELS: Record<string, string> = {
 export const hook: ClooksHook<Config> = {
   meta: {
     name: 'prefer-builtin-tools',
-    description: 'Provider-aware shell tool preferences',
+    description: 'Agent-aware shell tool preferences',
     config: {
       "cat": true,
       "head": true,
@@ -170,7 +170,7 @@ export const hook: ClooksHook<Config> = {
   },
 
   SessionStart(ctx, config) {
-    const isCodex = 'provider' in ctx && ctx.provider === 'codex'
+    const isCodex = 'agent' in ctx && ctx.agent === 'codex'
     const enabled = RULES
       .filter(r => !isCodex || !r.claudeOnly)
       .filter(r => config[r.id] !== false)
@@ -188,7 +188,7 @@ export const hook: ClooksHook<Config> = {
   },
 
   PreToolUse(ctx, config) {
-    const isCodex = 'provider' in ctx && ctx.provider === 'codex'
+    const isCodex = 'agent' in ctx && ctx.agent === 'codex'
     // 1. Skip non-Bash tools
     if (ctx.toolName !== 'Bash') return ctx.skip()
 

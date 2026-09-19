@@ -1446,7 +1446,7 @@ describe('bounded parallel settlement', () => {
             PreToolUse: async (ctx: { sessionId: string; toolInput: { command: string } }) => {
               expect(ctx.sessionId).toBe(name)
               expect(ctx).not.toHaveProperty('private')
-              expect(ctx).not.toHaveProperty('provider')
+              expect(ctx).not.toHaveProperty('agent')
               ctx.toolInput.command = 'hook-owned mutation'
               starts[name].release()
               await finishes[name].promise

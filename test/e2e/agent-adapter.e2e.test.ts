@@ -217,6 +217,7 @@ agent-policy-envelope: {}
         ...['before', 'handler', 'after'].map((phase) => ({
           phase,
           keys: [
+            'agent',
             'allow',
             'ask',
             'block',
@@ -225,7 +226,6 @@ agent-policy-envelope: {}
             'helpers',
             'originalToolInput',
             'parallel',
-            'provider',
             'requestMetadata',
             'sessionId',
             'signal',

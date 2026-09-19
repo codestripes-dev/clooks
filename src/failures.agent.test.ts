@@ -39,8 +39,8 @@ describe('Codex managed failure state', () => {
       }
     })
 
-    for (const linkKind of ['provider-directory', 'state-file'] as const) {
-      test(`${linkKind} cannot alias another provider during read, write or clear; project=${hasProjectConfig}`, async () => {
+    for (const linkKind of ['agent-directory', 'state-file'] as const) {
+      test(`${linkKind} cannot alias another agent during read, write or clear; project=${hasProjectConfig}`, async () => {
         const root = await mkdtemp(join(tmpdir(), 'clooks-linked-failure-'))
         try {
           const home = join(root, 'home')

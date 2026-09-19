@@ -177,7 +177,7 @@ describe('Codex compiled PreToolUse wire translation', () => {
       hook(
         'agent-codex-runtime-codec',
         `
-        observe({ event: ctx.event, provider: ctx.provider, toolName: ctx.toolName, toolInput: ctx.toolInput,
+        observe({ event: ctx.event, agent: ctx.agent, toolName: ctx.toolName, toolInput: ctx.toolInput,
           originalToolInput: ctx.originalToolInput, sessionId: ctx.sessionId,
           transcriptPath: ctx.transcriptPath,
           privateKeys: ['private', 'raw', 'model', 'nativeTurnId', 'codec']
@@ -190,7 +190,7 @@ describe('Codex compiled PreToolUse wire translation', () => {
       expect(calls()).toEqual(['agent-codex-runtime-codec'])
       expect(observed()).toEqual({
         event: 'PreToolUse',
-        provider: 'codex',
+        agent: 'codex',
         toolName: toolName === 'exec_command' ? 'Bash' : toolName,
         toolInput: input,
         originalToolInput: input,
@@ -878,7 +878,7 @@ describe('Codex failure namespaces', () => {
     })
   }
 
-  test('tool history isolates providers and child scopes without resetting on native turn ID changes', () => {
+  test('tool history isolates agents and child scopes without resetting on native turn ID changes', () => {
     sandbox = createSandbox()
     hook(
       'agent-codex-runtime-history',
@@ -886,18 +886,18 @@ describe('Codex failure namespaces', () => {
     )
     configure(['agent-codex-runtime-history'])
     const invocations = [
-      { fields: {}, provider: 'codex', prior: [] },
-      { fields: { turn_id: 'another-native-id' }, provider: 'codex', prior: ['allow'] },
-      { fields: { agent_id: 'child', agent_type: 'worker' }, provider: 'codex', prior: [] },
-      { fields: {}, provider: 'claude-code', prior: [] },
-      { fields: {}, provider: 'codex', prior: ['allow', 'allow'] },
-      { fields: { agent_id: 'child', agent_type: 'worker' }, provider: 'codex', prior: ['allow'] },
+      { fields: {}, agent: 'codex', prior: [] },
+      { fields: { turn_id: 'another-native-id' }, agent: 'codex', prior: ['allow'] },
+      { fields: { agent_id: 'child', agent_type: 'worker' }, agent: 'codex', prior: [] },
+      { fields: {}, agent: 'claude-code', prior: [] },
+      { fields: {}, agent: 'codex', prior: ['allow', 'allow'] },
+      { fields: { agent_id: 'child', agent_type: 'worker' }, agent: 'codex', prior: ['allow'] },
     ]
     for (const invocation of invocations) {
-      const result = replay(invocation.fields, { CLOOKS_AGENT: invocation.provider })
+      const result = replay(invocation.fields, { CLOOKS_AGENT: invocation.agent })
       output(
         result,
-        invocation.provider === 'claude-code'
+        invocation.agent === 'claude-code'
           ? {
               hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow' },
             }

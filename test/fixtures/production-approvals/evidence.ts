@@ -16,7 +16,7 @@ export type Mode =
 export interface Case {
   root: string
   home: string
-  provider: 'claude' | 'codex'
+  agent: 'claude' | 'codex'
   mode: Mode
   callId: string
   owner: string
@@ -74,13 +74,13 @@ const expectedCodexApprovalSchema = {
   required: ['decision'],
 } satisfies ElicitRequestFormParams['requestedSchema']
 
-export function acceptedElicitationResult(provider: Case['provider']) {
-  return provider === 'claude'
+export function acceptedElicitationResult(agent: Case['agent']) {
+  return agent === 'claude'
     ? { action: 'accept' as const, content: {} }
     : { action: 'accept' as const, content: { decision: 'Approve' } }
 }
 
-function expectedApprovalMessage(question: any, provider: Case['provider']): string {
+function expectedApprovalMessage(question: any, agent: Case['agent']): string {
   const { toolName, input } = question.operation
   const previewCommand =
     toolName === 'Bash' &&
@@ -94,7 +94,7 @@ function expectedApprovalMessage(question: any, provider: Case['provider']): str
   const operation = compactCommand
     ? `Command:\n${input.command}`
     : `Tool: ${toolName}\nInput:\n${JSON.stringify(input, null, 2)}`
-  if (provider === 'claude' && previewCommand) {
+  if (agent === 'claude' && previewCommand) {
     const header = [
       question.question ?? question.reason,
       input.command,
@@ -118,16 +118,12 @@ export function assertApprovalPrompt(
   message: string,
   schema: unknown,
   question: any,
-  provider: Case['provider'],
+  agent: Case['agent'],
 ) {
-  assert.equal(
-    message,
-    expectedApprovalMessage(question, provider),
-    'Human approval message mismatch',
-  )
+  assert.equal(message, expectedApprovalMessage(question, agent), 'Human approval message mismatch')
   assert.deepEqual(
     schema,
-    provider === 'claude' ? expectedClaudeApprovalSchema : expectedCodexApprovalSchema,
+    agent === 'claude' ? expectedClaudeApprovalSchema : expectedCodexApprovalSchema,
     'Approval response schema mismatch',
   )
 }
@@ -329,25 +325,21 @@ export function assertIdentity(
   )
   const key = {
     protocol: 1,
-    provider: c.provider === 'claude' ? 'claude-code' : 'codex',
+    agent: c.agent === 'claude' ? 'claude-code' : 'codex',
     owner: c.owner,
     session_id: input.session_id,
     tool_use_id: c.callId,
-    ...(c.provider === 'codex' ? { turn_id: input.turn_id } : {}),
+    ...(c.agent === 'codex' ? { turn_id: input.turn_id } : {}),
   }
   assert.ok(typeof key.session_id === 'string' && key.session_id.length)
-  if (c.provider === 'codex') assert.ok(typeof key.turn_id === 'string' && key.turn_id.length)
+  if (c.agent === 'codex') assert.ok(typeof key.turn_id === 'string' && key.turn_id.length)
   assert.deepEqual(box.start?.key, key)
   assert.deepEqual(box.command?.key, key)
   assert.equal(box.command.id, box.start.nonce)
   assert.equal(box.command.pid, box.start.pid)
   assert.equal(box.start.disposition, 'run')
   if (anchor) {
-    for (const field of [
-      'session_id',
-      'tool_use_id',
-      ...(c.provider === 'codex' ? ['turn_id'] : []),
-    ])
+    for (const field of ['session_id', 'tool_use_id', ...(c.agent === 'codex' ? ['turn_id'] : [])])
       assert.equal(
         key[field as keyof typeof key],
         anchor[field],
@@ -401,7 +393,7 @@ export async function respond(message: string, schema: unknown, c: Case, signal?
     .map((ordinal) => active[`question-${ordinal}`].question)
   assert.equal(unanswered.length, 1, 'Expected exactly one live unanswered production question')
   const question = unanswered[0]!
-  assertApprovalPrompt(message, schema, question, c.provider)
+  assertApprovalPrompt(message, schema, question, c.agent)
   record(c.root, 'ui-request', { message, schema })
   const observationDeadline = Date.now() + 3000
   while (!rows(c.root).some((row) => row.event === 'native-pre')) {
@@ -423,7 +415,7 @@ export async function respond(message: string, schema: unknown, c: Case, signal?
     (c.mode === 'decline-second' && question.ordinal === 2)
   const action = cancel ? 'cancel' : decline ? 'decline' : 'accept'
   record(c.root, 'ui-response', { question, action })
-  return action === 'accept' ? acceptedElicitationResult(c.provider) : { action }
+  return action === 'accept' ? acceptedElicitationResult(c.agent) : { action }
 }
 
 export function assertOutcome(
@@ -540,7 +532,7 @@ export function assertOutcome(
     assert.equal(effect, undefined)
     assert.equal(effects.length, 0)
     assert.equal(posts.length, 0)
-    if (c.provider === 'claude') assert.equal(native.output.is_error, true)
+    if (c.agent === 'claude') assert.equal(native.output.is_error, true)
     else if (shell)
       assert.ok(String(native.output.output).includes('Command blocked by PreToolUse hook'))
     else {
@@ -560,7 +552,7 @@ export function assertOutcome(
     const post = posts[0]!.input as Record<string, any>
     assert.equal(post.tool_use_id, c.callId)
     assert.equal(post.session_id, key.session_id)
-    if (c.provider === 'codex') assert.equal(post.turn_id, key.turn_id)
+    if (c.agent === 'codex') assert.equal(post.turn_id, key.turn_id)
     assert.equal(post.tool_name, c.operation.toolName)
     assert.deepEqual(post.tool_input, c.operation.input)
     const lastHook = journal.findIndex((row) => row.event === '5')
@@ -581,7 +573,7 @@ export function assertOutcome(
         substantive(post.tool_response),
         'Native non-shell completion response must be substantive',
       )
-    if (c.provider === 'claude') {
+    if (c.agent === 'claude') {
       assert.notEqual(native.output.is_error, true)
       if (!shell)
         assert.ok(

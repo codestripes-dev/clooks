@@ -6,7 +6,7 @@ import {
   journal,
   read,
   sharedHomeRoot,
-  type Provider,
+  type AgentId,
 } from '../fixtures/interactive-approvals/channel'
 import type { OverlapManifest } from '../fixtures/interactive-approvals/overlap-responder'
 import { fixtures, launch, quote, save, setup } from './native'
@@ -62,7 +62,7 @@ export function assertOverlap(
     assert.ok(rows.indexOf(questions.find((row) => row.ordinal === 1)) < firstReply)
     const command = one('command-start', id)
     assert.equal(command.key.owner, manifest.owner)
-    assert.equal(command.key.provider, manifest.provider)
+    assert.equal(command.key.agent, manifest.agent)
     assert.equal(command.environment.HOME, manifest.home)
     assert.equal(command.ipcRoot, sharedHomeRoot(manifest.home))
     for (const packet of [
@@ -160,7 +160,7 @@ export function assertOverlap(
       .sort(),
     [a, b].sort(),
   )
-  if (manifest.provider === 'codex') {
+  if (manifest.agent === 'codex') {
     const parent = read(join(directory, 'thread-start.json')).thread.id
     const turn = read(join(directory, 'turn-start.json')).turn.id
     assert.equal(native.parent, parent)
@@ -286,7 +286,7 @@ export function assertOverlap(
   }
 }
 
-export async function runOverlap(directory: string, provider: Provider, topology: OverlapTopology) {
+export async function runOverlap(directory: string, agent: AgentId, topology: OverlapTopology) {
   assert.equal(
     process.env.CLOOKS_E2E_DOCKER,
     'true',
@@ -301,14 +301,14 @@ export async function runOverlap(directory: string, provider: Provider, topology
   )
   const serialChildControl = topology === 'serial-child-control'
   const primedChildControl = topology === 'primed-child-control'
-  if (serialChildControl || primedChildControl) assert.equal(provider, 'codex')
-  const r = setup(directory, provider, 'overlap', false)
+  if (serialChildControl || primedChildControl) assert.equal(agent, 'codex')
+  const r = setup(directory, agent, 'overlap', false)
   delete r.env.APPROVAL_ROOT
   r.env.APPROVAL_LOG_ROOT = directory
   r.env.APPROVAL_SHARED_HOME = '1'
   if (serialChildControl) r.env.RUST_LOG = 'debug'
   const manifest: OverlapManifest = {
-    provider,
+    agent,
     topology: serialChildControl || primedChildControl ? 'parent-child' : topology,
     ...(serialChildControl ? { serialChildControl: true as const } : {}),
     ...(primedChildControl
@@ -331,7 +331,7 @@ export async function runOverlap(directory: string, provider: Provider, topology
   }
   save(join(directory, 'overlap-manifest.json'), manifest)
   r.hooks.hooks.PreToolUse[0]!.matcher = 'Bash'
-  if (provider === 'claude') {
+  if (agent === 'claude') {
     r.hooks.hooks.Elicitation![0]!.hooks[0]!.command = `exec bun ${quote(join(fixtures, 'overlap-responder.ts'))}`
     const hooks = r.hooks.hooks as Record<string, unknown>
     hooks.SubagentStart = r.hooks.hooks.PostToolUse
@@ -341,18 +341,18 @@ export async function runOverlap(directory: string, provider: Provider, topology
     ...r.hooks,
     permissions: { allow: ['Bash(*)', 'Agent', 'TaskOutput'] },
   })
-  const version = Bun.spawnSync([`/native/${provider}`, '--version'], { env: r.env, timeout: 5000 })
+  const version = Bun.spawnSync([`/native/${agent}`, '--version'], { env: r.env, timeout: 5000 })
   assert.equal(version.exitCode, 0)
-  assert.ok(version.stdout.toString().includes(provider === 'claude' ? '2.1.272' : '0.154.0'))
+  assert.ok(version.stdout.toString().includes(agent === 'claude' ? '2.1.272' : '0.154.0'))
   save(join(directory, 'overlap-version.json'), {
     version: version.stdout.toString().trim(),
     sha256: createHash('sha256')
-      .update(readFileSync(`/native/${provider}`))
+      .update(readFileSync(`/native/${agent}`))
       .digest('hex'),
   })
   const model = overlapModel(directory, manifest)
   try {
-    if (provider === 'codex') await launchOverlapCodex(r, model.port!, serialChildControl ? 2 : 3)
+    if (agent === 'codex') await launchOverlapCodex(r, model.port!, serialChildControl ? 2 : 3)
     else {
       save(join(directory, 'mcp.json'), {
         mcpServers: { checkpoints: { command: 'bun', args: [join(fixtures, 'mcp.ts')] } },
@@ -406,7 +406,7 @@ export async function runOverlap(directory: string, provider: Provider, topology
       assert.ok(completedA >= 0 && completedA < postA && postA < childStart)
       const result = {
         passed: true,
-        provider,
+        agent,
         topology,
         diagnosticOnly: true,
         overlapProof: false,
@@ -421,7 +421,7 @@ export async function runOverlap(directory: string, provider: Provider, topology
     const evidence = assertOverlap(directory, manifest, native)
     const result = {
       passed: true,
-      provider,
+      agent,
       topology,
       native,
       evidence,
@@ -443,7 +443,7 @@ export async function runOverlap(directory: string, provider: Provider, topology
   } catch (error) {
     save(join(directory, 'result.json'), {
       passed: false,
-      provider,
+      agent,
       topology,
       ...(serialChildControl ? { diagnosticOnly: true, overlapProof: false } : {}),
       ...(primedChildControl

@@ -38,17 +38,17 @@ export function getFailurePath(
   projectRoot: string,
   homeRoot: string,
   hasProjectConfig: boolean,
-  provider: AgentId = 'claude-code',
+  agent: AgentId = 'claude-code',
 ): string {
   if (hasProjectConfig) {
-    if (provider === 'codex') {
-      return join(projectRoot, '.clooks', '.cache', 'agents', provider, 'failures.json')
+    if (agent === 'codex') {
+      return join(projectRoot, '.clooks', '.cache', 'agents', agent, 'failures.json')
     }
     return join(projectRoot, '.clooks/.failures')
   }
   const hash = createHash('sha256').update(projectRoot).digest('hex').slice(0, 12)
-  if (provider === 'codex') {
-    return join(homeRoot, '.clooks/failures', provider, `${hash}.json`)
+  if (agent === 'codex') {
+    return join(homeRoot, '.clooks/failures', agent, `${hash}.json`)
   }
   return join(homeRoot, '.clooks/failures', `${hash}.json`)
 }
@@ -57,29 +57,27 @@ export function getConfigFailurePath(
   projectRoot: string,
   homeRoot: string,
   hasProjectConfig: boolean,
-  provider: AgentId = 'claude-code',
+  agent: AgentId = 'claude-code',
 ): string {
-  return provider === 'claude-code'
+  return agent === 'claude-code'
     ? join(projectRoot, '.clooks/.failures')
-    : getFailurePath(projectRoot, homeRoot, hasProjectConfig, provider)
+    : getFailurePath(projectRoot, homeRoot, hasProjectConfig, agent)
 }
 
 export function getFailureLocation(
   projectRoot: string,
   homeRoot: string,
   hasProjectConfig: boolean,
-  provider: AgentId,
+  agent: AgentId,
   configError = false,
 ): FailureLocation {
   const path = configError
-    ? getConfigFailurePath(projectRoot, homeRoot, hasProjectConfig, provider)
-    : getFailurePath(projectRoot, homeRoot, hasProjectConfig, provider)
-  return provider === 'claude-code'
-    ? path
-    : { path, root: hasProjectConfig ? projectRoot : homeRoot }
+    ? getConfigFailurePath(projectRoot, homeRoot, hasProjectConfig, agent)
+    : getFailurePath(projectRoot, homeRoot, hasProjectConfig, agent)
+  return agent === 'claude-code' ? path : { path, root: hasProjectConfig ? projectRoot : homeRoot }
 }
 
-/** Validate managed components without following a link into another provider's state. */
+/** Validate managed components without following a link into another agent's state. */
 async function managedFailurePath(
   location: Exclude<FailureLocation, string>,
   create: boolean,

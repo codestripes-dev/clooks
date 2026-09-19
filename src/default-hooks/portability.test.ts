@@ -38,11 +38,11 @@ const { hook: manager } = await import(
   join(root, 'clooks-project-hooks/js-package-manager-guard.ts')
 )
 
-type Provider = CoreContext['provider'] & ProjectContext['provider']
-const providers: Array<Provider | undefined> = [undefined, 'claude-code', 'codex']
-function context(provider: Provider | undefined, extra = {}) {
+type AgentId = CoreContext['agent'] & ProjectContext['agent']
+const agents: Array<AgentId | undefined> = [undefined, 'claude-code', 'codex']
+function context(agent: AgentId | undefined, extra = {}) {
   return {
-    provider,
+    agent,
     cwd: '/project',
     toolName: 'Bash',
     toolInput: { command: 'echo ok' },
@@ -52,21 +52,21 @@ function context(provider: Provider | undefined, extra = {}) {
     ...extra,
   }
 }
-function shell(provider: Provider | undefined, command: string) {
-  return context(provider, { toolInput: { command } })
+function shell(agent: AgentId | undefined, command: string) {
+  return context(agent, { toolInput: { command } })
 }
 
 describe('actual default hook portability', () => {
-  test('both pack declarations match the provider-bearing generated bundle', () => {
+  test('both pack declarations match the agent-bearing generated bundle', () => {
     const generated = readFileSync(join(import.meta.dir, '../generated/clooks-types.d.ts'), 'utf8')
-    expect(generated).toContain('provider:')
+    expect(generated).toContain('agent:')
     for (const pack of Object.keys(packs)) {
       expect(readFileSync(join(root, pack, 'types.d.ts'), 'utf8')).toBe(generated)
     }
   })
 
-  for (const provider of providers) {
-    describe(provider ?? 'legacy missing provider', () => {
+  for (const agent of agents) {
+    describe(agent ?? 'legacy missing agent', () => {
       test.each([
         'cat a',
         'head a',
@@ -78,8 +78,8 @@ describe('actual default hook portability', () => {
         'find .',
         'ls',
       ])('read/search: %s', (command) => {
-        expect(prefer.PreToolUse(shell(provider, command), prefer.meta.config).result).toBe(
-          provider === 'codex' ? 'skip' : 'block',
+        expect(prefer.PreToolUse(shell(agent, command), prefer.meta.config).result).toBe(
+          agent === 'codex' ? 'skip' : 'block',
         )
       })
       test.each([
@@ -87,10 +87,10 @@ describe('actual default hook portability', () => {
         ['echo-redirect', 'echo x > a'],
         ['sleep', 'sleep 1'],
       ])('retains %s with appropriate guidance and disable', (rule, command) => {
-        const result = prefer.PreToolUse(shell(provider, command), prefer.meta.config)
+        const result = prefer.PreToolUse(shell(agent, command), prefer.meta.config)
         expect(result.result).toBe('block')
         expect(result.reason).toContain(
-          provider === 'codex'
+          agent === 'codex'
             ? rule === 'sleep'
               ? 'available process tools'
               : 'apply_patch'
@@ -98,26 +98,25 @@ describe('actual default hook portability', () => {
               ? 'run_in_background'
               : 'tool',
         )
-        if (provider === 'codex')
+        if (agent === 'codex')
           expect(result.reason).not.toMatch(/Read|Glob|Grep|Edit tool|Write tool|run_in_background/)
         expect(
-          prefer.PreToolUse(shell(provider, command), { ...prefer.meta.config, [rule]: false })
-            .result,
+          prefer.PreToolUse(shell(agent, command), { ...prefer.meta.config, [rule]: false }).result,
         ).toBe('skip')
         expect(
           prefer.PreToolUse(
-            shell(provider, `ALLOW_BUILTIN_COMMAND=true ${command}`),
+            shell(agent, `ALLOW_BUILTIN_COMMAND=true ${command}`),
             prefer.meta.config,
           ).result,
         ).toBe('skip')
       })
-      test('additional rules survive provider skips, disabled defaults, and escape prefixes', () => {
+      test('additional rules survive agent skips, disabled defaults, and escape prefixes', () => {
         const config = {
           ...Object.fromEntries(Object.keys(prefer.meta.config).map((key) => [key, false])),
           additionalRules: [{ match: '\\bcat\\b', message: 'custom cat rule' }],
         }
         for (const command of ['cat a', 'ALLOW_BUILTIN_COMMAND=true cat a']) {
-          expect(prefer.PreToolUse(shell(provider, command), config)).toMatchObject({
+          expect(prefer.PreToolUse(shell(agent, command), config)).toMatchObject({
             result: 'block',
             reason: 'custom cat rule',
           })
@@ -125,22 +124,22 @@ describe('actual default hook portability', () => {
       })
       test('announcement reflects effective built-in rules and disabled rules', () => {
         const config = { ...prefer.meta.config, sleep: false }
-        const result = prefer.SessionStart(context(provider), config)
+        const result = prefer.SessionStart(context(agent), config)
         expect(result.result).toBe('skip')
         expect(result.injectContext).not.toContain('sleep')
-        if (provider === 'codex') {
+        if (agent === 'codex') {
           expect(result.injectContext).toContain('apply_patch')
           expect(result.injectContext).toContain('sed -i')
           expect(result.injectContext).not.toMatch(/Read|Glob|Grep|run_in_background/)
         } else expect(result.injectContext).toContain('Read, Glob, Grep, Edit, Write')
         expect(
           prefer.SessionStart(
-            context(provider),
+            context(agent),
             Object.fromEntries(Object.keys(prefer.meta.config).map((key) => [key, false])),
           ),
         ).toEqual({ result: 'skip' })
       })
-      test('paste placeholder formats block on every provider, preserving exact notification skip', () => {
+      test('paste placeholder formats block on every agent, preserving exact notification skip', () => {
         for (const prompt of [
           '[Pasted text #1 +10 lines]',
           'explain [Pasted text #2 +1 line]',
@@ -150,15 +149,15 @@ describe('actual default hook portability', () => {
           '[Pasted Content 123 chars] [Pasted Content 123 chars] #2',
           '[Pasted text #1 +10 lines] [Pasted Content 123 chars]',
         ]) {
-          expect(placeholder.UserPromptSubmit(context(provider, { prompt })).result).toBe('block')
+          expect(placeholder.UserPromptSubmit(context(agent, { prompt })).result).toBe('block')
           expect(
             placeholder.UserPromptSubmit(
-              context(provider, { prompt: `<task-notification>${prompt}</task-notification>` }),
+              context(agent, { prompt: `<task-notification>${prompt}</task-notification>` }),
             ).result,
           ).toBe('skip')
           expect(
             placeholder.UserPromptSubmit(
-              context(provider, { prompt: ` <task-notification>${prompt}` }),
+              context(agent, { prompt: ` <task-notification>${prompt}` }),
             ).result,
           ).toBe('block')
         }
@@ -171,10 +170,10 @@ describe('actual default hook portability', () => {
           'Pasted Content 123 chars',
           '[Pasted Content abc chars]',
         ]) {
-          expect(placeholder.UserPromptSubmit(context(provider, { prompt })).result).toBe('skip')
+          expect(placeholder.UserPromptSubmit(context(agent, { prompt })).result).toBe('skip')
         }
       })
-      test('compound cd exception requires &&; escape and provider guidance remain', () => {
+      test('compound cd exception requires &&; escape and agent guidance remain', () => {
         for (const command of [
           'echo a && echo b',
           'echo a || echo b',
@@ -185,10 +184,10 @@ describe('actual default hook portability', () => {
           'cd /tmp&&true && echo done',
           'cd "/path with spaces"; echo a',
         ]) {
-          const result = compound.PreToolUse(shell(provider, command))
+          const result = compound.PreToolUse(shell(agent, command))
           expect(result.result).toBe('block')
           expect(result.reason).toContain(
-            provider === 'codex' ? 'individual shell tool calls' : 'individual Bash calls',
+            agent === 'codex' ? 'individual shell tool calls' : 'individual Bash calls',
           )
         }
         for (const command of [
@@ -200,12 +199,12 @@ describe('actual default hook portability', () => {
           'ALLOW_COMPOUND=true echo a && echo b',
           'echo "a && b"',
         ]) {
-          expect(compound.PreToolUse(shell(provider, command)).result).toBe('allow')
+          expect(compound.PreToolUse(shell(agent, command)).result).toBe('allow')
         }
-        const announcement = compound.SessionStart(context(provider)).injectContext
+        const announcement = compound.SessionStart(context(agent)).injectContext
         expect(announcement).toStartWith('The no-compound-commands')
-        expect(announcement).toContain(provider === 'codex' ? 'Shell tools' : 'The Bash tool')
-        if (provider === 'codex') expect(announcement).not.toMatch(/Claude|Bash|Read|Glob|Grep/)
+        expect(announcement).toContain(agent === 'codex' ? 'Shell tools' : 'The Bash tool')
+        if (agent === 'codex') expect(announcement).not.toMatch(/Claude|Bash|Read|Glob|Grep/)
       })
       test('all existing lock defaults cover root and nested paths, without widening custom patterns', () => {
         const config = protectedFiles.meta.config
@@ -226,7 +225,7 @@ describe('actual default hook portability', () => {
         ]) {
           for (const prefix of ['', 'packages/widget/']) {
             for (const toolName of ['Write', 'Edit', 'MultiEdit']) {
-              const ctx = context(provider, {
+              const ctx = context(agent, {
                 toolName,
                 toolInput: { filePath: `/project/${prefix}${name}` },
               })
@@ -249,7 +248,7 @@ describe('actual default hook portability', () => {
         ]) {
           expect(
             protectedFiles.PreToolUse(
-              context(provider, { toolName: 'Write', toolInput: { filePath } }),
+              context(agent, { toolName: 'Write', toolInput: { filePath } }),
               custom,
             ).result,
           ).toBe(result)
@@ -262,7 +261,7 @@ describe('actual default hook portability', () => {
         ]) {
           expect(
             protectedFiles.PreToolUse(
-              context(provider, {
+              context(agent, {
                 toolName: 'Edit',
                 toolInput: { filePath: `/project/pkg/${name}` },
               }),
@@ -277,7 +276,7 @@ describe('actual default hook portability', () => {
         }
         expect(
           protectedFiles.PreToolUse(
-            context(provider, {
+            context(agent, {
               toolName: 'Edit',
               toolInput: { filePath: '/project/safe/bun.lock' },
             }),
@@ -286,7 +285,7 @@ describe('actual default hook portability', () => {
         ).toBe('skip')
         expect(
           protectedFiles.PreToolUse(
-            context(provider, {
+            context(agent, {
               toolName: 'Edit',
               toolInput: { filePath: '/project/pkg/bun.lock' },
             }),
@@ -294,21 +293,21 @@ describe('actual default hook portability', () => {
           ).reason,
         ).toContain('custom lock')
       })
-      test('git and manager guards retain decisions with both providers', () => {
+      test('git and manager guards retain decisions with both agents', () => {
         for (const [command, result] of [
           ['git reset --hard', 'block'],
           ['git status', 'skip'],
           ['ALLOW_DESTRUCTIVE_GIT=true git reset --hard', 'skip'],
           ['ALLOW_DESTRUCTIVE_GIT=true git add .', 'block'],
         ] as const) {
-          expect(git.PreToolUse(shell(provider, command), git.meta.config).result).toBe(result)
+          expect(git.PreToolUse(shell(agent, command), git.meta.config).result).toBe(result)
         }
         for (const [command, result] of [
           ['npm install', 'block'],
           ['bun install', 'skip'],
           ['bunx prettier', 'skip'],
         ] as const) {
-          expect(manager.PreToolUse(shell(provider, command), { allowed: ['bun'] }).result).toBe(
+          expect(manager.PreToolUse(shell(agent, command), { allowed: ['bun'] }).result).toBe(
             result,
           )
         }

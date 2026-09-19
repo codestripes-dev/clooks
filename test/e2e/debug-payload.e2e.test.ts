@@ -39,16 +39,16 @@ function expectClaudeSkipDebug(result: RunResult) {
 }
 
 describe('actual debug-payload compiled contract', () => {
-  for (const provider of ['claude-code', 'codex'] as const) {
+  for (const agent of ['claude-code', 'codex'] as const) {
     test.each([undefined, 'false', 'true'])(
-      `${provider} gate=%s: normalized context and observational output`,
+      `${agent} gate=%s: normalized context and observational output`,
       (debug) => {
         install()
         for (const event of ['PreToolUse', 'PostCompact', 'SessionEnd', 'SessionStart']) {
           const logDir = join(sandbox.dir, 'logs', event)
           const common = {
             hook_event_name: event,
-            session_id: `debug-${provider}-${event}`,
+            session_id: `debug-${agent}-${event}`,
             cwd: sandbox.dir,
             transcript_path: null,
           }
@@ -60,7 +60,7 @@ describe('actual debug-payload compiled contract', () => {
                   permission_mode: 'default',
                   turn_id: 'fixture-turn',
                   tool_use_id: 'fixture-call',
-                  tool_name: provider === 'codex' ? 'exec_command' : 'Bash',
+                  tool_name: agent === 'codex' ? 'exec_command' : 'Bash',
                   tool_input: { command: 'echo synthetic-secret' },
                   source: 'startup',
                   trigger: 'auto',
@@ -69,7 +69,7 @@ describe('actual debug-payload compiled contract', () => {
           const result = sandbox.run([], {
             stdin: JSON.stringify({ ...common, ...fields }),
             env: {
-              CLOOKS_AGENT: provider,
+              CLOOKS_AGENT: agent,
               CODEX_HOME: join(sandbox.home, '.codex'),
               CLOOKS_LOGDIR: logDir,
               ...(debug === undefined ? {} : { CLOOKS_DEBUG: debug }),
@@ -90,7 +90,7 @@ describe('actual debug-payload compiled contract', () => {
           const normalized = JSON.parse(line.slice(line.indexOf('{')))
           expect(normalized).toMatchObject({
             event,
-            provider,
+            agent,
             sessionId: common.session_id,
             cwd: sandbox.dir,
           })
@@ -104,7 +104,7 @@ describe('actual debug-payload compiled contract', () => {
               JSON.stringify(normalized, null, 2),
             )
             expect(output.hookSpecificOutput.permissionDecision).toBeUndefined()
-          } else if (event === 'PreToolUse' && provider === 'claude-code') {
+          } else if (event === 'PreToolUse' && agent === 'claude-code') {
             expectClaudeSkipDebug(result)
             expect(JSON.parse(result.stdout).hookSpecificOutput.additionalContext).toContain(
               JSON.stringify(normalized, null, 2),
@@ -118,7 +118,7 @@ describe('actual debug-payload compiled contract', () => {
             expect(normalized.toolName).toBe('Bash')
             expect(normalized.toolInput.command).toBe('echo synthetic-secret')
           }
-          if (event === 'SessionEnd' && provider === 'codex') {
+          if (event === 'SessionEnd' && agent === 'codex') {
             expect(normalized.reason).toBe('other')
             expect(normalized.model).toBeUndefined()
             expect(normalized.permissionMode).toBeUndefined()
@@ -127,7 +127,7 @@ describe('actual debug-payload compiled contract', () => {
       },
     )
 
-    test(`${provider}: failed debug-file write remains observational`, () => {
+    test(`${agent}: failed debug-file write remains observational`, () => {
       install()
       sandbox.writeFile('occupied', 'unchanged')
       const result = sandbox.run([], {
@@ -140,11 +140,11 @@ describe('actual debug-payload compiled contract', () => {
           permission_mode: 'default',
           turn_id: 'fixture-turn',
           tool_use_id: 'fixture-call',
-          tool_name: provider === 'codex' ? 'exec_command' : 'Bash',
+          tool_name: agent === 'codex' ? 'exec_command' : 'Bash',
           tool_input: { command: 'echo inert' },
         }),
         env: {
-          CLOOKS_AGENT: provider,
+          CLOOKS_AGENT: agent,
           CODEX_HOME: join(sandbox.home, '.codex'),
           CLOOKS_DEBUG: 'true',
           CLOOKS_LOGDIR: join(sandbox.dir, 'occupied'),
@@ -152,7 +152,7 @@ describe('actual debug-payload compiled contract', () => {
       })
       expect(result.rawExitCode, formatDiagnostics(result)).toBe(0)
       expect(result.signalCode).toBeNull()
-      if (provider === 'claude-code') expectClaudeSkipDebug(result)
+      if (agent === 'claude-code') expectClaudeSkipDebug(result)
       else expect(result.stdout).toBe('')
       expect(result.stderr).toContain('debug-payload [PreToolUse]')
       expect(sandbox.readFile('occupied')).toBe('unchanged')

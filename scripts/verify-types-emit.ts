@@ -22,7 +22,7 @@
 // name; `bun run typecheck` should then surface a clear error.
 
 import type {
-  Provider,
+  AgentId,
   EventContextMap,
   BeforeHookEvent,
   AfterHookEvent,
@@ -43,18 +43,18 @@ import type {
 
 declare const eventContexts: EventContextMap
 declare const eventName: keyof EventContextMap
-declare const beforeProvider: BeforeHookEvent
-declare const afterProvider: AfterHookEvent
-const bundledProviders: Provider[] = [
-  eventContexts[eventName].provider,
-  beforeProvider.input.provider,
-  afterProvider.input.provider,
+declare const beforeAgent: BeforeHookEvent
+declare const afterAgent: AfterHookEvent
+const bundledAgents: AgentId[] = [
+  eventContexts[eventName].agent,
+  beforeAgent.input.agent,
+  afterAgent.input.agent,
 ]
-// @ts-expect-error The generated provider union must remain closed.
-bundledProviders.push('other')
-// @ts-expect-error Every generated context has non-optional provider identity.
-const missingProvider: undefined = eventContexts[eventName].provider
-void missingProvider
+// @ts-expect-error The generated agent union must remain closed.
+bundledAgents.push('other')
+// @ts-expect-error Every generated context has non-optional agent identity.
+const missingAgent: undefined = eventContexts[eventName].agent
+void missingAgent
 
 // --- Tool-keyed PreToolUse:Bash arm ---
 declare const preToolUseCtx: PreToolUseContext

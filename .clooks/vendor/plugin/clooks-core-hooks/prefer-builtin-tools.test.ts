@@ -543,11 +543,11 @@ describe('edge cases', () => {
   })
 })
 
-describe('provider-aware policy', () => {
-  for (const provider of [undefined, 'claude-code', 'codex'] as const) {
-    describe(provider ?? 'legacy missing provider', () => {
+describe('agent-aware policy', () => {
+  for (const agent of [undefined, 'claude-code', 'codex'] as const) {
+    describe(agent ?? 'legacy missing agent', () => {
       function context(command = '') {
-        return Object.assign(makeCtx(command), provider === undefined ? {} : { provider })
+        return Object.assign(makeCtx(command), agent === undefined ? {} : { agent })
       }
       function inspect(command: string, config: Config = DEFAULT_CONFIG) {
         return hook.PreToolUse!(context(command), config) as unknown as Record<string, unknown>
@@ -565,7 +565,7 @@ describe('provider-aware policy', () => {
           'cat a', 'head a', 'tail a', 'grep x a', 'rg x a',
           'egrep x a', 'fgrep x a', 'find .', 'ls',
         ]) {
-          expect(inspect(command).result).toBe(provider === 'codex' ? 'skip' : 'block')
+          expect(inspect(command).result).toBe(agent === 'codex' ? 'skip' : 'block')
         }
         expect(inspect('cat a', { ...DEFAULT_CONFIG, cat: false }).result).toBe('skip')
       })
@@ -580,10 +580,10 @@ describe('provider-aware policy', () => {
           const result = inspect(command!)
           expect(result.result).toBe('block')
           expect(result.reason).toContain(`[${rule}]`)
-          expect(result.reason).toContain(provider === 'codex'
+          expect(result.reason).toContain(agent === 'codex'
             ? rule === 'sleep' ? 'available process tools' : 'apply_patch'
             : claudeGuidance!)
-          if (provider === 'codex')
+          if (agent === 'codex')
             expect(result.reason).not.toMatch(/Read|Glob|Grep|Edit tool|Write tool|run_in_background/)
           expect(inspect(command!, { ...DEFAULT_CONFIG, [rule!]: false }).result).toBe('skip')
           expect(inspect(`ALLOW_BUILTIN_COMMAND=true ${command}`).result).toBe('skip')
@@ -598,7 +598,7 @@ describe('provider-aware policy', () => {
         expect(inspect('sleep 1 | echo done').result).toBe('block')
       })
 
-      test('custom rules survive provider skips, disabled rules and escape', () => {
+      test('custom rules survive agent skips, disabled rules and escape', () => {
         const custom = [{ match: '\\bcat\\b', message: 'custom cat rule' }]
         const config = { ...DEFAULT_CONFIG, cat: false, additionalRules: custom }
         for (const command of ['cat a', 'ALLOW_BUILTIN_COMMAND=true cat a']) {
@@ -606,17 +606,17 @@ describe('provider-aware policy', () => {
             result: 'block', reason: 'custom cat rule',
           })
         }
-        if (provider === 'codex')
+        if (agent === 'codex')
           expect(inspect('cat a', { ...DEFAULT_CONFIG, additionalRules: custom }).reason)
             .toBe('custom cat rule')
       })
 
-      test('SessionStart announces only effective rules with provider guidance', () => {
+      test('SessionStart announces only effective rules with agent guidance', () => {
         const result = announce({ ...DEFAULT_CONFIG, sleep: false })
         expect(result.result).toBe('skip')
         expect(result.injectContext).toContain('sed -i')
         expect(result.injectContext).not.toContain('sleep')
-        if (provider === 'codex') {
+        if (agent === 'codex') {
           expect(result.injectContext).toContain('apply_patch')
           expect(result.injectContext).toContain('configured additional rules still apply')
           expect(result.injectContext).not.toMatch(/Read|Glob|Grep|run_in_background|grep\/rg/)

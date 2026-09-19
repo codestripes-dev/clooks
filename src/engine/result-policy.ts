@@ -5,7 +5,7 @@ import type { EngineResult } from './types.js'
 import { hasLosslessShape } from '../agents/codex/policy.js'
 import { isValidAskQuestion, MAX_ASK_QUESTION_LENGTH } from './ask-question.js'
 
-/** Claude accepts the existing dynamic result surface; semantic validation is provider-owned. */
+/** Claude accepts the existing dynamic result surface; semantic validation is agent-owned. */
 export const legacyResultPolicy: InvocationResultPolicy = {
   checkResult({ value }) {
     return {

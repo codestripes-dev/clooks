@@ -120,7 +120,7 @@ test('quoted Claude global paired command-only remnants are recognized, repaired
   expect(JSON.parse(readFileSync(path, 'utf8')).hooks).toBeUndefined()
 })
 
-test('companion ownership is exact, not a server-name substring or a public provider alias', () => {
+test('companion ownership is exact, not a server-name substring or a public agent alias', () => {
   const hook = approvalCompanion('claude-code', owner)
   expect(isApprovalCompanion(hook, 'claude-code')).toBe(true)
   for (const value of [
@@ -128,7 +128,7 @@ test('companion ownership is exact, not a server-name substring or a public prov
     [],
     {},
     { ...hook, server: 'clooks-extra' },
-    { ...hook, input: { ...(hook.input as object), provider: 'claude' } },
+    { ...hook, input: { ...(hook.input as object), agent: 'claude' } },
     { ...hook, input: { ...(hook.input as object), session_id: 'another' } },
   ]) {
     expect(isApprovalCompanion(value, 'claude-code')).toBe(false)

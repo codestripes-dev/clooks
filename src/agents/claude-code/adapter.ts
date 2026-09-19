@@ -220,7 +220,7 @@ export const claudeCodeAdapter: AgentAdapter = {
       eventName,
       context: normalized,
       private: {
-        provider: 'claude-code',
+        agent: 'claude-code',
         raw: cloneDeep(payload),
         sessionId: typeof payload.session_id === 'string' ? payload.session_id : null,
         nativeTurnId: null,

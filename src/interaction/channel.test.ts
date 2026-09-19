@@ -27,14 +27,14 @@ const homes: string[] = []
 afterEach(() => {
   for (const home of homes.splice(0)) rmSync(home, { recursive: true, force: true })
 })
-function fixture(provider: CheckInput['provider'] = 'codex') {
+function fixture(agent: CheckInput['agent'] = 'codex') {
   const home = mkdtempSync(join(tmpdir(), 'clooks-interaction-'))
   homes.push(home)
   const key: CheckInput =
-    provider === 'codex'
+    agent === 'codex'
       ? {
           protocol: 1,
-          provider,
+          agent,
           owner: 'project:test',
           session_id: 'session',
           turn_id: 'turn',
@@ -42,7 +42,7 @@ function fixture(provider: CheckInput['provider'] = 'codex') {
         }
       : {
           protocol: 1,
-          provider,
+          agent,
           owner: 'project:test',
           session_id: 'session',
           tool_use_id: crypto.randomUUID(),
@@ -378,10 +378,10 @@ test('snapshot is immutable across caller mutation while response is pending', a
   expect(output(await check)).toEqual({})
 })
 
-for (const provider of ['claude-code', 'codex'] as const)
+for (const agent of ['claude-code', 'codex'] as const)
   for (const disposition of ['run', 'suppressed'] as const)
-    test(`${provider} ${disposition} no-ask close does not wait for attachment`, async () => {
-      const f = fixture(provider)
+    test(`${agent} ${disposition} no-ask close does not wait for attachment`, async () => {
+      const f = fixture(agent)
       const noWait = {
         ...f.clock,
         pause: async () => {

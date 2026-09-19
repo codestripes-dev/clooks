@@ -345,7 +345,7 @@ export const hook = {meta:{name:'onboarding-observer'}, SessionStart:record, Pos
         const hookPath = join(project, '.clooks/hooks/onboarding-created.ts')
         const fixture = JSON.stringify({
           event: 'PreToolUse',
-          provider: 'codex',
+          agent: 'codex',
           toolName: 'Bash',
           toolInput: { command: 'printf smoke' },
           originalToolInput: { command: 'printf smoke' },

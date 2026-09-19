@@ -13,7 +13,7 @@ import {
   sharedHomeRoot,
   wait,
   type Identity,
-  type Provider,
+  type AgentId,
 } from './channel'
 
 export interface OverlapOperation {
@@ -22,7 +22,7 @@ export interface OverlapOperation {
   effect: string
 }
 export interface OverlapManifest {
-  provider: Provider
+  agent: AgentId
   owner: string
   home: string
   topology: 'same-session' | 'parent-child'
@@ -33,7 +33,7 @@ export interface OverlapManifest {
 
 export function loadOverlap(directory: string): OverlapManifest {
   const manifest = read(join(directory, 'overlap-manifest.json')) as OverlapManifest
-  assert.ok(manifest && ['claude', 'codex'].includes(manifest.provider))
+  assert.ok(manifest && ['claude', 'codex'].includes(manifest.agent))
   assert.equal(Object.keys(manifest.calls).length, 2)
   assert.deepEqual(
     Object.values(manifest.calls)
@@ -75,7 +75,7 @@ export function pendingCall(
   assert.equal(commands.length, 1, 'Exactly one original native command required')
   const command = commands[0]
   const key = identity(command.key)
-  assert.equal(key.provider, manifest.provider)
+  assert.equal(key.agent, manifest.agent)
   assert.equal(key.owner, manifest.owner)
   assert.equal(command.environment.HOME, manifest.home)
   const ipc = sharedHomeRoot(manifest.home)

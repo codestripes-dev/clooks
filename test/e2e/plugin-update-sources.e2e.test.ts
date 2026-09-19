@@ -179,7 +179,7 @@ function denied(agent: 'claude-code' | 'codex', marker = 'guard') {
   expect(sandbox.readFile('.clooks/executed')).toBe(`${marker}\n`)
 }
 
-describe('compiled provider-aware plugin updates', () => {
+describe('compiled agent-aware plugin updates', () => {
   test('restores an own-registered missing file while preserving a genuine custom collision', () => {
     setup()
     const cache = install('claude-code', { optional: true })
@@ -272,7 +272,7 @@ describe('compiled provider-aware plugin updates', () => {
   }
 
   for (const selected of ['claude-code', 'codex']) {
-    test(`explicit --agent ${selected} resolves cross-provider disagreement`, () => {
+    test(`explicit --agent ${selected} resolves cross-agent disagreement`, () => {
       setup()
       const claude = install('claude-code', { code: source('guard', 'claude-copy') })
       const codex = install('codex', { code: source('guard', 'codex-copy') })
@@ -295,15 +295,15 @@ describe('compiled provider-aware plugin updates', () => {
     unchanged(before)
   })
 
-  for (const provider of ['claude-code', 'codex'] as const) {
-    test(`multiple marketplaces in ${provider} remain ambiguous after filtering`, () => {
+  for (const agent of ['claude-code', 'codex'] as const) {
+    test(`multiple marketplaces in ${agent} remain ambiguous after filtering`, () => {
       setup()
-      install(provider, { key: 'shared@a' })
-      install(provider, { key: 'shared@b', code: source('guard', 'different') })
+      install(agent, { key: 'shared@a' })
+      install(agent, { key: 'shared@b', code: source('guard', 'different') })
       const before = existing()
-      const error = failure(update(undefined, provider), 'Ambiguous')
-      expect(error).toContain(`${provider}:shared@a`)
-      expect(error).toContain(`${provider}:shared@b`)
+      const error = failure(update(undefined, agent), 'Ambiguous')
+      expect(error).toContain(`${agent}:shared@a`)
+      expect(error).toContain(`${agent}:shared@b`)
       expect(error).toContain('--agent cannot distinguish')
       unchanged(before)
     })
@@ -369,12 +369,11 @@ describe('compiled provider-aware plugin updates', () => {
     )
   })
 
-  test('alternating providers never duplicate execution; edits and disabled defaults survive discovery/removal', () => {
+  test('alternating agents never duplicate execution; edits and disabled defaults survive discovery/removal', () => {
     setup()
     const claude = install('claude-code', { optional: true })
     const codex = install('codex', { optional: true })
-    for (const provider of ['codex', 'claude-code', 'codex', 'claude-code'] as const)
-      denied(provider)
+    for (const agent of ['codex', 'claude-code', 'codex', 'claude-code'] as const) denied(agent)
     const config = sandbox.readFile(configPath)
     const edit = source('guard', 'edited')
     sandbox.writeFile(`${vendor}/guard.ts`, edit)

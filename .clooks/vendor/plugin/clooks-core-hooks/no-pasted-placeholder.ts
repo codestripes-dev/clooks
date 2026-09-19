@@ -1,6 +1,6 @@
 // no-pasted-placeholder — Rejects prompts containing a literal
 // `[Pasted text #N +N lines]` or `[Pasted Content N chars]` placeholder.
-// This heuristic flags potentially unexpanded pastes on any provider;
+// This heuristic flags potentially unexpanded pastes on any agent;
 // literal examples can also match. No config.
 
 import type { ClooksHook } from "./types"

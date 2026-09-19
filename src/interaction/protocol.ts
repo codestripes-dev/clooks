@@ -24,15 +24,15 @@ const literal = z
   .regex(/^(?![\s\S]*\$\{)[\s\S]+$/)
 const fields = {
   protocol: z.literal(1),
-  provider: z.enum(['claude-code', 'codex']),
+  agent: z.enum(['claude-code', 'codex']),
   owner: literal.regex(/^(global|project:[A-Za-z0-9_-]+)$/),
   session_id: literal,
   tool_use_id: literal,
   turn_id: literal.optional(),
 }
-export const checkInputSchema = z.discriminatedUnion('provider', [
-  z.strictObject({ ...fields, provider: z.literal('claude-code') }),
-  z.strictObject({ ...fields, provider: z.literal('codex'), turn_id: literal }),
+export const checkInputSchema = z.discriminatedUnion('agent', [
+  z.strictObject({ ...fields, agent: z.literal('claude-code') }),
+  z.strictObject({ ...fields, agent: z.literal('codex'), turn_id: literal }),
 ])
 export type CheckInput = z.infer<typeof checkInputSchema>
 // Both runtime parsing and the advertised tool contract come from this schema.

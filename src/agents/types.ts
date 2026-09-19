@@ -6,12 +6,12 @@ import type { discoverPluginPacks } from '../plugin-discovery.js'
 import type { discoverCodexPluginPacks } from './codex/plugin-discovery.js'
 import type { vendorAndRegisterPack } from '../plugin-vendor.js'
 import type { EngineResult, ExitCode } from '../engine/types.js'
-import type { Provider } from '../types/contexts.js'
+import type { AgentId } from '../types/contexts.js'
 import type { ApprovalQuestion } from '../interaction/types.js'
 import type { CheckInput } from '../interaction/protocol.js'
 import type { UserApprovalDecision } from '../interaction/protocol.js'
 
-export type AgentId = Provider
+export type { AgentId }
 
 export type JsonValue =
   | null
@@ -36,7 +36,7 @@ export interface ToolCodec {
 }
 
 export interface InvocationMetadata {
-  provider: AgentId
+  agent: AgentId
   raw: Readonly<Record<string, unknown>>
   sessionId: string | null
   nativeTurnId: string | null

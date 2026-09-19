@@ -48,10 +48,10 @@ const claudeConfirmationSchema = z.strictObject({
 })
 
 function parseApprovalResponse(
-  provider: CheckInput['provider'],
+  agent: CheckInput['agent'],
   response: unknown,
 ): { action: 'accept' | 'decline' | 'cancel'; approved: boolean } {
-  if (provider === 'claude-code') {
+  if (agent === 'claude-code') {
     const reply = claudeConfirmationSchema.parse(response)
     if (reply.action === 'accept' && reply.content === undefined)
       unavailable('Approval response was not positively confirmed')
@@ -67,7 +67,7 @@ function parseApprovalResponse(
 }
 
 function approvalMessage(
-  provider: CheckInput['provider'],
+  agent: CheckInput['agent'],
   question: z.infer<typeof questionSchema>,
 ): string {
   const input = question.operation.input
@@ -81,7 +81,7 @@ function approvalMessage(
     !/[\p{Cc}\u2028\u2029]/u.test(inputRecord.command)
       ? inputRecord.command
       : undefined
-  if (provider === 'claude-code' && previewCommand !== undefined) {
+  if (agent === 'claude-code' && previewCommand !== undefined) {
     return [
       [
         question.question ?? question.reason,
@@ -205,9 +205,9 @@ export async function handleApprovalCheck(
             elicit(
               {
                 mode: 'form',
-                message: approvalMessage(key.provider, question.question),
+                message: approvalMessage(key.agent, question.question),
                 requestedSchema:
-                  key.provider === 'claude-code'
+                  key.agent === 'claude-code'
                     ? { type: 'object', properties: {} }
                     : {
                         type: 'object',
@@ -233,7 +233,7 @@ export async function handleApprovalCheck(
         checkSignal(options.signal)
         remaining(localDeadline, clock.now())
         if (completed()) unavailable('Late approval response after command completion')
-        const reply = parseApprovalResponse(key.provider, response)
+        const reply = parseApprovalResponse(key.agent, response)
         if (!reply.approved) {
           const decision = reply.action === 'cancel' ? 'cancelled' : 'declined'
           const refusal = userApprovalFailure(decision, question.question.hookName)

@@ -7,7 +7,7 @@ describe('native patch and nested lock protection', () => {
   function inspect(command: unknown, overrides = {}, config = hook.meta.config!) {
     const ctx = {
       ...makeCtx(),
-      provider: 'codex',
+      agent: 'codex',
       toolName: 'apply_patch',
       toolInput: { command },
       ...overrides,
@@ -32,9 +32,9 @@ describe('native patch and nested lock protection', () => {
   ])('%s remains protected at root and nested paths', (name) => {
     for (const prefix of ['', 'packages/widget/']) {
       const filePath = `/home/user/project/${prefix}${name}`
-      for (const provider of [undefined, 'claude-code', 'codex']) {
+      for (const agent of [undefined, 'claude-code', 'codex']) {
         for (const toolName of ['Write', 'Edit', 'MultiEdit']) {
-          const ctx = { ...makeCtx(), provider, toolName, toolInput: { filePath } }
+          const ctx = { ...makeCtx(), agent, toolName, toolInput: { filePath } }
           expect(hook.PreToolUse!(ctx as PreToolUseContext, DEFAULT_CONFIG)).toMatchObject({ result: 'block' })
         }
       }
@@ -71,10 +71,10 @@ describe('native patch and nested lock protection', () => {
     expect(inspect(patch('*** Add File: safe.ts', '+*** Delete File: bun.lock'))).toMatchObject({ result: 'skip' })
   })
 
-  test('explicit provider, exact tool and string payload boundaries', () => {
+  test('explicit agent, exact tool and string payload boundaries', () => {
     const command = patch('*** Delete File: bun.lock')
-    for (const provider of [undefined, 'claude-code']) {
-      expect(inspect(command, { provider })).toMatchObject({ result: 'skip' })
+    for (const agent of [undefined, 'claude-code']) {
+      expect(inspect(command, { agent })).toMatchObject({ result: 'skip' })
     }
     for (const toolName of ['Bash', 'Read', 'NotebookEdit', 'mcp__apply_patch']) {
       expect(inspect(command, { toolName })).toMatchObject({ result: 'skip' })

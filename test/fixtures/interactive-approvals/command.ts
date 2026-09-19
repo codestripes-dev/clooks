@@ -21,7 +21,7 @@ let file: ReturnType<typeof mailbox> | undefined
 let output: unknown
 async function execute(input: any) {
   assert.equal(process.argv[4], '1', 'Explicit paired registration protocol required')
-  key = identity({ ...input, provider: process.argv[2], owner: process.argv[3] })
+  key = identity({ ...input, agent: process.argv[2], owner: process.argv[3] })
   const packet = mailbox(key)
   if (process.env.APPROVAL_CASE === 'bootstrap-no-start') {
     log('bootstrap-no-start', { key, input })

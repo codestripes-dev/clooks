@@ -5,3 +5,4 @@ bun.lock
 src/generated/
 .clooks/hooks/types.d.ts
 .clooks/vendor/
+test/fixtures/github-raw/

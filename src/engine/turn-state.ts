@@ -470,15 +470,15 @@ function sleep(msec: number): Promise<void> {
 export function turnStatePath(
   homeRoot: string,
   sessionId: string,
-  provider: AgentId = 'claude-code',
+  agent: AgentId = 'claude-code',
 ): string {
   const hash = createHash('sha256').update(sessionId).digest('hex').slice(0, 16)
-  return join(turnStateDirectory(homeRoot, provider), `${hash}.json`)
+  return join(turnStateDirectory(homeRoot, agent), `${hash}.json`)
 }
 
-function turnStateDirectory(homeRoot: string, provider: AgentId): string {
+function turnStateDirectory(homeRoot: string, agent: AgentId): string {
   const base = join(homeRoot, '.clooks', 'turn-state')
-  return provider === 'codex' ? join(base, provider) : base
+  return agent === 'codex' ? join(base, agent) : base
 }
 
 function lockPathFor(statePath: string): string {
@@ -525,13 +525,13 @@ async function readBounded(
  */
 export async function readTurnState(
   path: string,
-  access?: { homeRoot: string; provider: AgentId },
+  access?: { homeRoot: string; agent: AgentId },
 ): Promise<TurnState> {
-  if (access?.provider === 'codex') {
+  if (access?.agent === 'codex') {
     try {
-      const dir = turnStateDirectory(access.homeRoot, access.provider)
+      const dir = turnStateDirectory(access.homeRoot, access.agent)
       if (resolve(dirname(path)) !== resolve(dir)) {
-        throw new Error('turn snapshot path is outside its provider directory')
+        throw new Error('turn snapshot path is outside its agent directory')
       }
       await assertRealDirectory(join(access.homeRoot, '.clooks'))
       await assertRealDirectory(join(access.homeRoot, '.clooks', 'turn-state'))
@@ -807,12 +807,12 @@ async function ensureRealDirectory(path: string, mode: number, enforceMode = fal
   }
 }
 
-async function ensureTurnStateDirectory(homeRoot: string, provider: AgentId): Promise<string> {
+async function ensureTurnStateDirectory(homeRoot: string, agent: AgentId): Promise<string> {
   await ensureRealDirectory(join(homeRoot, '.clooks'), 0o700)
 
   const base = join(homeRoot, '.clooks', 'turn-state')
   await ensureRealDirectory(base, 0o700, true)
-  const dir = turnStateDirectory(homeRoot, provider)
+  const dir = turnStateDirectory(homeRoot, agent)
   if (dir !== base) await ensureRealDirectory(dir, 0o700, true)
 
   // Backstop: per-component checks cannot see a symlink higher up the chain
@@ -935,13 +935,13 @@ export async function commitTurnRecords(
   homeRoot: string,
   captured: TurnStamp,
   pending: PendingTurnRecord[],
-  provider: AgentId = 'claude-code',
+  agent: AgentId = 'claude-code',
 ): Promise<void> {
   if (pending.length === 0) return
 
   let dir: string
   try {
-    dir = await ensureTurnStateDirectory(homeRoot, provider)
+    dir = await ensureTurnStateDirectory(homeRoot, agent)
   } catch (e) {
     warnOnce(`turn state write skipped (${e instanceof Error ? e.message : String(e)})`)
     return
@@ -1007,14 +1007,14 @@ export async function applyTurnBoundary(
   path: string,
   homeRoot: string,
   kind: 'advance' | 'reset',
-  provider: AgentId = 'claude-code',
+  agent: AgentId = 'claude-code',
 ): Promise<TurnState> {
   // Both boundary kinds clear all scopes and advance the generation.
   void kind
 
   let dir: string
   try {
-    dir = await ensureTurnStateDirectory(homeRoot, provider)
+    dir = await ensureTurnStateDirectory(homeRoot, agent)
   } catch (e) {
     warnOnce(`turn boundary skipped (${e instanceof Error ? e.message : String(e)})`)
     return emptyTurnState()
@@ -1080,7 +1080,7 @@ export function createTurnTracker(input: {
   homeRoot: string
   state: TurnState
   scopeKey: string
-  provider?: AgentId
+  agent?: AgentId
 }): TurnTracker {
   const captured = turnStampOf(input.state)
   const scopeRecords = ownValue(input.state.scopes, input.scopeKey)
@@ -1118,7 +1118,7 @@ export function createTurnTracker(input: {
       if (pending.length === 0) return
       const batch = pending.splice(0)
       try {
-        await commitTurnRecords(input.path, input.homeRoot, captured, batch, input.provider)
+        await commitTurnRecords(input.path, input.homeRoot, captured, batch, input.agent)
       } catch {
         // Persistence failure must not prevent delivery of the hook result.
       }
@@ -1143,9 +1143,9 @@ function classifyTurnStateFile(name: string): PruneKind | null {
  */
 export async function pruneTurnState(
   homeRoot: string,
-  provider: AgentId = 'claude-code',
+  agent: AgentId = 'claude-code',
 ): Promise<void> {
-  const dir = turnStateDirectory(homeRoot, provider)
+  const dir = turnStateDirectory(homeRoot, agent)
 
   // Per-component refusal FIRST, containment second. Containment alone is not
   // enough: `realpath` resolves a symlinked `turn-state` before the check runs,
@@ -1156,7 +1156,7 @@ export async function pruneTurnState(
   let resolvedDir: string
   try {
     await assertRealDirectory(join(homeRoot, '.clooks'))
-    if (provider !== 'claude-code') {
+    if (agent !== 'claude-code') {
       await assertRealDirectory(join(homeRoot, '.clooks', 'turn-state'))
     }
     await assertRealDirectory(dir)

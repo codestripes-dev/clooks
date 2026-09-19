@@ -7,7 +7,7 @@ let sandbox: Sandbox
 
 afterEach(() => sandbox?.cleanup())
 
-type Provider = 'claude-code' | 'codex'
+type AgentId = 'claude-code' | 'codex'
 type ProbePaths = Record<string, string>
 
 function write(path: string, content: string) {
@@ -42,7 +42,7 @@ function writeConfig(names: string[], parallel: boolean) {
   )
 }
 
-function sessionStart(provider: Provider, cwd = sandbox.dir, rawHelpers = true) {
+function sessionStart(agent: AgentId, cwd = sandbox.dir, rawHelpers = true) {
   return sandbox.run([], {
     cwd: sandbox.dir,
     stdin: JSON.stringify({
@@ -53,11 +53,11 @@ function sessionStart(provider: Provider, cwd = sandbox.dir, rawHelpers = true) 
       model: 'gpt-5',
       permission_mode: 'default',
       source: 'startup',
-      provider: provider === 'codex' ? 'claude-code' : 'codex',
+      agent: agent === 'codex' ? 'claude-code' : 'codex',
       ...(rawHelpers ? { helpers: { belongsToPlugin: true, forged: true } } : {}),
     }),
     env: {
-      CLOOKS_AGENT: provider,
+      CLOOKS_AGENT: agent,
       CODEX_HOME: join(sandbox.home, 'custom-codex-home'),
     },
     timeout: 10_000,
@@ -165,22 +165,21 @@ function setupInstalledFixtures() {
   }
 }
 
-function selectedChecks(provider: Provider, fixtures: ReturnType<typeof setupInstalledFixtures>) {
-  const ownRoot = provider === 'claude-code' ? fixtures.claudeRoot : fixtures.codexRoot
-  const ownFile = provider === 'claude-code' ? fixtures.claudeFile : fixtures.codexFile
+function selectedChecks(agent: AgentId, fixtures: ReturnType<typeof setupInstalledFixtures>) {
+  const ownRoot = agent === 'claude-code' ? fixtures.claudeRoot : fixtures.codexRoot
+  const ownFile = agent === 'claude-code' ? fixtures.claudeFile : fixtures.codexFile
   const oldVersion = fixtures.codexOldFile
-  const otherProvider = provider === 'claude-code' ? fixtures.codexFile : fixtures.claudeFile
-  const escape = provider === 'claude-code' ? fixtures.claudeEscape : fixtures.codexEscape
-  const nestedFile =
-    provider === 'claude-code' ? fixtures.claudeNestedFile : fixtures.codexNestedFile
+  const otherAgent = agent === 'claude-code' ? fixtures.codexFile : fixtures.claudeFile
+  const escape = agent === 'claude-code' ? fixtures.claudeEscape : fixtures.codexEscape
+  const nestedFile = agent === 'claude-code' ? fixtures.claudeNestedFile : fixtures.codexNestedFile
   const dotDot = `${ownRoot}/nested/../nested/owned.ts`
   const boundary = `${ownRoot}-sibling/outside.ts`
   write(boundary, 'export const outside = true\n')
 
   return {
     own: [ownFile, true] as const,
-    oldVersion: [oldVersion, provider === 'codex'] as const,
-    otherProvider: [otherProvider, false] as const,
+    oldVersion: [oldVersion, agent === 'codex'] as const,
+    otherAgent: [otherAgent, false] as const,
     ordinary: [fixtures.ordinaryFile, false] as const,
     rootDirectory: [ownRoot, false] as const,
     missing: [join(ownRoot, 'missing.ts'), false] as const,
@@ -192,12 +191,12 @@ function selectedChecks(provider: Provider, fixtures: ReturnType<typeof setupIns
 }
 
 describe('compiled engine plugin file helper', () => {
-  for (const provider of ['claude-code', 'codex'] as const) {
+  for (const agent of ['claude-code', 'codex'] as const) {
     for (const parallel of [false, true]) {
-      test(`${provider} selected roots are isolated across ${parallel ? 'parallel' : 'sequential'} lifecycle dispatch`, () => {
+      test(`${agent} selected roots are isolated across ${parallel ? 'parallel' : 'sequential'} lifecycle dispatch`, () => {
         sandbox = createSandbox()
         const fixtures = setupInstalledFixtures()
-        const checks = selectedChecks(provider, fixtures)
+        const checks = selectedChecks(agent, fixtures)
         const checkValues: Record<string, boolean> = {}
         const probePaths: ProbePaths = {}
         for (const label of Object.keys(checks) as Array<keyof typeof checks>) {
@@ -209,7 +208,7 @@ describe('compiled engine plugin file helper', () => {
         for (const name of ['helper-a', 'helper-b']) writeProbe(name, probePaths)
         writeConfig(['helper-a', 'helper-b'], parallel)
 
-        const result = sessionStart(provider)
+        const result = sessionStart(agent)
         expectCleanSession(result)
         expectLifecycleReceipt('helper-a', checkValues)
         expectLifecycleReceipt('helper-b', checkValues)
@@ -401,7 +400,7 @@ export const hook = {
         turn_id: 'turn',
         tool_use_id: 'recheck-call',
         source: 'startup',
-        provider: 'claude-code',
+        agent: 'claude-code',
         helpers: { belongsToPlugin: true },
       }),
       env: { CLOOKS_AGENT: 'codex', CODEX_HOME: codexHome },

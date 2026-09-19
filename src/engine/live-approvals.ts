@@ -9,7 +9,7 @@ import {
 import type { ExecutionResult } from './types.js'
 
 export const approvalSetupMessage =
-  'Live approval unavailable. Repair the Clooks registration for this provider and scope, then restart the client and retry.'
+  'Live approval unavailable. Repair the Clooks registration for this agent and scope, then restart the client and retry.'
 
 /** Distinguishes live-consent failures from unrelated legacy runtime errors. */
 export class ApprovalFailure extends Error {

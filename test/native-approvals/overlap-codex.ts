@@ -110,7 +110,7 @@ ignore_default_excludes = true
           assert.equal(message.params.serverName, 'checkpoints')
           if (message.params._meta?.codex_approval_kind === 'mcp_tool_call') {
             const manifest = loadOverlap(r.root)
-            assert.equal(manifest.provider, 'codex')
+            assert.equal(manifest.agent, 'codex')
             assert.equal(manifest.topology, 'parent-child')
             assert.ok(manifest.primedChildControl && !manifest.serialChildControl)
             assert.ok(!primingPermissionResponded, 'Repeated native priming permission')
@@ -118,7 +118,7 @@ ignore_default_excludes = true
             assert.ok(priming)
             assert.equal(priming.args.tool_use_id, manifest.primedChildControl.callId)
             assert.ok(!manifest.calls[priming.args.tool_use_id])
-            assert.equal(priming.args.provider, manifest.provider)
+            assert.equal(priming.args.agent, manifest.agent)
             assert.equal(priming.args.owner, manifest.owner)
             assert.equal(priming.args.session_id, parent)
             assert.notEqual(priming.child, parent)

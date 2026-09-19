@@ -4,13 +4,13 @@ import { createSandbox, type Sandbox } from './sandbox'
 
 export function expectPreToolUsePair(
   groups: unknown,
-  provider: 'claude-code' | 'codex',
+  agent: 'claude-code' | 'codex',
   baseCommand: string,
 ) {
   const entries = groups as Array<{ hooks: Array<{ input?: { owner?: unknown } }> }>
   const owner = entries[0]?.hooks.find((hook) => hook.input)?.input?.owner
   expect(owner).toMatch(/^(global|project:[a-f0-9]{32})$/)
-  const agentPrefix = `CLOOKS_AGENT=${provider} `
+  const agentPrefix = `CLOOKS_AGENT=${agent} `
   const launcher = baseCommand.startsWith(agentPrefix)
     ? baseCommand.slice(agentPrefix.length)
     : baseCommand
@@ -30,11 +30,11 @@ export function expectPreToolUsePair(
           timeout: 2_147_483,
           input: {
             protocol: 1,
-            provider,
+            agent,
             owner,
             session_id: '${session_id}',
             tool_use_id: '${tool_use_id}',
-            ...(provider === 'codex' ? { turn_id: '${turn_id}' } : {}),
+            ...(agent === 'codex' ? { turn_id: '${turn_id}' } : {}),
           },
         },
       ],

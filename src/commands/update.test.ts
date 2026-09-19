@@ -117,7 +117,7 @@ describe('clooks update command', () => {
     return stdoutSpy.mock.calls.map((call: unknown[]) => JSON.parse(String(call[0])))
   }
 
-  test('CLI defaults discover both providers and use the explicit disposable Codex home', async () => {
+  test('CLI defaults discover both agents and use the explicit disposable Codex home', async () => {
     const originalCodexHome = process.env.CODEX_HOME
     const originalAgent = process.env.CLOOKS_AGENT
     const codexHome = join(home, 'selected-codex')
@@ -359,7 +359,7 @@ describe('updatePluginPack', () => {
   })
 
   for (const agent of [undefined, 'claude-code', 'codex'] as const) {
-    test(`provider filtering before discovery; selected=${agent}`, async () => {
+    test(`agent filtering before discovery; selected=${agent}`, async () => {
       const claudePack = candidate('claude@mp')
       const codexPack = candidate('codex@mp')
       const claude = mock(() => [claudePack])
@@ -448,7 +448,7 @@ describe('updatePluginPack', () => {
   }
 
   for (const agent of ['claude-code', 'codex'] as const) {
-    test(`same-provider ambiguity remains after --agent ${agent}`, async () => {
+    test(`same-agent ambiguity remains after --agent ${agent}`, async () => {
       const a = candidate('pack@market-a')
       const b = candidate('pack@market-b', 'local', 'different bytes')
       const result = await updatePluginPack('test-pack', projectRoot, homeRoot, {

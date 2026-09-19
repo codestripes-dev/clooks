@@ -75,7 +75,7 @@ export type {
 } from './method-primitives.js'
 
 export type {
-  Provider,
+  AgentId,
   ContextHelpers,
   BaseContext,
   PreToolUseContext,

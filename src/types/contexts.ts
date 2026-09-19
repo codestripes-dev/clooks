@@ -59,14 +59,14 @@ import type {
   TaskCompletedDecisionMethods,
 } from './decision-methods.js'
 
-/** Upstream hook provider selected by the engine. */
-export type Provider = 'claude-code' | 'codex'
+/** Upstream coding agent selected by the engine. */
+export type AgentId = 'claude-code' | 'codex'
 
 /** Read-only helpers available on every hook and lifecycle context. */
 export interface ContextHelpers {
   /**
    * True when `path` is an existing regular file under an installed plugin for
-   * the selected provider. This is file membership, not authorization.
+   * the selected agent. This is file membership, not authorization.
    */
   belongsToPlugin(path: string): boolean
 }
@@ -76,12 +76,13 @@ export interface BaseContext {
   /** Event name. Narrow on this first inside multi-event hooks. */
   event: EventName
   /** Selected adapter identity, not a tool-availability or capability guarantee. */
-  provider: Provider
+  agent: AgentId
   readonly helpers: ContextHelpers
   sessionId: string
   cwd: string
   permissionMode?: PermissionMode
   transcriptPath: string
+  /** Child subagent identity from the upstream payload; unrelated to `agent`. */
   agentId?: string
   agentType?: string
   /** True when this hook is one of several running in parallel for the same event. */

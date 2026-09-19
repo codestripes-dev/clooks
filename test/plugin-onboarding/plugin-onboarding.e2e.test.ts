@@ -108,7 +108,7 @@ function fixture() {
 }
 
 type Fixture = ReturnType<typeof fixture>
-type Provider = 'codex' | 'claude-code'
+type AgentId = 'codex' | 'claude-code'
 
 async function command(f: Fixture, argv: string[], env = f.env, stdin = '') {
   // GNU timeout bounds the command process group, including installer curl children.
@@ -151,14 +151,14 @@ async function init(f: Fixture, binary: string, args: string[], env = f.env) {
   expect(JSON.parse(result.stdout).ok).toBe(true)
 }
 
-function registration(f: Fixture, provider: Provider, global = false) {
+function registration(f: Fixture, agent: AgentId, global = false) {
   return global
-    ? join(f.sandbox.home, provider === 'codex' ? '.codex/hooks.json' : '.claude/settings.json')
-    : join(f.sandbox.dir, provider === 'codex' ? '.codex/hooks.json' : '.claude/settings.json')
+    ? join(f.sandbox.home, agent === 'codex' ? '.codex/hooks.json' : '.claude/settings.json')
+    : join(f.sandbox.dir, agent === 'codex' ? '.codex/hooks.json' : '.claude/settings.json')
 }
 
-function registeredCommand(f: Fixture, provider: Provider, global = false) {
-  const config = JSON.parse(readFileSync(registration(f, provider, global), 'utf8'))
+function registeredCommand(f: Fixture, agent: AgentId, global = false) {
+  const config = JSON.parse(readFileSync(registration(f, agent, global), 'utf8'))
   const hooks = config.hooks.PreToolUse.flatMap(
     (group: { hooks: Array<{ command?: string }> }) => group.hooks,
   ).filter((hook: { command?: string }) => hook.command?.includes('.clooks/bin/entrypoint.sh'))
@@ -173,7 +173,7 @@ function probe(f: Fixture, global = false) {
 export const hook = {
   meta: { name: '${name}' },
   PreToolUse(ctx) {
-    appendFileSync(${JSON.stringify(log)}, JSON.stringify({ provider: ctx.provider, event: ctx.event }) + '\\n')
+    appendFileSync(${JSON.stringify(log)}, JSON.stringify({ agent: ctx.agent, event: ctx.event }) + '\\n')
     return ctx.block({ reason: 'onboarding-fixture-deny' })
   },
 }
@@ -188,7 +188,7 @@ export const hook = {
   return log
 }
 
-async function dispatch(f: Fixture, provider: Provider, env = f.env, global = false) {
+async function dispatch(f: Fixture, agent: AgentId, env = f.env, global = false) {
   const input = {
     hook_event_name: 'PreToolUse',
     session_id: 'onboarding-session',
@@ -203,7 +203,7 @@ async function dispatch(f: Fixture, provider: Provider, env = f.env, global = fa
   }
   return command(
     f,
-    ['/bin/bash', '-c', registeredCommand(f, provider, global)],
+    ['/bin/bash', '-c', registeredCommand(f, agent, global)],
     env,
     JSON.stringify(input),
   )
@@ -231,9 +231,9 @@ function tree(root: string): unknown[] {
     })
 }
 
-async function reminder(f: Fixture, provider: Provider, env = f.env) {
+async function reminder(f: Fixture, agent: AgentId, env = f.env) {
   const path =
-    provider === 'codex' ? resolve(f.plugin, f.codex.hooks) : join(f.plugin, 'hooks/hooks.json')
+    agent === 'codex' ? resolve(f.plugin, f.codex.hooks) : join(f.plugin, 'hooks/hooks.json')
   const hooks = JSON.parse(readFileSync(path, 'utf8')).hooks
   expect(Object.keys(hooks)).toEqual(['SessionStart'])
   expect(hooks.SessionStart).toHaveLength(1)
@@ -282,14 +282,14 @@ test('actual catalogs and isolated agent manifests address one cached package an
 
 test.each(['codex', 'claude-code'] as const)(
   'fresh actual-package setup -> %s init -> registered compiled hook',
-  async (provider) => {
+  async (agent) => {
     const f = fixture()
-    const other: Provider = provider === 'codex' ? 'claude-code' : 'codex'
+    const other: AgentId = agent === 'codex' ? 'claude-code' : 'codex'
     const untouched = '{"onboardingSentinel":"other-agent","hooks":{}}\n'
     const otherPath = registration(f, other)
     mkdirSync(dirname(otherPath), { recursive: true })
     writeFileSync(otherPath, untouched)
-    const targetPath = registration(f, provider)
+    const targetPath = registration(f, agent)
     mkdirSync(dirname(targetPath), { recursive: true })
     const unrelated = { type: 'command', command: 'printf unrelated-onboarding-hook' }
     writeFileSync(
@@ -305,25 +305,25 @@ test.each(['codex', 'claude-code'] as const)(
     expect(sha256(binary)).toBe(compiledHash)
     expect(f.requests).toEqual([`${f.prefix}/checksums.txt`, `${f.prefix}/${asset}`])
     const env = { ...f.env, PATH: `${dirname(binary)}:${f.env.PATH}` }
-    const args = provider === 'codex' ? ['--agent', 'codex'] : []
+    const args = agent === 'codex' ? ['--agent', 'codex'] : []
     await init(f, binary, args, env)
-    const registered = readFileSync(registration(f, provider), 'utf8')
+    const registered = readFileSync(registration(f, agent), 'utf8')
     const config = JSON.parse(registered)
     expect(config.onboardingSentinel).toBe('same-agent')
     expect(config.hooks.PreToolUse[0].hooks).toEqual([unrelated])
     await init(f, binary, args, env)
-    expect(readFileSync(registration(f, provider), 'utf8')).toBe(registered)
+    expect(readFileSync(registration(f, agent), 'utf8')).toBe(registered)
     expect(readFileSync(otherPath, 'utf8')).toBe(untouched)
     expect(existsSync(registration(f, 'codex', true))).toBe(false)
     expect(existsSync(registration(f, 'claude-code', true))).toBe(false)
     const log = probe(f)
-    denied(await dispatch(f, provider, env))
+    denied(await dispatch(f, agent, env))
     expect(
       readFileSync(log, 'utf8')
         .trim()
         .split('\n')
         .map((line) => JSON.parse(line)),
-    ).toEqual([{ provider, event: 'PreToolUse' }])
+    ).toEqual([{ agent, event: 'PreToolUse' }])
     await setup(f, env)
     expect(f.requests).toHaveLength(2)
   },
@@ -350,7 +350,7 @@ test.each(['external', 'managed', 'both'] as const)(
     const log = probe(f)
     const ready = { ...env, PATH: `${dirname(binary)}:${env.PATH}` }
     denied(await dispatch(f, 'codex', ready))
-    expect(JSON.parse(readFileSync(log, 'utf8').trim()).provider).toBe('codex')
+    expect(JSON.parse(readFileSync(log, 'utf8').trim()).agent).toBe('codex')
     expect(f.requests).toEqual([])
   },
   30_000,
@@ -369,7 +369,7 @@ test('managed-only setup reports missing PATH; absolute init alone does not run 
   expect(success(await dispatch(f, 'codex')).stdout).toBe('')
   expect(existsSync(log)).toBe(false)
   denied(await dispatch(f, 'codex', { ...f.env, PATH: `${dirname(binary)}:${f.env.PATH}` }))
-  expect(JSON.parse(readFileSync(log, 'utf8').trim()).provider).toBe('codex')
+  expect(JSON.parse(readFileSync(log, 'utf8').trim()).agent).toBe('codex')
   expect(f.requests).toEqual([])
 }, 30_000)
 
@@ -379,40 +379,40 @@ test('explicit both/global init preserves other scope and repeat registration', 
   const env = { ...f.env, PATH: `${dirname(binary)}:${f.env.PATH}` }
   await setup(f, env)
   await init(f, binary, ['--agent', 'all'], env)
-  const project = (['codex', 'claude-code'] as const).map((provider) =>
-    readFileSync(registration(f, provider), 'utf8'),
+  const project = (['codex', 'claude-code'] as const).map((agent) =>
+    readFileSync(registration(f, agent), 'utf8'),
   )
   expect(existsSync(registration(f, 'codex', true))).toBe(false)
   expect(existsSync(registration(f, 'claude-code', true))).toBe(false)
   await init(f, binary, ['--global', '--agent', 'codex'], env)
   expect(existsSync(registration(f, 'claude-code', true))).toBe(false)
   await init(f, binary, ['--global', '--agent', 'all'], env)
-  const global = (['codex', 'claude-code'] as const).map((provider) =>
-    readFileSync(registration(f, provider, true), 'utf8'),
+  const global = (['codex', 'claude-code'] as const).map((agent) =>
+    readFileSync(registration(f, agent, true), 'utf8'),
   )
   await init(f, binary, ['--global', '--agent', 'all'], env)
   const log = probe(f, true)
-  for (const [index, provider] of (['codex', 'claude-code'] as const).entries()) {
-    expect(readFileSync(registration(f, provider), 'utf8')).toBe(project[index]!)
-    expect(readFileSync(registration(f, provider, true), 'utf8')).toBe(global[index]!)
-    denied(await dispatch(f, provider, env, true))
+  for (const [index, agent] of (['codex', 'claude-code'] as const).entries()) {
+    expect(readFileSync(registration(f, agent), 'utf8')).toBe(project[index]!)
+    expect(readFileSync(registration(f, agent, true), 'utf8')).toBe(global[index]!)
+    denied(await dispatch(f, agent, env, true))
   }
   expect(
     readFileSync(log, 'utf8')
       .trim()
       .split('\n')
-      .map((line) => JSON.parse(line).provider),
+      .map((line) => JSON.parse(line).agent),
   ).toEqual(['codex', 'claude-code'])
   expect(f.requests).toEqual([])
 }, 30_000)
 
 test.each(['codex', 'claude-code'] as const)(
   '%s plugin registers only a read-only reminder, never setup',
-  async (provider) => {
+  async (agent) => {
     const f = fixture()
     const before = [tree(f.sandbox.home), tree(f.sandbox.dir), tree(f.cache)]
-    const output = JSON.parse(success(await reminder(f, provider)).stdout)
-    expect(output.systemMessage).toContain(provider === 'codex' ? '$clooks:setup' : '/clooks:setup')
+    const output = JSON.parse(success(await reminder(f, agent)).stdout)
+    expect(output.systemMessage).toContain(agent === 'codex' ? '$clooks:setup' : '/clooks:setup')
     expect(output.hookSpecificOutput.hookEventName).toBe('SessionStart')
     expect(output.hookSpecificOutput.additionalContext).toContain('do not run setup')
     expect([tree(f.sandbox.home), tree(f.sandbox.dir), tree(f.cache)]).toEqual(before)

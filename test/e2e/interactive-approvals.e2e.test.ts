@@ -14,7 +14,7 @@ import {
   runWithConsent,
   startEngine,
   type ApprovalIdentity,
-  type Provider,
+  type AgentId,
 } from './helpers/live-approvals'
 
 let sandbox: Sandbox
@@ -87,16 +87,16 @@ function output(result: RunResult) {
 }
 function approved(
   result: RunResult,
-  provider: Provider,
+  agent: AgentId,
   fields: { reason?: string; context?: string; input?: unknown } = {},
 ) {
   const value = output(result)
   const specific = {
     hookEventName: 'PreToolUse',
-    ...(provider === 'claude-code' || fields.input !== undefined
+    ...(agent === 'claude-code' || fields.input !== undefined
       ? { permissionDecision: 'allow' }
       : {}),
-    ...(provider === 'claude-code' && fields.reason !== undefined
+    ...(agent === 'claude-code' && fields.reason !== undefined
       ? { permissionDecisionReason: fields.reason }
       : {}),
     ...(fields.context !== undefined ? { additionalContext: fields.context } : {}),
@@ -104,7 +104,7 @@ function approved(
   }
   expect(value).toEqual({
     ...(Object.keys(specific).length > 1 ? { hookSpecificOutput: specific } : {}),
-    ...(provider === 'codex' && fields.reason !== undefined
+    ...(agent === 'codex' && fields.reason !== undefined
       ? {
           systemMessage: `clooks: PreToolUse allow reason (human annotation only; original allow-reason recipient unavailable; native policy retained): ${fields.reason}`,
         }
@@ -177,10 +177,10 @@ async function waitForCheckClaim(identity: ApprovalIdentity) {
   }
   throw new Error(`Identity-bound MCP check claim did not appear under ${home}`)
 }
-async function paired(provider: Provider, order: 'command-first' | 'mcp-first' = 'command-first') {
+async function paired(agent: AgentId, order: 'command-first' | 'mcp-first' = 'command-first') {
   const peer = await connectApprovalPeer(sandbox)
   peers.push(peer)
-  const call = invocation(sandbox, provider)
+  const call = invocation(sandbox, agent)
   const check = order === 'mcp-first' ? peer.check(call.identity) : undefined
   const engine = startEngine(sandbox, call)
   engines.push(engine)
@@ -207,14 +207,14 @@ test('generic denial assertion preserves the returned reason string', () => {
 })
 
 describe('compiled engine live approvals', () => {
-  for (const provider of ['claude-code', 'codex'] as const) {
+  for (const agent of ['claude-code', 'codex'] as const) {
     for (const scenario of [
       { stopAt: 0, action: 'accept', label: 'accept both' },
       { stopAt: 1, action: 'decline', label: 'decline first' },
       { stopAt: 2, action: 'decline', label: 'decline second' },
       { stopAt: 1, action: 'cancel', label: 'cancel first' },
     ] as const) {
-      test(`${provider}: delayed ${scenario.label} preserves checkpoint ordering and hook timeout isolation`, async () => {
+      test(`${agent}: delayed ${scenario.label} preserves checkpoint ordering and hook timeout isolation`, async () => {
         sandbox = createSandbox()
         const names = ['first', 'ask-a', 'middle', 'ask-b', 'last']
         for (const name of names)
@@ -228,7 +228,7 @@ describe('compiled engine live approvals', () => {
           'ask-a': { timeout: 100, onError: 'continue', maxFailures: 1, handoff: false },
           'ask-b': { timeout: 100, onError: 'continue', maxFailures: 1, handoff: false },
         })
-        const { peer, call, engine, check } = await paired(provider)
+        const { peer, call, engine, check } = await paired(agent)
         const first = await peer.nextPrompt()
         expect(first.question).toMatchObject({
           hookName: 'ask-a',
@@ -238,7 +238,7 @@ describe('compiled engine live approvals', () => {
           operation: { input: call.payload.tool_input },
         })
         expect(first.message).toBe(
-          provider === 'claude-code'
+          agent === 'claude-code'
             ? 'Can ask-a proceed?\n/usr/bin/true\nRequested by ask-a\n\nask-a'
             : `Can ask-a proceed?\n\nTool: exec_command\nInput:\n${JSON.stringify({ command: '/usr/bin/true' }, null, 2)}\n\nask-a\n\nRequested by ask-a`,
         )
@@ -251,21 +251,19 @@ describe('compiled engine live approvals', () => {
         expect(engine.stdout).toBe('')
         expect(engine.process.exitCode).toBeNull()
         expect(handlers()).toEqual(['first', 'ask-a'])
-        first.reply(
-          scenario.stopAt === 1 ? { action: scenario.action } : acceptedApproval(provider),
-        )
+        first.reply(scenario.stopAt === 1 ? { action: scenario.action } : acceptedApproval(agent))
         if (scenario.stopAt !== 1) {
           const second = await peer.nextPrompt()
           expect(second.question).toMatchObject({ hookName: 'ask-b', ordinal: 2, reason: 'ask-b' })
           expect(second.question).not.toHaveProperty('question')
           expect(second.message).toBe(
-            provider === 'claude-code'
+            agent === 'claude-code'
               ? 'ask-b\n/usr/bin/true\nRequested by ask-b'
               : `ask-b\n\nTool: exec_command\nInput:\n${JSON.stringify({ command: '/usr/bin/true' }, null, 2)}\n\nRequested by ask-b`,
           )
           expect(handlers()).toEqual(['first', 'ask-a', 'middle', 'ask-b'])
           expect(engine.stdout).toBe('')
-          second.reply(scenario.stopAt === 2 ? { action: 'decline' } : acceptedApproval(provider))
+          second.reply(scenario.stopAt === 2 ? { action: 'decline' } : acceptedApproval(agent))
         }
         const result = await bounded(engine.result, 'Engine result')
         const checkResult = await check
@@ -277,7 +275,7 @@ describe('compiled engine live approvals', () => {
           expect(peerResult).toEqual({})
           expect(handlers()).toEqual(names.slice(0, scenario.stopAt === 1 ? 2 : 4))
         } else {
-          approved(result, provider, {
+          approved(result, agent, {
             reason: 'ask-b',
             context: names.map((name) => name + '-context').join('\n'),
           })
@@ -298,7 +296,7 @@ describe('compiled engine live approvals', () => {
         config(['ask-a'])
         const probe = startEngine(
           sandbox,
-          invocation(sandbox, provider, { sessionId: call.identity.session_id }),
+          invocation(sandbox, agent, { sessionId: call.identity.session_id }),
         )
         engines.push(probe)
         expect(output(await probe.result)).toEqual({})
@@ -312,12 +310,12 @@ describe('compiled engine live approvals', () => {
     }
 
     for (const order of ['command-first', 'mcp-first'] as const) {
-      test(`${provider}: ${order} user refusal is reported only by the command`, async () => {
+      test(`${agent}: ${order} user refusal is reported only by the command`, async () => {
         sandbox = createSandbox()
         hook('ask', "return ctx.ask({ reason: 'required consent' })")
         hook('later', "return ctx.allow({ injectContext: 'must not leak' })")
         config(['ask', 'later'])
-        const { peer, call, engine, check } = await paired(provider, order)
+        const { peer, call, engine, check } = await paired(agent, order)
         const prompt = await peer.nextPrompt()
         prompt.reply({ action: 'decline' })
         const commandDenial = userDenied(await engine.result)
@@ -328,13 +326,13 @@ describe('compiled engine live approvals', () => {
       }, 15_000)
     }
 
-    test(`${provider}: check-first startup beyond one second reaches the compiled engine approval`, async () => {
+    test(`${agent}: check-first startup beyond one second reaches the compiled engine approval`, async () => {
       sandbox = createSandbox()
       hook('ask', "return ctx.ask({ reason: 'required consent' })")
       config(['ask'])
       const peer = await connectApprovalPeer(sandbox)
       peers.push(peer)
-      const call = invocation(sandbox, provider)
+      const call = invocation(sandbox, agent)
       const check = peer.check(call.identity)
       await waitForCheckClaim(call.identity)
       await Bun.sleep(1_500)
@@ -347,8 +345,8 @@ describe('compiled engine live approvals', () => {
         reason: 'required consent',
         operation: { input: call.payload.tool_input },
       })
-      prompt.reply(acceptedApproval(provider))
-      approved(await engine.result, provider, { reason: 'required consent' })
+      prompt.reply(acceptedApproval(agent))
+      approved(await engine.result, agent, { reason: 'required consent' })
       expect(companion(await check)).toEqual({})
       expect(handlers()).toEqual(['ask'])
       expect(completion(call.identity).failure).toBeUndefined()
@@ -357,7 +355,7 @@ describe('compiled engine live approvals', () => {
       expect(peer.stderr).toBe('')
     }, 20_000)
 
-    test(`${provider}: early no-config/no-match/no-ask/suppressed exits publish completion before returning`, async () => {
+    test(`${agent}: early no-config/no-match/no-ask/suppressed exits publish completion before returning`, async () => {
       sandbox = createSandbox()
       for (const mode of ['no-config', 'no-match', 'no-ask', 'suppressed']) {
         if (mode === 'no-match') {
@@ -371,7 +369,7 @@ describe('compiled engine live approvals', () => {
           config(['observer'])
         }
         const before = handlers().length
-        const call = invocation(sandbox, provider)
+        const call = invocation(sandbox, agent)
         const engine = startEngine(
           sandbox,
           call,
@@ -388,12 +386,12 @@ describe('compiled engine live approvals', () => {
       }
     }, 20_000)
 
-    test(`${provider}: missing peer refuses only the ask and ignores permissive error policy`, async () => {
+    test(`${agent}: missing peer refuses only the ask and ignores permissive error policy`, async () => {
       sandbox = createSandbox()
       hook('ask', "return ctx.ask({ reason: 'required consent' })")
       hook('later', 'return ctx.allow()')
       config(['ask', 'later'], { ask: { onError: 'continue', maxFailures: 1, handoff: false } })
-      const call = invocation(sandbox, provider)
+      const call = invocation(sandbox, agent)
       const engine = startEngine(sandbox, call)
       engines.push(engine)
       expect(denied(await engine.result).hookSpecificOutput.permissionDecisionReason).toMatch(
@@ -403,14 +401,14 @@ describe('compiled engine live approvals', () => {
       expect(completion(call.identity).failure).toBeDefined()
     }, 15_000)
 
-    test(`${provider}: SDK request cancellation stops the pipeline and preserves the server`, async () => {
+    test(`${agent}: SDK request cancellation stops the pipeline and preserves the server`, async () => {
       sandbox = createSandbox()
       hook('ask', "return ctx.ask({ reason: 'required consent' })")
       hook('later', 'return ctx.allow()')
       config(['ask', 'later'])
       const peer = await connectApprovalPeer(sandbox)
       peers.push(peer)
-      const call = invocation(sandbox, provider)
+      const call = invocation(sandbox, agent)
       const engine = startEngine(sandbox, call)
       engines.push(engine)
       const controller = new AbortController()
@@ -429,7 +427,7 @@ describe('compiled engine live approvals', () => {
     }, 15_000)
 
     for (const declineFinal of [false, true]) {
-      test(`${provider}: later rewrite reconfirms the final operation without replay (decline=${declineFinal})`, async () => {
+      test(`${agent}: later rewrite reconfirms the final operation without replay (decline=${declineFinal})`, async () => {
         sandbox = createSandbox()
         hook(
           'ask',
@@ -438,7 +436,7 @@ describe('compiled engine live approvals', () => {
         hook('rewrite', "return ctx.allow({ updatedInput: { command: 'echo final' } })")
         hook('last', 'return ctx.skip()')
         config(['ask', 'rewrite', 'last'])
-        const { peer, call, engine, check } = await paired(provider)
+        const { peer, call, engine, check } = await paired(agent)
         const first = await peer.nextPrompt()
         expect(first.question.operation).toEqual({
           toolName: call.payload.tool_name,
@@ -446,12 +444,12 @@ describe('compiled engine live approvals', () => {
         })
         expect(first.question.question).toBe('  Use the candidate command?\nReview scope.  ')
         expect(first.message).toBe(
-          provider === 'claude-code'
+          agent === 'claude-code'
             ? '  Use the candidate command?\nReview scope.  \necho candidate\nRequested by ask\n\nconfirm candidate'
             : `  Use the candidate command?\nReview scope.  \n\nTool: exec_command\nInput:\n${JSON.stringify({ command: 'echo candidate' }, null, 2)}\n\nconfirm candidate\n\nRequested by ask`,
         )
         expect(handlers()).toEqual(['ask'])
-        first.reply(acceptedApproval(provider))
+        first.reply(acceptedApproval(agent))
         const final = await peer.nextPrompt()
         expect(final.question).toMatchObject({
           hookName: 'ask',
@@ -461,13 +459,13 @@ describe('compiled engine live approvals', () => {
           operation: { toolName: call.payload.tool_name, input: { command: 'echo final' } },
         })
         expect(final.message).toBe(
-          provider === 'claude-code'
+          agent === 'claude-code'
             ? '  Use the candidate command?\nReview scope.  \necho final\nRequested by ask\n\nconfirm candidate'
             : `  Use the candidate command?\nReview scope.  \n\nTool: exec_command\nInput:\n${JSON.stringify({ command: 'echo final' }, null, 2)}\n\nconfirm candidate\n\nRequested by ask`,
         )
         expect(handlers()).toEqual(['ask', 'rewrite', 'last'])
         expect(engine.stdout).toBe('')
-        final.reply(declineFinal ? { action: 'decline' } : acceptedApproval(provider))
+        final.reply(declineFinal ? { action: 'decline' } : acceptedApproval(agent))
         const result = await engine.result
         const checkResult = await check
         if (declineFinal) {
@@ -475,7 +473,7 @@ describe('compiled engine live approvals', () => {
           assertCompanion(checkResult)
           assertEmittedDenialReceipt(sandbox, call.identity, commandDenial)
         } else {
-          approved(result, provider, { input: { command: 'echo final' } })
+          approved(result, agent, { input: { command: 'echo final' } })
           assertCompanion(checkResult)
         }
         expect(handlers()).toEqual(['ask', 'rewrite', 'last'])
@@ -661,7 +659,7 @@ describe('compiled engine live approvals', () => {
     expect(handlers()).toEqual(['ask'])
   })
 
-  for (const provider of ['claude-code', 'codex'] as const) {
+  for (const agent of ['claude-code', 'codex'] as const) {
     test.each([
       ['non-string', '42'],
       ['null', 'null'],
@@ -669,13 +667,13 @@ describe('compiled engine live approvals', () => {
       ['blank', "'   '"],
       ['oversized', JSON.stringify('x'.repeat(513))],
     ])(
-      `${provider}: %s ask question fails closed before prompting or later hooks`,
+      `${agent}: %s ask question fails closed before prompting or later hooks`,
       async (_case, question) => {
         sandbox = createSandbox()
         hook('ask', `return { result: 'ask', question: ${question}, reason: 'confirm' }`)
         hook('later', 'return ctx.allow()')
         config(['ask', 'later'])
-        const result = await runWithConsent(sandbox, invocation(sandbox, provider), () => {
+        const result = await runWithConsent(sandbox, invocation(sandbox, agent), () => {
           throw new Error('Malformed question must not prompt')
         })
         expect(denied(result.result).hookSpecificOutput.permissionDecisionReason).toContain(
