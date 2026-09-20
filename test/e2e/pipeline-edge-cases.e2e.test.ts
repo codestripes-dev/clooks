@@ -400,9 +400,9 @@ fast-crash:
   parallel: true
   onError: block
 `)
-      const startMs = Date.now()
+      const startMs = performance.now()
       const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json'), timeout: 15000 })
-      const elapsedMs = Date.now() - startMs
+      const elapsedMs = performance.now() - startMs
       expect(result.exitCode).toBe(0)
       const output = JSON.parse(result.stdout)
       expect(output.hookSpecificOutput.permissionDecision).toBe('deny')

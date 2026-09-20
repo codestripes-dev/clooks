@@ -45,9 +45,13 @@ user decision. Its final PreToolUse denial is respectively
 `[hook-name] Approval declined. Operation not run.` or
 `[hook-name] Approval cancelled. Operation not run.` Both adapters serialize that
 denial as their normal exit-0 PreToolUse block. Codex omits its duplicate
-`systemMessage` only for these two typed outcomes. Malformed responses, transport
-errors, shared-signal cancellation and unrelated policy failures retain their
-existing fallback translations.
+`systemMessage` only for these two typed outcomes. Accumulated startup warnings
+are never attached to a typed approval refusal on either agent: the denial
+envelope is re-parsed against a strict schema before the acknowledgement is
+published, and an added field would fail that parse and skip the
+acknowledgement. Malformed responses, transport errors, shared-signal
+cancellation and unrelated policy failures retain their existing fallback
+translations.
 
 Parallel hooks retain concurrent startup and the prohibition on input rewrites.
 The batch is audited and effective blocks selected before its asks are presented

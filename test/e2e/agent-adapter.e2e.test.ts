@@ -407,3 +407,72 @@ PreToolUse:
     }
   })
 })
+
+describe('agent failure paths: warnings accompany a Claude Code refusal', () => {
+  function writeOrderWarningHooks(s: Sandbox, event: 'PreToolUse' | 'Stop', body: string): void {
+    s.writeHook(
+      'failure-warning-disabled.ts',
+      `
+export const hook = {
+  meta: { name: 'failure-warning-disabled' },
+  ${event}() { throw new Error('disabled hook must not run') },
+}
+`,
+    )
+    s.writeHook(
+      'failure-warning-refused.ts',
+      `
+export const hook = {
+  meta: { name: 'failure-warning-refused' },
+  ${event}() { return ${body} },
+}
+`,
+    )
+    s.writeConfig(`version: "1.0.0"
+failure-warning-disabled:
+  enabled: false
+failure-warning-refused: {}
+${event}:
+  order: [failure-warning-disabled, failure-warning-refused]
+`)
+  }
+
+  const orderWarning = (event: string) =>
+    `clooks: event "${event}" order references hook "failure-warning-disabled" which is disabled (enabled: false)`
+
+  test('PreToolUse deny JSON carries the order warning without changing the denial', () => {
+    sandbox = createSandbox()
+    writeOrderWarningHooks(
+      sandbox,
+      'PreToolUse',
+      "{ result: 'ask', reason: 'needs review', updatedInput: [] }",
+    )
+
+    const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json') })
+
+    expect(result.exitCode).toBe(0)
+    expect(result.stderr).toBe('')
+    expect(JSON.parse(result.stdout)).toEqual({
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: 'deny',
+        permissionDecisionReason:
+          'clooks: result policy failed for hook "failure-warning-refused" on PreToolUse; result effects refused.',
+      },
+      systemMessage: orderWarning('PreToolUse'),
+    })
+  })
+
+  test('Stop exit-2 failure omits the warning so the model sees only the refusal', () => {
+    sandbox = createSandbox()
+    writeOrderWarningHooks(sandbox, 'Stop', "{ result: 'ask', reason: 'needs review' }")
+
+    const result = sandbox.run([], { stdin: loadEvent('stop.json') })
+
+    expect(result.exitCode).toBe(2)
+    expect(result.stdout).toBe('')
+    expect(result.stderr).toBe(
+      'clooks: result policy failed for hook "failure-warning-refused" on Stop; result effects refused.\n',
+    )
+  })
+})

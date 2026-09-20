@@ -37,7 +37,12 @@ export function translateFailure(input: TranslateFailureInput): TranslatedAgentO
   const prefix = `clooks: Codex ${input.eventName ?? 'unidentified event'} hook "${input.failure.hookName ?? 'runtime'}" capability "${input.failure.capability}": `
   const message = input.failure.message.trim() || 'runtime failure.'
   const reason = `${message.startsWith(prefix) ? message : prefix + message} ${disposition}`
-  const output: Record<string, unknown> = { systemMessage: reason }
+  // Warnings ride the user-facing `systemMessage` only; the decision and reason
+  // fields below stay exactly what they would be without them.
+  const warnings = input.systemMessages ?? []
+  const output: Record<string, unknown> = {
+    systemMessage: warnings.length > 0 ? [reason, ...warnings].join('\n') : reason,
+  }
   switch (input.eventName) {
     case 'Interrupt':
       return { output: JSON.stringify(output), exitCode: 0 }
@@ -67,13 +72,23 @@ export function translateFailure(input: TranslateFailureInput): TranslatedAgentO
       output.stopReason = reason
       break
     default:
-      return { stderr: reason, exitCode: 2 }
+      // Codex does not guarantee stderr reaches the user on these events, so
+      // the warnings are best effort here.
+      return {
+        stderr: warnings.length > 0 ? `${reason}\n\n${warnings.join('\n')}` : reason,
+        exitCode: 2,
+      }
   }
   return { output: JSON.stringify(output), exitCode: 0 }
 }
 
 export function translateFinalOutput(input: TranslateFinalOutputInput): TranslatedAgentOutput {
-  if (input.policyFailure) return translateFailure({ ...input, failure: input.policyFailure })
+  if (input.policyFailure)
+    return translateFailure({
+      ...input,
+      failure: input.policyFailure,
+      systemMessages: [...input.systemMessages, ...input.diagnostics],
+    })
   const result = input.result
   const output: Record<string, unknown> = {}
   const specific: Record<string, unknown> = { hookEventName: input.eventName }

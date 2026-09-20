@@ -121,6 +121,12 @@ export interface TranslateFailureInput {
   eventName: EventName | null
   invocation?: NormalizedInvocation
   failure: RuntimePolicyFailure
+  /**
+   * Warnings accumulated before the failure. Each adapter decides where they
+   * fit, and drops them where the protocol offers no channel that reaches the
+   * user without reshaping the failure itself.
+   */
+  systemMessages?: string[]
 }
 
 export interface TranslatedAgentOutput {

@@ -427,6 +427,84 @@ describe('Codex event result contracts', () => {
     expect(transport.approvalDecision).toBeUndefined()
   })
 
+  test('a typed user refusal stays byte-identical when warnings are present', () => {
+    const refusal = userApprovalFailure('declined', 'guard')
+    const failure = {
+      eventName: 'PreToolUse' as const,
+      hookName: hn('guard'),
+      capability: 'approval',
+      message: refusal.message,
+      approvalDecision: refusal.kind,
+    }
+    expect(
+      codexAdapter.translateFailure({
+        eventName: 'PreToolUse',
+        failure,
+        systemMessages: ['clooks: event "PreToolUse" order references hook "guard"'],
+      }),
+    ).toEqual(codexAdapter.translateFailure({ eventName: 'PreToolUse', failure }))
+  })
+
+  test('final output delegates a latched failure with the messages it was given', () => {
+    const failure = {
+      eventName: 'Stop' as const,
+      hookName: hn('guard'),
+      capability: 'result',
+      message: 'crashed',
+    }
+    const delegated = codexAdapter.translateFinalOutput({
+      eventName: 'Stop',
+      result: { result: 'allow' },
+      policyFailure: failure,
+      systemMessages: ['advisory'],
+      diagnostics: ['diagnostic'],
+    })
+    expect(delegated).toEqual(
+      codexAdapter.translateFailure({
+        eventName: 'Stop',
+        failure,
+        systemMessages: ['advisory', 'diagnostic'],
+      }),
+    )
+    expect(JSON.parse(delegated.output!).continue).toBe(false)
+  })
+
+  test.each([...events, 'Interrupt', null] as const)(
+    '%s failure output only gains warnings in its user-facing channel',
+    (event) => {
+      const failure = {
+        eventName: event,
+        hookName: hn('guard'),
+        capability: 'result',
+        message: 'crashed',
+      }
+      const warning = 'clooks: event "Stop" order references hook "guard" which is disabled'
+      const bare = codexAdapter.translateFailure({ eventName: event, failure })
+      expect(
+        codexAdapter.translateFailure({ eventName: event, failure, systemMessages: [] }),
+      ).toEqual(bare)
+
+      const withWarning = codexAdapter.translateFailure({
+        eventName: event,
+        failure,
+        systemMessages: [warning],
+      })
+      expect(withWarning.exitCode).toBe(bare.exitCode)
+
+      if (bare.output === undefined) {
+        expect(withWarning.output).toBeUndefined()
+        expect(withWarning.stderr).toBe(`${bare.stderr}\n\n${warning}`)
+        return
+      }
+
+      const bareJson = JSON.parse(bare.output) as Record<string, unknown>
+      const json = JSON.parse(withWarning.output!) as Record<string, unknown>
+      expect(json.systemMessage).toBe(`${String(bareJson.systemMessage)}\n${warning}`)
+      json.systemMessage = bareJson.systemMessage
+      expect(json).toEqual(bareJson)
+    },
+  )
+
   test.each(['PermissionRequest', 'PreCompact', 'PostCompact', 'Stop', 'SubagentStop'] as const)(
     '%s generated trace has no invented context channel',
     (eventName) => {

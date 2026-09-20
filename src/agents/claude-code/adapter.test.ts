@@ -126,8 +126,94 @@ describe('claudeCodeAdapter', () => {
       systemMessages: ['advisory'],
       diagnostics: ['diagnostic'],
     })
-    expect(output).toEqual({ exitCode: 2, stderr: 'policy rejected' })
+    expect(output).toEqual({ exitCode: 2, stderr: 'policy rejected\n\nadvisory\ndiagnostic' })
   })
+
+  test('SessionStart failure stderr carries warnings after the failure message', () => {
+    const failure = {
+      eventName: 'SessionStart' as const,
+      capability: 'test-policy',
+      message: 'policy rejected',
+    }
+    const bare = claudeCodeAdapter.translateFailure({ eventName: 'SessionStart', failure })
+    expect(bare).toEqual({ exitCode: 2, stderr: 'policy rejected' })
+    expect(
+      claudeCodeAdapter.translateFailure({
+        eventName: 'SessionStart',
+        failure,
+        systemMessages: [],
+      }),
+    ).toEqual(bare)
+    expect(
+      claudeCodeAdapter.translateFailure({
+        eventName: 'SessionStart',
+        failure,
+        systemMessages: ['order references hook "guard"', 'shadowed by project hook'],
+      }),
+    ).toEqual({
+      exitCode: 2,
+      stderr: 'policy rejected\n\norder references hook "guard"\nshadowed by project hook',
+    })
+  })
+
+  test('PreToolUse failure JSON carries warnings without touching the denial fields', () => {
+    const failure = {
+      eventName: 'PreToolUse' as const,
+      capability: 'ask',
+      message: 'clooks: ask is not expressible',
+    }
+    const bare = claudeCodeAdapter.translateFailure({ eventName: 'PreToolUse', failure })
+    const withWarnings = claudeCodeAdapter.translateFailure({
+      eventName: 'PreToolUse',
+      failure,
+      systemMessages: ['order references hook "guard"', 'hook "guard" failed to import'],
+    })
+
+    expect(
+      claudeCodeAdapter.translateFailure({ eventName: 'PreToolUse', failure, systemMessages: [] }),
+    ).toEqual(bare)
+    expect(withWarnings.exitCode).toBe(0)
+    expect(withWarnings.stderr).toBeUndefined()
+    const bareOutput = JSON.parse(bare.output ?? '{}')
+    const output = JSON.parse(withWarnings.output ?? '{}')
+    expect(output.hookSpecificOutput).toEqual(bareOutput.hookSpecificOutput)
+    expect(output.systemMessage).toBe(
+      'order references hook "guard"\nhook "guard" failed to import',
+    )
+  })
+
+  test('a typed approval refusal stays byte-identical when warnings are present', () => {
+    const failure = {
+      eventName: 'PreToolUse' as const,
+      capability: 'approval',
+      message: 'clooks: user declined',
+      approvalDecision: 'declined' as const,
+    }
+    const bare = claudeCodeAdapter.translateFailure({ eventName: 'PreToolUse', failure })
+    expect(
+      claudeCodeAdapter.translateFailure({
+        eventName: 'PreToolUse',
+        failure,
+        systemMessages: ['order references hook "guard"'],
+      }),
+    ).toEqual(bare)
+    expect(bare.approvalDecision).toBe('declined')
+    expect(JSON.parse(bare.output ?? '{}')).not.toHaveProperty('systemMessage')
+  })
+
+  test.each(['Stop', 'PostToolUse', 'UserPromptSubmit'] as const)(
+    '%s exit-2 failure omits warnings so the model sees only the block reason',
+    (eventName) => {
+      const failure = { eventName, capability: 'test-policy', message: 'policy rejected' }
+      expect(
+        claudeCodeAdapter.translateFailure({
+          eventName,
+          failure,
+          systemMessages: ['order references hook "guard"'],
+        }),
+      ).toEqual({ exitCode: 2, stderr: 'policy rejected' })
+    },
+  )
 
   test('reads only recognized Claude Code event names', () => {
     expect(claudeCodeAdapter.readEventName({ hook_event_name: 'PreToolUse' })).toBe('PreToolUse')

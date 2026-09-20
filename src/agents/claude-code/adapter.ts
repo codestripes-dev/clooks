@@ -109,6 +109,22 @@ function routeClaudeCodeSystemMessage(eventName: EventName) {
   return NOTIFY_ONLY_EVENTS.has(eventName) ? 'stderr' : 'stdout-json'
 }
 
+function attachClaudeCodeSystemMessage(
+  translated: TranslatedAgentOutput,
+  systemMessages: string[],
+): TranslatedAgentOutput {
+  const systemMessage = systemMessages.join('\n')
+  if (translated.output) {
+    const parsed = JSON.parse(translated.output) as ClaudeCodeOutput
+    parsed.systemMessage = systemMessage
+    translated.output = JSON.stringify(parsed)
+    return translated
+  }
+
+  translated.output = JSON.stringify({ systemMessage } as ClaudeCodeOutput)
+  return translated
+}
+
 function translateFinalClaudeCodeOutput(input: TranslateFinalOutputInput): TranslatedAgentOutput {
   const translated = input.result
     ? translateClaudeCodeResult(input.eventName, input.result)
@@ -127,16 +143,7 @@ function translateFinalClaudeCodeOutput(input: TranslateFinalOutputInput): Trans
     return translated
   }
 
-  const systemMessage = systemMessages.join('\n')
-  if (translated.output) {
-    const parsed = JSON.parse(translated.output) as ClaudeCodeOutput
-    parsed.systemMessage = systemMessage
-    translated.output = JSON.stringify(parsed)
-    return translated
-  }
-
-  translated.output = JSON.stringify({ systemMessage } as ClaudeCodeOutput)
-  return translated
+  return attachClaudeCodeSystemMessage(translated, systemMessages)
 }
 
 export const claudeCodeAdapter: AgentAdapter = {
@@ -263,11 +270,24 @@ export const claudeCodeAdapter: AgentAdapter = {
     return { result, stderr, systemMessages: [] }
   },
 
-  translateFailure({ eventName, failure }) {
+  translateFailure({ eventName, failure, systemMessages }) {
+    const warnings = systemMessages ?? []
     if (eventName === 'PreToolUse') {
-      return {
+      const translated: TranslatedAgentOutput = {
         ...translateClaudeCodeResult(eventName, { result: 'block', reason: failure.message }),
         ...(failure.approvalDecision ? { approvalDecision: failure.approvalDecision } : {}),
+      }
+      // A typed refusal is re-parsed against a strict denial schema before it is
+      // acknowledged to the approval server; an extra field would fail that parse.
+      if (failure.approvalDecision || warnings.length === 0) return translated
+      return attachClaudeCodeSystemMessage(translated, warnings)
+    }
+    // Exit-2 stderr reaches the model on every event but SessionStart, where
+    // unrelated warnings would end up inside the block reason the model reads.
+    if (eventName === 'SessionStart' && warnings.length > 0) {
+      return {
+        exitCode: EXIT_STDERR,
+        stderr: `${failure.message}\n\n${warnings.join('\n')}`,
       }
     }
     return { exitCode: EXIT_STDERR, stderr: failure.message }
@@ -298,6 +318,7 @@ export const claudeCodeAdapter: AgentAdapter = {
         eventName: input.eventName,
         invocation: input.invocation,
         failure: input.policyFailure,
+        systemMessages: [...input.systemMessages, ...input.diagnostics],
       })
     return translateFinalClaudeCodeOutput(input)
   },

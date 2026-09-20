@@ -532,9 +532,9 @@ config:
 hang-hook: {}
 `)
 
-    const start = Date.now()
+    const start = performance.now()
     const result = sandbox.run([], { stdin: loadEvent('pre-tool-use-bash.json'), timeout: 10000 })
-    const elapsed = Date.now() - start
+    const elapsed = performance.now() - start
     expect(result.exitCode).toBe(0)
     // Should have timed out and blocked (default onError: block)
     const output = JSON.parse(result.stdout)

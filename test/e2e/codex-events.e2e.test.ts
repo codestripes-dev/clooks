@@ -136,23 +136,28 @@ const dispositions: Record<Event, string> = {
   Stop: 'Continuation termination requested; no further continuation is requested.',
 }
 
-function failure(result: RunResult, event: Event, message: string) {
+// `warnings` are the messages accumulated before the refusal. They ride the
+// user-facing channel only; the decision and reason fields stay untouched.
+function failure(result: RunResult, event: Event, message: string, warnings: string[] = []) {
+  const systemMessage = warnings.length > 0 ? [message, ...warnings].join('\n') : message
   if (event === 'SubagentStart' || event === 'PostCompact') {
     expect(result.exitCode).toBe(2)
     expect(result.stdout).toBe('')
-    expect(result.stderr).toBe(message + '\n')
+    expect(result.stderr).toBe(
+      (warnings.length > 0 ? `${message}\n\n${warnings.join('\n')}` : message) + '\n',
+    )
   } else if (event === 'PermissionRequest') {
     output(result, {
       hookSpecificOutput: {
         hookEventName: 'PermissionRequest',
         decision: { behavior: 'deny', message },
       },
-      systemMessage: message,
+      systemMessage,
     })
   } else if (event === 'PostToolUse' || event === 'UserPromptSubmit') {
-    output(result, { decision: 'block', reason: message, systemMessage: message })
+    output(result, { decision: 'block', reason: message, systemMessage })
   } else {
-    output(result, { continue: false, stopReason: message, systemMessage: message })
+    output(result, { continue: false, stopReason: message, systemMessage })
   }
 }
 
@@ -1016,10 +1021,50 @@ export const hook = { meta: { name: '${name}' }, ${event}() { throw new Error('u
         replay(event),
         event,
         `clooks: Codex ${event} hook "${name}" capability "load-error": [clooks] Hook "${name}" failed on ${event} (Error: clooks: failed to import hook "${name}" from .clooks/hooks/${name}.ts: fixture import). Action blocked (onError: block).; result effects refused. ${dispositions[event]}`,
+        [
+          `[clooks] Hook "${name}" failed to load: clooks: failed to import hook "${name}" from .clooks/hooks/${name}.ts: fixture import\n` +
+            `Fix: Remove "${name}" from your clooks.yml, or restore the hook file.\n` +
+            `This hook will be disabled after 3 consecutive load failures.`,
+        ],
       )
       marks('failed-import\n')
       expect(count('__load__')).toBe(1)
       expect(count(event)).toBe(0)
     })
   }
+
+  test('Stop: a refused result still delivers the order warning that preceded it', () => {
+    sandbox = createSandbox()
+    const disabled = `${name}-disabled`
+    install('Stop', 'return ctx.skip()')
+    output(replay('Stop'))
+    marks()
+    sandbox.writeHook(
+      `${disabled}.ts`,
+      `
+export const hook = {
+  meta: { name: '${disabled}' },
+  Stop() { throw new Error('disabled hook must not run') },
+}
+`,
+    )
+    install(
+      'Stop',
+      'return ctx.skip()',
+      "afterHook(event) { mark('after'); event.handlerResult.continue = false },",
+    )
+    sandbox.writeConfig(
+      `version: "1.0.0"\n${name}: {}\n${disabled}:\n  enabled: false\nStop:\n  order: [${disabled}, ${name}]\n`,
+    )
+
+    failure(
+      replay('Stop'),
+      'Stop',
+      `clooks: Codex Stop hook "${name}" capability "continue": unsupported field continue on skip; result effects refused. ${dispositions.Stop}`,
+      [
+        `clooks: event "Stop" order references hook "${disabled}" which is disabled (enabled: false)`,
+      ],
+    )
+    marks('import\nhandler\nafter\n')
+  })
 })

@@ -13,16 +13,6 @@ The prompt did not display which file would be deleted, even though commit `b5cd
 
 **Disposition:** Unresolved, not yet root-caused. First step: reproduce with a delete (`rm` via Bash, and a native delete tool if one exists) under Claude Code and inspect what `approvalOperation` / the preview builder emits for that tool input.
 
-### Startup and unknown-agent warnings are dropped when an invocation ends in a policy failure
-
-**Severity:** friction
-**Date:** 2026-09-19
-**Context:** Surfaced during the agent-scoping work.
-
-In `src/engine/run.ts:859`, the policy-failure branch calls `adapter.translateFailure({ eventName, invocation, failure: policyFailure })` without passing the accumulated system messages, while the sibling branch at `run.ts:860` (`translateFinalOutput`) does pass `systemMessages: allSystemMessages`. `allSystemMessages` (built at `run.ts:850-855`) includes `startupWarnings` — shadow warnings (`buildShadowWarnings`), the "unknown agent ids in agents lists (ignored)" warning (`buildUnknownAgentWarnings` in `src/engine/match.ts:133`), and order/enabled-mismatch warnings built at `run.ts:716-753` — plus `danglingWarnings`. None of these reach the user when the invocation ends via the policy-failure path.
-
-**Disposition:** Pre-existing behavior, unresolved.
-
 ### Codex registration ownership misses earlier absolute commands
 
 **Severity:** friction

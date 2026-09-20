@@ -689,9 +689,12 @@ describe('runEngine agent adapter selection', () => {
   })
 
   test('latched rejection selects failure translation even when diagnostics and adjustment return allow', async () => {
-    const deps = makeDeps({ hook_event_name: 'PreToolUse' }, [
-      makeHook('bad', { PreToolUse: () => ({ result: 'ask', reason: 'unsupported' }) }),
-    ])
+    const deps = makeDeps(
+      { hook_event_name: 'PreToolUse' },
+      [makeHook('bad', { PreToolUse: () => ({ result: 'ask', reason: 'unsupported' }) })],
+      [],
+      [{ name: hn('ghost'), resolvedPath: '/tmp/ghost.ts', origin: 'project' }],
+    )
     let failures = 0
     let normal = 0
     const adapter: AgentAdapter = {
@@ -712,6 +715,8 @@ describe('runEngine agent adapter selection', () => {
         failures++
         expect(input.failure.capability).toBe('ask')
         expect(input.invocation?.eventName).toBe('PreToolUse')
+        expect(input.systemMessages).toHaveLength(1)
+        expect(input.systemMessages?.[0]).toContain('Hook "ghost" skipped')
         return { output: '{"decision":"deny"}', exitCode: 0 }
       },
     }
@@ -719,6 +724,71 @@ describe('runEngine agent adapter selection', () => {
     expect(failures).toBe(1)
     expect(normal).toBe(0)
     expect(result).toEqual({ code: 0, stdout: '{"decision":"deny"}\n', stderr: '' })
+  })
+
+  test('a runtime failure raised after execution still carries the collected warnings', async () => {
+    const deps = makeDeps(
+      { hook_event_name: 'SessionStart', session_id: 'warned' },
+      [makeHook('quiet', { SessionStart: () => ({ result: 'skip' }) })],
+      [],
+      [{ name: hn('ghost'), resolvedPath: '/tmp/ghost.ts', origin: 'project' }],
+    )
+    const seen: string[][] = []
+    const adapter: AgentAdapter = {
+      ...claudeCodeAdapter,
+      inputStage: 'before-hooks',
+      composeDiagnostics() {
+        throw new Error('diagnostics exploded')
+      },
+      translateFailure(input) {
+        seen.push(input.systemMessages ?? [])
+        return claudeCodeAdapter.translateFailure(input)
+      },
+    }
+
+    const result = await runCoreWithExitTrap(deps, adapter)
+
+    expect(result.code).toBe(2)
+    expect(seen).toHaveLength(1)
+    expect(seen[0]).toHaveLength(1)
+    expect(seen[0]?.[0]).toContain('Hook "ghost" skipped')
+    expect(result.stderr).toContain('clooks: runtime failure: diagnostics exploded')
+    expect(result.stderr).toContain('Hook "ghost" skipped')
+  })
+
+  test('cancellation after execution still carries the collected warnings', async () => {
+    const controller = new AbortController()
+    const deps = makeDeps(
+      { hook_event_name: 'SessionStart', session_id: 'cancelled' },
+      [
+        makeHook('aborts', {
+          SessionStart: () => {
+            controller.abort()
+            return { result: 'skip' }
+          },
+        }),
+      ],
+      [],
+      [{ name: hn('ghost'), resolvedPath: '/tmp/ghost.ts', origin: 'project' }],
+    )
+    deps.signal = controller.signal
+    const cancellations: string[][] = []
+    const adapter: AgentAdapter = {
+      ...claudeCodeAdapter,
+      translateFailure(input) {
+        if (input.failure.capability === 'cancelled') cancellations.push(input.systemMessages ?? [])
+        return claudeCodeAdapter.translateFailure(input)
+      },
+    }
+
+    const result = await runCoreWithExitTrap(deps, adapter)
+
+    expect(result.code).toBe(2)
+    expect(cancellations).toHaveLength(1)
+    expect(cancellations[0]).toHaveLength(1)
+    expect(cancellations[0]?.[0]).toContain('Hook "ghost" skipped')
+    expect(result.stderr).toContain('clooks: invocation cancelled')
+    expect(result.stderr).toContain('Hook "ghost" skipped')
   })
 
   test('fails closed for unknown CLOOKS_AGENT values before runtime', async () => {

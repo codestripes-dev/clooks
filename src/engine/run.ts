@@ -61,6 +61,12 @@ interface InvocationState {
   interaction?: ApprovalInteraction
   interactionError?: unknown
   output?: TranslatedAgentOutput
+  /**
+   * Warnings collected so far, in the order the success path emits them. Kept
+   * on the state so the failure exits outside the invocation can still reach
+   * them.
+   */
+  systemMessages: string[]
 }
 
 /**
@@ -147,6 +153,7 @@ async function runEngineCoreOwned(
   const state: InvocationState = {
     eventName: null,
     rawReadAttempted: false,
+    systemMessages: [],
   }
   let exitCode: ExitCode | undefined
   try {
@@ -178,6 +185,7 @@ async function runEngineCoreOwned(
         eventName: state.eventName,
         invocation: state.invocation,
         failure,
+        systemMessages: state.systemMessages,
       })
       exitCode = state.output.exitCode
     } else {
@@ -195,6 +203,7 @@ async function runEngineCoreOwned(
           capability: 'approval-close',
           message: `clooks: approval completion failed: ${error instanceof Error ? error.message : String(error)}`,
         },
+        systemMessages: state.systemMessages,
       })
       exitCode = state.output.exitCode
     }
@@ -208,6 +217,7 @@ async function runEngineCoreOwned(
         capability: 'cancelled',
         message: 'clooks: invocation cancelled',
       },
+      systemMessages: state.systemMessages,
     })
     exitCode = state.output.exitCode
   }
@@ -810,6 +820,10 @@ async function runEngineInvocation(
     }
   }
 
+  // Startup warnings are final here; publish them before hooks run so a crash,
+  // a refused approval, or a cancellation during execution can still deliver them.
+  state.systemMessages = [...pluginSystemMessages, ...danglingWarnings, ...startupWarnings]
+
   checkSignal(deps.signal)
   const execution = await executeHooks(
     matched,
@@ -848,16 +862,22 @@ async function runEngineInvocation(
   lastResult = adjusted.result
   systemMessages.push(...adjusted.systemMessages)
 
-  const allSystemMessages = [
+  state.systemMessages = [
     ...pluginSystemMessages,
     ...danglingWarnings,
     ...startupWarnings,
     ...systemMessages,
   ]
+  const allSystemMessages = state.systemMessages
   let translated: TranslatedAgentOutput
   try {
     translated = policyFailure
-      ? adapter.translateFailure({ eventName, invocation, failure: policyFailure })
+      ? adapter.translateFailure({
+          eventName,
+          invocation,
+          failure: policyFailure,
+          systemMessages: allSystemMessages,
+        })
       : adapter.translateFinalOutput({
           eventName,
           invocation,
