@@ -4,7 +4,7 @@
 // - Notification/idle_prompt: red tab text + "⏸ c-{dir}", resets color on focus (⏸ stays)
 // - Notification/permission_prompt|elicitation_dialog: red bold + flash on
 //   the user's currently-focused window (may differ from the agent's window)
-// - Codex PermissionRequest: same attention + optional flash; may auto-resolve
+// - Codex PermissionRequest: tab attention only; may auto-resolve without a prompt
 // - UserPromptSubmit, PostToolUse, SessionStart: reset to default
 // - SessionEnd: reset + restore automatic-rename
 //
@@ -28,7 +28,7 @@ export interface TmuxNotificationsConfig extends Record<string, unknown> {
   attentionStyle: string
   /** Whether `Stop` colors the window status. Set false to silence Stop. */
   attentionOnStop: boolean
-  /** Whether permission/elicitation prompts trigger the visual flash. */
+  /** Whether Claude permission/elicitation notifications trigger the visual flash. */
   flashOnPrompt: boolean
   /** Whether to rename the window to `c-{dir}` and disable automatic-rename. */
   renameWindow: boolean
@@ -266,10 +266,9 @@ export const hook: ClooksHook<TmuxNotificationsConfig> = {
     return ctx.skip()
   },
 
-  async PermissionRequest(ctx, config) {
+  PermissionRequest(ctx, config) {
     if (!('agent' in ctx && ctx.agent === 'codex')) return ctx.skip()
     setAttentionStyle(w, config.attentionStyle)
-    if (config.flashOnPrompt) await flashFocusedWindow()
     return ctx.skip()
   },
 

@@ -414,26 +414,15 @@ describe('hook.PermissionRequest agent attention', () => {
     expect(issuedCommands).toEqual([])
   })
 
-  test.each([false, true])('Codex styles attention and honors flashOnPrompt=%s', async (flashOnPrompt) => {
+  test.each([false, true])('Codex styles attention without flashing when flashOnPrompt=%s', async (flashOnPrompt) => {
     setupTmuxEnv()
-    execSyncImpl = (cmd) => {
-      if (cmd.includes("'#{session_id}'")) return '$2'
-      if (cmd.includes('display-message')) return '@9'
-      if (cmd.includes('list-panes')) return '%8\tdefault\tdefault'
-      if (cmd.includes('show-option -gv status-style')) return 'bg=black'
-      return ''
-    }
     expect(await hook.PermissionRequest!({ ...ctx, agent: 'codex' }, {
       ...DEFAULT_CONFIG, attentionStyle: 'bg=blue,fg=yellow', flashOnPrompt,
     })).toEqual({ result: 'skip' })
-    expect(issuedCommands.slice(0, 2)).toEqual([
+    expect(issuedCommands).toEqual([
       "tmux set-window-option -t @7 window-status-style 'bg=blue,fg=yellow'",
       "tmux set-window-option -t @7 window-status-current-style 'bg=blue,fg=yellow'",
     ])
-    expect(issuedCommands.some(cmd => cmd.includes('list-panes -t @9'))).toBe(flashOnPrompt)
-    expect(issuedCommands.filter(cmd => cmd.includes("window-style 'bg=colour240'")).length).toBe(flashOnPrompt ? 2 : 0)
-    expect(issuedCommands.filter(cmd => cmd.includes('set -pu -t %8 window-style')).length).toBe(flashOnPrompt ? 2 : 0)
-    if (!flashOnPrompt) expect(issuedCommands).toHaveLength(2)
   })
 
   test('unchanged beforeHook skips outside tmux without subprocesses', () => {

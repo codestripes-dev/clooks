@@ -1190,12 +1190,8 @@ if (args[0] === 'set-hook') {
             'window-status-current-style',
             'bg=red,fg=white,bold',
           ])
-          const flash = (config as { flashOnPrompt?: boolean }).flashOnPrompt !== false
-          expect(commands.some((args) => args[0] === 'list-panes' && args[2] === '@9')).toBe(flash)
-          expect(commands.filter((args) => args.includes('bg=colour240'))).toHaveLength(
-            flash ? 2 : 0,
-          )
-          if (flash) expect(commands.filter((args) => args.includes('bg=black'))).toHaveLength(2)
+          expect(commands).toHaveLength(3)
+          expect(commands[0]).toEqual(['display-message', '-t', '%4', '-p', '#{window_id}'])
         } else expect(commands).toEqual([['display-message', '-t', '%4', '-p', '#{window_id}']])
       }
       if (available && event === 'SessionEnd') {
