@@ -791,6 +791,336 @@ describe('runEngine agent adapter selection', () => {
     expect(result.stderr).toContain('Hook "ghost" skipped')
   })
 
+  test('a crash while hooks are imported still reports the plugin advisory', async () => {
+    const controller = new AbortController()
+    const deps = makeDeps({ hook_event_name: 'SessionStart', session_id: 'import-crash' })
+    deps.loadAllHooks = async () => {
+      controller.abort()
+      throw new Error('import exploded')
+    }
+    deps.signal = controller.signal
+    const seen: string[][] = []
+    const adapter: AgentAdapter = {
+      ...claudeCodeAdapter,
+      async prepareConfigAfterLoad(input) {
+        return {
+          config: input.config,
+          shadows: input.shadows,
+          hasProjectConfig: input.hasProjectConfig,
+          systemMessages: ['clooks: plugin advisory'],
+        }
+      },
+      translateFailure(input) {
+        seen.push(input.systemMessages ?? [])
+        return claudeCodeAdapter.translateFailure(input)
+      },
+    }
+
+    const result = await runCoreWithExitTrap(deps, adapter)
+
+    expect(result.code).toBe(2)
+    // The event name is still unread here, so Claude's own routing omits the
+    // advisory from stderr; what matters is that translation was offered it.
+    expect(seen.at(-1)).toEqual(['clooks: plugin advisory'])
+  })
+
+  test('a crash before matching still reports the missing-file warning', async () => {
+    const controller = new AbortController()
+    const deps = makeDeps(
+      { hook_event_name: 'SessionStart', session_id: 'context-crash' },
+      [],
+      [],
+      [{ name: hn('ghost'), resolvedPath: '/tmp/ghost.ts', origin: 'project' }],
+    )
+    deps.createContextHelpers = () => {
+      controller.abort()
+      throw new Error('helpers exploded')
+    }
+    deps.signal = controller.signal
+    const seen: string[][] = []
+    const adapter: AgentAdapter = {
+      ...claudeCodeAdapter,
+      translateFailure(input) {
+        seen.push(input.systemMessages ?? [])
+        return claudeCodeAdapter.translateFailure(input)
+      },
+    }
+
+    const result = await runCoreWithExitTrap(deps, adapter)
+
+    expect(result.code).toBe(2)
+    expect(seen.at(-1)).toHaveLength(1)
+    expect(seen.at(-1)?.[0]).toContain('Hook "ghost" skipped')
+    expect(result.stderr).toContain('Hook "ghost" skipped')
+  })
+
+  test('the no-hooks exit publishes its warning before a cancellation replaces the output', async () => {
+    const controller = new AbortController()
+    const deps = makeDeps({ hook_event_name: 'SessionStart', session_id: 'empty' })
+    const loadConfig = deps.loadConfig
+    deps.loadConfig = async (...args) => {
+      const loaded = await loadConfig(...args)
+      loaded!.config.global.agents = ['future-agent']
+      return loaded
+    }
+    deps.signal = controller.signal
+    const cancellations: string[][] = []
+    const adapter: AgentAdapter = {
+      ...claudeCodeAdapter,
+      collectSessionStartAdvisories() {
+        controller.abort()
+        return []
+      },
+      translateFailure(input) {
+        if (input.failure.capability === 'cancelled') cancellations.push(input.systemMessages ?? [])
+        return claudeCodeAdapter.translateFailure(input)
+      },
+    }
+
+    const result = await runCoreWithExitTrap(deps, adapter)
+
+    expect(result.code).toBe(2)
+    expect(cancellations).toEqual([
+      ['clooks: unknown agent ids in agents lists (ignored): future-agent'],
+    ])
+    expect(result.stderr).toContain('future-agent')
+  })
+
+  test('cancellation carries a warning collected during execution, not just startup', async () => {
+    const controller = new AbortController()
+    const deps = makeDeps({ hook_event_name: 'SessionStart', session_id: 'exec-warned' }, [
+      makeHook('noisy', {
+        SessionStart: () => {
+          throw new Error('handler exploded')
+        },
+      }),
+      makeHook('aborts', {
+        SessionStart: () => {
+          controller.abort()
+          return { result: 'skip' }
+        },
+      }),
+    ])
+    const loadConfig = deps.loadConfig
+    deps.loadConfig = async (...args) => {
+      const loaded = await loadConfig(...args)
+      loaded!.config.global.onError = 'continue'
+      return loaded
+    }
+    deps.signal = controller.signal
+    const cancellations: string[][] = []
+    const adapter: AgentAdapter = {
+      ...claudeCodeAdapter,
+      translateFailure(input) {
+        if (input.failure.capability === 'cancelled') cancellations.push(input.systemMessages ?? [])
+        return claudeCodeAdapter.translateFailure(input)
+      },
+    }
+
+    const result = await runCoreWithExitTrap(deps, adapter)
+
+    expect(result.code).toBe(2)
+    expect(cancellations).toHaveLength(1)
+    expect(cancellations[0]?.join('\n')).toContain('noisy')
+    expect(result.stderr).toContain('clooks: invocation cancelled')
+    expect(result.stderr).toContain('handler exploded')
+  })
+
+  test('a crash during startup assembly still reports the SessionStart advisory', async () => {
+    const guard = makeHook('guard', { SessionStart: () => ({ result: 'skip' }) })
+    // Read by the per-event `enabled: false` check, which runs after the
+    // advisories are collected and before the next snapshot.
+    Object.defineProperty(guard.hook, 'Stop', {
+      get() {
+        throw new Error('handler lookup exploded')
+      },
+    })
+    const deps = makeDeps({ hook_event_name: 'SessionStart', session_id: 'startup-crash' }, [guard])
+    const loadConfig = deps.loadConfig
+    deps.loadConfig = async (...args) => {
+      const loaded = await loadConfig(...args)
+      loaded!.config.hooks[hn('guard')]!.events = { Stop: { enabled: false } }
+      return loaded
+    }
+    const seen: string[][] = []
+    const adapter: AgentAdapter = {
+      ...claudeCodeAdapter,
+      inputStage: 'before-hooks',
+      collectSessionStartAdvisories: () => ['clooks: session advisory'],
+      translateFailure(input) {
+        seen.push(input.systemMessages ?? [])
+        return claudeCodeAdapter.translateFailure(input)
+      },
+    }
+
+    const result = await runCoreWithExitTrap(deps, adapter)
+
+    expect(result.code).toBe(2)
+    expect(seen).toEqual([['clooks: session advisory']])
+    expect(result.stderr).toContain('clooks: session advisory')
+  })
+
+  test('a degradation notice survives a cancellation raised right after execution', async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'clooks-degraded-project-'))
+    tempDirs.push(projectRoot)
+    const controller = new AbortController()
+    const deps = makeDeps({ hook_event_name: 'SessionStart', session_id: 'degraded' }, [
+      makeHook('flaky', {
+        SessionStart: () => {
+          throw new Error('handler exploded')
+        },
+      }),
+      makeHook('aborts', {
+        SessionStart: () => {
+          controller.abort()
+          return { result: 'skip' }
+        },
+      }),
+    ])
+    deps.discoverProjectRoot = async () => ({
+      projectRoot,
+      signal: 'walk-up',
+      from: projectRoot,
+      checked: [projectRoot],
+      boundary: 'git-root',
+      boundaryPath: projectRoot,
+    })
+    const loadConfig = deps.loadConfig
+    deps.loadConfig = async (...args) => {
+      const loaded = await loadConfig(...args)
+      loaded!.config.global.maxFailures = 1
+      loaded!.config.global.maxFailuresMessage = '{hook} disabled after {count} failures'
+      return loaded
+    }
+    deps.signal = controller.signal
+    const cancellations: string[][] = []
+    // A degradation notice only becomes a user-facing message inside the
+    // composer, and Codex is the agent whose composer routes it there.
+    const adapter: AgentAdapter = {
+      ...claudeCodeAdapter,
+      composeDiagnostics: codexAdapter.composeDiagnostics,
+      translateFailure(input) {
+        if (input.failure.capability === 'cancelled') cancellations.push(input.systemMessages ?? [])
+        return claudeCodeAdapter.translateFailure(input)
+      },
+    }
+
+    const result = await runCoreWithExitTrap(deps, adapter)
+
+    expect(result.code).toBe(2)
+    expect(cancellations).toEqual([['flaky disabled after 1 failures']])
+    expect(result.stderr).toContain('flaky disabled after 1 failures')
+  })
+
+  test.each(['live', 'cancelled'] as const)(
+    'a throwing composer keeps the execution warning on a %s invocation',
+    async (mode) => {
+      const controller = new AbortController()
+      const noisy = makeHook('noisy', {
+        SessionStart: () => {
+          throw new Error('handler exploded')
+        },
+      })
+      // A hook that aborts while it is itself failing is cancelled before its
+      // diagnostic is recorded, so the abort goes in a second hook.
+      const aborts = makeHook('aborts', {
+        SessionStart: () => {
+          controller.abort()
+          return { result: 'skip' }
+        },
+      })
+      const deps = makeDeps(
+        { hook_event_name: 'SessionStart', session_id: 'composer-crash' },
+        mode === 'cancelled' ? [noisy, aborts] : [noisy],
+      )
+      const loadConfig = deps.loadConfig
+      deps.loadConfig = async (...args) => {
+        const loaded = await loadConfig(...args)
+        loaded!.config.global.onError = 'continue'
+        return loaded
+      }
+      if (mode === 'cancelled') deps.signal = controller.signal
+      const seen: string[][] = []
+      const adapter: AgentAdapter = {
+        ...claudeCodeAdapter,
+        inputStage: 'before-hooks',
+        composeDiagnostics() {
+          throw new Error('diagnostics exploded')
+        },
+        translateFailure(input) {
+          seen.push(input.systemMessages ?? [])
+          return claudeCodeAdapter.translateFailure(input)
+        },
+      }
+
+      const result = await runCoreWithExitTrap(deps, adapter)
+
+      expect(result.code).toBe(2)
+      expect(seen.at(-1)?.join('\n')).toContain('handler exploded')
+      expect(result.stderr).toContain('handler exploded')
+      expect(result.stderr).toContain(
+        mode === 'cancelled' ? 'clooks: invocation cancelled' : 'diagnostics exploded',
+      )
+    },
+  )
+
+  test('a cancelling preparation callback still reports the advisory it returned', async () => {
+    const controller = new AbortController()
+    const deps = makeDeps({ hook_event_name: 'SessionStart', session_id: 'prepare-cancel' })
+    deps.signal = controller.signal
+    const cancellations: string[][] = []
+    const adapter: AgentAdapter = {
+      ...claudeCodeAdapter,
+      async prepareConfigAfterLoad(input) {
+        controller.abort()
+        return {
+          config: input.config,
+          shadows: input.shadows,
+          hasProjectConfig: input.hasProjectConfig,
+          systemMessages: ['clooks: preparation advisory'],
+        }
+      },
+      translateFailure(input) {
+        if (input.failure.capability === 'cancelled') cancellations.push(input.systemMessages ?? [])
+        return claudeCodeAdapter.translateFailure(input)
+      },
+    }
+
+    const result = await runCoreWithExitTrap(deps, adapter)
+
+    expect(result.code).toBe(2)
+    expect(cancellations).toEqual([['clooks: preparation advisory']])
+  })
+
+  test('a throwing final adjustment still reports what the composer returned', async () => {
+    const deps = makeDeps({ hook_event_name: 'SessionStart', session_id: 'adjust' }, [
+      makeHook('quiet', { SessionStart: () => ({ result: 'skip' }) }),
+    ])
+    const seen: string[][] = []
+    const adapter: AgentAdapter = {
+      ...claudeCodeAdapter,
+      inputStage: 'before-hooks',
+      composeDiagnostics: (input) => ({
+        result: input.result,
+        stderr: [],
+        systemMessages: ['composer warning'],
+      }),
+      adjustResultBeforeFinalOutput() {
+        throw new Error('adjustment exploded')
+      },
+      translateFailure(input) {
+        seen.push(input.systemMessages ?? [])
+        return claudeCodeAdapter.translateFailure(input)
+      },
+    }
+
+    const result = await runCoreWithExitTrap(deps, adapter)
+
+    expect(result.code).toBe(2)
+    expect(seen).toEqual([['composer warning']])
+    expect(result.stderr).toContain('composer warning')
+  })
+
   test('fails closed for unknown CLOOKS_AGENT values before runtime', async () => {
     process.env.CLOOKS_AGENT = 'unknown-agent'
 

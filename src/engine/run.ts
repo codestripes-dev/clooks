@@ -389,10 +389,16 @@ async function runEngineInvocation(
     const message = e instanceof Error ? e.message : String(e)
     const earlyInvocation =
       adapter.inputStage === 'before-hooks' ? await readInvocation() : undefined
-    let state = await readFailures(configFailurePath)
-    state = recordFailure(state, CONFIG_ERROR_HOOK, CONFIG_ERROR_EVENT, message)
-    await writeFailures(configFailurePath, state)
-    const failCount = getFailureCount(state, CONFIG_ERROR_HOOK, CONFIG_ERROR_EVENT)
+    let configFailures = await readFailures(configFailurePath)
+    configFailures = recordFailure(configFailures, CONFIG_ERROR_HOOK, CONFIG_ERROR_EVENT, message)
+    await writeFailures(configFailurePath, configFailures)
+    const failCount = getFailureCount(configFailures, CONFIG_ERROR_HOOK, CONFIG_ERROR_EVENT)
+    // The only warning this path produces. It predates the accumulators below,
+    // so it goes straight onto the state, where a later close failure or
+    // cancellation can still deliver it.
+    const degradedConfigWarning =
+      `[clooks] Config validation failed ${failCount} consecutive times. ` +
+      `Hooks are disabled to prevent deadlock. Fix .clooks/clooks.yml: ${message}`
 
     if (earlyInvocation) {
       const invocation = earlyInvocation
@@ -403,14 +409,13 @@ async function runEngineInvocation(
           message: `config validation failed: ${message}; hooks were not imported or executed.`,
         })
       }
+      state.systemMessages = [degradedConfigWarning]
       finishEngine(
         await emitFinalOutput(
           adapter.translateFinalOutput({
             eventName: invocation.eventName,
             invocation,
-            systemMessages: [
-              `[clooks] Config validation failed ${failCount} consecutive times. Hooks are disabled to prevent deadlock. Fix .clooks/clooks.yml: ${message}`,
-            ],
+            systemMessages: state.systemMessages,
             diagnostics: [],
           }),
         ),
@@ -425,13 +430,11 @@ async function runEngineInvocation(
     process.stderr.write(
       `clooks: config error (degraded after ${failCount} consecutive failures): ${message}\n`,
     )
+    state.systemMessages = [degradedConfigWarning]
     const exitCode = await emitFinalOutput(
       adapter.translateFinalOutput({
         eventName: CONFIG_ERROR_EVENT,
-        systemMessages: [
-          `[clooks] Config validation failed ${failCount} consecutive times. ` +
-            `Hooks are disabled to prevent deadlock. Fix .clooks/clooks.yml: ${message}`,
-        ],
+        systemMessages: state.systemMessages,
         diagnostics: [],
       }),
     )
@@ -477,8 +480,24 @@ async function runEngineInvocation(
   let shadows = result!.shadows
   let hasProjectConfig = result!.hasProjectConfig
 
+  // Warnings accumulate in these four lists, in the order the success path
+  // emits them. `publishWarnings` copies whatever has been collected onto the
+  // invocation state, which is the only place the failure exits outside this
+  // function can read them from. It is called whenever a list becomes final
+  // and before anything that can end the invocation.
   const pluginSystemMessages: string[] = []
   const danglingWarnings: string[] = []
+  const startupWarnings: string[] = []
+  let executionMessages: string[] = []
+  const publishWarnings = (): string[] => {
+    state.systemMessages = [
+      ...pluginSystemMessages,
+      ...danglingWarnings,
+      ...startupWarnings,
+      ...executionMessages,
+    ]
+    return state.systemMessages
+  }
   const prepared = await adapter.prepareConfigAfterLoad({
     projectRoot,
     homeRoot,
@@ -491,12 +510,15 @@ async function runEngineInvocation(
     discoverCodexPluginPacks: deps.discoverCodexPluginPacks,
     vendorAndRegisterPack: deps.vendorAndRegisterPack,
   })
+  // Published before the cancellation check: preparation has already returned
+  // these, so a cancellation here must not discard them.
+  pluginSystemMessages.push(...prepared.systemMessages)
+  publishWarnings()
   checkSignal(deps.signal)
   config = prepared.config
   shadows = prepared.shadows
   hasProjectConfig = prepared.hasProjectConfig ?? hasProjectConfig
   const failurePath = getFailureLocation(projectRoot, homeRoot, hasProjectConfig, adapter.id)
-  pluginSystemMessages.push(...prepared.systemMessages)
 
   const debug = process.env.CLOOKS_DEBUG === 'true'
   const engineDebugLines: string[] = []
@@ -526,6 +548,7 @@ async function runEngineInvocation(
         `Remove from ${configFile} or reinstall. Run \`clooks config --resolved\` for details.`,
     )
   }
+  publishWarnings()
 
   // A clean import proves the file is healthy, whether or not the hook goes on
   // to run, so its load-error counter is cleared here rather than after
@@ -680,6 +703,7 @@ async function runEngineInvocation(
         discoverCodexPluginPacks: deps.discoverCodexPluginPacks,
       }),
     )
+    publishWarnings()
   }
 
   // Independent of matching, so a config whose only agents list is a future id
@@ -687,12 +711,14 @@ async function runEngineInvocation(
   const unknownAgentWarnings = buildUnknownAgentWarnings(eventName, config, hooks)
 
   if (hooks.length === 0 && loadErrors.length === 0) {
-    const earlyMessages = [...pluginSystemMessages, ...danglingWarnings, ...unknownAgentWarnings]
+    // Terminal: the shadow warnings below never run, so this is the whole
+    // startup list for this path.
+    startupWarnings.push(...unknownAgentWarnings)
     const exitCode = await emitFinalOutput(
       adapter.translateFinalOutput({
         eventName,
         invocation,
-        systemMessages: earlyMessages,
+        systemMessages: publishWarnings(),
         diagnostics: [],
       }),
     )
@@ -723,10 +749,7 @@ async function runEngineInvocation(
 
   // Computed before the early exit so warnings are emitted even when
   // no hooks match the current event.
-  const startupWarnings: string[] = [
-    ...buildShadowWarnings(eventName, shadows),
-    ...unknownAgentWarnings,
-  ]
+  startupWarnings.push(...buildShadowWarnings(eventName, shadows), ...unknownAgentWarnings)
 
   for (const [eventKey, eventEntry] of Object.entries(config.events)) {
     if (eventEntry?.order) {
@@ -761,14 +784,16 @@ async function runEngineInvocation(
       }
     }
   }
+  // Startup assembly is complete apart from the trace advisories below, which
+  // read hook properties and can therefore throw.
+  publishWarnings()
 
   if (matched.length === 0 && loadErrors.length === 0) {
-    const earlyMessages = [...pluginSystemMessages, ...danglingWarnings, ...startupWarnings]
     const exitCode = await emitFinalOutput(
       adapter.translateFinalOutput({
         eventName,
         invocation,
-        systemMessages: earlyMessages,
+        systemMessages: publishWarnings(),
         diagnostics: [],
       }),
     )
@@ -822,7 +847,7 @@ async function runEngineInvocation(
 
   // Startup warnings are final here; publish them before hooks run so a crash,
   // a refused approval, or a cancellation during execution can still deliver them.
-  state.systemMessages = [...pluginSystemMessages, ...danglingWarnings, ...startupWarnings]
+  publishWarnings()
 
   checkSignal(deps.signal)
   const execution = await executeHooks(
@@ -839,10 +864,17 @@ async function runEngineInvocation(
     interaction,
     deps.signal,
   )
-  checkSignal(deps.signal)
   const { degradedMessages, debugMessages, traceMessages, systemMessages, policyFailure } =
     execution
+  // Published before composition, which can throw, and again after it.
+  executionMessages = systemMessages
+  publishWarnings()
   const initialResult = execution.lastResult
+  // Composition runs before the cancellation check because it is a pure
+  // translation and it is what turns a degradation notice into a user-facing
+  // message: leaving it after the check would discard that notice whenever a
+  // later hook cancelled the invocation. Only what the adapter returns as
+  // system messages is published; its stderr and context lines are not.
   const composed = adapter.composeDiagnostics({
     eventName,
     result: initialResult,
@@ -850,8 +882,10 @@ async function runEngineInvocation(
     degradedMessages,
     debugMessages: debug ? [...engineDebugLines, ...debugMessages] : [],
   })
-  for (const line of composed.stderr) process.stderr.write(`${line}\n`)
   systemMessages.push(...composed.systemMessages)
+  publishWarnings()
+  checkSignal(deps.signal)
+  for (const line of composed.stderr) process.stderr.write(`${line}\n`)
   let lastResult = composed.result
 
   const adjusted = adapter.adjustResultBeforeFinalOutput({
@@ -862,13 +896,7 @@ async function runEngineInvocation(
   lastResult = adjusted.result
   systemMessages.push(...adjusted.systemMessages)
 
-  state.systemMessages = [
-    ...pluginSystemMessages,
-    ...danglingWarnings,
-    ...startupWarnings,
-    ...systemMessages,
-  ]
-  const allSystemMessages = state.systemMessages
+  const allSystemMessages = publishWarnings()
   let translated: TranslatedAgentOutput
   try {
     translated = policyFailure

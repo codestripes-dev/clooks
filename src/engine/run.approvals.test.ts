@@ -192,6 +192,19 @@ async function run(
   }
   return { stdout, stderr, code, json: stdout ? JSON.parse(stdout) : {} }
 }
+/** A hook file that vanished, so every path through the run carries one warning. */
+function withDanglingWarning(dependencies: RunEngineDeps): RunEngineDeps {
+  const loadAllHooks = dependencies.loadAllHooks
+  dependencies.loadAllHooks = async (...args) => {
+    const loaded = await loadAllHooks(...args)
+    return {
+      ...loaded,
+      dangling: [{ name: hn('ghost'), resolvedPath: join(root, 'ghost.ts'), origin: 'project' }],
+    }
+  }
+  return dependencies
+}
+
 function gate() {
   let release!: () => void
   const promise = new Promise<void>((resolve) => {
@@ -498,6 +511,79 @@ for (const adapter of [codexAdapter, claudeCodeAdapter]) {
     expect(output.json.hookSpecificOutput.updatedInput).toEqual({ command: 'final' })
     expect(output.stdout).not.toContain('Approve A?')
   })
+  test(`${adapter.id}: a failed approval close reports the degraded-config warning`, async () => {
+    const dependencies = deps()
+    dependencies.loadConfig = async () => {
+      journal.push('config')
+      throw new Error('bad yaml')
+    }
+    // Two runs below the limit, then the third degrades and warns.
+    await run(dependencies, adapter)
+    await run(dependencies, adapter)
+    interaction.close = async () => {
+      journal.push('close')
+      throw new Error('close exploded')
+    }
+
+    const output = await run(dependencies, adapter)
+
+    expect(output.stdout).toContain('clooks: approval completion failed: close exploded')
+    expect(output.json.systemMessage).toContain(
+      'Config validation failed 3 consecutive times. Hooks are disabled to prevent deadlock',
+    )
+  })
+  // The order warning is built after matching, so only the no-match exit's own
+  // publication can carry it into a later failure.
+  test(`${adapter.id}: a failed approval close reports the warning the no-match exit collected`, async () => {
+    config.hooks[hn('stop-only')] = {
+      config: {},
+      parallel: false,
+      origin: 'project',
+      resolvedPath: join(root, 'stop-only'),
+    }
+    config.hooks[hn('off')] = {
+      config: {},
+      parallel: false,
+      origin: 'project',
+      enabled: false,
+      resolvedPath: join(root, 'off'),
+    }
+    config.events.PreToolUse = { order: [hn('off')] }
+    hooks.push({
+      name: hn('stop-only'),
+      config: {},
+      hookPath: join(root, 'stop-only'),
+      configPath: join(root, 'clooks.yml'),
+      hook: { meta: { name: 'stop-only' }, Stop: () => ({ result: 'skip' }) } as LoadedHook['hook'],
+    })
+    interaction.close = async () => {
+      journal.push('close')
+      throw new Error('close exploded')
+    }
+
+    const output = await run(deps(), adapter)
+
+    expect(output.stdout).toContain('clooks: approval completion failed: close exploded')
+    expect(output.json.systemMessage).toContain('order references hook "off" which is disabled')
+  })
+  test.each(['declined', 'cancelled'] as const)(
+    `${adapter.id}: a typed %s refusal keeps its strict envelope and one acknowledgement while a warning is pending`,
+    async (decision) => {
+      add('ask', () => ({ result: 'ask', reason: 'confirm' }))
+      const refusal = userApprovalFailure(decision, 'ask')
+      interaction.request = async () => ({ ...refusal, userDecision: true })
+      const dependencies = withDanglingWarning(deps())
+
+      const output = await run(dependencies, adapter)
+
+      expect(output.json).toEqual(denial(refusal.message))
+      expect(output.stdout + output.stderr).not.toContain('ghost')
+      // Every acknowledgement, not just the expected decision: a second one
+      // carrying the wrong decision has to fail this too.
+      const acks = journal.filter((value) => value.startsWith('ack:'))
+      expect(acks).toEqual([`ack:${decision}:${JSON.stringify(denial(refusal.message))}`])
+    },
+  )
   test(`${adapter.id}: unpaired ask denies without opening storage`, async () => {
     delete process.env.CLOOKS_APPROVAL_OWNER
     delete process.env.CLOOKS_APPROVAL_PROTOCOL

@@ -512,4 +512,29 @@ describe('runEngine load-failure counters', () => {
     expect(calls).toEqual(['healthy'])
     expect(await loadCount(failurePath)).toBe(3)
   })
+
+  test('once the listed hook imports again, an order list it cannot serve is an error once more', async () => {
+    const { root, failurePath } = makeProject()
+    const healthy = makeHook('healthy', { PreToolUse: () => ({ result: 'skip' }) })
+    const recovered = makeHook('flaky', { PostToolUse: () => ({ result: 'skip' }) })
+    const config = makeConfig({ flaky: {}, healthy: {} }, undefined, {
+      PreToolUse: { order: [flakyName, 'healthy' as HookName] },
+    })
+    const loadErrors: HookLoadError[] = [{ name: flakyName, error: 'import exploded' }]
+
+    // Below the limit an import failure blocks before ordering is reached ...
+    for (const expected of [1, 2]) {
+      await runCoreWithExitTrap(makeCounterDeps(root, [], loadErrors, config))
+      expect(await loadCount(failurePath)).toBe(expected)
+    }
+    // ... at the limit ordering runs and the exemption keeps the list valid ...
+    const degraded = await runCoreWithExitTrap(makeCounterDeps(root, [healthy], loadErrors, config))
+    expect(degraded.stderr).not.toContain('does not handle this event')
+    expect(await loadCount(failurePath)).toBe(3)
+
+    // ... and the exemption is gone once the same hook imports again.
+    await expect(
+      runCoreWithExitTrap(makeCounterDeps(root, [recovered, healthy], [], config)),
+    ).rejects.toThrow('order references hook "flaky" which does not handle this event')
+  })
 })

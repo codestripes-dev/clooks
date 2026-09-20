@@ -109,6 +109,20 @@ function routeClaudeCodeSystemMessage(eventName: EventName) {
   return NOTIFY_ONLY_EVENTS.has(eventName) ? 'stderr' : 'stdout-json'
 }
 
+/**
+ * The events whose exit-2 stderr Claude Code shows to the user and to nobody
+ * else (docs/domain/claude-code-hooks/io-contract.md, "Exit 2 Per-Event").
+ * Warnings are appended on these routes only. Every other route is left as it
+ * is, whether its stderr reaches the model as block feedback, is ignored, or
+ * is kept for debug output.
+ */
+const USER_FACING_STDERR_EVENTS: Set<EventName> = new Set<EventName>([
+  'Notification',
+  'SubagentStart',
+  'SessionStart',
+  'SessionEnd',
+])
+
 function attachClaudeCodeSystemMessage(
   translated: TranslatedAgentOutput,
   systemMessages: string[],
@@ -282,9 +296,7 @@ export const claudeCodeAdapter: AgentAdapter = {
       if (failure.approvalDecision || warnings.length === 0) return translated
       return attachClaudeCodeSystemMessage(translated, warnings)
     }
-    // Exit-2 stderr reaches the model on every event but SessionStart, where
-    // unrelated warnings would end up inside the block reason the model reads.
-    if (eventName === 'SessionStart' && warnings.length > 0) {
+    if (eventName && USER_FACING_STDERR_EVENTS.has(eventName) && warnings.length > 0) {
       return {
         exitCode: EXIT_STDERR,
         stderr: `${failure.message}\n\n${warnings.join('\n')}`,

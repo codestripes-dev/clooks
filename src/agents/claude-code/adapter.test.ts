@@ -129,32 +129,71 @@ describe('claudeCodeAdapter', () => {
     expect(output).toEqual({ exitCode: 2, stderr: 'policy rejected\n\nadvisory\ndiagnostic' })
   })
 
-  test('SessionStart failure stderr carries warnings after the failure message', () => {
-    const failure = {
-      eventName: 'SessionStart' as const,
-      capability: 'test-policy',
-      message: 'policy rejected',
-    }
-    const bare = claudeCodeAdapter.translateFailure({ eventName: 'SessionStart', failure })
-    expect(bare).toEqual({ exitCode: 2, stderr: 'policy rejected' })
+  // Literal expectations, fixed to what the adapter produced before warnings
+  // could reach a failure at all. Comparing two calls to the current
+  // implementation would pass even if both regressed together.
+  test('a failure without warnings is byte-identical to the pre-warning output', () => {
     expect(
       claudeCodeAdapter.translateFailure({
-        eventName: 'SessionStart',
-        failure,
-        systemMessages: [],
-      }),
-    ).toEqual(bare)
-    expect(
-      claudeCodeAdapter.translateFailure({
-        eventName: 'SessionStart',
-        failure,
-        systemMessages: ['order references hook "guard"', 'shadowed by project hook'],
+        eventName: 'PreToolUse',
+        failure: {
+          eventName: 'PreToolUse',
+          capability: 'ask',
+          message: 'clooks: ask is not expressible',
+        },
       }),
     ).toEqual({
-      exitCode: 2,
-      stderr: 'policy rejected\n\norder references hook "guard"\nshadowed by project hook',
+      output:
+        '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"clooks: ask is not expressible"}}',
+      exitCode: 0,
     })
+    expect(
+      claudeCodeAdapter.translateFailure({
+        eventName: 'PreToolUse',
+        failure: {
+          eventName: 'PreToolUse',
+          capability: 'ask',
+          message: 'clooks: ask is not expressible',
+        },
+        systemMessages: [],
+      }),
+    ).toEqual({
+      output:
+        '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"clooks: ask is not expressible"}}',
+      exitCode: 0,
+    })
+    for (const eventName of ['SessionStart', 'Notification', 'Stop'] as const) {
+      expect(
+        claudeCodeAdapter.translateFailure({
+          eventName,
+          failure: { eventName, capability: 'test-policy', message: 'policy rejected' },
+          systemMessages: [],
+        }),
+      ).toEqual({ exitCode: 2, stderr: 'policy rejected' })
+    }
   })
+
+  test.each(['Notification', 'SubagentStart', 'SessionStart', 'SessionEnd'] as const)(
+    '%s failure stderr carries warnings after the failure message',
+    (eventName) => {
+      const failure = { eventName, capability: 'test-policy', message: 'policy rejected' }
+      const bare = claudeCodeAdapter.translateFailure({ eventName, failure })
+      expect(bare).toEqual({ exitCode: 2, stderr: 'policy rejected' })
+      expect(
+        claudeCodeAdapter.translateFailure({ eventName, failure, systemMessages: [] }),
+      ).toEqual(bare)
+      expect(
+        claudeCodeAdapter.translateFailure({
+          eventName,
+          failure,
+          systemMessages: ['order references hook "guard"', 'shadowed by project hook'],
+        }),
+      ).toEqual({
+        exitCode: 2,
+        stderr: 'policy rejected\n\norder references hook "guard"\nshadowed by project hook',
+      })
+    },
+  )
 
   test('PreToolUse failure JSON carries warnings without touching the denial fields', () => {
     const failure = {
@@ -182,24 +221,31 @@ describe('claudeCodeAdapter', () => {
     )
   })
 
-  test('a typed approval refusal stays byte-identical when warnings are present', () => {
-    const failure = {
-      eventName: 'PreToolUse' as const,
-      capability: 'approval',
-      message: 'clooks: user declined',
-      approvalDecision: 'declined' as const,
-    }
-    const bare = claudeCodeAdapter.translateFailure({ eventName: 'PreToolUse', failure })
-    expect(
-      claudeCodeAdapter.translateFailure({
-        eventName: 'PreToolUse',
-        failure,
-        systemMessages: ['order references hook "guard"'],
-      }),
-    ).toEqual(bare)
-    expect(bare.approvalDecision).toBe('declined')
-    expect(JSON.parse(bare.output ?? '{}')).not.toHaveProperty('systemMessage')
-  })
+  test.each(['declined', 'cancelled'] as const)(
+    'a typed %s refusal stays byte-identical when warnings are present',
+    (decision) => {
+      const failure = {
+        eventName: 'PreToolUse' as const,
+        capability: 'approval',
+        message: `clooks: user ${decision}`,
+        approvalDecision: decision,
+      }
+      const bare = claudeCodeAdapter.translateFailure({ eventName: 'PreToolUse', failure })
+      expect(bare).toEqual({
+        output: `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"clooks: user ${decision}"}}`,
+        exitCode: 0,
+        approvalDecision: decision,
+      })
+      expect(
+        claudeCodeAdapter.translateFailure({
+          eventName: 'PreToolUse',
+          failure,
+          systemMessages: ['order references hook "guard"'],
+        }),
+      ).toEqual(bare)
+      expect(JSON.parse(bare.output ?? '{}')).not.toHaveProperty('systemMessage')
+    },
+  )
 
   test.each(['Stop', 'PostToolUse', 'UserPromptSubmit'] as const)(
     '%s exit-2 failure omits warnings so the model sees only the block reason',

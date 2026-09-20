@@ -427,22 +427,84 @@ describe('Codex event result contracts', () => {
     expect(transport.approvalDecision).toBeUndefined()
   })
 
-  test('a typed user refusal stays byte-identical when warnings are present', () => {
-    const refusal = userApprovalFailure('declined', 'guard')
-    const failure = {
-      eventName: 'PreToolUse' as const,
-      hookName: hn('guard'),
-      capability: 'approval',
-      message: refusal.message,
-      approvalDecision: refusal.kind,
-    }
-    expect(
-      codexAdapter.translateFailure({
+  test.each(['declined', 'cancelled'] as const)(
+    'a typed %s refusal stays byte-identical when warnings are present',
+    (decision) => {
+      const refusal = userApprovalFailure(decision, 'guard')
+      const failure = {
+        eventName: 'PreToolUse' as const,
+        hookName: hn('guard'),
+        capability: 'approval',
+        message: refusal.message,
+        approvalDecision: refusal.kind,
+      }
+      const withWarnings = codexAdapter.translateFailure({
         eventName: 'PreToolUse',
         failure,
         systemMessages: ['clooks: event "PreToolUse" order references hook "guard"'],
-      }),
-    ).toEqual(codexAdapter.translateFailure({ eventName: 'PreToolUse', failure }))
+      })
+      expect(withWarnings).toEqual({
+        output: `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"[guard] Approval ${decision}. Operation not run."}}`,
+        exitCode: 0,
+        approvalDecision: decision,
+      })
+      expect(withWarnings).toEqual(
+        codexAdapter.translateFailure({ eventName: 'PreToolUse', failure }),
+      )
+    },
+  )
+
+  // Literal expectations, fixed to what the translator produced before warnings
+  // could reach a failure at all, one per output shape it can take.
+  test('a failure without warnings is byte-identical to the pre-warning output', () => {
+    const failure = {
+      eventName: null,
+      hookName: hn('guard'),
+      capability: 'result',
+      message: 'crashed',
+    }
+    const call = (eventName: EventName | null) =>
+      codexAdapter.translateFailure({
+        eventName,
+        failure: { ...failure, eventName },
+        systemMessages: [],
+      })
+
+    expect(call('Stop')).toEqual({
+      output:
+        '{"systemMessage":"clooks: Codex Stop hook \\"guard\\" capability \\"result\\": crashed Continuation termination requested; no further continuation is requested.","continue":false,"stopReason":"clooks: Codex Stop hook \\"guard\\" capability \\"result\\": crashed Continuation termination requested; no further continuation is requested."}',
+      exitCode: 0,
+    })
+    expect(call('PostToolUse')).toEqual({
+      output:
+        '{"systemMessage":"clooks: Codex PostToolUse hook \\"guard\\" capability \\"result\\": crashed Rejected-result feedback requested after execution; no rollback is possible.","decision":"block","reason":"clooks: Codex PostToolUse hook \\"guard\\" capability \\"result\\": crashed Rejected-result feedback requested after execution; no rollback is possible."}',
+      exitCode: 0,
+    })
+    expect(call('PreToolUse')).toEqual({
+      output:
+        '{"systemMessage":"clooks: Codex PreToolUse hook \\"guard\\" capability \\"result\\": crashed Pending call denial requested.","hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"clooks: Codex PreToolUse hook \\"guard\\" capability \\"result\\": crashed Pending call denial requested."}}',
+      exitCode: 0,
+    })
+    expect(call('PermissionRequest')).toEqual({
+      output:
+        '{"systemMessage":"clooks: Codex PermissionRequest hook \\"guard\\" capability \\"result\\": crashed Pending approval denial requested.","hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":"clooks: Codex PermissionRequest hook \\"guard\\" capability \\"result\\": crashed Pending approval denial requested."}}}',
+      exitCode: 0,
+    })
+    expect(call('Interrupt')).toEqual({
+      output:
+        '{"systemMessage":"clooks: Codex Interrupt hook \\"guard\\" capability \\"result\\": crashed Local observer failure only; no cancellation veto or continuation is requested."}',
+      exitCode: 0,
+    })
+    expect(call('SessionEnd')).toEqual({
+      stderr:
+        'clooks: Codex SessionEnd hook "guard" capability "result": crashed Local hook failure only; no session closure veto is available and native stderr delivery is not guaranteed.',
+      exitCode: 2,
+    })
+    expect(call(null)).toEqual({
+      stderr:
+        'clooks: Codex unidentified event hook "guard" capability "result": crashed Unidentified event; local failure only, with no native prevention guarantee.',
+      exitCode: 2,
+    })
   })
 
   test('final output delegates a latched failure with the messages it was given', () => {

@@ -409,7 +409,11 @@ PreToolUse:
 })
 
 describe('agent failure paths: warnings accompany a Claude Code refusal', () => {
-  function writeOrderWarningHooks(s: Sandbox, event: 'PreToolUse' | 'Stop', body: string): void {
+  function writeOrderWarningHooks(
+    s: Sandbox,
+    event: 'PreToolUse' | 'Stop' | 'SessionEnd',
+    body: string,
+  ): void {
     s.writeHook(
       'failure-warning-disabled.ts',
       `
@@ -473,6 +477,20 @@ ${event}:
     expect(result.stdout).toBe('')
     expect(result.stderr).toBe(
       'clooks: result policy failed for hook "failure-warning-refused" on Stop; result effects refused.\n',
+    )
+  })
+
+  test('SessionEnd exit-2 failure carries the warning, which only the user sees', () => {
+    sandbox = createSandbox()
+    writeOrderWarningHooks(sandbox, 'SessionEnd', "{ result: 'ask', reason: 'needs review' }")
+
+    const result = sandbox.run([], { stdin: loadEvent('session-end.json') })
+
+    expect(result.exitCode).toBe(2)
+    expect(result.stdout).toBe('')
+    expect(result.stderr).toBe(
+      'clooks: result policy failed for hook "failure-warning-refused" on SessionEnd; result effects refused.\n\n' +
+        `${orderWarning('SessionEnd')}\n`,
     )
   })
 })
