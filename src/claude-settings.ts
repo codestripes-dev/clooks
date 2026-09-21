@@ -256,21 +256,25 @@ function buildPackNameToPluginKeys(
 }
 
 function sameVendorDestination(
-  pack: DiscoveredPack,
+  packName: string,
+  activationScope: 'user' | 'project' | 'local',
   scope: 'user' | 'project' | 'local',
   roots?: { homeRoot: string; projectRoot: string },
 ): boolean {
-  if (!roots) return (pack.scope === 'user') === (scope === 'user')
+  // Project and local always share storage, independent of their settings layers.
+  if ((activationScope === 'user') === (scope === 'user')) return true
+  if (!roots) return false
+  if (roots.homeRoot === roots.projectRoot) return true
   const destination = (selected: 'user' | 'project' | 'local') =>
     resolveCodexHome(roots.homeRoot, {
       CODEX_HOME: join(
         selected === 'user' ? roots.homeRoot : roots.projectRoot,
         '.clooks/vendor/plugin',
-        pack.manifest.name,
+        packName,
       ),
     })
   try {
-    return destination(pack.scope) === destination(scope)
+    return destination(activationScope) === destination(scope)
   } catch {
     return false
   }
@@ -309,11 +313,18 @@ export function detectStaleAdvisories(opts: {
       if (!pluginKeys) continue
       const enabledAtScope = [...pluginKeys].some((key) => layers[scope][key] === true)
       if (enabledAtScope) continue
+      const enabledAtDestination = scopes.some(
+        (activationScope) =>
+          [...pluginKeys].some((key) => layers[activationScope][key] === true) &&
+          sameVendorDestination(entry.packName, activationScope, scope, opts.roots),
+      )
+      if (enabledAtDestination) continue
       codexPacks ??= opts.discoverCodexPacks?.() ?? []
       if (
         codexPacks.some(
           (pack) =>
-            pack.manifest.name === entry.packName && sameVendorDestination(pack, scope, opts.roots),
+            pack.manifest.name === entry.packName &&
+            sameVendorDestination(entry.packName, pack.scope, scope, opts.roots),
         )
       )
         continue

@@ -844,6 +844,119 @@ describe('detectStaleAdvisories', () => {
   })
 
   for (const scope of ['user', 'project', 'local'] as const) {
+    for (const activationScope of ['user', 'project', 'local'] as const) {
+      test(`Claude ${activationScope} suppresses only same-destination ${scope} stale registration`, () => {
+        const installPath = dfx.writePack('native-name@mp', 'shared')
+        const entry = {
+          hookName: 'kept',
+          packName: 'shared',
+          usesPath: './.clooks/vendor/plugin/shared/kept.ts',
+        }
+        const input = {
+          installedPluginsFile: {
+            version: 2,
+            plugins: { 'native-name@mp': [{ scope: 'user' as const, installPath }] },
+          },
+          clooksYmlReaders: { ...emptyReaders, [scope]: () => [entry] },
+        }
+        const matching = (scope === 'user') === (activationScope === 'user')
+        for (const roots of [
+          undefined,
+          { homeRoot: join(dfx.cacheRoot, 'home'), projectRoot: join(dfx.cacheRoot, 'project') },
+        ]) {
+          let discoveries = 0
+          const detect = (activation: Record<string, boolean>) =>
+            detectStaleAdvisories({
+              ...input,
+              roots,
+              layers: {
+                ...emptyLayers,
+                [scope]: { 'native-name@mp': false },
+                [activationScope]: activation,
+              },
+              discoverCodexPacks: () => {
+                discoveries++
+                return []
+              },
+            })
+          expect(detect({ 'native-name@mp': true })).toHaveLength(matching ? 0 : 1)
+          expect(discoveries).toBe(matching ? 0 : 1)
+          expect(detect({ 'native-name@mp': false })).toHaveLength(1)
+          expect(detect({})).toHaveLength(1)
+          expect(detect({ 'native-name@other-marketplace': true })).toHaveLength(1)
+        }
+      })
+    }
+  }
+
+  test('managed activation cannot suppress a known local stale registration', () => {
+    const installPath = dfx.writePack('known@mp', 'known')
+    expect(
+      detectStaleAdvisories({
+        installedPluginsFile: {
+          version: 2,
+          plugins: { 'known@mp': [{ scope: 'user', installPath }] },
+        },
+        layers: { ...emptyLayers, managed: { 'known@mp': true } },
+        clooksYmlReaders: {
+          ...emptyReaders,
+          local: () => [
+            {
+              hookName: 'kept',
+              packName: 'known',
+              usesPath: './.clooks/vendor/plugin/known/kept.ts',
+            },
+          ],
+        },
+      }),
+    ).toEqual([expect.objectContaining({ kind: 'stale-registration', scope: 'local' })])
+  })
+
+  test.each(['user', 'project', 'local'] as const)(
+    'Claude physical aliases suppress %s stale registration only while enabled',
+    (scope) => {
+      const homeRoot = join(dfx.cacheRoot, 'home')
+      const projectRoot = join(dfx.cacheRoot, 'project')
+      const activationScope = scope === 'user' ? 'project' : 'user'
+      const input = {
+        installedPluginsFile: null,
+        layers: { ...emptyLayers, [activationScope]: { 'known@mp': true } },
+        clooksYmlReaders: {
+          ...emptyReaders,
+          [scope]: () => [
+            {
+              hookName: 'kept',
+              packName: 'known',
+              usesPath: './.clooks/vendor/plugin/known/kept.ts',
+            },
+          ],
+        },
+      }
+      mkdirSync(join(homeRoot, '.clooks/vendor/plugin/known'), { recursive: true })
+      mkdirSync(join(projectRoot, '.clooks/vendor/plugin'), { recursive: true })
+      expect(detectStaleAdvisories({ ...input, roots: { homeRoot, projectRoot } })).toHaveLength(1)
+      expect(
+        detectStaleAdvisories({ ...input, roots: { homeRoot, projectRoot: homeRoot } }),
+      ).toEqual([])
+      symlinkSync(
+        join(homeRoot, '.clooks/vendor/plugin/known'),
+        join(projectRoot, '.clooks/vendor/plugin/known'),
+      )
+      expect(detectStaleAdvisories({ ...input, roots: { homeRoot, projectRoot } })).toEqual([])
+      expect(
+        detectStaleAdvisories({
+          ...input,
+          roots: { homeRoot, projectRoot },
+          layers: { ...emptyLayers, [activationScope]: { 'known@mp': false } },
+        }),
+      ).toHaveLength(1)
+      rmSync(join(projectRoot, '.clooks/vendor/plugin/known'))
+      writeFileSync(join(projectRoot, '.clooks/vendor/plugin/known'), 'not a directory')
+      expect(detectStaleAdvisories({ ...input, roots: { homeRoot, projectRoot } })).toHaveLength(1)
+    },
+  )
+
+  for (const scope of ['user', 'project', 'local'] as const) {
     for (const codexScope of ['user', 'project'] as const) {
       test(`Codex ${codexScope} suppresses only same-destination Claude ${scope} stale ownership`, () => {
         const installPath = dfx.writePack('different-native-name@mp', 'shared')

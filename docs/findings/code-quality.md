@@ -43,6 +43,16 @@ In `.clooks/vendor/plugin/clooks-core-hooks/no-rm-rf.ts`, `sanitize` removes rem
 
 **Disposition:** Existing behavior, unresolved and separately scoped. The historical Codex ask-to-block change and its subsequent replacement with the Clooks hybrid approval fallback change only the final decision arm; neither fixes target parsing. A future correction needs quote-preserving target tests and a bounded parser change. This finding is not native exploit evidence and does not change the trusted-repository model.
 
+### Stale-plugin advisory loses inherited home origin in local overrides
+
+**Severity:** note
+**Date:** 2026-09-21
+**Context:** Actual Claude review of the bounded project-activation/local-customization stale-warning fix; logged by the delegated implementation worker after checking for an existing entry.
+
+A global plugin hook customized in `.clooks/clooks.local.yml` with no project definition retains its home origin in `src/config/merge.ts`; `src/config/index.ts` resolves it using the original home `uses`. The advisory detector in `src/claude-settings.ts` instead treats the local config entry as project-destination storage. With distinct home/project roots, an enabled user plugin can therefore still produce a false local-scope stale warning despite supplying the hook that executes.
+
+**Disposition:** Preexisting gap, deferred rather than broadened into the reported Playbook fix. A separate follow-up must align advisory consumption with the effective hook origin without changing merge, discovery or execution semantics. Current coverage proves project-backed local customization, not this home-origin variant.
+
 ### Local domain-doc size guard skips native patches
 
 **Severity:** note

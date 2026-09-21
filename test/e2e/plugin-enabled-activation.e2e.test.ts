@@ -687,6 +687,66 @@ describe('plugin-enabled-activation', () => {
     expect(sysMsg).toContain('clooks.local.yml')
   })
 
+  test('project activation supplies local prefer-builtin-tools customization without stale advice', () => {
+    sandbox = createSandbox()
+    sandbox.writeConfig('version: "1.0.0"\n')
+    const pluginKey = 'clooks-core-hooks@clooks-marketplace'
+    const vendorRel = '.clooks/vendor/plugin/clooks-core-hooks/prefer-builtin-tools.ts'
+    const source = readFileSync(join(import.meta.dir, '../..', vendorRel), 'utf8')
+    setupPluginWithEnable(sandbox, {
+      pluginKey,
+      packName: 'clooks-core-hooks',
+      installRecordScope: 'user',
+      enable: { project: true },
+      hooks: {
+        'prefer-builtin-tools': {
+          path: 'hooks/prefer-builtin-tools.ts',
+          description: 'Existing core hook with local customization',
+          code: source,
+        },
+      },
+    })
+
+    const baseline = sandbox.run([], { stdin: loadEvent('session-start.json') })
+    expect(baseline.exitCode).toBe(0)
+    expect(JSON.parse(baseline.stdout).hookSpecificOutput.additionalContext).toContain('grep/rg')
+    const projectConfig = sandbox.readFile('.clooks/clooks.yml')
+    const localConfig = `version: "1.0.0"\n\nprefer-builtin-tools:\n  uses: ./${vendorRel}\n  config:\n    grep: false\n`
+    sandbox.writeLocalConfig(localConfig)
+
+    for (const enabled of [true, false]) {
+      writeEnabledPluginsAtLayer(sandbox, 'project', pluginKey, enabled)
+      const result = sandbox.run([], { stdin: loadEvent('session-start.json') })
+      expect(result.exitCode).toBe(0)
+      const out = JSON.parse(result.stdout)
+      const context = out.hookSpecificOutput.additionalContext
+      expect(context).toContain('prefer-builtin-tools clooks hook is active')
+      expect(context).not.toContain('grep/rg')
+      const message = out.systemMessage ?? ''
+      if (enabled) {
+        expect(message).not.toContain('plugin is not enabled')
+        expect(message).not.toContain('registered in')
+      } else {
+        expect(message).toContain(pluginKey)
+        expect(message).toContain('plugin is not enabled at local scope')
+      }
+
+      const toolResult = sandbox.run([], {
+        stdin: JSON.stringify({
+          ...JSON.parse(loadEvent('pre-tool-use-bash.json')),
+          tool_input: { command: 'cat example.txt' },
+        }),
+      })
+      expect(toolResult.exitCode).toBe(0)
+      const decision = JSON.parse(toolResult.stdout).hookSpecificOutput
+      expect(decision.permissionDecision).toBe('deny')
+      expect(decision.permissionDecisionReason).toContain('[cat]')
+      expect(sandbox.readFile('.clooks/clooks.yml')).toBe(projectConfig)
+      expect(sandbox.readFile('.clooks/clooks.local.yml')).toBe(localConfig)
+      expect(sandbox.readFile(vendorRel)).toBe(source)
+    }
+  })
+
   test('E2E-M4-1b. Stale-registration advisory collapses by (scope, plugin)', () => {
     sandbox = createSandbox()
     sandbox.writeHomeConfig('version: "1.0.0"\n')
