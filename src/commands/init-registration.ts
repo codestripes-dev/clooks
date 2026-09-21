@@ -49,6 +49,7 @@ export function prepareInitRegistrations(
     '.clooks/clooks.schema.json',
     '.clooks/clooks.yml',
     '.clooks/bin/entrypoint.sh',
+    '.clooks/bin/runtime-advisory.sh',
     ...(!global ? ['.gitignore'] : []),
   ])
     readRegistrationText(join(root, path))

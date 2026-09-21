@@ -183,6 +183,12 @@ clooks init --global [--agent claude-code|codex|all]
 Defaults to `claude-code`. This creates `~/.clooks/` and registers the selected
 agents. Project hooks layer on top and can override them.
 
+Inspect existing project and global installation state without changing files:
+
+```text
+clooks init --check [--global] [--agent claude-code|codex|all]
+```
+
 ### What `init` creates
 
 The default Claude registration creates:
@@ -685,6 +691,7 @@ A hook that exceeds its timeout is treated like any other crash — the
 |---------|-------------|
 | `clooks init [--agent claude-code\|codex\|all]` | Initialize the current project; defaults to Claude Code |
 | `clooks init --global [--agent claude-code\|codex\|all]` | Initialize global hooks at `~/.clooks/` for the selected agent(s) |
+| `clooks init --check [--global] [--agent claude-code\|codex\|all]` | Inspect existing installation state without making changes |
 | `clooks uninstall --project` | Uninstall Clooks from the current project |
 | `clooks uninstall --global` | Uninstall Clooks globally |
 | `clooks uninstall --unhook [--agent claude-code\|codex\|all]` | Remove hook registration without deleting Clooks files |

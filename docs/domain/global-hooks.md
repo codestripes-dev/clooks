@@ -18,6 +18,7 @@ Global hooks live in `~/.clooks/` and are loaded by the engine alongside project
   bin/
     clooks            # compiled binary (shared across all projects)
     entrypoint.sh     # shared global launcher
+    runtime-advisory.sh # SessionStart-only runtime-floor reminder
   failures/           # failure state for home-only projects
     <hash>.json       # SHA-256(projectRoot)[0:12] → failure state
   .cache/approvals-live/v1/          # shared invocation IPC, retained by full cleanup
@@ -125,7 +126,7 @@ Checksum fields use canonical unsigned decimal text. Publication runs POSIX `cks
 
 The CLI checksum subprocess has a ten-second deadline and uses `SIGKILL` on timeout. Timeout, spawn errors, termination and nonzero status prevent publication and retain the recovery identity for retry. This bound does not alter hook execution timeouts or the project launcher's checksum checks.
 
-Selected-Codex/all global init validates both records and the selected home before writes. It then persists recovery identity before retiring any old matching Codex receipt, and does both before repairing the shared launcher. This prevents failed selected-Codex/all re-init from reviving an old receipt merely by making its launcher executable. Recovery-write failure leaves the receipt untouched; receipt-removal failure retains cleanup identity and aborts setup. Registration and executable launcher success precede new receipt publication. Failed checksum/publication leaves the committed registration recoverable.
+Selected-Codex/all global init validates both records and the selected home before writes. It then persists recovery identity before retiring any old matching Codex receipt, and does both before repairing the shared launcher. This prevents failed selected-Codex/all re-init from reviving an old receipt merely by making its launcher executable. Recovery-write failure leaves the receipt untouched; receipt-removal failure retains cleanup identity and aborts setup. Runtime and advisory files, MCP registration and both exact hook groups precede new receipt publication. Failed checksum/publication leaves the committed registration recoverable.
 
 Claude-only init stays independent of Codex state but preflights its selected
 settings/server and shared outputs before launcher repair. Invalid Claude
@@ -136,8 +137,10 @@ limited to Codex/all init, without changing repository permissions.
 
 One recorded Codex home is supported per installation home. A different recorded home blocks init until explicitly unhooked; conflicting or malformed records block mutation. An empty legacy receipt identifies the default home and can upgrade only there. Same-home retries are allowed. Unhook in B does not mutate A or erase A's identity. Full global deletion preflights and deduplicates the selected and recorded homes, including a legacy default, before cleanup. No arbitrary directories are scanned; older unrecorded homes need explicit cleanup with their `CODEX_HOME`.
 
+`clooks init --check --global` inspects only the known global installation and never mutates registration or receipt state. Presence comes from owned hook or MCP registration rather than `.clooks/` artifacts alone. Recorded Codex home and receipt data take precedence over ambient `CODEX_HOME`; disagreement is diagnosed and an actionable repair preserves the recorded value. Conflicting records, malformed registration data, uncertain ownership, or project-specific MCP ownership at installation HOME make the scope uninspectable with no repair command. The global launcher stamp reports launcher compatibility only and does not certify per-agent registration completion or native activation.
+
 Matching Codex state clears only after hook/server removal and inspection of
-every event for remaining owned hooks, including custom Codex homes. If an
+every event for remaining owned runtime or advisory hooks, including custom Codex homes. If an
 unrelated handler retains the owned server, its recovery identity also remains.
 Unknown-event references or malformed containers block cleanup with
 file/field evidence. Remaining handlers referencing `clooks` retain its server;

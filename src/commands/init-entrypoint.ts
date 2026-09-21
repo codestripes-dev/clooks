@@ -1,6 +1,7 @@
 // Using string concatenation to avoid template literal escaping issues with
 // bash $() command substitutions and ${} variable expansions.
 import { APPROVAL_SUPPRESSION_FUNCTION } from '../registration-approvals.js'
+import { LAUNCHER_REVISION, MIN_RUNTIME_VERSION } from '../installation-metadata.js'
 
 const ENTRYPOINT_PREAMBLE = '#!/usr/bin/env bash\n' + 'set -euo pipefail\n'
 
@@ -14,6 +15,12 @@ const GLOBAL_HEADER =
   '\n' +
   '# clooks entrypoint: global\n' +
   '# Do not copy this file to a project — use `clooks init` instead.\n'
+
+const LAUNCHER_METADATA =
+  `# clooks launcher revision: ${LAUNCHER_REVISION}\n` +
+  '# Minimum runtime metadata is read externally by Clooks inspection.\n' +
+  '# shellcheck disable=SC2034\n' +
+  `CLOOKS_REQUIRED_RUNTIME='${MIN_RUNTIME_VERSION}'\n`
 
 const SKIP_CLOOKS_CHECK =
   '\n' +
@@ -122,6 +129,7 @@ const ENTRYPOINT_BODY =
 export const ENTRYPOINT_SCRIPT =
   ENTRYPOINT_PREAMBLE +
   PROJECT_HEADER +
+  LAUNCHER_METADATA +
   APPROVAL_SUPPRESSION_FUNCTION +
   SKIP_CLOOKS_CHECK +
   DEDUP_CHECK +
@@ -133,6 +141,7 @@ export const ENTRYPOINT_SCRIPT =
 export const GLOBAL_ENTRYPOINT_SCRIPT =
   ENTRYPOINT_PREAMBLE +
   GLOBAL_HEADER +
+  LAUNCHER_METADATA +
   APPROVAL_SUPPRESSION_FUNCTION +
   SKIP_CLOOKS_CHECK +
   ENTRYPOINT_BODY

@@ -24,6 +24,10 @@ The core invariant under test: **no code path where broken clooks silently allow
 
 E2E tests never import modules directly. They invoke the compiled binary as a subprocess via the sandbox helper, ensuring the test exercises the same code path as production: bash entrypoint -> compiled binary -> config resolution -> hook execution -> serialized output.
 
+`test/e2e/installation-update.e2e.test.ts` exercises the compiled `init --check` and refresh guard. Its fixtures cover project/global and Claude/Codex ownership, nested project discovery, scope/agent filters, recorded Codex-home precedence, combined runtime-floor status and launcher/advisory rejection. Recursive byte-and-mode snapshots around checks and rejected init attempts prove that inspection and guards do not alter either the project or installation home. `test/e2e/runtime-advisory.e2e.test.ts` covers generated script/registration separation, project/global guarded command execution, exact bypass behavior, receipt checksum ordering, missing per-agent registration repair and current-binary unhook. It also invokes the compiled engine for both agents to prove reverse SessionStart advice on no-hook and no-match paths, silence on other events, full-agent repair guidance and project-staleness reporting through the global runtime. Inspector parser/classification vectors remain in `src/installation-status.test.ts`; compiled E2E is the CLI wiring and filesystem boundary, not a duplicate parser oracle.
+
+Run the permanent advisory native harness with `bun run test:approvals-native --runtime-advisory`. It exercises the selected binary in the same environment as the generated registration commands. Its bounded matrix is 26 forward cases plus 2 reverse SessionStart cases over production registration shapes; it is not a full native `init` journey.
+
 ## Key Files
 | Path | Purpose |
 |------|---------|

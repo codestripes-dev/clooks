@@ -23,10 +23,10 @@ cp -a "$root/node_modules" "$attempt/input/node_modules"
 cp "$root/package.json" "$root/bun.lock" "$attempt/input/"
 generated=false
 for arg in "$@"; do
-  [[ $arg != --generated ]] || generated=true
+  [[ $arg != --generated && $arg != --runtime-advisory ]] || generated=true
 done
 if [[ $generated == true ]]; then
-  cp -a "$root/src" "$root/schemas" "$attempt/input/"
+  cp -a "$root/src" "$root/schemas" "$root/scripts" "$attempt/input/"
   mkdir -p "$attempt/input/.clooks/vendor"
   cp -a "$root/.clooks/vendor/plugin" "$attempt/input/.clooks/vendor/"
   cp "$root/tsconfig.json" "$root/bunfig.toml" "$attempt/input/"
@@ -76,6 +76,9 @@ cmd=(docker run --pull never --name "$name" --label clooks.native=approvals-m1
   --mount "type=bind,src=$attempt/export,dst=/export")
 if [[ $generated == true ]]; then
   cmd+=(--mount "type=bind,src=$attempt/input,dst=/snapshot,readonly")
+  cmd+=(--mount "type=bind,src=$attempt/input/scripts,dst=/app/scripts,readonly")
+  # Tests and scripts resolve source imports from the same frozen candidate.
+  cmd+=(--mount "type=bind,src=$attempt/input/src,dst=/app/src,readonly")
 fi
 cmd+=("$image" /app/test/native-approvals/container.sh "$@")
 printf '%q ' "${cmd[@]}" > "$attempt/command.sh"

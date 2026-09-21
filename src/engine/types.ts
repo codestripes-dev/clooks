@@ -11,6 +11,10 @@ import type { HookName } from '../types/branded.js'
 import type { ApprovalQuestion } from '../interaction/types.js'
 import type { createApprovalInteraction } from '../interaction/channel.js'
 import type { createContextHelpers } from '../plugin-file-helper.js'
+import type {
+  collectInstallationAdvisories,
+  CollectInstallationAdvisoriesOptions,
+} from '../installation-advisory.js'
 
 export interface PreToolUseVote {
   /** Consent changes reduction only; engineResult and raw history retain the ask. */
@@ -87,6 +91,11 @@ export interface RunEngineDeps {
   onApprovalLifecycle?: (active: boolean) => void
   createApprovalInteraction?: typeof createApprovalInteraction
   createContextHelpers?: typeof createContextHelpers
+  collectInstallationAdvisories?: (
+    options: CollectInstallationAdvisoriesOptions,
+  ) =>
+    | ReturnType<typeof collectInstallationAdvisories>
+    | Promise<ReturnType<typeof collectInstallationAdvisories>>
   signal?: AbortSignal
   loadConfig: typeof loadConfig
   loadAllHooks: typeof loadAllHooks

@@ -6,6 +6,7 @@ import {
   validateRegistrationGroups,
   writeRegistrationFileAtomic,
 } from './registration-file.js'
+import { isCodexRuntimeAdvisoryHook } from './registration-advisory.js'
 
 const RECEIPT = '.global-entrypoint-active.codex'
 const TRACKED_HOME = '.codex-registration-home'
@@ -193,7 +194,7 @@ export function clearCodexRegistrationState(homeRoot: string, codexHome: string)
   for (const [event, value] of Object.entries(hooks)) {
     if (
       validateRegistrationGroups(value, hooksPath, `hooks.${event}`).some((group) =>
-        group.hooks.some(isCodexClooksHook),
+        group.hooks.some((hook) => isCodexClooksHook(hook) || isCodexRuntimeAdvisoryHook(hook)),
       )
     ) {
       throw new Error(

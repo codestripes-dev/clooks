@@ -62,3 +62,30 @@ exec bash "$entrypoint"`
 
 export const CODEX_PROJECT_LAUNCHER = `if [ "\${SKIP_CLOOKS:-}" = true ]; then exit 0; fi\n${PROJECT_LOCATOR}`
 export const CODEX_PAIRED_PROJECT_LAUNCHER = `${APPROVAL_SUPPRESSION_FUNCTION}if [ "\${SKIP_CLOOKS:-}" = true ]; then clooks_suppress; fi\n${PROJECT_LOCATOR}`
+
+export const CODEX_PROJECT_RUNTIME_ADVISORY_LAUNCHER = `d=$(pwd -P) || exit 0
+git_root=$(git rev-parse --show-toplevel 2>/dev/null < /dev/null) || git_root=
+home=$(CDPATH= cd -P "\${HOME:-/}" 2>/dev/null && pwd -P) || home=
+boundary=/
+if [ -n "$git_root" ]; then
+  case "$d/" in "\${git_root%/}/"*) boundary=$git_root ;; *) git_root= ;; esac
+fi
+if [ -z "$git_root" ] && [ -n "$home" ]; then
+  case "$d/" in "\${home%/}/"*) boundary=$home ;; esac
+fi
+found=
+while :; do
+  marker="$d/.clooks/bin/codex-project-id"
+  if [ -f "$marker" ] && [ ! -L "$marker" ] && printf '%s\\n' "$1" | cmp -s - "$marker"; then
+    [ -z "$found" ] || exit 0
+    found=$d
+  fi
+  [ "$d" != / ] && [ "$d" != "$boundary" ] || break
+  if [ -z "$git_root" ] && [ -e "$d/.git" ]; then break; fi
+  d=\${d%/*}
+  [ -n "$d" ] || d=/
+done
+[ -n "$found" ] || exit 0
+advisory="$found/.clooks/bin/runtime-advisory.sh"
+[ -f "$advisory" ] && [ -r "$advisory" ] || exit 0
+exec bash "$advisory"`

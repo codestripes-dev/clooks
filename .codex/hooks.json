@@ -9,6 +9,15 @@
             "command": "CLOOKS_AGENT=codex sh -c 'if [ \"${SKIP_CLOOKS:-}\" = true ]; then exit 0; fi\nd=$(pwd -P) || exit 2\ngit_root=$(git rev-parse --show-toplevel 2>/dev/null < /dev/null) || git_root=\nhome=$(CDPATH= cd -P \"${HOME:-/}\" 2>/dev/null && pwd -P) || home=\nboundary=/\nif [ -n \"$git_root\" ]; then\n  case \"$d/\" in \"${git_root%/}/\"*) boundary=$git_root ;; *) git_root= ;; esac\nfi\nif [ -z \"$git_root\" ] && [ -n \"$home\" ]; then\n  case \"$d/\" in \"${home%/}/\"*) boundary=$home ;; esac\nfi\nfound=\nwhile :; do\n  marker=\"$d/.clooks/bin/codex-project-id\"\n  if [ -f \"$marker\" ] && [ ! -L \"$marker\" ] && printf '\\''%s\\n'\\'' \"$1\" | cmp -s - \"$marker\"; then\n    if [ -n \"$found\" ]; then\n      printf '\\''%s\\n'\\'' '\\''[clooks] Ambiguous Codex project registration ID in ancestor directories. Use distinct project registrations.'\\'' >&2\n      exit 2\n    fi\n    found=$d\n  fi\n  [ \"$d\" != / ] && [ \"$d\" != \"$boundary\" ] || break\n  if [ -z \"$git_root\" ] && [ -e \"$d/.git\" ]; then break; fi\n  d=${d%/*}\n  [ -n \"$d\" ] || d=/\ndone\nif [ -z \"$found\" ]; then\n  printf '\\''%s\\n'\\'' '\\''[clooks] Codex project registration ID not found within the project boundary. Run clooks init --agent codex in the intended project.'\\'' >&2\n  exit 2\nfi\nentrypoint=\"$found/.clooks/bin/entrypoint.sh\"\nif [ ! -f \"$entrypoint\" ] || [ ! -r \"$entrypoint\" ]; then\n  printf '\\''[clooks] Project entrypoint missing or unreadable: %s\\n'\\'' \"$entrypoint\" >&2\n  exit 2\nfi\nif [ -z \"${CLOOKS_PROJECT_ROOT:-}\" ]; then\n  CLOOKS_PROJECT_ROOT=$found\n  export CLOOKS_PROJECT_ROOT\nfi\nexec bash \"$entrypoint\"' clooks-project 'f0975aede24b1554fc50742dd2c0da99'"
           }
         ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CLOOKS_AGENT=codex sh -c 'd=$(pwd -P) || exit 0\ngit_root=$(git rev-parse --show-toplevel 2>/dev/null < /dev/null) || git_root=\nhome=$(CDPATH= cd -P \"${HOME:-/}\" 2>/dev/null && pwd -P) || home=\nboundary=/\nif [ -n \"$git_root\" ]; then\n  case \"$d/\" in \"${git_root%/}/\"*) boundary=$git_root ;; *) git_root= ;; esac\nfi\nif [ -z \"$git_root\" ] && [ -n \"$home\" ]; then\n  case \"$d/\" in \"${home%/}/\"*) boundary=$home ;; esac\nfi\nfound=\nwhile :; do\n  marker=\"$d/.clooks/bin/codex-project-id\"\n  if [ -f \"$marker\" ] && [ ! -L \"$marker\" ] && printf '\\''%s\\n'\\'' \"$1\" | cmp -s - \"$marker\"; then\n    [ -z \"$found\" ] || exit 0\n    found=$d\n  fi\n  [ \"$d\" != / ] && [ \"$d\" != \"$boundary\" ] || break\n  if [ -z \"$git_root\" ] && [ -e \"$d/.git\" ]; then break; fi\n  d=${d%/*}\n  [ -n \"$d\" ] || d=/\ndone\n[ -n \"$found\" ] || exit 0\nadvisory=\"$found/.clooks/bin/runtime-advisory.sh\"\n[ -f \"$advisory\" ] && [ -r \"$advisory\" ] || exit 0\nexec bash \"$advisory\"' clooks-advisory-project 'f0975aede24b1554fc50742dd2c0da99'"
+          }
+        ]
       }
     ],
     "SubagentStart": [

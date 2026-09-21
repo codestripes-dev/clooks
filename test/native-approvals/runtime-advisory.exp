@@ -1,0 +1,89 @@
+#!/usr/bin/expect -f
+
+set timeout 60
+if {$argc < 6 || ![info exists env(CLOOKS_E2E_DOCKER)] || $env(CLOOKS_E2E_DOCKER) ne "true"} { exit 64 }
+set agent [lindex $argv 0]
+set transcript [lindex $argv 1]
+set final [lindex $argv 2]
+set pid_path [lindex $argv 3]
+set argv0 [lindex $argv 4]
+set args [lrange $argv 5 end]
+set stty_init "rows 50 columns 220"
+log_file -noappend $transcript
+spawn -noecho $argv0 {*}$args
+set native_pid [exp_pid -i $spawn_id]
+set pid_file [open $pid_path w]
+puts $pid_file $native_pid
+close $pid_file
+
+proc abort_native {message} {
+  global spawn_id native_pid
+  puts stderr $message
+  catch {exec /bin/kill -KILL -- -$native_pid}
+  catch {exec /bin/kill -KILL $native_pid}
+  catch {close -i $spawn_id}
+  catch {wait -i $spawn_id}
+  exit 70
+}
+
+match_max 524288
+expect_before {
+  -exact "\033\[6n" {
+    send -- "\033\[1;1R"
+    exp_continue
+  }
+}
+
+set ready 0
+set stop_seen 0
+set trusted [expr {$agent ne "codex"}]
+while {!$ready || !$trusted} {
+  expect {
+    -exact "OLD_RUNTIME_STOP" { set stop_seen 1 }
+    -exact "Hooks need review" {
+      after 500
+      send -- "\033\[B"
+      after 250
+      send -- "\r"
+      set trusted 1
+    }
+    -re {❯|›} { set ready 1 }
+    timeout { abort_native "Timed out waiting for readiness" }
+    eof { abort_native "$agent exited before readiness" }
+  }
+}
+
+send -- "\033\[200~Reply with the fixture completion token.\033\[201~"
+after 150
+send -- "\r"
+# Codex SessionStart continue:false legitimately prevents any model request.
+# Still submit a turn, and retain the native stop and advisory UI in the PTY log.
+set final_seen $stop_seen
+while {!$final_seen} {
+  expect {
+    -exact $final { set final_seen 1 }
+    -exact "OLD_RUNTIME_STOP" { set final_seen 1 }
+    -exact "Hooks need review" { abort_native "Unexpected hook review after prompt submission" }
+    timeout { abort_native "Timed out waiting for completion or stop" }
+    eof { abort_native "$agent exited before completion or stop" }
+  }
+}
+after 600
+if {$agent eq "codex"} {
+  send -- "/quit"
+  after 150
+  send -- "\r"
+} else {
+  send -- "\003"
+  after 300
+  send -- "\003"
+}
+expect {
+  eof {}
+  timeout { abort_native "$agent did not exit" }
+}
+set result [wait -i $spawn_id]
+if {[llength $result] != 4 || [lindex $result 2] != 0 || [lindex $result 3] != 0} {
+  puts stderr "Abnormal native exit: $result"
+  exit 70
+}

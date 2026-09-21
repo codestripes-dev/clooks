@@ -101,6 +101,8 @@ Global full deletion includes distinct effective and recorded Codex homes, with 
 
 All registration files needed for an action are preflighted before writes. Invalid other-agent data blocks full deletion, but does not block independent selected-agent unhook. Owned commands on unsupported events block deletion with their file path and event names; uninstall does not expand the supported event catalog to remove them. A second all-event inspection immediately before directory deletion rejects remaining references, including ones introduced during cleanup. These checks do not provide a transaction against concurrent external writers.
 
+Runtime advisory ownership is independent from runtime launcher ownership. Current uninstall detects and removes exact advisory commands, including an advisory-only project/global scope, and includes them in remaining-reference checks and Codex state cleanup. It preserves unrelated handlers and metadata in mixed groups. Older binaries shipped before advisory registration cannot recognize those commands; use the current binary for init/uninstall. Guarded advisory commands remain silent if an older full uninstall already removed the generated script.
+
 Cleanup commits one registration file at a time. Successful Claude global hook
 unregister is followed by retirement of its dedup flag before the fallible MCP
 server commit. A failed server removal must not leave that flag suppressing the

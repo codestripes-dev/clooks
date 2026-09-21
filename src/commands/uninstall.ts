@@ -39,6 +39,11 @@ import {
   mcpRegistrationPath,
   prepareMcpRegistration,
 } from '../registration-mcp.js'
+import {
+  hasRuntimeAdvisoryRegistration,
+  isRuntimeAdvisoryHook,
+  unregisterRuntimeAdvisory,
+} from '../registration-advisory.js'
 
 const UNINSTALL_AGENTS = ['claude-code', 'codex', 'all'] as const
 
@@ -47,17 +52,19 @@ type ConcreteUninstallAgent = Exclude<UninstallAgent, 'all'>
 
 function isClooksRegistered(settingsDir: string, global = false): boolean {
   const hooks = hasClaudeHooks(settingsDir)
+  const advisory = hasRuntimeAdvisoryRegistration(settingsDir, 'claude-code')
   const server = hasOwnedMcpServer(
     mcpRegistrationPath(dirname(settingsDir), 'claude-code', global),
     'claude-code',
   )
-  return hooks || server
+  return hooks || advisory || server
 }
 
 function isCodexClooksRegistered(codexDir: string): boolean {
   const hooks = hasCodexHooks(codexDir)
+  const advisory = hasRuntimeAdvisoryRegistration(codexDir, 'codex')
   const server = hasOwnedMcpServer(join(codexDir, 'config.toml'), 'codex')
-  return hooks || server
+  return hooks || advisory || server
 }
 
 function assertRuntimeRemovalRoot(directory: string): void {
@@ -188,8 +195,9 @@ function inspectRegistrations(
       (groups as RegistrationGroup[]).some((group) =>
         group.hooks.some((hook) =>
           agent === 'codex'
-            ? isCodexClooksHook(hook)
-            : isClooksHook(hook, join(root, '.clooks/bin/entrypoint.sh')),
+            ? isCodexClooksHook(hook) || isRuntimeAdvisoryHook(hook, 'codex')
+            : isClooksHook(hook, join(root, '.clooks/bin/entrypoint.sh')) ||
+              isRuntimeAdvisoryHook(hook, 'claude-code'),
         ),
       ),
     )
@@ -521,11 +529,17 @@ async function uninstallProject(
   if (shouldUnhook || shouldDelete) {
     if (actionAgents.includes('claude-code')) {
       const result = unregisterClooks(settingsDir)
-      counts.claudeEventsRemoved = result.removed
+      const advisory = unregisterRuntimeAdvisory(settingsDir, 'claude-code')
+      counts.claudeEventsRemoved = [
+        ...new Set([...result.removed, ...(advisory.removed ? ['SessionStart'] : [])]),
+      ]
     }
     if (actionAgents.includes('codex')) {
       const result = unregisterCodexClooks(codexDir)
-      counts.codexEventsRemoved = result.removed
+      const advisory = unregisterRuntimeAdvisory(codexDir, 'codex')
+      counts.codexEventsRemoved = [
+        ...new Set([...result.removed, ...(advisory.removed ? ['SessionStart'] : [])]),
+      ]
     }
     unhooked = counts.claudeEventsRemoved.length > 0 || counts.codexEventsRemoved.length > 0
     unhooked = removeServers(projectRoot, serverRemovals, false) || unhooked
@@ -744,7 +758,10 @@ async function uninstallGlobal(ctx: OutputContext, opts: UninstallOptions): Prom
     let serversRemoved = false
     if (actionAgents.includes('claude-code')) {
       const result = unregisterClooks(settingsDir)
-      counts.claudeEventsRemoved = result.removed
+      const advisory = unregisterRuntimeAdvisory(settingsDir, 'claude-code')
+      counts.claudeEventsRemoved = [
+        ...new Set([...result.removed, ...(advisory.removed ? ['SessionStart'] : [])]),
+      ]
       globalFlagsRemoved.push(...removeGlobalEntrypointFlags(homeRoot, ['claude-code']))
       serversRemoved = removeServers(
         homeRoot,
@@ -756,8 +773,12 @@ async function uninstallGlobal(ctx: OutputContext, opts: UninstallOptions): Prom
       const removedEvents = new Set<string>()
       for (const codexHome of codexHomes) {
         const result = unregisterCodexClooks(codexHome)
-        codexRemovals.push({ path: join(codexHome, 'hooks.json'), removed: result.removed })
-        for (const event of result.removed) removedEvents.add(event)
+        const advisory = unregisterRuntimeAdvisory(codexHome, 'codex')
+        const removed = [
+          ...new Set([...result.removed, ...(advisory.removed ? ['SessionStart'] : [])]),
+        ]
+        codexRemovals.push({ path: join(codexHome, 'hooks.json'), removed })
+        for (const event of removed) removedEvents.add(event)
       }
       counts.codexEventsRemoved = CODEX_REGISTRATION_EVENTS.filter((event) =>
         removedEvents.has(event),

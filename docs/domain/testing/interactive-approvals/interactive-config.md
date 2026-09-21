@@ -72,8 +72,11 @@ Late Codex line-handler errors remain test failures after turn completion, repla
 
 Every Docker invocation also runs the fixture helper tests. Run those alone with
 `bun test ./test/native-approvals/channel.test.ts`; the leading `./` selects the
-file outside Bun's default `src/` root. These are validation-helper tests, not
-native enforcement evidence. Full compiled tests still use `bun run test:e2e`.
+file outside Bun's default `src/` root. Use that prefix for every direct target
+outside `src/`; in a mixed command, an unprefixed `test/native-*` target can be
+silently omitted while matching `src/` tests still run. These are validation-helper
+tests, not native enforcement evidence. Full compiled tests still use
+`bun run test:e2e`.
 
 ## Related
 

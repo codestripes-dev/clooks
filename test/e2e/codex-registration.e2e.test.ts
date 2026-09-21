@@ -20,6 +20,11 @@ import {
 } from './helpers/registration'
 import { chmodSync, readdirSync, symlinkSync, readlinkSync } from 'fs'
 import { makeCodexProjectEntrypointCommand } from '../../src/agents/codex/settings'
+import {
+  CLAUDE_PROJECT_RUNTIME_ADVISORY_COMMAND,
+  makeCodexGlobalRuntimeAdvisoryCommand,
+  makeCodexProjectRuntimeAdvisoryCommand,
+} from '../../src/registration-advisory'
 
 describe('codex registration preservation E2E', () => {
   for (const contents of [
@@ -277,7 +282,8 @@ function readHomeCodexHooks(): Record<string, unknown> {
 function expectCodexRegistration(
   hooksFile: Record<string, unknown>,
   expectedCommand: string,
-  pairedCommand = expectedCommand,
+  pairedCommand: string,
+  expectedAdvisoryCommand: string,
 ): void {
   expect(Object.keys(hooksFile)).toEqual(['hooks'])
   expect(typeof hooksFile.hooks).toBe('object')
@@ -292,7 +298,7 @@ function expectCodexRegistration(
       expectPreToolUsePair(hooks[event], 'codex', pairedCommand)
       continue
     }
-    expect(hooks[event]).toEqual([
+    const expectedGroups = [
       {
         matcher: '*',
         hooks: [
@@ -303,7 +309,14 @@ function expectCodexRegistration(
           },
         ],
       },
-    ])
+    ]
+    if (event === 'SessionStart') {
+      expectedGroups.push({
+        matcher: '*',
+        hooks: [{ type: 'command', command: expectedAdvisoryCommand }],
+      })
+    }
+    expect(hooks[event]).toEqual(expectedGroups)
   }
 }
 
@@ -321,11 +334,17 @@ function expectClaudeProjectRegistration(): void {
       expectPreToolUsePair(hooks[event], 'claude-code', CLAUDE_PROJECT_COMMAND)
       continue
     }
-    expect(hooks[event]).toEqual([
+    const expectedGroups = [
       {
         hooks: [{ type: 'command', command: CLAUDE_PROJECT_COMMAND }],
       },
-    ])
+    ]
+    if (event === 'SessionStart') {
+      expectedGroups.push({
+        hooks: [{ type: 'command', command: CLAUDE_PROJECT_RUNTIME_ADVISORY_COMMAND }],
+      })
+    }
+    expect(hooks[event]).toEqual(expectedGroups)
   }
 }
 
@@ -336,8 +355,18 @@ function projectCodexCommand(root = sandbox.dir, paired = false): string {
   )
 }
 
+function projectCodexAdvisoryCommand(root = sandbox.dir): string {
+  return makeCodexProjectRuntimeAdvisoryCommand(
+    readFileSync(join(root, '.clooks/bin/codex-project-id'), 'utf8').trim(),
+  )
+}
+
 function globalCodexCommand(): string {
   return `CLOOKS_AGENT=codex '${join(sandbox.home, '.clooks/bin/entrypoint.sh')}'`
+}
+
+function globalCodexAdvisoryCommand(): string {
+  return makeCodexGlobalRuntimeAdvisoryCommand(sandbox.home)
 }
 
 function registeredCommand(root: string): string {
@@ -412,6 +441,7 @@ describe('registered Codex shell commands', () => {
         JSON.parse(repaired),
         projectCodexCommand(newRoot),
         projectCodexCommand(newRoot, true),
+        projectCodexAdvisoryCommand(newRoot),
       )
       expect(sandbox.run(['init', '--agent', 'codex'], { cwd: newRoot }).exitCode).toBe(0)
       expect(readFileSync(join(newRoot, '.codex/hooks.json'), 'utf8')).toBe(repaired)
@@ -479,6 +509,22 @@ describe('registered Codex shell commands', () => {
     const document = readProjectCodexHooks()
     document.padding = 'x'.repeat(1_000_000)
     sandbox.writeFile('.codex/hooks.json', JSON.stringify(document))
+    const full = structuredClone(document)
+    const fullHooks = full.hooks as Record<string, unknown[]>
+    const sessionStart = fullHooks.SessionStart
+    const runtimeOnly = structuredClone(full)
+    ;(runtimeOnly.hooks as Record<string, unknown[]>).SessionStart = [sessionStart![0]]
+    const advisoryOnly = {
+      padding: document.padding,
+      hooks: { SessionStart: [sessionStart![1]] },
+    }
+    const allowedDocuments = [
+      full,
+      runtimeOnly,
+      advisoryOnly,
+      { padding: document.padding, hooks: {} },
+      { padding: document.padding },
+    ]
     let observations = 0
     for (let iteration = 0; iteration < 6; iteration++) {
       let done = false
@@ -492,9 +538,7 @@ describe('registered Codex shell commands', () => {
       try {
         while (!done) {
           const observed = JSON.parse(sandbox.readFile('.codex/hooks.json'))
-          expect(observed).toEqual(
-            observed.hooks === undefined ? { padding: document.padding } : document,
-          )
+          expect(allowedDocuments).toContainEqual(observed)
           observations++
           await Bun.sleep(1)
         }
@@ -532,6 +576,7 @@ describe('codex registration E2E', () => {
       readProjectCodexHooks(),
       projectCodexCommand(),
       projectCodexCommand(sandbox.dir, true),
+      projectCodexAdvisoryCommand(),
     )
     const bytes = sandbox.readFile('.codex/hooks.json')
     expect(sandbox.run(['init', '--agent', 'codex']).exitCode).toBe(0)
@@ -553,6 +598,7 @@ describe('codex registration E2E', () => {
       readProjectCodexHooks(),
       projectCodexCommand(),
       projectCodexCommand(sandbox.dir, true),
+      projectCodexAdvisoryCommand(),
     )
   })
 
@@ -571,6 +617,7 @@ describe('codex registration E2E', () => {
       readProjectCodexHooks(),
       projectCodexCommand(),
       projectCodexCommand(sandbox.dir, true),
+      projectCodexAdvisoryCommand(),
     )
   })
 
@@ -589,6 +636,7 @@ describe('codex registration E2E', () => {
       readProjectCodexHooks(),
       projectCodexCommand(),
       projectCodexCommand(sandbox.dir, true),
+      projectCodexAdvisoryCommand(),
     )
   })
 
@@ -605,7 +653,12 @@ describe('codex registration E2E', () => {
     expect(sandbox.homeFileExists('.claude/settings.json')).toBe(false)
 
     const hooksFile = readHomeCodexHooks()
-    expectCodexRegistration(hooksFile, globalCodexCommand())
+    expectCodexRegistration(
+      hooksFile,
+      globalCodexCommand(),
+      globalCodexCommand(),
+      globalCodexAdvisoryCommand(),
+    )
 
     for (const matcherGroups of Object.values(hooksFile.hooks as Record<string, unknown[]>)) {
       const firstGroup = (matcherGroups as Array<{ hooks: Array<{ command: string }> }>)[0]
@@ -1172,7 +1225,12 @@ describe('Codex global registration recovery E2E', () => {
     expect(failed.exitCode).toBe(1)
     expect(JSON.parse(failed.stdout).ok).toBe(false)
     const aBytes = readFileSync(join(a, 'hooks.json'), 'utf8')
-    expectCodexRegistration(JSON.parse(aBytes), globalCodexCommand())
+    expectCodexRegistration(
+      JSON.parse(aBytes),
+      globalCodexCommand(),
+      globalCodexCommand(),
+      globalCodexAdvisoryCommand(),
+    )
     expect(sandbox.readHomeFile(trackedPath)).toBe(`clooks-codex-home-v1\n${a}\n`)
     expect(sandbox.homeFileExists(receiptPath)).toBe(false)
     launchReceiptCommand(registeredCommand(sandbox.dir), 'project', { CODEX_HOME: a })

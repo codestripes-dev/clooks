@@ -51,6 +51,7 @@ import { canonical, checkSignal, nativePreToolUseDenialSchema } from '../interac
 import { ApprovalFailure, confirmFinalApprovals, approvalSetupMessage } from './live-approvals.js'
 import { legacyResultPolicy } from './result-policy.js'
 import { createContextHelpers } from '../plugin-file-helper.js'
+import { VERSION } from '../version.js'
 
 interface InvocationState {
   eventName: EventName | null
@@ -86,6 +87,10 @@ export const defaultDeps: RunEngineDeps = {
   discoverCodexPluginPacks,
   vendorAndRegisterPack: claudeCodePluginDeps.vendorAndRegisterPack,
   discoverProjectRoot,
+  collectInstallationAdvisories: async (options) => {
+    const { collectInstallationAdvisories } = await import('../installation-advisory.js')
+    return collectInstallationAdvisories(options)
+  },
 }
 
 function writeOutput(stream: NodeJS.WriteStream, text: string): Promise<void> {
@@ -695,6 +700,20 @@ async function runEngineInvocation(
   }
 
   if (eventName === 'SessionStart') {
+    let installationAdvisories: string[]
+    try {
+      installationAdvisories =
+        (await deps.collectInstallationAdvisories?.({
+          agent: adapter.id,
+          projectRoot,
+          installationHome: homedir(),
+          executable: process.execPath,
+          binaryVersion: VERSION,
+          env: process.env,
+        })) ?? []
+    } catch {
+      installationAdvisories = []
+    }
     pluginSystemMessages.push(
       ...adapter.collectSessionStartAdvisories({
         homeRoot,
@@ -702,6 +721,7 @@ async function runEngineInvocation(
         codexHome: process.env.CODEX_HOME,
         discoverCodexPluginPacks: deps.discoverCodexPluginPacks,
       }),
+      ...installationAdvisories,
     )
     publishWarnings()
   }

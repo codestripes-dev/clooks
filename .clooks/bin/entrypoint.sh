@@ -3,6 +3,10 @@ set -euo pipefail
 
 # clooks entrypoint: project
 # Do not copy this file to ~/.clooks/bin/ — use `clooks init --global` instead.
+# clooks launcher revision: 1
+# Minimum runtime metadata is read externally by Clooks inspection.
+# shellcheck disable=SC2034
+CLOOKS_REQUIRED_RUNTIME='0.3.0'
 clooks_suppress() {
   if [ "${CLOOKS_APPROVAL_PROTOCOL:-}" = 1 ] && [ -n "${CLOOKS_APPROVAL_OWNER:-}" ]; then
     local binary status

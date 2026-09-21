@@ -11,7 +11,14 @@ import {
 } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { CODEX_PROJECT_MARKER, ensureCodexProjectId } from './project-launcher'
+import { createHash } from 'node:crypto'
+import {
+  CODEX_PAIRED_PROJECT_LAUNCHER,
+  CODEX_PROJECT_LAUNCHER,
+  CODEX_PROJECT_MARKER,
+  CODEX_PROJECT_RUNTIME_ADVISORY_LAUNCHER,
+  ensureCodexProjectId,
+} from './project-launcher'
 
 let root: string
 beforeEach(() => {
@@ -60,4 +67,30 @@ describe('project registration identity', () => {
       expect(existsSync(path)).toBe(kind !== 'dangling')
     })
   }
+})
+
+describe('project locator compatibility', () => {
+  const sha256 = (value: string) => createHash('sha256').update(value).digest('hex')
+
+  test('pins historical runtime locator bytes independently of source constants', () => {
+    expect(sha256(CODEX_PROJECT_LAUNCHER)).toBe(
+      'da0a3e03cbbcfc59105157c4c38cf224520a5c8c164a98345641bd9cf0834b01',
+    )
+    expect(sha256(CODEX_PAIRED_PROJECT_LAUNCHER)).toBe(
+      'dfeaa230cdfd96e2b1fb36a0d7e135f34d7a3a0ff5531b7670c6d6a0ff21faa1',
+    )
+  })
+
+  test('keeps the advisory locator silent, guarded and separately labelled', () => {
+    expect(sha256(CODEX_PROJECT_RUNTIME_ADVISORY_LAUNCHER)).toBe(
+      '493b178251ffad90667a015de5027d17703b784b599616f88e45c32eaabaa53f',
+    )
+    expect(CODEX_PROJECT_RUNTIME_ADVISORY_LAUNCHER).toContain(
+      'advisory="$found/.clooks/bin/runtime-advisory.sh"',
+    )
+    expect(CODEX_PROJECT_RUNTIME_ADVISORY_LAUNCHER).toContain(
+      '[ -f "$advisory" ] && [ -r "$advisory" ] || exit 0',
+    )
+    expect(CODEX_PROJECT_RUNTIME_ADVISORY_LAUNCHER).not.toContain("printf '[clooks]")
+  })
 })

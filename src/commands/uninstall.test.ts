@@ -43,7 +43,16 @@ import {
   makeCodexGlobalEntrypointCommand,
   makeCodexProjectEntrypointCommand,
   registerCodexClooks,
+  unregisterCodexClooks,
 } from '../agents/codex/settings.js'
+import {
+  CLAUDE_PROJECT_RUNTIME_ADVISORY_COMMAND,
+  hasRuntimeAdvisoryRegistration,
+  makeClaudeGlobalRuntimeAdvisoryCommand,
+  makeCodexGlobalRuntimeAdvisoryCommand,
+  makeCodexProjectRuntimeAdvisoryCommand,
+  registerRuntimeAdvisory,
+} from '../registration-advisory.js'
 
 let tempDir: string
 let originalIsTTY: boolean | undefined
@@ -430,6 +439,22 @@ describe('global Codex home recovery', () => {
     expect(hasOwnedMcpServer(join(custom, 'config.toml'), 'codex')).toBe(false)
     expect(registrationState.readCodexTrackedHome(fakeHome).kind).toBe('missing')
     expect(existsSync(join(fakeHome, '.clooks'))).toBe(false)
+  })
+
+  test('advisory-only unhook clears Codex registration state after the final owned hook', async () => {
+    spyOn(os, 'homedir').mockReturnValue(fakeHome)
+    await init()
+    const codexHome = join(fakeHome, '.codex')
+    unregisterCodexClooks(codexHome)
+    prepareMcpRegistration(join(codexHome, 'config.toml'), 'codex', true).commit()
+    expect(hasRuntimeAdvisoryRegistration(codexHome, 'codex')).toBe(true)
+    expect(registrationState.readCodexReceipt(fakeHome).kind).toBe('receipt')
+
+    await run()
+
+    expect(hasRuntimeAdvisoryRegistration(codexHome, 'codex')).toBe(false)
+    expect(registrationState.readCodexReceipt(fakeHome).kind).toBe('missing')
+    expect(registrationState.readCodexTrackedHome(fakeHome).kind).toBe('missing')
   })
 
   test('failed publication in A rejects init B, then full B cleans recorded A', async () => {
@@ -2281,6 +2306,37 @@ describe('uninstall automatic agent selection', () => {
       return ['.claude/settings.json', '.codex/hooks.json', '.clooks/bin/entrypoint.sh'].map(
         (path) => readFileSync(join(root(), path), 'utf8'),
       )
+    }
+
+    for (const agent of ['claude-code', 'codex'] as const) {
+      test(`${scope}: detects and removes an advisory-only ${agent} registration`, async () => {
+        const dir = join(root(), agent === 'codex' ? '.codex' : '.claude')
+        const command =
+          scope === 'project'
+            ? agent === 'codex'
+              ? makeCodexProjectRuntimeAdvisoryCommand('e'.repeat(32))
+              : CLAUDE_PROJECT_RUNTIME_ADVISORY_COMMAND
+            : agent === 'codex'
+              ? makeCodexGlobalRuntimeAdvisoryCommand(root())
+              : makeClaudeGlobalRuntimeAdvisoryCommand(root())
+        registerRuntimeAdvisory(dir, agent, command)
+
+        await createTestProgram().parseAsync(
+          ['--json', 'uninstall', `--${scope}`, '--unhook', '--force'],
+          { from: 'user' },
+        )
+
+        expect(data()).toMatchObject({
+          agent,
+          agents: [agent],
+          unhooked: true,
+          deleted: false,
+        })
+        expect(data()[agent === 'codex' ? 'codexEventsRemoved' : 'claudeEventsRemoved']).toEqual([
+          'SessionStart',
+        ])
+        expect(hasRuntimeAdvisoryRegistration(dir, agent)).toBe(false)
+      })
     }
 
     for (const agent of ['claude-code', 'codex'] as const) {

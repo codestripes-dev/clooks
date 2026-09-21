@@ -5,9 +5,14 @@ bun test ./test/native-approvals/channel.test.ts ./test/native-approvals/overlap
 unit_rc=$?
 [[ $unit_rc == 0 ]] || exit "$unit_rc"
 for arg in "$@"; do
-  if [[ $arg == --generated ]]; then
+  if [[ $arg == --runtime-advisory ]]; then
+    bun test ./src/commands/init-advisory.test.ts ./test/native-approvals/runtime-advisory.test.ts
+    advisory_unit_rc=$?
+    [[ $advisory_unit_rc == 0 ]] || exit "$advisory_unit_rc"
+  fi
+  if [[ $arg == --generated || $arg == --runtime-advisory ]]; then
     mkdir -p /app/generated-build /export/build
-    cp -a /snapshot/src /snapshot/schemas /app/generated-build/
+    cp -a /snapshot/src /snapshot/schemas /snapshot/scripts /app/generated-build/
     mkdir -p /app/generated-build/.clooks/vendor
     cp -a /snapshot/.clooks/vendor/plugin /app/generated-build/.clooks/vendor/
     cp /snapshot/package.json /snapshot/bun.lock /snapshot/tsconfig.json /app/generated-build/

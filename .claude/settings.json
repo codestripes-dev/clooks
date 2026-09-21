@@ -8,6 +8,14 @@
             "command": "\"$CLAUDE_PROJECT_DIR\"/.clooks/bin/entrypoint.sh"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CLOOKS_AGENT=claude-code sh -c 'advisory=\"$CLAUDE_PROJECT_DIR/.clooks/bin/runtime-advisory.sh\"\n[ -f \"$advisory\" ] && [ -r \"$advisory\" ] || exit 0\nexec bash \"$advisory\"' clooks-advisory-project"
+          }
+        ]
       }
     ],
     "InstructionsLoaded": [

@@ -37,6 +37,9 @@ jobs:
         # installed via mise locally and is not available on CI runners.
         run: bun install --frozen-lockfile --ignore-scripts
 
+      - name: Check release version metadata
+        run: bun run release:check
+
       - name: Generate derived files
         # src/generated/clooks-types.d.ts.txt is imported at runtime by
         # src/commands/init.ts (as a raw text import); src/generated/...

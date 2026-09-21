@@ -19,7 +19,9 @@ This index points to focused sub-docs in `docs/domain/cli-architecture/`. The de
 - `src/known-commands.ts` — `KNOWN_COMMANDS` set.
 - `src/router.ts` — Commander program, `runCLI()`, global flags.
 - `src/commands/config.ts` — `createConfigCommand()` — config display and `--resolved` provenance.
-- `src/commands/init.ts` — `createInitCommand()` — project and global setup (`clooks init`, `clooks init --global`).
+- `src/commands/init.ts` — `createInitCommand()` — project/global setup and read-only installation inspection (`clooks init --check`).
+- `src/installation-status.ts` — Bounded launcher/registration inspection, status classification, exact repair data and the init refresh guard.
+- `src/installation-metadata.ts` — Lightweight maintained launcher revision and minimum-runtime constants used by generated templates.
 - `src/settings.ts` — Settings.json management utility (register/unregister Clooks in `.claude/settings.json`).
 - `src/agents/codex/settings.ts` — Codex command builders and hooks.json registrar.
 - `src/registration-file.ts` — Shared validated registration reads and atomic file replacement.

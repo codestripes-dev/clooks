@@ -11,6 +11,7 @@ import {
 } from 'fs'
 import { join } from 'path'
 import { tmpdir, homedir } from 'os'
+import { createHash } from 'node:crypto'
 
 // Mock @clack/prompts to avoid TTY issues in tests
 mock.module('@clack/prompts', () => ({
@@ -43,6 +44,15 @@ import * as fs from 'node:fs'
 import * as codexSettings from '../agents/codex/settings.js'
 import { approvalCommand, approvalCompanion } from '../registration-approvals.js'
 import { hasOwnedMcpServer } from '../registration-mcp.js'
+import { LAUNCHER_REVISION } from '../installation-metadata.js'
+import {
+  CLAUDE_PROJECT_RUNTIME_ADVISORY_COMMAND,
+  makeClaudeGlobalRuntimeAdvisoryCommand,
+  makeCodexGlobalRuntimeAdvisoryCommand,
+  makeCodexProjectRuntimeAdvisoryCommand,
+  RUNTIME_ADVISORY_RELATIVE_PATH,
+} from '../registration-advisory.js'
+import { GLOBAL_RUNTIME_ADVISORY_SCRIPT, PROJECT_RUNTIME_ADVISORY_SCRIPT } from './init-advisory.js'
 
 let tempDir: string
 let originalCwd: () => string
@@ -85,6 +95,48 @@ function infoMessages(): string[] {
   )
 }
 
+function clearHumanMessages(): void {
+  ;(log.success as unknown as ReturnType<typeof mock>).mockClear()
+  ;(log.info as unknown as ReturnType<typeof mock>).mockClear()
+  ;(log.warning as unknown as ReturnType<typeof mock>).mockClear()
+  ;(log.error as unknown as ReturnType<typeof mock>).mockClear()
+}
+
+function snapshotFiles(
+  paths: string[],
+): Record<string, { content: string; mode: number; mtimeMs: number }> {
+  return Object.fromEntries(
+    paths.map((path) => {
+      const stat = statSync(path)
+      return [
+        path,
+        {
+          content: readFileSync(path, 'utf-8'),
+          mode: stat.mode,
+          mtimeMs: stat.mtimeMs,
+        },
+      ]
+    }),
+  )
+}
+
+async function withInstallationHome(home: string, callback: () => Promise<void>): Promise<void> {
+  const originalHomedir = os.homedir
+  mkdirSync(home, { recursive: true })
+  os.homedir = () => home
+  process.env.HOME = home
+  process.env.CLOOKS_HOME_ROOT = home
+  try {
+    await callback()
+  } finally {
+    os.homedir = originalHomedir
+  }
+}
+
+function sha256(value: string): string {
+  return createHash('sha256').update(value).digest('hex')
+}
+
 beforeEach(() => {
   tempDir = mkdtempSync(join(tmpdir(), 'clooks-init-test-'))
   originalEnvironment = {
@@ -105,9 +157,7 @@ beforeEach(() => {
     throw new Error('process.exit called')
   }) as () => never)
   stdoutSpy = spyOn(process.stdout, 'write').mockImplementation(() => true)
-  ;(log.success as unknown as ReturnType<typeof mock>).mockClear()
-  ;(log.info as unknown as ReturnType<typeof mock>).mockClear()
-  ;(log.warning as unknown as ReturnType<typeof mock>).mockClear()
+  clearHumanMessages()
   ;(confirm as unknown as ReturnType<typeof mock>).mockReset()
   ;(confirm as unknown as ReturnType<typeof mock>).mockImplementation(() => true)
 })
@@ -165,6 +215,10 @@ describe('clooks init', () => {
     // Check executable bit (0o755 = rwxr-xr-x)
     const mode = stat.mode & 0o777
     expect(mode & 0o111).toBeGreaterThan(0) // at least one execute bit set
+
+    const advisoryPath = join(tempDir, RUNTIME_ADVISORY_RELATIVE_PATH)
+    expect(readFileSync(advisoryPath, 'utf-8')).toBe(PROJECT_RUNTIME_ADVISORY_SCRIPT)
+    expect(statSync(advisoryPath).mode & 0o111).toBeGreaterThan(0)
   })
 
   test('registers all 22 events in settings.json', async () => {
@@ -177,7 +231,7 @@ describe('clooks init', () => {
 
     // Every event should have a Clooks matcher group
     for (const [event, matchers] of Object.entries(hooks)) {
-      expect(matchers).toHaveLength(1)
+      expect(matchers).toHaveLength(event === 'SessionStart' ? 2 : 1)
       const mg = matchers[0] as Record<string, unknown>
       const hookEntries = mg.hooks as Record<string, unknown>[]
       if (event === 'PreToolUse') {
@@ -193,6 +247,11 @@ describe('clooks init', () => {
       } else {
         expect(hookEntries).toHaveLength(1)
         expect(hookEntries[0]!.command).toBe(CLOOKS_ENTRYPOINT_PATH)
+      }
+      if (event === 'SessionStart') {
+        expect(matchers[1]).toEqual({
+          hooks: [{ type: 'command', command: CLAUDE_PROJECT_RUNTIME_ADVISORY_COMMAND }],
+        })
       }
     }
   })
@@ -230,6 +289,40 @@ describe('clooks init', () => {
     expect(settingsAfterSecond).toBe(settingsAfterFirst)
     expect(gitignoreAfterSecond).toBe(gitignoreAfterFirst)
   })
+
+  for (const scenario of [
+    {
+      name: 'project Claude',
+      args: ['--agent', 'claude-code'],
+      path: () => join(tempDir, '.claude/settings.json'),
+      label: () => '.claude/settings.json',
+    },
+    {
+      name: 'project Codex',
+      args: ['--agent', 'codex'],
+      path: () => join(tempDir, '.codex/hooks.json'),
+      label: () => '.codex/hooks.json',
+    },
+  ]) {
+    test(`${scenario.name} advisory-only repair reports settings as updated, not skipped`, async () => {
+      await createTestProgram().parseAsync(['init', ...scenario.args], { from: 'user' })
+      const path = scenario.path()
+      const settings = JSON.parse(readFileSync(path, 'utf8'))
+      settings.hooks.SessionStart = settings.hooks.SessionStart.filter(
+        (group: unknown) => !JSON.stringify(group).includes('runtime-advisory.sh'),
+      )
+      writeFileSync(path, JSON.stringify(settings, null, 2) + '\n')
+      stdoutSpy.mockClear()
+
+      await createTestProgram().parseAsync(['--json', 'init', ...scenario.args], { from: 'user' })
+
+      const data = JSON.parse(
+        stdoutSpy.mock.calls.map((call: unknown[]) => String(call[0])).join(''),
+      ).data
+      expect(data.skipped).not.toContain(scenario.label())
+      expect(data.updated).toContain(`${scenario.label()} (SessionStart advisory)`)
+    })
+  }
 
   test('skips existing clooks.yml (does not overwrite user config)', async () => {
     // Pre-create clooks.yml with custom content
@@ -535,7 +628,7 @@ describe('clooks init', () => {
     )
     for (const event of CODEX_REGISTRATION_EVENTS) {
       const matcherGroups = hooks[event]!
-      expect(matcherGroups).toHaveLength(1)
+      expect(matcherGroups).toHaveLength(event === 'SessionStart' ? 2 : 1)
       const hookEntries = (matcherGroups[0] as Record<string, unknown>).hooks as Record<
         string,
         unknown
@@ -564,6 +657,17 @@ describe('clooks init', () => {
             ],
       )
       expect(expectedCommand).toContain('CLOOKS_PROJECT_ROOT=')
+      if (event === 'SessionStart') {
+        expect(matcherGroups[1]).toEqual({
+          matcher: '*',
+          hooks: [
+            {
+              type: 'command',
+              command: makeCodexProjectRuntimeAdvisoryCommand(projectId),
+            },
+          ],
+        })
+      }
     }
   })
 
@@ -620,6 +724,158 @@ describe('clooks init', () => {
     expect(parsed.error).toContain('claude-code, codex, all')
   })
 
+  test('init --check JSON discovers registered agents without defaulting or writing', async () => {
+    const installationHome = join(tempDir, 'check-home')
+    await withInstallationHome(installationHome, async () => {
+      await createTestProgram().parseAsync(['init', '--agent', 'codex'], { from: 'user' })
+
+      const managedPaths = [
+        join(tempDir, '.clooks', 'clooks.yml'),
+        join(tempDir, '.clooks', 'bin', 'entrypoint.sh'),
+        join(tempDir, RUNTIME_ADVISORY_RELATIVE_PATH),
+        join(tempDir, '.codex', 'hooks.json'),
+      ]
+      const before = snapshotFiles(managedPaths)
+      stdoutSpy.mockClear()
+
+      await createTestProgram().parseAsync(['--json', 'init', '--check'], { from: 'user' })
+
+      const output = stdoutSpy.mock.calls.map((call: unknown[]) => String(call[0])).join('')
+      const parsed = JSON.parse(output.trim())
+      const project = parsed.data.scopes.find(
+        (scope: { scope: string }) => scope.scope === 'project',
+      )
+      expect(parsed.ok).toBe(true)
+      expect(parsed.command).toBe('init')
+      expect(project.state).toBe('current')
+      expect(project.agents).toEqual(['codex'])
+      expect(snapshotFiles(managedPaths)).toEqual(before)
+      expect(existsSync(join(tempDir, '.claude'))).toBe(false)
+      expect(exitSpy).not.toHaveBeenCalled()
+    })
+  })
+
+  test('init --check text reports absent and filtered scopes without writing', async () => {
+    const installationHome = join(tempDir, 'check-home')
+    await withInstallationHome(installationHome, async () => {
+      await createTestProgram().parseAsync(['init', '--check'], { from: 'user' })
+
+      expect(successMessages()).toContain(`project ${tempDir}: absent (no registered agents)`)
+      expect(successMessages()).toContain(
+        `global ${installationHome}: absent (no registered agents)`,
+      )
+      expect(existsSync(join(tempDir, '.clooks'))).toBe(false)
+
+      await createTestProgram().parseAsync(['init', '--agent', 'codex'], { from: 'user' })
+      await createTestProgram().parseAsync(['init', '--global', '--agent', 'codex'], {
+        from: 'user',
+      })
+      const managedPaths = [
+        join(tempDir, '.clooks', 'bin', 'entrypoint.sh'),
+        join(tempDir, RUNTIME_ADVISORY_RELATIVE_PATH),
+        join(tempDir, '.codex', 'hooks.json'),
+        join(installationHome, '.clooks', 'bin', 'entrypoint.sh'),
+        join(installationHome, RUNTIME_ADVISORY_RELATIVE_PATH),
+        join(installationHome, '.codex', 'hooks.json'),
+      ]
+      const before = snapshotFiles(managedPaths)
+      clearHumanMessages()
+
+      await createTestProgram().parseAsync(['init', '--check', '--agent', 'claude-code'], {
+        from: 'user',
+      })
+
+      expect(infoMessages()).toContain('No matching installation scopes found.')
+      expect(successMessages()).toEqual([])
+      expect(warningMessages()).toEqual([])
+      expect(snapshotFiles(managedPaths)).toEqual(before)
+    })
+  })
+
+  test('init --check text formats a global Codex repair with its recorded environment', async () => {
+    const installationHome = join(tempDir, "home with ' quote")
+    const codexHome = join(installationHome, 'custom codex home')
+    await withInstallationHome(installationHome, async () => {
+      process.env.CODEX_HOME = codexHome
+      await createTestProgram().parseAsync(['init', '--global', '--agent', 'codex'], {
+        from: 'user',
+      })
+
+      const launcherPath = join(installationHome, '.clooks', 'bin', 'entrypoint.sh')
+      const currentLauncher = readFileSync(launcherPath, 'utf-8')
+      const staleLauncher = currentLauncher.replace(
+        `# clooks launcher revision: ${LAUNCHER_REVISION}`,
+        '# clooks launcher revision: 0',
+      )
+      expect(staleLauncher).not.toBe(currentLauncher)
+      writeFileSync(launcherPath, staleLauncher)
+      const managedPaths = [
+        launcherPath,
+        join(installationHome, RUNTIME_ADVISORY_RELATIVE_PATH),
+        join(codexHome, 'hooks.json'),
+      ]
+      const before = snapshotFiles(managedPaths)
+      clearHumanMessages()
+
+      await createTestProgram().parseAsync(['init', '--check', '--global', '--agent', 'codex'], {
+        from: 'user',
+      })
+
+      expect(warningMessages()).toContain(
+        `global ${installationHome}: outdated (codex); needs integration refresh`,
+      )
+      const quote = codexSettings.quotePosixSingleArg
+      expect(infoMessages()).toContain(
+        `Repair from ${quote(installationHome)}: CODEX_HOME=${quote(codexHome)} ${quote(process.execPath)} 'init' '--global' '--agent' 'codex'`,
+      )
+      expect(snapshotFiles(managedPaths)).toEqual(before)
+    })
+  })
+
+  test('init --check JSON rejects an invalid agent without partial results or writes', async () => {
+    const installationHome = join(tempDir, 'check-home')
+    await withInstallationHome(installationHome, async () => {
+      await expect(
+        createTestProgram().parseAsync(['--json', 'init', '--check', '--agent', 'unknown'], {
+          from: 'user',
+        }),
+      ).rejects.toThrow('process.exit called')
+
+      const output = stdoutSpy.mock.calls.map((call: unknown[]) => String(call[0])).join('')
+      const parsed = JSON.parse(output.trim())
+      expect(parsed).toEqual({
+        ok: false,
+        command: 'init',
+        error: 'Invalid --agent value "unknown". Expected one of: claude-code, codex, all.',
+      })
+      expect(existsSync(join(tempDir, '.clooks'))).toBe(false)
+      expect(existsSync(join(installationHome, '.clooks'))).toBe(false)
+    })
+  })
+
+  test('init --check JSON rejects filesystem root as the installation home', async () => {
+    const originalHomedir = os.homedir
+    os.homedir = () => '/'
+    try {
+      await expect(
+        createTestProgram().parseAsync(['--json', 'init', '--check', '--global'], {
+          from: 'user',
+        }),
+      ).rejects.toThrow('process.exit called')
+    } finally {
+      os.homedir = originalHomedir
+    }
+
+    const output = stdoutSpy.mock.calls.map((call: unknown[]) => String(call[0])).join('')
+    const parsed = JSON.parse(output.trim())
+    expect(parsed.ok).toBe(false)
+    expect(parsed.command).toBe('init')
+    expect(parsed.data).toBeUndefined()
+    expect(parsed.error).toBe(
+      'Refusing to inspect global hooks: home directory resolves to filesystem root (/).',
+    )
+  })
+
   test('--agent codex idempotent rerun skips hooks.json without duplicate registrations', async () => {
     const program1 = createTestProgram()
     await program1.parseAsync(['init', '--agent', 'codex'], { from: 'user' })
@@ -640,7 +896,7 @@ describe('clooks init', () => {
 
     const hooks = readCodexHooks(tempDir).hooks as Record<string, unknown[]>
     for (const event of CODEX_REGISTRATION_EVENTS) {
-      expect(hooks[event]).toHaveLength(1)
+      expect(hooks[event]).toHaveLength(event === 'SessionStart' ? 2 : 1)
     }
   })
 
@@ -802,6 +1058,10 @@ describe('clooks init --global', () => {
     const stat = statSync(entrypointPath)
     const mode = stat.mode & 0o777
     expect(mode & 0o111).toBeGreaterThan(0)
+
+    const advisoryPath = join(fakeHome, RUNTIME_ADVISORY_RELATIVE_PATH)
+    expect(readFileSync(advisoryPath, 'utf-8')).toBe(GLOBAL_RUNTIME_ADVISORY_SCRIPT)
+    expect(statSync(advisoryPath).mode & 0o111).toBeGreaterThan(0)
   })
 
   test('registers in settings.json with absolute entrypoint path', async () => {
@@ -815,7 +1075,7 @@ describe('clooks init --global', () => {
     const expectedPath = join(fakeHome, '.clooks/bin/entrypoint.sh')
     // Every event should have the absolute entrypoint path
     for (const [event, matchers] of Object.entries(hooks)) {
-      expect(matchers).toHaveLength(1)
+      expect(matchers).toHaveLength(event === 'SessionStart' ? 2 : 1)
       const mg = matchers[0] as Record<string, unknown>
       const hookEntries = mg.hooks as Record<string, unknown>[]
       if (event === 'PreToolUse') {
@@ -834,6 +1094,16 @@ describe('clooks init --global', () => {
       } else {
         expect(hookEntries).toHaveLength(1)
         expect(hookEntries[0]!.command).toBe(expectedPath)
+      }
+      if (event === 'SessionStart') {
+        expect(matchers[1]).toEqual({
+          hooks: [
+            {
+              type: 'command',
+              command: makeClaudeGlobalRuntimeAdvisoryCommand(fakeHome),
+            },
+          ],
+        })
       }
     }
   })
@@ -864,6 +1134,41 @@ describe('clooks init --global', () => {
     expect(configAfterSecond).toBe(configAfterFirst)
     expect(settingsAfterSecond).toBe(settingsAfterFirst)
   })
+
+  for (const scenario of [
+    {
+      name: 'Claude',
+      agent: 'claude-code',
+      path: () => join(fakeHome, '.claude/settings.json'),
+      label: () => '~/.claude/settings.json',
+    },
+    {
+      name: 'Codex',
+      agent: 'codex',
+      path: () => join(fakeHome, '.codex/hooks.json'),
+      label: () => join(fakeHome, '.codex/hooks.json'),
+    },
+  ]) {
+    test(`${scenario.name} advisory-only repair reports settings as updated, not skipped`, async () => {
+      const args = ['init', '--global', '--agent', scenario.agent]
+      await createTestProgram().parseAsync(args, { from: 'user' })
+      const path = scenario.path()
+      const settings = JSON.parse(readFileSync(path, 'utf8'))
+      settings.hooks.SessionStart = settings.hooks.SessionStart.filter(
+        (group: unknown) => !JSON.stringify(group).includes('runtime-advisory.sh'),
+      )
+      writeFileSync(path, JSON.stringify(settings, null, 2) + '\n')
+      stdoutSpy.mockClear()
+
+      await createTestProgram().parseAsync(['--json', ...args], { from: 'user' })
+
+      const data = JSON.parse(
+        stdoutSpy.mock.calls.map((call: unknown[]) => String(call[0])).join(''),
+      ).data
+      expect(data.skipped).not.toContain(scenario.label())
+      expect(data.updated).toContain(`${scenario.label()} (SessionStart advisory)`)
+    })
+  }
 
   test('skips existing clooks.yml (does not overwrite user config)', async () => {
     mkdirSync(join(fakeHome, '.clooks'), { recursive: true })
@@ -983,6 +1288,7 @@ describe('clooks init --global', () => {
     expect(expectedCommand).not.toContain('CLOOKS_PROJECT_ROOT')
     for (const event of CODEX_REGISTRATION_EVENTS) {
       const matcherGroups = hooks[event]!
+      expect(matcherGroups).toHaveLength(event === 'SessionStart' ? 2 : 1)
       const hookEntries = (matcherGroups[0] as Record<string, unknown>).hooks as Record<
         string,
         unknown
@@ -1005,6 +1311,17 @@ describe('clooks init --global', () => {
               },
             ],
       )
+      if (event === 'SessionStart') {
+        expect(matcherGroups[1]).toEqual({
+          matcher: '*',
+          hooks: [
+            {
+              type: 'command',
+              command: makeCodexGlobalRuntimeAdvisoryCommand(fakeHome),
+            },
+          ],
+        })
+      }
     }
   })
 
@@ -1102,6 +1419,13 @@ describe('ENTRYPOINT_SCRIPT', () => {
     expect(ENTRYPOINT_SCRIPT).not.toContain('# clooks entrypoint: global')
   })
 
+  test('pins the complete revision 1 project launcher bytes', () => {
+    expect(LAUNCHER_REVISION).toBe(1)
+    expect(sha256(ENTRYPOINT_SCRIPT)).toBe(
+      'bef0c1e2cb8f177c89795b050defff4c72fae51cbb812b2075f30aa1cf8d640c',
+    )
+  })
+
   test('contains CLOOKS_BIN variable', () => {
     expect(ENTRYPOINT_SCRIPT).toContain('CLOOKS_BIN=')
   })
@@ -1145,6 +1469,12 @@ describe('GLOBAL_ENTRYPOINT_SCRIPT', () => {
   test('contains global type header', () => {
     expect(GLOBAL_ENTRYPOINT_SCRIPT).toContain('# clooks entrypoint: global')
     expect(GLOBAL_ENTRYPOINT_SCRIPT).not.toContain('# clooks entrypoint: project')
+  })
+
+  test('pins the complete revision 1 global launcher bytes', () => {
+    expect(sha256(GLOBAL_ENTRYPOINT_SCRIPT)).toBe(
+      'aba3175e024d82cfe9c92a82b9974a9ae82cfa636d04d2c25e94be5fd3adbbd6',
+    )
   })
 
   test('does NOT contain dedup check', () => {
