@@ -434,3 +434,29 @@ test('a corrupt fixture checksum cannot replace the installed compiled runtime',
   expect(tree(f.sandbox.home)).toEqual(before)
   expect(sha256(f.managed)).toBe(compiledHash)
 }, 30_000)
+
+test('explicit update replaces a PATH-selected home bin without touching managed state', async () => {
+  const f = fixture()
+  const homeBin = join(f.sandbox.home, 'bin/clooks')
+  const secondary = f.seedBinary(f.managed)
+  mkdirSync(dirname(homeBin), { recursive: true })
+  writeFileSync(
+    homeBin,
+    "#!/usr/bin/env bash\n[[ ${1:-} == --version ]] && printf 'clooks 0.1.0\\n'\n",
+  )
+  chmodSync(homeBin, 0o755)
+  const beforeSecondary = sha256(secondary)
+  const beforeRc = '# unchanged on home-bin update\n'
+  f.sandbox.writeHomeFile('.bashrc', beforeRc)
+  const env = { ...f.env, PATH: `${dirname(homeBin)}:${dirname(f.managed)}:${f.env.PATH}` }
+
+  success(await command(f, ['/bin/bash', f.installer, 'update'], env))
+  expect(sha256(homeBin)).toBe(compiledHash)
+  expect(sha256(secondary)).toBe(beforeSecondary)
+  expect(readFileSync(join(f.sandbox.home, '.bashrc'), 'utf8')).toBe(beforeRc)
+  expect(existsSync(join(f.sandbox.dir, '.clooks/clooks.yml'))).toBe(false)
+  expect(success(await command(f, ['/bin/bash', f.installer, 'resolve'], env)).stdout.trim()).toBe(
+    homeBin,
+  )
+  expect(f.requests).toEqual([`${f.prefix}/checksums.txt`, `${f.prefix}/${asset}`])
+}, 30_000)

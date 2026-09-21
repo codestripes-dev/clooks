@@ -13,7 +13,7 @@ not a new runtime command or resolver. Plugin startup never invokes it.
 | `install` | Reuse executable PATH binary first, then managed `~/.local/bin/clooks`; download only when absent |
 | `resolve` | Validate the selection and print only its absolute path to stdout; diagnostics go to stderr |
 | `check` | Report selected binary/version and project config-file presence; missing/broken binaries return nonzero |
-| `update` | Explicit checksum/version-validated managed replacement; refuse external PATH selections and managed symlinks |
+| `update` | Explicit checksum/version-validated replacement for a PATH-selected regular `~/bin/clooks` or `~/.local/bin/clooks`; refuse other external PATH selections and symlinks |
 
 Reuse validates `--version` and any explicit `CLOOKS_VERSION` pin without download
 or shell-profile edits. A mismatch requires explicit update; broken selected
