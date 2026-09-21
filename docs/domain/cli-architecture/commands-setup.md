@@ -28,7 +28,21 @@ persistence or compound-command wrappers. Managed-only off-PATH selection warns:
 absolute-path init may work while generated entrypoints cannot find `clooks`.
 Child-shell exports/profile edits do not repair the running agent's PATH. Check
 does not prove configuration validity or native activation. Global/both-agent
-registration is never inferred from cwd.
+registration is never inferred from cwd. Generic explicit setup update refreshes
+both existing current-project and global installations without another global
+confirmation, preserving existing agents; project-only/global-only limits remain
+in force, and binary-only never runs init. Explicit project paths limit repair to
+that project and require verifying the reported root. Absent scopes are never
+initialized. Compatible integration-only repairs skip download; a binary update
+required by any selected scope runs at most once, followed by a capability probe
+and inspection. Repair in `data.scopes` order (global then project), obtaining a
+fresh envelope before each exact executable/args/cwd/env repair, including
+`CODEX_HOME`. Empty repair env inherits the environment; use tool workdir/env or
+a one-call cd/env prefix. Null repair means skip that scope, not block others:
+current/absent scopes need no repair. Failed or malformed inspection or an
+ambiguous/uninspectable selected scope requires reporting and stopping changes.
+Re-inspect after repairs and report completed changes and remaining problems,
+including excluded scopes.
 
 ## `clooks init` / `clooks init --global`
 
